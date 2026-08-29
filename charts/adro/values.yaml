@@ -1,0 +1,39 @@
+image:
+  repository: ghcr.io/adro-project/adro
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+profile: single-node
+replicaCount: 1
+persistence:
+  # One ReadWriteOnce volume is correct for the single-node reference profile.
+  # HA requires replacing every backend with the external adapters documented
+  # in docs/architecture/production-deployment.md.
+  enabled: true
+  size: 20Gi
+  storageClassName: ""
+backends:
+  persistence: file
+  events: memory
+  workflow: in-process
+  artifacts: filesystem
+  auth: local
+  secrets: environment
+  runner: argv
+  sourceControl: none
+  ci: none
+service:
+  type: ClusterIP
+  port: 8080
+artifact:
+  size: 20Gi
+  storageClassName: ""
+provider:
+  name: mock
+  multicaUrl: ""
+  multicaTokenSecret: ""
+  multicaTokenSecretKey: token
+  multicaWorkspaceId: ""
+  multicaRuntimeId: ""
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 1, memory: 512Mi}

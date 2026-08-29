@@ -1,0 +1,13 @@
+{
+  "name": "adro-web-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Repeatable browser acceptance tests for the ADRO reference workbench",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:matrix": "playwright test --config=playwright.matrix.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

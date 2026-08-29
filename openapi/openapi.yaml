@@ -1,0 +1,4184 @@
+---
+openapi: 3.1.0
+info:
+  title: ADRO Control API
+  version: 0.1.0
+  description: Provider-independent Agentic Delivery & Release Orchestrator API.
+  license:
+    name: Apache License 2.0
+    identifier: Apache-2.0
+servers:
+- url: "/"
+security:
+- bearerAuth: []
+- cookieAuth: []
+paths:
+  "/api/v1/auth/login":
+    post:
+      security: []
+      summary: Authenticate an ADRO user and set an HttpOnly session cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LoginRequest"
+      responses:
+        '200':
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Session"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '401':
+          description: Invalid credentials
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '429':
+          description: Login temporarily locked
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/auth/me":
+    get:
+      security: []
+      summary: Read the current interactive or machine identity
+      responses:
+        '200':
+          description: Current identity and available menu catalog
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/auth/logout":
+    post:
+      summary: Revoke the current session and clear its cookie
+      responses:
+        '204':
+          description: Logged out
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/users":
+    get:
+      summary: List users and menu catalog (administrator only)
+      responses:
+        '200':
+          description: User page and all menu identifiers
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '403':
+          description: Administrator required
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create a user with role, status, and menu access (administrator only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/UserMutation"
+      responses:
+        '201':
+          description: Created user
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/User"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '422':
+          description: Invalid account definition
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/users/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    patch:
+      summary: Update role, status, password, or menu access (administrator only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/UserMutation"
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/User"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '422':
+          description: Invalid update or last active administrator
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/directory":
+    get:
+      summary: List active workspace identities for assignee selectors
+      responses:
+        '200':
+          description: Directory entries
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/attachments":
+    get:
+      summary: List attachments linked to a requirement or bug
+      parameters:
+      - name: owner_type
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - requirement
+          - bug
+      - name: owner_id
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Attachment page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Upload and link an attachment to a requirement or bug
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - owner_type
+              - owner_id
+              - file
+              properties:
+                owner_type:
+                  type: string
+                  enum:
+                  - requirement
+                  - bug
+                owner_id:
+                  type: string
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Immutable entity attachment
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/EntityAttachment"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/provider/diagnostics":
+    get:
+      summary: Probe provider capabilities, health, and attachment support
+      responses:
+        '200':
+          description: Secret-free provider diagnostics
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProviderDiagnostics"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/healthz":
+    get:
+      security: []
+      summary: Report control-plane process health
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/metrics":
+    get:
+      security: []
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            text/plain:
+              schema:
+                type: string
+  "/readyz":
+    get:
+      security: []
+      summary: Report provider and control-plane readiness
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '503':
+          description: Dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/requirements":
+    get:
+      summary: List requirements
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 250
+      responses:
+        '200':
+          description: Requirement page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create a requirement
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RequirementCreate"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Duplicate key
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/requirements/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Get requirement
+      responses:
+        '200':
+          description: Requirement
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    patch:
+      summary: Update requirement
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Version conflict
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/start":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Start workflow
+      responses:
+        '200':
+          description: Started
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Invalid transition
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/transition":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Apply a validated requirement state transition
+      responses:
+        '200':
+          description: Transitioned
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Invalid transition
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/gates":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Apply a deterministic quality gate and optionally create a bug
+      responses:
+        '200':
+          description: Gate result
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Gate rejected
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/approve":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Approve design
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/confirm-assignees":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Confirm requirement assignees
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/begin-design":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Begin design
+      responses:
+        '200':
+          description: Designing
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/pause":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Pause a requirement
+      responses:
+        '200':
+          description: Paused
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/resume":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Resume a requirement
+      responses:
+        '200':
+          description: Resumed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/work-items":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List requirement work items
+      responses:
+        '200':
+          description: Work item page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/requirements/{id}/assignees":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Add requirement assignees
+      responses:
+        '200':
+          description: Updated requirement
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/repositories":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Add requirement repositories
+      responses:
+        '200':
+          description: Updated requirement
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/impact-reports":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Create an impact report
+      responses:
+        '201':
+          description: Impact report
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/impact-reports/{version}/confirm":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: version
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    post:
+      summary: Confirm an impact report repository set
+      responses:
+        '200':
+          description: Confirmed impact report
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/bugs/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a bug
+      responses:
+        '200':
+          description: Bug
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/bugs/{id}/triage":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Triage a bug
+      responses:
+        '200':
+          description: Triaged bug
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/bugs/{id}/verify":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Verify a repaired bug
+      responses:
+        '200':
+          description: Verified bug
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/bugs":
+    get:
+      summary: List bugs
+      responses:
+        '200':
+          description: Bug page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create or deduplicate a bug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/BugCreate"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '200':
+          description: Existing bug
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/bugs/{id}/repair":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Start an automatic repair attempt
+      responses:
+        '202':
+          description: Repair queued
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Repair limit
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifacts/uploads":
+    post:
+      summary: Create an artifact upload session
+      responses:
+        '201':
+          description: Upload session
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/screenshots":
+    post:
+      summary: Store a screenshot and optionally deliver it to a provider target
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                target_type:
+                  type: string
+                target_id:
+                  type: string
+      responses:
+        '201':
+          description: Artifact URI and provider delivery receipt
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifacts/uploads/{upload_id}/parts/{part_no}":
+    parameters:
+    - name: upload_id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: part_no
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    put:
+      summary: Upload one artifact part
+      responses:
+        '200':
+          description: Uploaded part
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifacts/uploads/{upload_id}/complete":
+    parameters:
+    - name: upload_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Complete and verify an artifact upload
+      responses:
+        '201':
+          description: Published artifact
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifact-migrations":
+    post:
+      summary: Start an artifact driver migration
+      responses:
+        '202':
+          description: Migration accepted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifact-migrations/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read artifact migration
+      responses:
+        '200':
+          description: Migration
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/artifact-migrations/{id}/pause":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Pause artifact migration
+      responses:
+        '200':
+          description: Paused
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifact-migrations/{id}/resume":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Resume artifact migration
+      responses:
+        '200':
+          description: Resumed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifact-migrations/{id}/rollback":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Roll back artifact migration
+      responses:
+        '200':
+          description: Rolled back
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/artifacts/{id}/versions/{version}/content":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: version
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    get:
+      summary: Download artifact content with Range support
+      responses:
+        '200':
+          description: Content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '206':
+          description: Partial content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    head:
+      summary: Read artifact content metadata
+      responses:
+        '200':
+          description: Content metadata
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/work-items/{id}/diff":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read the latest changed-files snapshot
+      responses:
+        '200':
+          description: Diff snapshot
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Publish a changed-files snapshot
+      responses:
+        '201':
+          description: Diff snapshot
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/work-items":
+    get:
+      summary: List workspace work items with opaque routing metadata
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      responses:
+        '200':
+          description: Work item page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/work-items/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a work item and evidence
+      responses:
+        '200':
+          description: Work item
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/work-items/{id}/context":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: version
+      in: query
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    get:
+      summary: Read the versioned context manifest and latest provenance
+      responses:
+        '200':
+          description: Work item context
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '404':
+          description: Context manifest not found
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/work-items/{id}/repair-attempts":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List repair attempts associated with a work item
+      responses:
+        '200':
+          description: Repair attempt page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/work-items/{id}/run":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Start a provider run for a work item
+      responses:
+        '202':
+          description: Run queued
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runs/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read execution run
+      responses:
+        '200':
+          description: Run snapshot
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/RunSnapshot"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '501':
+          description: Provider capability is unavailable
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/runs/{id}/events":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read run events with cursor
+      responses:
+        '200':
+          description: Event page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/runs/{id}/messages":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Append input to an execution run
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '501':
+          description: Provider capability is unavailable
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runs/{id}/cancel":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Cancel an execution run when the Provider advertises run.cancel.v1
+      responses:
+        '200':
+          description: Cancelled run identity and status
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '501':
+          description: Provider capability is unavailable
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runs/{id}/usage":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read token and duration usage
+      responses:
+        '200':
+          description: Usage
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Usage"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        '501':
+          description: Provider capability is unavailable
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/repositories":
+    get:
+      summary: List repositories
+      responses:
+        '200':
+          description: Repository page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Register a repository
+      responses:
+        '201':
+          description: Repository
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/repositories/{id}/index":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Mark a repository snapshot indexed
+      responses:
+        '200':
+          description: Indexed repository
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/repositories/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a repository
+      responses:
+        '200':
+          description: Repository
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    patch:
+      summary: Update a repository
+      responses:
+        '200':
+          description: Repository
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    delete:
+      summary: Delete a repository
+      responses:
+        '204':
+          description: Deleted
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/repository-graph":
+    get:
+      summary: Read the workspace repository knowledge graph
+      responses:
+        '200':
+          description: Graph
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/team-workspaces":
+    get:
+      summary: List team workspaces
+      responses:
+        '200':
+          description: Workspace page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create a team workspace
+      responses:
+        '201':
+          description: Workspace
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/team-workspaces/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a team workspace
+      responses:
+        '200':
+          description: Workspace
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/developer-profiles":
+    get:
+      summary: List ADRO developer profiles
+      responses:
+        '200':
+          description: Profile bindings in the workspace
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/developer-profiles/{member_id}":
+    parameters:
+    - name: member_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a developer profile
+      responses:
+        '200':
+          description: Developer profile
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create a developer profile
+      responses:
+        '200':
+          description: Developer profile
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    patch:
+      summary: Update a developer profile
+      responses:
+        '200':
+          description: Developer profile
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/approvals":
+    post:
+      summary: Create an approval request
+      responses:
+        '201':
+          description: Approval
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/approvals/{id}/decide":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Decide an approval
+      responses:
+        '200':
+          description: Approval decision
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/evidence":
+    get:
+      summary: List evidence bundles
+      responses:
+        '200':
+          description: Evidence page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Publish an evidence bundle
+      responses:
+        '201':
+          description: Evidence
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp":
+    get:
+      summary: List MCP servers
+      responses:
+        '200':
+          description: MCP page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Register an MCP server
+      responses:
+        '201':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/servers":
+    get:
+      summary: List MCP servers
+      responses:
+        '200':
+          description: MCP page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Register an MCP server
+      responses:
+        '201':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/servers/{id}/discover":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Discover MCP schema
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/servers/{id}/approve":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Approve an MCP server
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/servers/{id}/health-check":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Health-check an MCP server
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/invocations":
+    get:
+      summary: List MCP invocation audit records
+      responses:
+        '200':
+          description: Invocation page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/skills":
+    get:
+      summary: List skills
+      responses:
+        '200':
+          description: Skill page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Register a skill
+      responses:
+        '201':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/skills/{id}/versions":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Create a skill version
+      responses:
+        '201':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/skills/{id}/publish":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Publish a skill version
+      responses:
+        '200':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/skills/{id}/rollback":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Roll back a skill version
+      responses:
+        '200':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations":
+    get:
+      summary: List automations
+      responses:
+        '200':
+          description: Automation page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create an automation
+      responses:
+        '201':
+          description: Automation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations/{id}/publish":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Publish an automation
+      responses:
+        '200':
+          description: Automation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations/{id}/pause":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Pause an automation
+      responses:
+        '200':
+          description: Automation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations/{id}/trigger":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Trigger an automation run
+      responses:
+        '202':
+          description: Automation run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations/{id}/runs":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List automation runs
+      responses:
+        '200':
+          description: Automation run page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/automation-runs/{id}/cancel":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Cancel an automation run
+      responses:
+        '200':
+          description: Automation run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automation-runs/{id}/takeover":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Take over an automation run
+      responses:
+        '200':
+          description: Automation run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runners":
+    get:
+      summary: List runners
+      responses:
+        '200':
+          description: Runner page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Register a runner
+      responses:
+        '201':
+          description: Runner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runners/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a runner
+      responses:
+        '200':
+          description: Runner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/runners/{id}/heartbeat":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Record runner heartbeat
+      responses:
+        '200':
+          description: Runner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runners/{id}/drain":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Drain a runner
+      responses:
+        '200':
+          description: Runner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runners/{id}/quarantine":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Quarantine a runner
+      responses:
+        '200':
+          description: Runner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runners/{id}/execute":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Execute an argv command inside the registered runner workspace
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RunnerExecuteRequest"
+      responses:
+        '200':
+          description: Command result
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '422':
+          description: Command rejected or failed
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/agents":
+    get:
+      summary: List ADRO agent profiles
+      responses:
+        '200':
+          description: Agent profile page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create an ADRO agent through the configured Provider
+      responses:
+        '201':
+          description: Agent profile and binding
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/agents/{id}/mcp-bindings":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List MCP bindings
+      responses:
+        '200':
+          description: Bindings
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Bind an MCP server to an agent
+      responses:
+        '201':
+          description: Binding
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/agents/{id}/skill-bindings":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List skill bindings
+      responses:
+        '200':
+          description: Bindings
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Bind a skill to an agent
+      responses:
+        '201':
+          description: Binding
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/audit":
+    get:
+      summary: Read the append-only audit chain
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/streams/workspaces/{workspace_id}":
+    parameters:
+    - name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read workspace events with cursor replay
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 250
+      responses:
+        '200':
+          description: Workspace event page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    x-websocket: true
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: adro_session
+  parameters:
+    WorkspaceID:
+      name: X-Workspace-ID
+      in: header
+      schema:
+        type: string
+    RequestID:
+      name: X-Request-ID
+      in: header
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional for POST, PUT, and PATCH. Scope is tenant + method + path.
+        Reuse with the same query, content type, and body replays the first completed
+        response; reuse with different input returns 409 idempotency_key_conflict.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+      - username
+      - password
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+    Session:
+      type: object
+      required:
+      - user
+      - token
+      - expires_at
+      properties:
+        user:
+          "$ref": "#/components/schemas/User"
+        token:
+          type: string
+          writeOnly: true
+        expires_at:
+          type: string
+          format: date-time
+    User:
+      type: object
+      required:
+      - id
+      - workspace_id
+      - username
+      - display_name
+      - role
+      - menu_ids
+      - status
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        username:
+          type: string
+        display_name:
+          type: string
+        role:
+          type: string
+          enum:
+          - admin
+          - member
+          - viewer
+        menu_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - active
+          - disabled
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserMutation:
+      type: object
+      properties:
+        username:
+          type: string
+        display_name:
+          type: string
+        password:
+          type: string
+          minLength: 10
+          writeOnly: true
+        role:
+          type: string
+          enum:
+          - admin
+          - member
+          - viewer
+        menu_ids:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - active
+          - disabled
+    EntityAttachment:
+      type: object
+      required:
+      - id
+      - workspace_id
+      - owner_type
+      - owner_id
+      - filename
+      - media_type
+      - size_bytes
+      - artifact_uri
+      - created_by
+      - created_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        owner_type:
+          type: string
+          enum:
+          - requirement
+          - bug
+        owner_id:
+          type: string
+        filename:
+          type: string
+        media_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        artifact_uri:
+          type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    BugCreate:
+      type: object
+      required:
+      - workspace_id
+      - repository_id
+      - title
+      properties:
+        workspace_id:
+          type: string
+        requirement_id:
+          type: string
+        work_item_id:
+          type: string
+        repository_id:
+          type: string
+        assignee_member_id:
+          type: string
+        fingerprint:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        steps_to_reproduce:
+          type: string
+        expected:
+          type: string
+        actual:
+          type: string
+        log_excerpt:
+          type: string
+    ProviderDiagnostics:
+      type: object
+      required:
+      - provider
+      - configuration_state
+      - reachability_state
+      - authentication_state
+      - routing_state
+      - error_codes
+      properties:
+        provider:
+          type: string
+        adapter_version:
+          type: string
+        server_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        configuration_state:
+          type: string
+          enum:
+          - configured
+          - unconfigured
+        reachability_state:
+          type: string
+          enum:
+          - reachable
+          - unreachable
+        authentication_state:
+          type: string
+          enum:
+          - verified
+          - unverified
+          - failed
+          - not_configured
+        routing_state:
+          type: string
+          enum:
+          - configured_unverified
+          - unconfigured
+          - unknown
+        token_configured:
+          type: boolean
+        default_agent_configured:
+          type: boolean
+        member_route_count:
+          type: integer
+          minimum: 0
+        role_route_count:
+          type: integer
+          minimum: 0
+        verified_binding_count:
+          type: integer
+          minimum: 0
+        error_codes:
+          type: array
+          items:
+            type: string
+        attachment_delivery_supported:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
+    RunnerExecuteRequest:
+      type: object
+      required:
+      - command
+      properties:
+        work_dir:
+          type: string
+        command:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        timeout_ms:
+          type: integer
+          minimum: 1
+          maximum: 1800000
+    RequirementCreate:
+      type: object
+      required:
+      - workspace_id
+      - title
+      - description
+      - acceptance_criteria
+      - assignee_member_ids
+      properties:
+        workspace_id:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        acceptance_criteria:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        assignee_member_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        repository_ids:
+          type: array
+          items:
+            type: string
+        priority:
+          type: string
+          default: normal
+    JsonObject:
+      type: object
+      description: Versioned JSON resource or page. Resource-specific fields remain
+        backward-compatible within /api/v1.
+      additionalProperties: true
+    Problem:
+      type: object
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - error_code
+      - request_id
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        error_code:
+          type: string
+        request_id:
+          type: string
+      additionalProperties: true
+    RunSnapshot:
+      type: object
+      required:
+      - id
+      - status
+      - usage
+      properties:
+        id:
+          type: string
+        work_item_id:
+          type: string
+        provider_issue_id:
+          type: string
+        status:
+          type: string
+        last_event_id:
+          type: string
+        session_id:
+          type: string
+        work_dir:
+          type: string
+        baseline_commit:
+          type: string
+        head_commit:
+          type: string
+        submission_url:
+          type: string
+          format: uri
+        checks_conclusion:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        usage:
+          "$ref": "#/components/schemas/Usage"
+    Usage:
+      type: object
+      required:
+      - input_tokens
+      - output_tokens
+      - cache_read_tokens
+      - cache_write_tokens
+      - duration_ms
+      - estimated_cost
+      properties:
+        input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_read_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_write_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        estimated_cost:
+          type: number
+          minimum: 0
+  headers:
+    RequestID:
+      description: Stable correlation identifier for this HTTP request.
+      schema:
+        type: string
+    IdempotencyReplayed:
+      description: True when the status, headers, and body were replayed from the
+        first completed request.
+      schema:
+        type: string
+        const: 'true'

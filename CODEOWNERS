@@ -1,0 +1,4 @@
+* @adro-maintainers
+/internal/provider/ @adro-provider-maintainers
+/internal/artifact/ @adro-storage-maintainers
+/internal/api/ @adro-control-plane-maintainers

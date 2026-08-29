@@ -1,0 +1,36 @@
+package events
+
+import (
+	"context"
+	"testing"
+)
+
+func TestBusDeduplicatesAndCursors(t *testing.T) {
+	b := NewBus()
+	e := New("test.v1", "r", "r1", "t", "w", 1, nil)
+	if err := b.Publish(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Publish(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	got, next := b.List("r1", "", 10)
+	if len(got) != 1 || next != "" {
+		t.Fatalf("got=%d next=%q", len(got), next)
+	}
+	if got[0].EventID != e.EventID {
+		t.Fatal("event changed")
+	}
+}
+
+func TestBusDeduplicatesProviderRetries(t *testing.T) {
+	b := NewBus()
+	a := New("execution.message.v1", "run", "r1", "t", "w", 1, nil)
+	a.Provider, a.ProviderEventID = "multica", "task:1"
+	_ = b.Publish(context.Background(), a)
+	_ = b.Publish(context.Background(), Envelope{EventID: "different", EventType: a.EventType, AggregateType: a.AggregateType, AggregateID: a.AggregateID, Provider: a.Provider, ProviderEventID: a.ProviderEventID})
+	got, _ := b.List("r1", "", 10)
+	if len(got) != 1 {
+		t.Fatalf("provider retry was published twice: %d", len(got))
+	}
+}

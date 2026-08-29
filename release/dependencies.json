@@ -1,0 +1,46 @@
+{
+  "go": [
+    {
+      "name": "github.com/gorilla/websocket",
+      "version": "v1.5.3",
+      "license": "BSD-2-Clause",
+      "scope": "runtime",
+      "source": "https://github.com/gorilla/websocket",
+      "supplier": "Gorilla WebSocket Authors"
+    }
+  ],
+  "npm": [
+    {
+      "name": "@playwright/test",
+      "version": "1.62.1",
+      "license": "Apache-2.0",
+      "scope": "development",
+      "source": "https://github.com/microsoft/playwright",
+      "supplier": "Microsoft Corporation"
+    },
+    {
+      "name": "playwright",
+      "version": "1.62.1",
+      "license": "Apache-2.0",
+      "scope": "development",
+      "source": "https://github.com/microsoft/playwright",
+      "supplier": "Microsoft Corporation"
+    },
+    {
+      "name": "playwright-core",
+      "version": "1.62.1",
+      "license": "Apache-2.0",
+      "scope": "development",
+      "source": "https://github.com/microsoft/playwright",
+      "supplier": "Microsoft Corporation"
+    },
+    {
+      "name": "fsevents",
+      "version": "2.3.2",
+      "license": "MIT",
+      "scope": "optional-development",
+      "source": "https://github.com/fsevents/fsevents",
+      "supplier": "fsevents contributors"
+    }
+  ]
+}

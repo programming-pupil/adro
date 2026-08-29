@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "adro.fullname" . }}
+  labels: {{- include "adro.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # The shipped profile uses one ReadWriteOnce volume and process-local
+    # coordination. Recreate prevents an upgrade from briefly running two
+    # writers against the same snapshot set.
+    type: Recreate
+  selector:
+    matchLabels: {{- include "adro.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "adro.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-addr", ":8080", "-artifact-root", "/var/lib/adro/artifacts"]
+          env:
+            - name: ADRO_PROFILE
+              value: {{ .Values.profile | quote }}
+            - name: ADRO_REPLICA_COUNT
+              value: {{ .Values.replicaCount | quote }}
+            - name: ADRO_PERSISTENCE_BACKEND
+              value: {{ .Values.backends.persistence | quote }}
+            - name: ADRO_EVENT_BACKEND
+              value: {{ .Values.backends.events | quote }}
+            - name: ADRO_WORKFLOW_BACKEND
+              value: {{ .Values.backends.workflow | quote }}
+            - name: ADRO_ARTIFACT_BACKEND
+              value: {{ .Values.backends.artifacts | quote }}
+            - name: ADRO_AUTH_BACKEND
+              value: {{ .Values.backends.auth | quote }}
+            - name: ADRO_SECRET_STORE
+              value: {{ .Values.backends.secrets | quote }}
+            - name: ADRO_RUNNER_MODE
+              value: {{ .Values.backends.runner | quote }}
+            - name: ADRO_SOURCE_CONTROL
+              value: {{ .Values.backends.sourceControl | quote }}
+            - name: ADRO_CI_BACKEND
+              value: {{ .Values.backends.ci | quote }}
+            - name: ADRO_AUTH_MODE
+              value: required
+            - name: ADRO_ARTIFACT_ROOT
+              value: /var/lib/adro/artifacts
+            - name: ADRO_AUTH_STATE_FILE
+              value: /var/lib/adro/auth.json
+            - name: ADRO_STATE_FILE
+              value: /var/lib/adro/control-plane.json
+            - name: ADRO_EVENT_STATE_FILE
+              value: /var/lib/adro/events.json
+            - name: ADRO_AUDIT_STATE_FILE
+              value: /var/lib/adro/audit.json
+            - name: ADRO_RUNNER_STATE_FILE
+              value: /var/lib/adro/runners.json
+            - name: ADRO_PROVIDER
+              value: {{ .Values.provider.name | quote }}
+            - name: ADRO_MULTICA_URL
+              value: {{ .Values.provider.multicaUrl | quote }}
+            - name: ADRO_MULTICA_WORKSPACE_ID
+              value: {{ .Values.provider.multicaWorkspaceId | quote }}
+            - name: ADRO_MULTICA_RUNTIME_ID
+              value: {{ .Values.provider.multicaRuntimeId | quote }}
+            {{- if .Values.provider.multicaTokenSecret }}
+            - name: ADRO_MULTICA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.provider.multicaTokenSecret | quote }}
+                  key: {{ .Values.provider.multicaTokenSecretKey | quote }}
+            {{- end }}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /readyz, port: http}, initialDelaySeconds: 3, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 20}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: state, mountPath: /var/lib/adro}
+      volumes:
+        - name: state
+          persistentVolumeClaim: {claimName: {{ include "adro.fullname" . }}}

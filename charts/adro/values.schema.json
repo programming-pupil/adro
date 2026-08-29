@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "profile": {"const": "single-node"},
+    "replicaCount": {"const": 1},
+    "persistence": {
+      "type": "object",
+      "properties": {"enabled": {"const": true}}
+    },
+    "backends": {
+      "type": "object",
+      "required": ["persistence", "events", "workflow", "artifacts", "auth", "secrets", "runner", "sourceControl", "ci"],
+      "properties": {
+        "persistence": {"const": "file"},
+        "events": {"const": "memory"},
+        "workflow": {"const": "in-process"},
+        "artifacts": {"const": "filesystem"},
+        "auth": {"const": "local"},
+        "secrets": {"const": "environment"},
+        "runner": {"const": "argv"},
+        "sourceControl": {"const": "none"},
+        "ci": {"const": "none"}
+      }
+    }
+  },
+  "required": ["profile", "replicaCount", "persistence", "backends"]
+}

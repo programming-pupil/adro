@@ -1,0 +1,146 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "adro-0.1.0",
+  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-10a10da0e98f78ddaead5a038ca9e49da5983eb4e8ecd7ddfba558fa10d1a30e",
+  "creationInfo": {
+    "created": "1970-01-01T00:00:00Z",
+    "creators": [
+      "Tool: scripts/release-assets.mjs"
+    ]
+  },
+  "documentDescribes": [
+    "SPDXRef-Package-ADRO"
+  ],
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-ADRO",
+      "name": "adro",
+      "versionInfo": "0.1.0",
+      "downloadLocation": "https://github.com/programming-pupil/adro",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "Copyright 2026 ADRO contributors",
+      "supplier": "Organization: ADRO contributors"
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-gorilla-websocket-v1.5.3",
+      "name": "github.com/gorilla/websocket",
+      "versionInfo": "v1.5.3",
+      "downloadLocation": "https://github.com/gorilla/websocket",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-2-Clause",
+      "licenseDeclared": "BSD-2-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Gorilla WebSocket Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/gorilla/websocket@v1.5.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-npm--playwright-test-1.62.1",
+      "name": "@playwright/test",
+      "versionInfo": "1.62.1",
+      "downloadLocation": "https://github.com/microsoft/playwright",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Microsoft Corporation",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/%40playwright/test@1.62.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-npm-fsevents-2.3.2",
+      "name": "fsevents",
+      "versionInfo": "2.3.2",
+      "downloadLocation": "https://github.com/fsevents/fsevents",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: fsevents contributors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/fsevents@2.3.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-npm-playwright-core-1.62.1",
+      "name": "playwright-core",
+      "versionInfo": "1.62.1",
+      "downloadLocation": "https://github.com/microsoft/playwright",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Microsoft Corporation",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/playwright-core@1.62.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-npm-playwright-1.62.1",
+      "name": "playwright",
+      "versionInfo": "1.62.1",
+      "downloadLocation": "https://github.com/microsoft/playwright",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Microsoft Corporation",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/playwright@1.62.1"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-gorilla-websocket-v1.5.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-npm--playwright-test-1.62.1",
+      "relationshipType": "DEV_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-ADRO"
+    },
+    {
+      "spdxElementId": "SPDXRef-npm-fsevents-2.3.2",
+      "relationshipType": "DEV_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-ADRO"
+    },
+    {
+      "spdxElementId": "SPDXRef-npm-playwright-core-1.62.1",
+      "relationshipType": "DEV_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-ADRO"
+    },
+    {
+      "spdxElementId": "SPDXRef-npm-playwright-1.62.1",
+      "relationshipType": "DEV_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-ADRO"
+    }
+  ]
+}

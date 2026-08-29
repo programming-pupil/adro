@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+
+import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const startedAt = new Date().toISOString();
+const report = { schema_version: 1, suite: 'adro-real-multica-v1', started_at: startedAt, status: 'running', checks: [], evidence: {} };
+const required = [
+  'ADRO_CONFORMANCE_BASE_URL', 'ADRO_CONFORMANCE_USERNAME', 'ADRO_CONFORMANCE_PASSWORD',
+  'ADRO_CONFORMANCE_WORKSPACE_ID', 'ADRO_CONFORMANCE_REPOSITORY_ID', 'ADRO_CONFORMANCE_MEMBER_ID',
+  'ADRO_MULTICA_TOKEN', 'ADRO_MULTICA_WS_URL'
+];
+
+class Blocked extends Error {}
+class Failed extends Error {}
+
+function record(name, status, detail = '') {
+  report.checks.push({ name, status, ...(detail ? { detail } : {}) });
+}
+
+function block(name, detail) {
+  record(name, 'blocked', detail);
+  throw new Blocked(detail);
+}
+
+function assertEvidence(name, value, detail) {
+  if (!value) block(name, detail);
+  record(name, 'passed');
+  return value;
+}
+
+function delay(ms) {
+  return new Promise(resolveDelay => setTimeout(resolveDelay, ms));
+}
+
+const baseURL = (process.env.ADRO_CONFORMANCE_BASE_URL || '').replace(/\/$/, '');
+let cookie = '';
+
+async function request(method, path, { body, form, idempotencyKey, expected = [200] } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (cookie) headers.Cookie = cookie;
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  let payload;
+  if (form) {
+    payload = form;
+  } else if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    payload = JSON.stringify(body);
+  }
+  let response;
+  try {
+    response = await fetch(`${baseURL}${path}`, { method, headers, body: payload, signal: AbortSignal.timeout(30_000) });
+  } catch (error) {
+    throw new Blocked(`${method} ${path} is unreachable: ${error.message}`);
+  }
+  const text = await response.text();
+  let parsed = {};
+  if (text) {
+    try { parsed = JSON.parse(text); } catch { throw new Failed(`${method} ${path} returned non-JSON`); }
+  }
+  if (!expected.includes(response.status)) {
+    const code = parsed.error_code || `http_${response.status}`;
+    if ([501, 502, 503, 504].includes(response.status) || code.includes('capability') || code.includes('provider')) {
+      throw new Blocked(`${method} ${path} blocked by ${code}`);
+    }
+    throw new Failed(`${method} ${path} returned ${response.status} (${code})`);
+  }
+  return { body: parsed, response };
+}
+
+async function waitForRun(runID, label) {
+  const timeoutMS = Number(process.env.ADRO_CONFORMANCE_TIMEOUT_MS || 600_000);
+  const deadline = Date.now() + timeoutMS;
+  while (Date.now() < deadline) {
+    const { body } = await request('GET', `/api/v1/runs/${encodeURIComponent(runID)}`);
+    const status = String(body.status || '').toLowerCase();
+    if (['completed', 'succeeded', 'success', 'failed', 'cancelled', 'canceled'].includes(status)) {
+      if (!['completed', 'succeeded', 'success'].includes(status)) throw new Failed(`${label} ended with status ${status}`);
+      return body;
+    }
+    await delay(5000);
+  }
+  throw new Blocked(`${label} did not reach a terminal status before timeout`);
+}
+
+function writeReport() {
+  report.finished_at = new Date().toISOString();
+  const output = `${JSON.stringify(report, null, 2)}\n`;
+  if (process.env.ADRO_CONFORMANCE_REPORT) writeFileSync(process.env.ADRO_CONFORMANCE_REPORT, output);
+  process.stdout.write(output);
+}
+
+async function main() {
+  const missing = required.filter(name => !process.env[name]);
+  if (missing.length) block('configuration', `missing ${missing.join(', ')}`);
+  const login = await request('POST', '/api/v1/auth/login', {
+    body: { username: process.env.ADRO_CONFORMANCE_USERNAME, password: process.env.ADRO_CONFORMANCE_PASSWORD }
+  });
+  cookie = (login.response.headers.get('set-cookie') || '').split(';')[0];
+  assertEvidence('adro-authentication', cookie, 'ADRO login did not return a session cookie');
+
+  const diagnostics = (await request('GET', '/api/v1/provider/diagnostics')).body;
+  if (diagnostics.provider !== 'multica') block('provider-selection', `expected multica, got ${diagnostics.provider || 'unknown'}`);
+  if (diagnostics.reachability_state !== 'reachable') block('provider-reachability', diagnostics.error_codes?.join(', ') || 'provider is unreachable');
+  record('provider-selection', 'passed');
+  record('provider-reachability', 'passed');
+  report.evidence.adapter_version = diagnostics.adapter_version || '';
+  report.evidence.server_version = diagnostics.server_version || '';
+  report.evidence.capabilities = diagnostics.capabilities || [];
+
+  const suffix = Date.now().toString(36);
+  const requirement = (await request('POST', '/api/v1/requirements', {
+    idempotencyKey: `multica-conformance-${suffix}`,
+    expected: [201],
+    body: {
+      workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID,
+      title: `ADRO real Multica conformance ${suffix}`,
+      description: 'Create a traceable change, run tests, and submit it for review.',
+      acceptance_criteria: ['A real run has session, workdir, commit, checks, submission, attachment, and repair evidence.'],
+      assignee_member_ids: [process.env.ADRO_CONFORMANCE_MEMBER_ID],
+      repository_ids: [process.env.ADRO_CONFORMANCE_REPOSITORY_ID]
+    }
+  })).body;
+  report.evidence.requirement_id = assertEvidence('requirement-create', requirement.id, 'ADRO returned no requirement ID');
+
+  await request('POST', `/api/v1/requirements/${requirement.id}/start`, { idempotencyKey: `start-${suffix}` });
+  const itemPage = (await request('GET', `/api/v1/requirements/${requirement.id}/work-items`)).body;
+  const workItem = itemPage.items?.[0];
+  report.evidence.work_item_id = assertEvidence('real-work-item', workItem?.id, 'no materialized work item was returned');
+  report.evidence.provider_issue_id = assertEvidence('provider-issue-binding', workItem?.provider_issue_id, 'work item has no real provider issue binding');
+
+  const initial = (await request('POST', `/api/v1/work-items/${workItem.id}/run`, {
+    idempotencyKey: `run-${suffix}`,
+    expected: [202],
+    body: { input: 'Add a small conformance marker file, run the repository tests, and submit the change for review.' }
+  })).body.run || {};
+  const runID = assertEvidence('initial-run-id', initial.provider_run_id || initial.id, 'provider returned no run/task ID');
+  const sessionID = assertEvidence('initial-session-id', initial.session_id, 'provider returned no session ID');
+  const workDir = assertEvidence('initial-workdir', initial.work_dir, 'provider returned no workdir');
+  Object.assign(report.evidence, { initial_run_id: runID, session_id: sessionID, work_dir: workDir });
+
+  let wsResult;
+  try {
+    wsResult = JSON.parse(execFileSync('go', ['run', './cmd/adro-conformance', '--websocket-url', process.env.ADRO_MULTICA_WS_URL, '--run-id', runID, '--timeout', '45s'], {
+      cwd: root, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+    }));
+  } catch (error) {
+    block('daemon-websocket', 'authenticated daemon WebSocket did not deliver a valid run event');
+  }
+  assertEvidence('daemon-websocket', wsResult.status === 'passed', wsResult.reason || 'daemon WebSocket check failed');
+  report.evidence.websocket_event_sha256 = wsResult.event_sha256;
+
+  const snapshot = await waitForRun(runID, 'initial run');
+  assertEvidence('code-change', snapshot.head_commit && snapshot.head_commit !== snapshot.baseline_commit, 'run snapshot has no changed head commit');
+  assertEvidence('test-conclusion', ['passed', 'success', 'succeeded'].includes(String(snapshot.checks_conclusion).toLowerCase()), 'run snapshot has no passing check conclusion');
+  assertEvidence('submission', snapshot.submission_url, 'run snapshot has no review/submission URL');
+  report.evidence.initial_head_commit = snapshot.head_commit;
+  report.evidence.initial_submission_url = snapshot.submission_url;
+
+  const form = new FormData();
+  form.set('target_type', 'issue');
+  form.set('target_id', workItem.provider_issue_id);
+  form.set('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')], { type: 'image/png' }), 'conformance.png');
+  const attachment = (await request('POST', '/api/v1/screenshots', { form, idempotencyKey: `attachment-${suffix}`, expected: [201] })).body;
+  assertEvidence('provider-attachment', attachment.delivery === 'delivered' && attachment.provider_receipt?.provider_attachment_id, `attachment delivery=${attachment.delivery || 'unknown'}`);
+  report.evidence.provider_attachment_id = attachment.provider_receipt.provider_attachment_id;
+
+  const bug = (await request('POST', '/api/v1/bugs', {
+    idempotencyKey: `bug-${suffix}`,
+    expected: [201],
+    body: {
+      workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID,
+      requirement_id: requirement.id,
+      work_item_id: workItem.id,
+      repository_id: process.env.ADRO_CONFORMANCE_REPOSITORY_ID,
+      assignee_member_id: process.env.ADRO_CONFORMANCE_MEMBER_ID,
+      title: `Conformance repair ${suffix}`,
+      steps_to_reproduce: 'Run the conformance repair marker check.',
+      expected: 'The marker is repaired and tests pass.',
+      actual: 'The marker requires one real repair run.'
+    }
+  })).body;
+  report.evidence.bug_id = assertEvidence('repair-bug-create', bug.id, 'ADRO returned no bug ID');
+  const repaired = (await request('POST', `/api/v1/bugs/${bug.id}/repair`, { idempotencyKey: `repair-${suffix}`, expected: [202] })).body;
+  const repairRun = repaired.run || {};
+  const repairRunID = assertEvidence('repair-run-id', repairRun.provider_run_id || repairRun.id, 'repair returned no run/task ID');
+  if (repairRun.session_id !== sessionID || repaired.session_reused !== true) block('same-session-repair', 'repair did not reuse the original session');
+  if (repairRun.work_dir !== workDir) block('same-workdir-repair', 'repair did not reuse the original workdir');
+  record('same-session-repair', 'passed');
+  record('same-workdir-repair', 'passed');
+  report.evidence.repair_run_id = repairRunID;
+
+  const repairSnapshot = await waitForRun(repairRunID, 'repair run');
+  assertEvidence('repair-test-conclusion', ['passed', 'success', 'succeeded'].includes(String(repairSnapshot.checks_conclusion).toLowerCase()), 'repair has no passing check conclusion');
+  assertEvidence('repair-submission', repairSnapshot.submission_url, 'repair has no second submission URL');
+  const attempts = (await request('GET', `/api/v1/work-items/${workItem.id}/repair-attempts`)).body.items || [];
+  const attempt = attempts.find(item => item.provider_task_id === repairRunID);
+  assertEvidence('repair-provenance', attempt?.provider_session_id === sessionID && attempt?.provider_work_dir === workDir, 'repair attempt lacks matching session/workdir provenance');
+
+  report.status = 'passed';
+}
+
+try {
+  await main();
+} catch (error) {
+  report.status = error instanceof Blocked ? 'blocked' : 'failed';
+  report.reason = error.message;
+  if (!(error instanceof Blocked) && !(error instanceof Failed)) report.reason = `unexpected conformance error: ${error.message}`;
+  process.exitCode = error instanceof Blocked ? 2 : 1;
+} finally {
+  writeReport();
+}

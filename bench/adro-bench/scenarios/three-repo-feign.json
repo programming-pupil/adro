@@ -1,0 +1,11 @@
+{
+  "name": "three-repo-feign",
+  "version": "1",
+  "repositories": [
+    {"id": "feign-contract", "action": "must_change"},
+    {"id": "provider-service", "action": "must_change"},
+    {"id": "caller-service", "action": "may_change"}
+  ],
+  "gates": ["design_review", "unit_test", "api_log_data", "human_acceptance"],
+  "metrics": ["required_repo_recall", "non_required_repo_precision", "event_dedupe", "evidence_completeness"]
+}

@@ -1,0 +1,43 @@
+ADRO Third-Party Notices
+Generated from go.mod, go.sum, package-lock.json, and release/dependencies.json for ADRO 0.1.0.
+The release verifier fails when a manifest dependency is absent from this list.
+
+github.com/gorilla/websocket v1.5.3
+  ecosystem: go
+  scope: runtime
+  license: BSD-2-Clause
+  source: https://github.com/gorilla/websocket
+  license-file: THIRD_PARTY_LICENSES/go-github.com_gorilla_websocket@v1.5.3.txt
+  license-sha256: 2be1b548b0387ca8948e1bb9434e709126904d15f622cc2d0d8e7f186e4d122d
+
+@playwright/test 1.62.1
+  ecosystem: npm
+  scope: development
+  license: Apache-2.0
+  source: https://github.com/microsoft/playwright
+  license-file: THIRD_PARTY_LICENSES/npm-@playwright_test@1.62.1.txt
+  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb
+
+fsevents 2.3.2
+  ecosystem: npm
+  scope: optional-development
+  license: MIT
+  source: https://github.com/fsevents/fsevents
+  license-file: THIRD_PARTY_LICENSES/npm-fsevents@2.3.2.txt
+  license-sha256: 2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1
+
+playwright-core 1.62.1
+  ecosystem: npm
+  scope: development
+  license: Apache-2.0
+  source: https://github.com/microsoft/playwright
+  license-file: THIRD_PARTY_LICENSES/npm-playwright-core@1.62.1.txt
+  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb
+
+playwright 1.62.1
+  ecosystem: npm
+  scope: development
+  license: Apache-2.0
+  source: https://github.com/microsoft/playwright
+  license-file: THIRD_PARTY_LICENSES/npm-playwright@1.62.1.txt
+  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb

@@ -1,0 +1,26 @@
+# Local runtime state, generated artifacts, and credentials
+/var/
+/bin/
+/dist/
+/coverage/
+/test-results/
+/node_modules/
+/attachments/
+/.adro/
+/.multica/
+/.agent_context/
+/AGENTS.md
+*.log
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# OS/editor files and private key material
+.DS_Store
+*.swp
+*.swo
+*.pem
+*.key
+*.crt
