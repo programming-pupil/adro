@@ -53,7 +53,13 @@
   let managedUsers = [];
   let availableMenus = menuIDs.slice();
 
-  window.adroCanAccessMenu = menu => currentUser?.role === 'admin' || availableMenus.includes(menu);
+  const focusIfPresent = selector => {
+    const element = $(selector);
+    if (element) element.focus();
+  };
+  const idempotencyKey = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
+
+  window.adroCanAccessMenu = menu => (currentUser && currentUser.role === 'admin') || availableMenus.includes(menu);
 
   const roleLabel = role => t(role === 'admin' ? 'roleAdmin' : role === 'viewer' ? 'roleViewer' : 'roleMember');
   const userLabel = id => {
@@ -86,7 +92,7 @@
     $('#appShell').hidden = true;
     $('#loginGate').hidden = false;
     document.title = t('appTitle');
-    setTimeout(() => $('#loginForm input[name="username"]')?.focus(), 0);
+    setTimeout(() => focusIfPresent('#loginForm input[name="username"]'), 0);
   }
 
   async function enterApplication(user) {
@@ -121,10 +127,10 @@
 
   async function loadIdentityData() {
     const calls = [api('/api/v1/directory')];
-    if (currentUser?.role === 'admin') calls.push(api('/api/v1/users'));
+    if (currentUser && currentUser.role === 'admin') calls.push(api('/api/v1/users'));
     const results = await Promise.allSettled(calls);
-    if (results[0]?.status === 'fulfilled') directory = results[0].value.items || [];
-    if (results[1]?.status === 'fulfilled') {
+    if (results[0] && results[0].status === 'fulfilled') directory = results[0].value.items || [];
+    if (results[1] && results[1].status === 'fulfilled') {
       managedUsers = results[1].value.items || [];
       availableMenus = results[1].value.menus || menuIDs.slice();
     }
@@ -180,7 +186,7 @@
     $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
     applyTranslations();
     $('#requirementDialog').showModal();
-    setTimeout(() => $('#requirementForm input[name="title"]')?.focus(), 0);
+    setTimeout(() => focusIfPresent('#requirementForm input[name="title"]'), 0);
   };
 
   async function uploadEntityFiles(ownerType, ownerID, files) {
@@ -207,7 +213,7 @@
     try {
       const created = await api('/api/v1/requirements', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID?.() || String(Date.now()) },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() },
         body: JSON.stringify({
           workspace_id: 'local', title: String(data.get('title')).trim(), description: String(data.get('description')).trim(),
           acceptance_criteria: criteria, assignee_member_ids: [String(data.get('assignee'))],
@@ -242,7 +248,7 @@
     $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
     applyTranslations();
     $('#bugDialog').showModal();
-    setTimeout(() => $('#bugForm input[name="title"]')?.focus(), 0);
+    setTimeout(() => focusIfPresent('#bugForm input[name="title"]'), 0);
   }
 
   const closeBugDialog = () => $('#bugDialog').close();
@@ -299,17 +305,20 @@
     const form = $('#userForm');
     form.reset();
     $('#userFormError').textContent = '';
-    form.elements.id.value = user?.id || '';
-    form.elements.username.value = user?.username || '';
+    form.elements.id.value = (user && user.id) || '';
+    form.elements.username.value = (user && user.username) || '';
     form.elements.username.disabled = Boolean(user);
-    form.elements.display_name.value = user?.display_name || '';
-    form.elements.role.value = user?.role || 'member';
-    form.elements.status.value = user?.status || 'active';
+    form.elements.display_name.value = (user && user.display_name) || '';
+    form.elements.role.value = (user && user.role) || 'member';
+    form.elements.status.value = (user && user.status) || 'active';
     form.elements.password.required = !user;
     $('#userDialogTitle').textContent = t(user ? 'editUser' : 'createUser');
-    renderPermissionGrid(user?.menu_ids || ['workbench', 'requirements', 'bugs'], form.elements.role.value);
+    renderPermissionGrid((user && user.menu_ids) || ['workbench', 'requirements', 'bugs'], form.elements.role.value);
     $('#userDialog').showModal();
-    setTimeout(() => form.querySelector('input:not([type="hidden"]):not(:disabled)')?.focus(), 0);
+    setTimeout(() => {
+      const element = form.querySelector('input:not([type="hidden"]):not(:disabled)');
+      if (element) element.focus();
+    }, 0);
   }
 
   const closeUserDialog = () => $('#userDialog').close();
@@ -389,7 +398,7 @@
     try {
       await api(`/api/v1/runners/${encodeURIComponent(String(data.get('runner_id')))}/execute`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID?.() || String(Date.now())},
+        headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()},
         body: JSON.stringify({command, work_dir: String(data.get('work_dir') || '').trim(), env, timeout_ms: Number(data.get('timeout_ms') || 900000)})
       });
       closeRunnerExecuteDialog();
@@ -404,7 +413,8 @@
   const baseBindViewEvents = bindViewEvents;
   bindViewEvents = function enhancedViewEvents() {
     baseBindViewEvents();
-    $('#newUser')?.addEventListener('click', () => openUserDialog());
+    const newUserButton = $('#newUser');
+    if (newUserButton) newUserButton.addEventListener('click', () => openUserDialog());
     document.querySelectorAll('[data-edit-user]').forEach(button => {
       button.onclick = () => openUserDialog(managedUsers.find(user => user.id === button.dataset.editUser));
     });
