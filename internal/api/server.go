@@ -196,6 +196,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
+	authMode, authModeErr := configuredAuthMode()
+	if authModeErr != nil {
+		s.problem(w, r, http.StatusServiceUnavailable, "invalid_auth_mode", authModeErr.Error(), nil)
+		return
+	}
 	if path == "/api/v1/auth/login" {
 		s.login(w, r)
 		return
@@ -240,7 +245,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	user, userAuthenticated := s.authenticateUser(r)
 	machineAuthenticated := authorizedMachine(r)
-	if strings.HasPrefix(path, "/api/") && path != "/api/v1/auth/me" && os.Getenv("ADRO_AUTH_MODE") == "required" && !userAuthenticated && !machineAuthenticated {
+	if strings.HasPrefix(path, "/api/") && path != "/api/v1/auth/me" && authMode == "required" && !userAuthenticated && !machineAuthenticated {
 		s.problem(w, r, http.StatusUnauthorized, "authentication_required", "sign in with an active ADRO account", nil)
 		return
 	}
@@ -447,6 +452,15 @@ func (s *Server) listWorkItems(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
+	authMode, authModeErr := configuredAuthMode()
+	if authModeErr != nil {
+		s.problem(w, r, http.StatusServiceUnavailable, "invalid_auth_mode", authModeErr.Error(), nil)
+		return
+	}
+	if authMode == "required" && localAuthBackend() && (s.Auth == nil || len(s.Auth.ListUsers("")) == 0) {
+		s.problem(w, r, http.StatusServiceUnavailable, "auth_not_configured", "set ADRO_ADMIN_PASSWORD or provide a persisted local auth state before enabling required authentication", nil)
+		return
+	}
 	if err := s.Artifacts.Health(ctx); err != nil {
 		s.problem(w, r, 503, "artifact_store_unavailable", "artifact store is not ready", nil)
 		return
@@ -1239,7 +1253,7 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 }
 
 func (s *Server) canUseAttachmentOwner(user adroauth.User, authenticated, machine bool, ownerType string) bool {
-	if machine || !authenticated && os.Getenv("ADRO_AUTH_MODE") != "required" {
+	if machine || !authenticated && !authRequired() {
 		return ownerType == "requirement" || ownerType == "bug"
 	}
 	if !authenticated {
@@ -3183,7 +3197,7 @@ func (s *Server) directory(w http.ResponseWriter, r *http.Request, user adroauth
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	if os.Getenv("ADRO_AUTH_MODE") == "required" && !authenticated && !machine {
+	if authRequired() && !authenticated && !machine {
 		s.problem(w, r, http.StatusUnauthorized, "authentication_required", "sign in with an active ADRO account", nil)
 		return
 	}
@@ -3228,6 +3242,28 @@ func decodeJSON(r *http.Request, v any) error {
 	}
 	return nil
 }
+
+func configuredAuthMode() (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("ADRO_AUTH_MODE")))
+	if mode == "" {
+		return "optional", nil
+	}
+	if mode == "optional" || mode == "required" {
+		return mode, nil
+	}
+	return "", fmt.Errorf("ADRO_AUTH_MODE=%q is invalid (allowed: optional, required)", mode)
+}
+
+func authRequired() bool {
+	mode, err := configuredAuthMode()
+	return err == nil && mode == "required"
+}
+
+func localAuthBackend() bool {
+	backend := strings.ToLower(strings.TrimSpace(os.Getenv("ADRO_AUTH_BACKEND")))
+	return backend == "" || backend == "local"
+}
+
 func tenant(r *http.Request) string {
 	if value, ok := r.Context().Value(authenticatedTenantKey{}).(string); ok && strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)

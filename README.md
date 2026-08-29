@@ -42,6 +42,12 @@ browser/platform claims are bounded by [docs/compatibility.md](docs/compatibilit
 
 Set `ADRO_PROVIDER=multica`, `ADRO_MULTICA_URL` and `ADRO_MULTICA_TOKEN` to use the included HTTP Provider adapter. The token is read only from the process environment and is never serialized into requirements, events or artifacts. `ADRO_MULTICA_WORKSPACE_ID` and `ADRO_MULTICA_RUNTIME_ID` pin the provider-native workspace and runtime; a single visible workspace and a single/online runtime are auto-discovered when those variables are omitted. Ambiguous discovery fails closed. Optional `ADRO_MULTICA_WS_URL` enables the upstream run-event WebSocket; `ADRO_MULTICA_CAPABILITIES_PATH` and `ADRO_MULTICA_ATTACHMENT_PATH` override gateway paths when a daemon exposes a versioned route. The API exposes a secret-free probe at `GET /api/v1/provider/diagnostics` and reports the connection as unavailable until both health and capabilities are reachable.
 
+Authentication mode is controlled by `ADRO_AUTH_MODE`: `optional` (the
+single-node default) permits unauthenticated local API use, while `required`
+requires an active local identity or machine token for protected API routes.
+Only these two values are accepted; a typo fails startup and readiness instead
+of disabling authentication silently.
+
 For the current public Multica API, set `ADRO_MULTICA_AGENT_ID` to a real
 workspace Agent UUID when you want newly materialized Work Items assigned to
 that Agent. The adapter sends Multica's required `workspace_id`, issue title,

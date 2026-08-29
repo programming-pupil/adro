@@ -562,6 +562,7 @@ func TestWorkspaceWebSocketReplaysAndStreamsEvents(t *testing.T) {
 func TestOptionalBearerAuthMode(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "required")
 	t.Setenv("ADRO_API_TOKEN", "test-token")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
 	s := testServer(t)
 	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("without token status=%d", got)
@@ -571,5 +572,29 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 	}
 	if got := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil).Code; got != http.StatusOK {
 		t.Fatalf("health status=%d", got)
+	}
+}
+
+func TestUnknownAuthModeFailsClosed(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "requred")
+	s := testServer(t)
+	for _, path := range []string{"/api/v1/requirements", "/readyz"} {
+		response := request(t, s.Routes(), http.MethodGet, path, "", nil)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "invalid_auth_mode") {
+			t.Fatalf("path=%s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestRequiredLocalAuthReadinessNeedsIdentitySource(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_AUTH_BACKEND", "local")
+	t.Setenv("ADRO_ADMIN_USERNAME", "")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "")
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "auth_not_configured") {
+		t.Fatalf("readiness status=%d body=%s", response.Code, response.Body.String())
 	}
 }

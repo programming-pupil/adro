@@ -19,6 +19,25 @@ func TestUnknownProviderFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAuthModeIsDocumentedAndUnknownValuesFailClosed(t *testing.T) {
+	c := FromEnv()
+	c.AuthMode = "requred"
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "ADRO_AUTH_MODE") {
+		t.Fatalf("expected unknown auth mode to be rejected, got %v", err)
+	}
+	c.AuthMode = "REQUIRED"
+	if err := Validate(c); err != nil {
+		t.Fatalf("case-insensitive required auth mode should validate: %v", err)
+	}
+}
+
+func TestFromEnvNormalizesProviderCase(t *testing.T) {
+	t.Setenv("ADRO_PROVIDER", "MULTICA")
+	if got := FromEnv().Provider; got != "multica" {
+		t.Fatalf("provider was not normalized: %q", got)
+	}
+}
+
 func TestProductionFailsClosedOnReferenceBackends(t *testing.T) {
 	c := FromEnv()
 	c.Profile = "production"
