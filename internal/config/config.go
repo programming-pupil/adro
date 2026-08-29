@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	Provider           string
 	Profile            string
 	PersistenceBackend string
 	EventBackend       string
@@ -29,6 +30,7 @@ type Config struct {
 
 func FromEnv() Config {
 	return Config{
+		Provider:           envOr("ADRO_PROVIDER", "mock"),
 		Profile:            envOr("ADRO_PROFILE", "single-node"),
 		PersistenceBackend: envOr("ADRO_PERSISTENCE_BACKEND", "file"),
 		EventBackend:       envOr("ADRO_EVENT_BACKEND", "memory"),
@@ -44,6 +46,13 @@ func FromEnv() Config {
 }
 
 func Validate(c Config) error {
+	c.Provider = strings.ToLower(strings.TrimSpace(c.Provider))
+	if c.Provider == "" {
+		c.Provider = "mock"
+	}
+	if err := oneOf("ADRO_PROVIDER", c.Provider, "mock", "multica"); err != nil {
+		return err
+	}
 	c.Profile = strings.ToLower(strings.TrimSpace(c.Profile))
 	if c.Profile == "" {
 		return fmt.Errorf("ADRO_PROFILE is required")

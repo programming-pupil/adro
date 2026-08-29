@@ -238,7 +238,11 @@ func NewAgentRouteResolverFromEnv() (*AgentRouteResolver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewAgentRouteResolver(config, getenv("ADRO_MULTICA_AGENT_ID")), nil
+	legacyID := getenv("ADRO_MULTICA_AGENT_ID")
+	if legacyID != "" && !uuidPattern.MatchString(legacyID) {
+		return nil, errors.New("ADRO_MULTICA_AGENT_ID must be a UUID")
+	}
+	return NewAgentRouteResolver(config, canonicalUUID(legacyID)), nil
 }
 
 // getenv is a variable to keep this package straightforward to test without

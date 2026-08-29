@@ -109,6 +109,22 @@ func TestAgentRouteConfigRejectsUnsafeShapes(t *testing.T) {
 	}
 }
 
+func TestAgentRouteResolverFromEnvRejectsMalformedLegacyID(t *testing.T) {
+	t.Setenv("ADRO_MULTICA_AGENT_MAP", "")
+	t.Setenv("ADRO_MULTICA_AGENT_ID", "definitely-not-a-uuid")
+	if _, err := NewAgentRouteResolverFromEnv(); err == nil {
+		t.Fatal("malformed legacy agent id was accepted")
+	}
+	t.Setenv("ADRO_MULTICA_AGENT_ID", strings.ToUpper(agentA))
+	resolver, err := NewAgentRouteResolverFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolver.Resolve("workspace", "member", "", nil).ProviderAssigneeID; got != agentA {
+		t.Fatalf("legacy agent id was not canonicalized: %q", got)
+	}
+}
+
 func TestMulticaProviderErrorsAreTypedAndRedacted(t *testing.T) {
 	secret := "upstream response must not escape"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

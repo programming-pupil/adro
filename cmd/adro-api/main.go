@@ -23,7 +23,8 @@ import (
 )
 
 func main() {
-	if err := config.Validate(config.FromEnv()); err != nil {
+	cfg := config.FromEnv()
+	if err := config.Validate(cfg); err != nil {
 		slog.Error("deployment configuration rejected", "error", err)
 		os.Exit(1)
 	}
@@ -60,7 +61,7 @@ func main() {
 	}
 	var p provider.ExecutionProvider = provider.NewMockProvider(bus)
 	router := provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
-	if os.Getenv("ADRO_PROVIDER") == "multica" {
+	if cfg.Provider == "multica" {
 		var routeErr error
 		router, routeErr = provider.NewAgentRouteResolverFromEnv()
 		if routeErr != nil {

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -60,7 +61,10 @@ type Store interface {
 
 // FileStore is the zero-configuration single-node driver. Objects are written
 // through a temporary file and atomically renamed only after the hash is known.
-type FileStore struct{ root string }
+type FileStore struct {
+	root string
+	mu   sync.RWMutex
+}
 
 func NewFileStore(root string) (*FileStore, error) {
 	if strings.TrimSpace(root) == "" {
@@ -90,6 +94,8 @@ func (s *FileStore) path(k Key) (string, error) {
 }
 
 func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions) (ObjectMeta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	path, err := s.path(k)
 	if err != nil {
 		return ObjectMeta{}, err
@@ -145,6 +151,8 @@ func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions
 }
 
 func (s *FileStore) Open(ctx context.Context, k Key, br ByteRange) (io.ReadCloser, ObjectMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	path, err := s.path(k)
 	if err != nil {
 		return nil, ObjectMeta{}, err
@@ -199,6 +207,8 @@ type rangeReadCloser struct {
 func (r *rangeReadCloser) Close() error { return r.closer.Close() }
 
 func (s *FileStore) Stat(ctx context.Context, k Key) (ObjectMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	path, err := s.path(k)
 	if err != nil {
 		return ObjectMeta{}, err
@@ -218,6 +228,8 @@ func (s *FileStore) Stat(ctx context.Context, k Key) (ObjectMeta, error) {
 }
 
 func (s *FileStore) Delete(ctx context.Context, k Key, opts DeleteOptions) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if opts.LegalHold {
 		return errors.New("artifact is under legal hold")
 	}

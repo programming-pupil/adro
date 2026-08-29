@@ -32,6 +32,8 @@ const (
 type Runner struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
+	WorkspaceID    string    `json:"workspace_id"`
+	TenantID       string    `json:"tenant_id"`
 	Provider       string    `json:"provider"`
 	Version        string    `json:"version"`
 	Capabilities   []string  `json:"capabilities"`
@@ -205,6 +207,49 @@ func (s *Supervisor) List() []Runner {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	return items
+}
+
+// ListForScope returns only runners registered for the requested workspace and
+// tenant. An empty scope is intentionally unrestricted for trusted machine
+// callers and backwards-compatible control-plane tooling.
+func (s *Supervisor) ListForScope(workspaceID, tenantID string) []Runner {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]Runner, 0, len(s.runners))
+	for _, r := range s.runners {
+		if runnerInScope(r, workspaceID, tenantID) {
+			items = append(items, r)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items
+}
+
+func (s *Supervisor) Get(id string) (Runner, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.runners[id]
+	if !ok {
+		return Runner{}, errors.New("runner not found")
+	}
+	return r, nil
+}
+
+func (s *Supervisor) BelongsToScope(id, workspaceID, tenantID string) bool {
+	r, err := s.Get(id)
+	return err == nil && runnerInScope(r, workspaceID, tenantID)
+}
+
+func runnerInScope(r Runner, workspaceID, tenantID string) bool {
+	workspaceID = strings.TrimSpace(workspaceID)
+	tenantID = strings.TrimSpace(tenantID)
+	if workspaceID != "" && strings.TrimSpace(r.WorkspaceID) != workspaceID {
+		return false
+	}
+	if tenantID != "" && strings.TrimSpace(r.TenantID) != tenantID {
+		return false
+	}
+	return true
 }
 func (s *Supervisor) Choose(securityDomain string) (Runner, error) {
 	s.mu.RLock()

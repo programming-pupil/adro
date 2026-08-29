@@ -10,10 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/provider"
+	"github.com/adro-project/adro/internal/runner"
 	"github.com/gorilla/websocket"
 )
 
@@ -81,6 +83,66 @@ func TestInteractiveIdentityCannotSpoofWorkspaceOrActor(t *testing.T) {
 	}
 	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/requirements/"+foreign.ID, "", bearer(adminToken)); got.Code != http.StatusNotFound {
 		t.Fatalf("cross-workspace requirement status=%d body=%s", got.Code, got.Body.String())
+	}
+}
+
+func TestInteractiveIdentityCannotSpoofArtifactTenant(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_USERNAME", "admin")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	s := testServer(t)
+	key := artifact.Key{TenantID: "tenant-secret", ArtifactID: "tenant-proof", Version: 1}
+	if _, err := s.Artifacts.Put(context.Background(), key, strings.NewReader("foreign-data"), artifact.PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
+		t.Fatal(err)
+	}
+	token := loginToken(t, s, "admin", "AdminPass123!")
+	headers := bearer(token)
+	headers["X-Tenant-ID"] = "tenant-secret"
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/artifacts/tenant-proof/versions/1/content", "", headers)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("cross-tenant artifact status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRunnerRoutesEnforceWorkspaceAndTenantOwnership(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_USERNAME", "admin")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	t.Setenv("ADRO_API_TOKEN", "machine-token")
+	s := testServer(t)
+	root := t.TempDir()
+	registered := request(t, s.Routes(), http.MethodPost, "/api/v1/runners", `{"name":"owned","provider":"test","version":"1","workspace_root":"`+root+`","concurrency":1}`, map[string]string{"Authorization": "Bearer machine-token", "X-Workspace-ID": "workspace-a"})
+	if registered.Code != http.StatusCreated {
+		t.Fatalf("register status=%d body=%s", registered.Code, registered.Body.String())
+	}
+	var item runner.Runner
+	if err := json.Unmarshal(registered.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.WorkspaceID != "workspace-a" || item.TenantID != "workspace-a" {
+		t.Fatalf("runner ownership not persisted: %+v", item)
+	}
+	token := loginToken(t, s, "admin", "AdminPass123!")
+	foreign := bearer(token)
+	foreign["X-Workspace-ID"] = "workspace-b"
+	for _, operation := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/runners", ""},
+		{http.MethodGet, "/api/v1/runners/" + item.ID, ""},
+		{http.MethodPost, "/api/v1/runners/" + item.ID + "/heartbeat", `{"active_runs":0}`},
+		{http.MethodPost, "/api/v1/runners/" + item.ID + "/drain", ""},
+		{http.MethodPost, "/api/v1/runners/" + item.ID + "/quarantine", ""},
+		{http.MethodPost, "/api/v1/runners/" + item.ID + "/execute", `{"command":["/bin/echo","cross-tenant"]}`},
+	} {
+		response := request(t, s.Routes(), operation.method, operation.path, operation.body, foreign)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("foreign runner operation %s %s status=%d body=%s", operation.method, operation.path, response.Code, response.Body.String())
+		}
 	}
 }
 

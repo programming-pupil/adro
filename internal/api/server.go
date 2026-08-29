@@ -54,6 +54,7 @@ type Server struct {
 // authoritative workspace for machine calls and this context value for
 // browser sessions, so JSON bodies cannot move a resource across tenants.
 type authenticatedWorkspaceKey struct{}
+type authenticatedTenantKey struct{}
 type upload struct {
 	tenant, artifactID string
 	version            int64
@@ -246,9 +247,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if userAuthenticated {
 		// Interactive identity is authoritative. Never let a browser-supplied
 		// header impersonate another member or escape the user's workspace.
+		identityTenant := userTenant(user)
+		if requestedTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); requestedTenant != "" && requestedTenant != identityTenant {
+			s.problem(w, r, http.StatusForbidden, "tenant_access_denied", "the requested tenant is outside your authenticated identity", nil)
+			return
+		}
 		r.Header.Set("X-Member-ID", user.ID)
 		r.Header.Set("X-Workspace-ID", user.WorkspaceID)
-		r = r.WithContext(context.WithValue(r.Context(), authenticatedWorkspaceKey{}, user.WorkspaceID))
+		r.Header.Set("X-Tenant-ID", identityTenant)
+		ctx := context.WithValue(r.Context(), authenticatedWorkspaceKey{}, user.WorkspaceID)
+		r = r.WithContext(context.WithValue(ctx, authenticatedTenantKey{}, identityTenant))
 		if menu := menuForPath(path); menu != "" && !user.Can(menu) {
 			s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to use this product area", map[string]any{"menu_id": menu})
 			return
@@ -1902,9 +1910,15 @@ func (s *Server) websocketStream(w http.ResponseWriter, r *http.Request, workspa
 
 func (s *Server) runnerRoute(w http.ResponseWriter, r *http.Request, path string) {
 	path = strings.Trim(path, "/")
+	workspaceID, tenantID := runnerRequestScope(r)
 	if path == "" {
 		if r.Method == http.MethodGet {
-			s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Runners.List()})
+			items := s.Runners.ListForScope(workspaceID, tenantID)
+			if (workspaceID != "" || tenantID != "") && len(items) == 0 && len(s.Runners.List()) > 0 {
+				s.problem(w, r, http.StatusNotFound, "not_found", "runner not found", nil)
+				return
+			}
+			s.writeJSON(w, http.StatusOK, map[string]any{"items": items})
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -1916,28 +1930,39 @@ func (s *Server) runnerRoute(w http.ResponseWriter, r *http.Request, path string
 			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 			return
 		}
+		input.WorkspaceID = requestWorkspace(r, input.WorkspaceID)
+		if input.WorkspaceID == "" {
+			input.WorkspaceID = "local"
+		}
+		input.TenantID = strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+		if input.TenantID == "" {
+			input.TenantID = input.WorkspaceID
+		}
 		registered, err := s.Runners.Register(input)
 		if err != nil {
 			s.problem(w, r, http.StatusUnprocessableEntity, "validation_error", err.Error(), nil)
 			return
 		}
-		s.recordAudit(r, r.Header.Get("X-Workspace-ID"), "runner.registered", registered.ID, map[string]any{"provider": registered.Provider})
+		s.recordAudit(r, registered.WorkspaceID, "runner.registered", registered.ID, map[string]any{"provider": registered.Provider})
 		s.writeJSON(w, http.StatusCreated, registered)
 		return
 	}
 	parts := strings.Split(path, "/")
 	id := parts[0]
 	if len(parts) == 1 && r.Method == http.MethodGet {
-		for _, item := range s.Runners.List() {
-			if item.ID == id {
-				s.writeJSON(w, http.StatusOK, item)
-				return
-			}
+		item, err := s.Runners.Get(id)
+		if err == nil && runnerInRequestScope(item, workspaceID, tenantID) {
+			s.writeJSON(w, http.StatusOK, item)
+			return
 		}
 		s.problem(w, r, http.StatusNotFound, "not_found", "runner not found", nil)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "heartbeat" && r.Method == http.MethodPost {
+		if !s.Runners.BelongsToScope(id, workspaceID, tenantID) {
+			s.problem(w, r, http.StatusNotFound, "not_found", "runner not found", nil)
+			return
+		}
 		var input struct {
 			ActiveRuns int `json:"active_runs"`
 		}
@@ -1954,6 +1979,10 @@ func (s *Server) runnerRoute(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	if len(parts) == 2 && (parts[1] == "drain" || parts[1] == "quarantine") && r.Method == http.MethodPost {
+		if !s.Runners.BelongsToScope(id, workspaceID, tenantID) {
+			s.problem(w, r, http.StatusNotFound, "not_found", "runner not found", nil)
+			return
+		}
 		status := runner.Draining
 		if parts[1] == "quarantine" {
 			status = runner.Quarantined
@@ -1967,6 +1996,10 @@ func (s *Server) runnerRoute(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	if len(parts) == 2 && parts[1] == "execute" && r.Method == http.MethodPost {
+		if !s.Runners.BelongsToScope(id, workspaceID, tenantID) {
+			s.problem(w, r, http.StatusNotFound, "not_found", "runner not found", nil)
+			return
+		}
 		var input struct {
 			WorkDir   string            `json:"work_dir"`
 			Command   []string          `json:"command"`
@@ -3196,10 +3229,37 @@ func decodeJSON(r *http.Request, v any) error {
 	return nil
 }
 func tenant(r *http.Request) string {
+	if value, ok := r.Context().Value(authenticatedTenantKey{}).(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
 	if v := r.Header.Get("X-Tenant-ID"); v != "" {
 		return v
 	}
 	return "local"
+}
+
+func userTenant(user adroauth.User) string {
+	if workspace := strings.TrimSpace(user.WorkspaceID); workspace != "" {
+		return workspace
+	}
+	return "local"
+}
+
+func runnerRequestScope(r *http.Request) (string, string) {
+	return strings.TrimSpace(r.Header.Get("X-Workspace-ID")), strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+}
+
+func runnerInRequestScope(item runner.Runner, workspaceID, tenantID string) bool {
+	if workspaceID == "" && tenantID == "" {
+		return true
+	}
+	if workspaceID != "" && strings.TrimSpace(item.WorkspaceID) != workspaceID {
+		return false
+	}
+	if tenantID != "" && strings.TrimSpace(item.TenantID) != tenantID {
+		return false
+	}
+	return true
 }
 
 // requestWorkspace returns the effective workspace for a mutation. An

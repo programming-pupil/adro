@@ -11,6 +11,14 @@ func TestSingleNodeDefaultsValidate(t *testing.T) {
 	}
 }
 
+func TestUnknownProviderFailsClosed(t *testing.T) {
+	c := FromEnv()
+	c.Provider = "typo"
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "ADRO_PROVIDER") {
+		t.Fatalf("expected unknown provider to be rejected, got %v", err)
+	}
+}
+
 func TestProductionFailsClosedOnReferenceBackends(t *testing.T) {
 	c := FromEnv()
 	c.Profile = "production"
