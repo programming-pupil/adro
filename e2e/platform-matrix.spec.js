@@ -22,18 +22,25 @@ test('login, navigation, locale, and responsive layout remain usable', async ({ 
     await expect(page.locator('#appView')).toBeVisible();
   }
 
-  const layout = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    body: document.body.scrollWidth,
-    app: document.querySelector('#appShell').getBoundingClientRect().width,
-    overflowing: [...document.body.querySelectorAll('*')]
-      .filter(element => {
-        const rect = element.getBoundingClientRect();
-        return !element.closest('.table-scroll') && rect.width > 0 && rect.right > document.documentElement.clientWidth + 1;
-      })
-      .slice(0, 12)
-      .map(element => ({ tag: element.tagName, id: element.id, class: element.className, right: Math.round(element.getBoundingClientRect().right) }))
-  }));
+  const layout = await page.evaluate(() => {
+    const active = document.querySelector('.nav-item.active');
+    const activeRect = active && active.getBoundingClientRect();
+    return {
+      viewport: document.documentElement.clientWidth,
+      body: document.body.scrollWidth,
+      app: document.querySelector('#appShell').getBoundingClientRect().width,
+      activeNav: activeRect && { left: activeRect.left, right: activeRect.right },
+      overflowing: [...document.body.querySelectorAll('*')]
+        .filter(element => {
+          const rect = element.getBoundingClientRect();
+          return !element.closest('.table-scroll') && rect.width > 0 && rect.right > document.documentElement.clientWidth + 1;
+        })
+        .slice(0, 12)
+        .map(element => ({ tag: element.tagName, id: element.id, class: element.className, right: Math.round(element.getBoundingClientRect().right) }))
+    };
+  });
+  expect(layout.activeNav, JSON.stringify(layout)).not.toBeNull();
+  expect(layout.activeNav.right, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewport);
   expect(layout.overflowing, JSON.stringify(layout)).toEqual([]);
   expect(layout.body).toBeLessThanOrEqual(layout.viewport + 1);
   expect(layout.app).toBeLessThanOrEqual(layout.viewport + 1);
