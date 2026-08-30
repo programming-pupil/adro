@@ -124,9 +124,20 @@ async function request(method, path, { body, form, idempotencyKey, expected = [2
 // cancel that automatically-created task through the real Multica API before
 // asking ADRO to enqueue its explicit rerun. This setup is scoped to the issue
 // created by this process and never changes Provider rerun behavior.
+function conformanceProviderWorkspaceID() {
+  // ADRO's workspace id is an application-local identifier; Multica's native
+  // task routes require the provider workspace UUID. Keep an explicit override
+  // for hosted setups and otherwise use the adapter's configured workspace.
+  return process.env.ADRO_CONFORMANCE_PROVIDER_WORKSPACE_ID
+    || process.env.ADRO_MULTICA_WORKSPACE_ID
+    || '';
+}
+
 async function cancelNativeAssignmentTasks(issueID) {
   const nativeBaseURL = process.env.ADRO_MULTICA_URL.replace(/\/$/, '');
-  const query = new URLSearchParams({ workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID });
+  const providerWorkspaceID = conformanceProviderWorkspaceID();
+  if (!providerWorkspaceID) throw new Blocked('ADRO_MULTICA_WORKSPACE_ID is required for native assignment cleanup');
+  const query = new URLSearchParams({ workspace_id: providerWorkspaceID });
   let response;
   try {
     response = await fetch(`${nativeBaseURL}/api/issues/${encodeURIComponent(issueID)}/task-runs?${query}`, {
@@ -147,7 +158,7 @@ async function cancelNativeAssignmentTasks(issueID) {
   for (const task of tasks) {
     const status = String(task.status || '').toLowerCase();
     if (!task.id || !['queued', 'dispatched', 'running'].includes(status)) continue;
-    const cancelQuery = new URLSearchParams({ workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID });
+    const cancelQuery = new URLSearchParams({ workspace_id: providerWorkspaceID });
     let cancelResponse;
     try {
       cancelResponse = await fetch(`${nativeBaseURL}/api/issues/${encodeURIComponent(issueID)}/tasks/${encodeURIComponent(task.id)}/cancel?${cancelQuery}`, {

@@ -56,6 +56,7 @@ ADRO_CONFORMANCE_BASE_URL='https://adro.example.test' \
 ADRO_CONFORMANCE_USERNAME='release-verifier' \
 ADRO_CONFORMANCE_PASSWORD='<secret>' \
 ADRO_CONFORMANCE_WORKSPACE_ID='<adro-workspace>' \
+ADRO_CONFORMANCE_PROVIDER_WORKSPACE_ID='<multica-workspace-uuid>' \
 ADRO_CONFORMANCE_REPOSITORY_ID='<adro-repository>' \
 ADRO_CONFORMANCE_MEMBER_ID='<adro-member>' \
 ADRO_MULTICA_TOKEN='<multica-pat>' \
@@ -69,6 +70,11 @@ attachment, daemon WebSocket and same-session repair check passed. Exit 2 means
 `blocked` and the JSON report identifies the missing input or upstream
 capability. Exit 1 means a claimed capability failed. Never convert either
 non-zero result into a pass by substituting MockProvider evidence.
+
+`ADRO_CONFORMANCE_WORKSPACE_ID` is the local ADRO workspace identifier. Native
+Multica task cleanup uses the provider workspace UUID, supplied separately as
+`ADRO_CONFORMANCE_PROVIDER_WORKSPACE_ID` (or inherited from
+`ADRO_MULTICA_WORKSPACE_ID`); the two values are not interchangeable.
 
 ## Rollback
 

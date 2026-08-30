@@ -372,7 +372,7 @@ apply_multica_compat_patch() {
   local patch_file="$ROOT_DIR/patches/multica-v$MULTICA_VERSION/session-provenance.patch"
   [ -f "$patch_file" ] || fail "Multica compatibility patch is missing: $patch_file"
   if ! grep -Eq 'SessionID[[:space:]]+string.*json:"session_id' "$MULTICA_DIR/server/internal/handler/agent.go"; then
-    git -C "$MULTICA_DIR" apply --whitespace=nowarn "$patch_file" || fail "failed to apply the Multica session provenance patch"
+    git -C "$MULTICA_DIR" apply --ignore-whitespace --whitespace=nowarn "$patch_file" || fail "failed to apply the Multica session provenance patch"
   fi
 }
 
