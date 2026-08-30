@@ -19,6 +19,14 @@ func TestUnknownProviderFailsClosed(t *testing.T) {
 	}
 }
 
+func TestMockProviderIsRejectedForRuntime(t *testing.T) {
+	c := FromEnv()
+	c.Provider = "mock"
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "ADRO_PROVIDER") {
+		t.Fatalf("mock runtime must be rejected, got %v", err)
+	}
+}
+
 func TestAuthModeIsDocumentedAndUnknownValuesFailClosed(t *testing.T) {
 	c := FromEnv()
 	c.AuthMode = "requred"

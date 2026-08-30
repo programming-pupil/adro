@@ -7,7 +7,7 @@ This repository contains a dependency-free, directly runnable reference profile 
 - versioned requirement and bug REST APIs under `/api/v1`;
 - explicit requirement state transitions with optimistic versions;
 - deterministic multi-repository work-item fan-out;
-- `ExecutionProvider` SPI and a deterministic `MockProvider`;
+- `ExecutionProvider` SPI with a fail-closed real Multica runtime path (the deterministic provider is test-only);
 - content-addressed filesystem ArtifactStore with atomic writes, tenant-scoped logical URIs and HTTP Range downloads;
 - deduplicated versioned events with cursor replay;
 - WebSocket workspace streams with cursor replay and changed-files snapshots;
@@ -29,7 +29,7 @@ browser calls ADRO APIs only; it does not embed or depend on the Multica WebUI.
 The Provider remains an explicit SPI boundary, so a local demo can run offline
 while a production Multica gateway must be configured and contract-tested.
 
-The full architecture and production acceptance criteria are specified in [ADRO-production-blueprint.zh-CN.md](ADRO-production-blueprint.zh-CN.md). The local profile owns the contracts and deterministic behavior; deployments can replace its in-memory/default JSON store, event bus, filesystem driver and MockProvider with PostgreSQL, NATS/Temporal, an external ArtifactStore and Multica/Git/CI adapters without changing domain APIs. It never claims an external service is connected when it is not.
+The full architecture and production acceptance criteria are specified in [ADRO-production-blueprint.zh-CN.md](ADRO-production-blueprint.zh-CN.md). Runtime execution always uses Multica and fails startup when its URL or PAT is absent. Deterministic provider doubles exist only inside automated tests; they are not a selectable product profile.
 
 The implementation-to-GA boundary is tracked in [docs/architecture/ga-readiness.md](docs/architecture/ga-readiness.md); release status must not be inferred from unit-test results alone.
 
@@ -97,13 +97,11 @@ is persisted in `localStorage` and applies before authentication as well as in
 the signed-in workbench; the document language and date formatting follow the
 selected locale.
 
-The first self-host run has one unavoidable interactive trust step: authenticate
-the isolated local Multica profile in the browser (the private development
-stack uses verification code `888888`). Multica's CLI creates the profile PAT;
-the bootstrap reads that token from the profile's own mode-restricted config
-and persists it in the mode-0600 `.adro/adro.env` file, so normal users do not
-need to visit Multica settings or copy a PAT. If upstream authentication is
-skipped, ADRO starts with MockProvider and can be connected later with:
+The first self-host run has one unavoidable local trust step: the bootstrap
+creates an isolated Multica service identity with development verification code
+`888888`, issues a PAT, and persists it in the mode-0600 `.adro/adro.env` file.
+Runtime execution always uses the real Multica Provider; there is no product
+MockProvider fallback.
 
 ```bash
 ADRO_MULTICA_TOKEN='<local Multica PAT>' ./start.sh
@@ -114,21 +112,23 @@ Useful lifecycle commands:
 ```bash
 ./start.sh --status
 ./start.sh --stop
-./start.sh --without-multica
 ```
 
-When Docker is unavailable, the dependency-free local profile starts both
-processes directly with Go. With no Provider credentials it uses MockProvider:
+When Docker is unavailable, `--no-docker` downloads the pinned Multica source,
+starts it with a local PostgreSQL instance, starts the real Multica daemon, and
+then starts both ADRO processes directly with Go:
 
 ```bash
 ADRO_ADMIN_PASSWORD='change-this-local-password' ./start.sh --no-docker
 ```
 
 This serves the API on `http://127.0.0.1:8080` and the ADRO WebUI on
-`http://127.0.0.1:8081/?api=http://127.0.0.1:8080`. It requires Go, curl, and
-OpenSSL, persists local identities under `.adro`, and supports `--status`,
-`--stop`, and `--no-open` like the container path. It intentionally does not
-start Multica or claim a real Provider connection.
+`http://127.0.0.1:8081/?api=http://127.0.0.1:8080`. It requires Go, Git, curl,
+OpenSSL, and PostgreSQL client/server tools (`pg_ctl`, `initdb`, `createdb`, and
+`psql`), persists local identities and Multica state under `.adro`, and supports
+`--status`, `--stop`, and `--no-open` like the container path. Set
+`MULTICA_DATABASE_URL` to use an existing PostgreSQL database instead of the
+isolated local instance.
 
 To run without Docker against an existing hosted or remote Multica API, provide
 a PAT and pin the workspace/runtime when discovery would be ambiguous:
@@ -173,10 +173,8 @@ ADRO_ADMIN_PASSWORD='change-this-local-password' ./start.sh
 ```
 
 The script prints the selected administrator credentials and opens the ADRO
-WebUI. The only upstream step is the first isolated Multica profile
-authentication in the browser; use verification code `888888`, then return to
-ADRO at `http://127.0.0.1:8081`. For an ADRO-only smoke test that does not start
-Multica, run `ADRO_ADMIN_PASSWORD='change-this-local-password' ./start.sh --without-multica`.
+WebUI. The only upstream step is the local development identity bootstrap using
+verification code `888888`; return to ADRO at `http://127.0.0.1:8081`.
 
 Multica's frontend at `http://127.0.0.1:19081` is used only for its bootstrap
 authentication and PAT issuance. Normal requirement, bug, agent, permission,
@@ -192,7 +190,7 @@ go test ./...
 go run ./cmd/adro-api -addr :8080 -artifact-root ./var/artifacts
 ```
 
-Open `apps/web/index.html` through a static server pointed at the API origin, or use the API directly. For a separately served workbench, pass the API origin as a query parameter, for example `http://localhost:8081/?api=http://localhost:8080`; same-origin deployments need no parameter. The demo API has readiness checks at `GET /readyz` and a MockProvider, so it needs no cloud key, Git credential or model key.
+Open `apps/web/index.html` through a static server pointed at the API origin, or use the API directly. For a separately served workbench, pass the API origin as a query parameter, for example `http://localhost:8081/?api=http://localhost:8080`; same-origin deployments need no parameter. The API has readiness checks at `GET /readyz` and requires a reachable Multica Provider.
 
 The workbench's **Extensions & storage** view can capture a browser screen with
 the native Screen Capture permission or accept an image file. `POST

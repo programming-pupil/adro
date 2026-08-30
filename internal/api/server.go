@@ -319,6 +319,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, 200, map[string]any{"items": items, "chain_valid": s.Audit.Verify() == nil})
 	case path == "/api/v1/requirements":
 		s.requirements(w, r)
+	case path == "/api/v1/pipelines" || strings.HasPrefix(path, "/api/v1/pipelines/"):
+		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
 	case strings.HasPrefix(path, "/api/v1/requirements/"):
 		s.requirement(w, r, strings.TrimPrefix(path, "/api/v1/requirements/"))
 	case path == "/api/v1/bugs":
@@ -3421,6 +3423,7 @@ func menuForPath(path string) string {
 	}{
 		{"/api/v1/users", "admin"}, {"/api/v1/audit", "admin"},
 		{"/api/v1/requirements", "requirements"}, {"/api/v1/bugs", "bugs"},
+		{"/api/v1/pipelines", "executions"},
 		{"/api/v1/repositories", "repositories"}, {"/api/v1/repository-graph", "repositories"},
 		{"/api/v1/agents", "agents"}, {"/api/v1/developer-profiles", "agents"},
 		{"/api/v1/mcp", "mcp"}, {"/api/v1/skills", "skills"},

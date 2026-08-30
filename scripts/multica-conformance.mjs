@@ -1,21 +1,69 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const startedAt = new Date().toISOString();
 const report = { schema_version: 1, suite: 'adro-real-multica-v1', started_at: startedAt, status: 'running', checks: [], evidence: {} };
+let activeWebSocketProbe;
+let activeWebSocketReadyFile;
 const required = [
   'ADRO_CONFORMANCE_BASE_URL', 'ADRO_CONFORMANCE_USERNAME', 'ADRO_CONFORMANCE_PASSWORD',
   'ADRO_CONFORMANCE_WORKSPACE_ID', 'ADRO_CONFORMANCE_REPOSITORY_ID', 'ADRO_CONFORMANCE_MEMBER_ID',
-  'ADRO_MULTICA_TOKEN', 'ADRO_MULTICA_WS_URL'
+  'ADRO_MULTICA_URL', 'ADRO_MULTICA_TOKEN', 'ADRO_MULTICA_WS_URL'
 ];
 
 class Blocked extends Error {}
 class Failed extends Error {}
+
+function scopedWebSocketURL(rawURL) {
+  let parsed;
+  try { parsed = new URL(rawURL); } catch { throw new Blocked('ADRO_MULTICA_WS_URL is not a valid WebSocket URL'); }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') throw new Blocked('ADRO_MULTICA_WS_URL must use ws or wss');
+  if (!parsed.searchParams.has('runtime_id') && !parsed.searchParams.has('runtime_ids')) {
+    if (!process.env.ADRO_MULTICA_RUNTIME_ID) throw new Blocked('ADRO_MULTICA_RUNTIME_ID is required when ADRO_MULTICA_WS_URL has no runtime scope');
+    parsed.searchParams.set('runtime_ids', process.env.ADRO_MULTICA_RUNTIME_ID);
+  }
+  return parsed.toString();
+}
+
+function startWebSocketProbe(runID, readyFile) {
+  const websocketURL = scopedWebSocketURL(process.env.ADRO_MULTICA_WS_URL);
+  const child = spawn('go', ['run', './cmd/adro-conformance', '--websocket-url', websocketURL, '--run-id', runID, '--ready-file', readyFile, '--timeout', '45s'], {
+    cwd: root,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+  child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+  const result = new Promise(resolveResult => child.on('close', (code, signal) => resolveResult({ code, signal, stdout, stderr })));
+  return { child, result, closed: false };
+}
+
+async function waitForWebSocketReady(probe, readyFile) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (existsSync(readyFile)) return;
+    if (probe.closed) throw new Blocked('authenticated daemon WebSocket exited before the handshake completed');
+    await delay(100);
+  }
+  throw new Blocked('authenticated daemon WebSocket did not complete its handshake before timeout');
+}
+
+async function finishWebSocketProbe(probe) {
+  const result = await probe.result;
+  if (result.code !== 0) {
+    let parsed = {};
+    try { parsed = JSON.parse(result.stdout); } catch {}
+    throw new Blocked(parsed.reason || 'authenticated daemon WebSocket did not deliver a valid run event');
+  }
+  try { return JSON.parse(result.stdout); } catch { throw new Blocked('authenticated daemon WebSocket returned non-JSON output'); }
+}
 
 function record(name, status, detail = '') {
   report.checks.push({ name, status, ...(detail ? { detail } : {}) });
@@ -69,6 +117,51 @@ async function request(method, path, { body, form, idempotencyKey, expected = [2
     throw new Failed(`${method} ${path} returned ${response.status} (${code})`);
   }
   return { body: parsed, response };
+}
+
+// Starting a requirement intentionally exercises Multica's native assignment
+// trigger. The conformance run must then be the first task on this fresh issue;
+// cancel that automatically-created task through the real Multica API before
+// asking ADRO to enqueue its explicit rerun. This setup is scoped to the issue
+// created by this process and never changes Provider rerun behavior.
+async function cancelNativeAssignmentTasks(issueID) {
+  const nativeBaseURL = process.env.ADRO_MULTICA_URL.replace(/\/$/, '');
+  const query = new URLSearchParams({ workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID });
+  let response;
+  try {
+    response = await fetch(`${nativeBaseURL}/api/issues/${encodeURIComponent(issueID)}/task-runs?${query}`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${process.env.ADRO_MULTICA_TOKEN}` },
+      signal: AbortSignal.timeout(30_000)
+    });
+  } catch (error) {
+    throw new Blocked(`GET Multica task-runs is unreachable: ${error.message}`);
+  }
+  const text = await response.text();
+  let parsed = {};
+  if (text) {
+    try { parsed = JSON.parse(text); } catch { throw new Failed('GET Multica task-runs returned non-JSON'); }
+  }
+  if (!response.ok) throw new Blocked(`GET Multica task-runs returned ${response.status}`);
+  const tasks = Array.isArray(parsed) ? parsed : (parsed.items || parsed.tasks || []);
+  let cancelled = 0;
+  for (const task of tasks) {
+    const status = String(task.status || '').toLowerCase();
+    if (!task.id || !['queued', 'dispatched', 'running'].includes(status)) continue;
+    const cancelQuery = new URLSearchParams({ workspace_id: process.env.ADRO_CONFORMANCE_WORKSPACE_ID });
+    let cancelResponse;
+    try {
+      cancelResponse = await fetch(`${nativeBaseURL}/api/issues/${encodeURIComponent(issueID)}/tasks/${encodeURIComponent(task.id)}/cancel?${cancelQuery}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${process.env.ADRO_MULTICA_TOKEN}` },
+        signal: AbortSignal.timeout(30_000)
+      });
+    } catch (error) {
+      throw new Blocked(`POST Multica task cancel is unreachable: ${error.message}`);
+    }
+    if (!cancelResponse.ok) throw new Blocked(`POST Multica task cancel returned ${cancelResponse.status}`);
+    cancelled++;
+  }
+  record('native-assignment-cleanup', 'passed', `cancelled ${cancelled} active assignment task(s)`);
 }
 
 async function waitForRun(runID, label) {
@@ -131,6 +224,16 @@ async function main() {
   const workItem = itemPage.items?.[0];
   report.evidence.work_item_id = assertEvidence('real-work-item', workItem?.id, 'no materialized work item was returned');
   report.evidence.provider_issue_id = assertEvidence('provider-issue-binding', workItem?.provider_issue_id, 'work item has no real provider issue binding');
+  await cancelNativeAssignmentTasks(workItem.provider_issue_id);
+
+  const reportPath = process.env.ADRO_CONFORMANCE_REPORT || '.adro-conformance.json';
+  const wsReadyFile = resolve(root, `${reportPath}.ws-ready`);
+  try { unlinkSync(wsReadyFile); } catch {}
+  const wsProbe = startWebSocketProbe('pending', wsReadyFile);
+  activeWebSocketProbe = wsProbe;
+  activeWebSocketReadyFile = wsReadyFile;
+  wsProbe.child.on('close', () => { wsProbe.closed = true; });
+  await waitForWebSocketReady(wsProbe, wsReadyFile);
 
   const initial = (await request('POST', `/api/v1/work-items/${workItem.id}/run`, {
     idempotencyKey: `run-${suffix}`,
@@ -143,13 +246,8 @@ async function main() {
   Object.assign(report.evidence, { initial_run_id: runID, session_id: sessionID, work_dir: workDir });
 
   let wsResult;
-  try {
-    wsResult = JSON.parse(execFileSync('go', ['run', './cmd/adro-conformance', '--websocket-url', process.env.ADRO_MULTICA_WS_URL, '--run-id', runID, '--timeout', '45s'], {
-      cwd: root, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
-    }));
-  } catch (error) {
-    block('daemon-websocket', 'authenticated daemon WebSocket did not deliver a valid run event');
-  }
+  try { wsResult = await finishWebSocketProbe(wsProbe); }
+  catch (error) { block('daemon-websocket', error.message); }
   assertEvidence('daemon-websocket', wsResult.status === 'passed', wsResult.reason || 'daemon WebSocket check failed');
   report.evidence.websocket_event_sha256 = wsResult.event_sha256;
 
@@ -211,5 +309,7 @@ try {
   if (!(error instanceof Blocked) && !(error instanceof Failed)) report.reason = `unexpected conformance error: ${error.message}`;
   process.exitCode = error instanceof Blocked ? 2 : 1;
 } finally {
+  if (activeWebSocketProbe && !activeWebSocketProbe.closed) activeWebSocketProbe.child.kill('SIGTERM');
+  if (activeWebSocketReadyFile) { try { unlinkSync(activeWebSocketReadyFile); } catch {} }
   writeReport();
 }

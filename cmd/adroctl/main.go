@@ -34,7 +34,7 @@ func main() {
 		os.Exit(2)
 	}
 }
-func usage() { fmt.Println("Usage: adroctl <up --demo|install --profile single-node|health|config-check|version>") }
+func usage() { fmt.Println("Usage: adroctl <up|install --profile single-node|health|config-check|version>") }
 
 func configCheck(_ []string) {
 	if err := config.Validate(config.FromEnv()); err != nil {
@@ -45,12 +45,11 @@ func configCheck(_ []string) {
 }
 func up(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
-	demo := fs.Bool("demo", false, "start the local MockProvider profile")
 	addr := fs.String("addr", ":8080", "API listen address")
 	fs.Parse(args)
-	if !*demo {
-		fmt.Println("only the dependency-free --demo profile is available in this release")
-		os.Exit(2)
+	if err := config.Validate(config.FromEnv()); err != nil {
+		fmt.Fprintf(os.Stderr, "real Multica configuration required: %v\n", err)
+		os.Exit(1)
 	}
 	root := filepath.Join("var", "artifacts")
 	if err := os.MkdirAll(root, 0750); err != nil {
@@ -62,7 +61,7 @@ func up(args []string) {
 	if lookErr == nil {
 		cmd = exec.Command(apiBinary, "-addr", *addr, "-artifact-root", root)
 	} else {
-		// Source checkouts can run the demo without a prior install. Packaged
+		// Source checkouts can run without a prior install. Packaged
 		// installations should place adro-api on PATH instead.
 		cmd = exec.Command("go", "run", "./cmd/adro-api", "-addr", *addr, "-artifact-root", root)
 	}
@@ -101,7 +100,7 @@ func install(args []string) {
 		return
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(os.Stderr, "Docker is required for install; use `adroctl up --demo` for the dependency-free local profile")
+		fmt.Fprintln(os.Stderr, "Docker is required for install; use `adroctl up` with ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN for a remote Multica deployment")
 		os.Exit(1)
 	}
 	cmd := exec.Command("docker", command...)

@@ -46,6 +46,7 @@ type Memory struct {
 	automationRuns   map[string]domain.AutomationRun
 	contexts         map[string][]domain.ContextManifest
 	repairAttempts   map[string][]domain.RepairAttempt
+	pipelines        map[string]domain.PipelineRun
 }
 
 func NewMemory() *Memory {
@@ -67,7 +68,7 @@ func NewPersistentMemory(path string) (*Memory, error) {
 }
 
 func newMemory(path string) *Memory {
-	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}}
+	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
 }
 
 type persistedState struct {
@@ -95,6 +96,7 @@ type persistedState struct {
 	AutomationRuns   map[string]domain.AutomationRun     `json:"automation_runs"`
 	Contexts         map[string][]domain.ContextManifest `json:"contexts"`
 	RepairAttempts   map[string][]domain.RepairAttempt   `json:"repair_attempts"`
+	Pipelines        map[string]domain.PipelineRun       `json:"pipelines"`
 }
 
 // Flush makes the latest in-memory state durable. It is safe to call after
@@ -179,6 +181,9 @@ func (m *Memory) load() error {
 	if state.RepairAttempts != nil {
 		m.repairAttempts = state.RepairAttempts
 	}
+	if state.Pipelines != nil {
+		m.pipelines = state.Pipelines
+	}
 	for key, raw := range state.Idempotency {
 		m.idempotency[key] = raw
 	}
@@ -189,7 +194,7 @@ func (m *Memory) persistLocked() error {
 	if strings.TrimSpace(m.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 1, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts}
+	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
 	for key, value := range m.idempotency {
 		if raw, ok := value.(json.RawMessage); ok {
 			state.Idempotency[key] = raw
@@ -1404,6 +1409,92 @@ func (m *Memory) UpdateAutomationRun(id, status, takenOverBy string) (domain.Aut
 		run.FinishedAt = &now
 	}
 	m.automationRuns[id] = run
+	_ = m.persistLocked()
+	return run, nil
+}
+
+func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, error) {
+	if run.ID == "" {
+		run.ID = domain.NewID()
+	}
+	if run.SessionID == "" {
+		run.SessionID = domain.NewID()
+	}
+	if run.PipelineStage == 0 {
+		run.PipelineStage = domain.PipelineDesign
+	}
+	if run.Status == "" {
+		run.Status = domain.PipelineRunning
+	}
+	if run.MaxRetries == 0 {
+		run.MaxRetries = 3
+	}
+	if run.CoverageThreshold == 0 {
+		run.CoverageThreshold = 80
+	}
+	if err := run.Validate(); err != nil {
+		return domain.PipelineRun{}, err
+	}
+	now := time.Now().UTC()
+	run.CreatedAt, run.UpdatedAt, run.Version = now, now, 1
+	run.ActiveAgentID = run.Roles.AgentFor(run.PipelineStage)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.pipelines {
+		if existing.RequirementID == run.RequirementID && existing.Status != domain.PipelineCompleted && existing.Status != domain.PipelineFailed {
+			return domain.PipelineRun{}, fmt.Errorf("an active pipeline already exists for requirement %s", run.RequirementID)
+		}
+	}
+	m.pipelines[run.ID] = run
+	_ = m.persistLocked()
+	return run, nil
+}
+
+func (m *Memory) GetPipeline(id string) (domain.PipelineRun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	run, ok := m.pipelines[id]
+	if !ok {
+		return domain.PipelineRun{}, ErrNotFound
+	}
+	return run, nil
+}
+
+func (m *Memory) ListPipelines(workspaceID, requirementID string) []domain.PipelineRun {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]domain.PipelineRun, 0, len(m.pipelines))
+	for _, run := range m.pipelines {
+		if workspaceID != "" && run.WorkspaceID != workspaceID {
+			continue
+		}
+		if requirementID != "" && run.RequirementID != requirementID {
+			continue
+		}
+		items = append(items, run)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
+	return items
+}
+
+func (m *Memory) UpdatePipeline(run domain.PipelineRun, expectedVersion int64) (domain.PipelineRun, error) {
+	if err := run.Validate(); err != nil {
+		return domain.PipelineRun{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, ok := m.pipelines[run.ID]
+	if !ok {
+		return domain.PipelineRun{}, ErrNotFound
+	}
+	if expectedVersion > 0 && current.Version != expectedVersion {
+		return domain.PipelineRun{}, ErrConflict
+	}
+	if run.SessionID != current.SessionID || run.RequirementID != current.RequirementID || run.WorkspaceID != current.WorkspaceID {
+		return domain.PipelineRun{}, errors.New("pipeline identity fields are immutable")
+	}
+	run.CreatedAt = current.CreatedAt
+	m.pipelines[run.ID] = run
 	_ = m.persistLocked()
 	return run, nil
 }

@@ -188,6 +188,18 @@ type RunBinding struct {
 	SessionReused  bool      `json:"session_reused,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
 }
+
+// ContinuationCommand describes an incremental follow-up on an existing
+// provider work item. The expected session and work directory are supplied by
+// ADRO's durable pipeline state; a provider must prove both values before the
+// continuation is considered started.
+type ContinuationCommand struct {
+	IssueID           string `json:"issue_id"`
+	AgentID           string `json:"agent_id"`
+	Input             string `json:"input"`
+	ExpectedSessionID string `json:"expected_session_id"`
+	ExpectedWorkDir   string `json:"expected_work_dir"`
+}
 type RunSnapshot struct {
 	ID               string     `json:"id"`
 	WorkItemID       string     `json:"work_item_id,omitempty"`
@@ -242,6 +254,14 @@ type AttachmentReceipt struct {
 // the WebUI without coupling the domain to Multica's attachment API.
 type AttachmentPublisher interface {
 	PublishAttachment(context.Context, AttachmentSpec) (AttachmentReceipt, error)
+}
+
+// ContinuityProvider starts an incremental follow-up on an existing native
+// work item. Unlike a manual rerun, it must preserve the provider conversation
+// and work directory. The pipeline verifies the returned stage result against
+// the originally pinned session ID.
+type ContinuityProvider interface {
+	ContinueWorkItem(context.Context, ContinuationCommand) (RunBinding, error)
 }
 type EventStream struct {
 	Events <-chan events.Envelope

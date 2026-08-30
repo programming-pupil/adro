@@ -298,6 +298,70 @@ func (p *MulticaProvider) resolveWorkspaceID(ctx context.Context, candidate stri
 	return strings.TrimSpace(workspaces[0].ID), nil
 }
 
+// workspaceScopedPath adds the tenant selector required by Multica's
+// workspace-scoped issue routes. Keep this in one place so native issue/task
+// fallbacks cannot accidentally send an unscoped request (the server rejects
+// those with a 400 before it reaches the actual handler).
+func (p *MulticaProvider) workspaceScopedPath(ctx context.Context, path string) (string, error) {
+	workspaceID, err := p.resolveWorkspaceID(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return "", err
+	}
+	query := u.Query()
+	query.Set("workspace_id", workspaceID)
+	u.RawQuery = query.Encode()
+	return u.String(), nil
+}
+
+// waitForIssueTask waits for the daemon to claim a native issue task and pin
+// the session/work directory. The rerun endpoint responds as soon as the row
+// is queued, so returning that acknowledgement as a run binding would lose
+// the provenance required by ADRO's durable pipeline.
+func (p *MulticaProvider) waitForIssueTask(ctx context.Context, issueID, taskID string) (multicaIssueTask, error) {
+	if strings.TrimSpace(issueID) == "" || strings.TrimSpace(taskID) == "" {
+		return multicaIssueTask{}, errors.New("multica task provenance requires issue and task ids")
+	}
+	pollCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		pollCtx, cancel = context.WithTimeout(ctx, 45*time.Second)
+	}
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		path, err := p.workspaceScopedPath(pollCtx, "/api/issues/"+url.PathEscape(issueID)+"/task-runs")
+		if err != nil {
+			return multicaIssueTask{}, err
+		}
+		var tasks []multicaIssueTask
+		if err := p.do(pollCtx, http.MethodGet, path, nil, &tasks); err != nil {
+			return multicaIssueTask{}, err
+		}
+		for _, task := range tasks {
+			if strings.TrimSpace(task.ID) != strings.TrimSpace(taskID) {
+				continue
+			}
+			sessionID, workDir := task.continuationSession()
+			if sessionID != "" && workDir != "" {
+				return task, nil
+			}
+			if strings.EqualFold(task.Status, "failed") || strings.EqualFold(task.Status, "cancelled") || strings.EqualFold(task.Status, "canceled") {
+				return multicaIssueTask{}, fmt.Errorf("multica task %s ended %s before session/workdir were pinned", task.ID, task.Status)
+			}
+		}
+		select {
+		case <-pollCtx.Done():
+			return multicaIssueTask{}, fmt.Errorf("multica task %s session/workdir were not pinned before timeout: %w", taskID, pollCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (p *MulticaProvider) resolveRuntimeID(ctx context.Context, workspaceID, candidate string) (string, error) {
 	if configured := strings.TrimSpace(p.DefaultRuntimeID); configured != "" {
 		return configured, nil
@@ -353,7 +417,10 @@ func (p *MulticaProvider) StartRun(ctx context.Context, c StartRunCommand) (RunB
 			SessionID string `json:"session_id,omitempty"`
 			WorkDir   string `json:"work_dir,omitempty"`
 		}
-		path := "/api/issues/" + url.PathEscape(c.ProviderIssueID) + "/rerun"
+		path, pathErr := p.workspaceScopedPath(ctx, "/api/issues/"+url.PathEscape(c.ProviderIssueID)+"/rerun")
+		if pathErr != nil {
+			return RunBinding{}, pathErr
+		}
 		request := map[string]any{}
 		if c.Input != "" {
 			request["input"] = c.Input
@@ -376,14 +443,129 @@ func (p *MulticaProvider) StartRun(ctx context.Context, c StartRunCommand) (RunB
 		if task.ID == "" {
 			return RunBinding{}, errors.New("multica rerun returned no task id")
 		}
+		confirmed, confirmErr := p.waitForIssueTask(ctx, c.ProviderIssueID, task.ID)
+		if confirmErr != nil {
+			return RunBinding{}, confirmErr
+		}
 		p.markAuthenticated()
 		now := time.Now().UTC()
-		return RunBinding{ID: task.ID, ProviderRunID: task.ID, SessionID: task.SessionID, WorkDir: task.WorkDir, ContextID: c.ContextID, ContextVersion: c.ContextVersion, SessionReused: c.SessionID != "" && task.SessionID == c.SessionID, StartedAt: now}, nil
+		sessionID, workDir := confirmed.continuationSession()
+		return RunBinding{ID: task.ID, ProviderRunID: task.ID, SessionID: sessionID, WorkDir: workDir, ContextID: c.ContextID, ContextVersion: c.ContextVersion, SessionReused: c.SessionID != "" && sessionID == c.SessionID, StartedAt: now}, nil
 	}
 	if err == nil {
 		p.markAuthenticated()
 	}
 	return out, err
+}
+
+// multicaIssueTask is the provider metadata needed to prove that an
+// asynchronously enqueued comment task will resume the original checkout.
+// Current Multica deployments expose the resume pointer as prior_* while the
+// task is queued; compatible gateways may expose the live session/work_dir
+// directly once the daemon has claimed it.
+type multicaIssueTask struct {
+	ID               string `json:"id"`
+	AgentID          string `json:"agent_id"`
+	TriggerCommentID string `json:"trigger_comment_id"`
+	Status           string `json:"status"`
+	SessionID        string `json:"session_id"`
+	WorkDir          string `json:"work_dir"`
+	PriorSessionID   string `json:"prior_session_id"`
+	PriorWorkDir     string `json:"prior_work_dir"`
+}
+
+func (t multicaIssueTask) continuationSession() (string, string) {
+	sessionID, workDir := strings.TrimSpace(t.SessionID), strings.TrimSpace(t.WorkDir)
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(t.PriorSessionID)
+	}
+	if workDir == "" {
+		workDir = strings.TrimSpace(t.PriorWorkDir)
+	}
+	return sessionID, workDir
+}
+
+// ContinueWorkItem uses a real Multica comment-triggered task. Multica's
+// manual /rerun endpoint intentionally forces a fresh session, while an agent
+// mention on the same issue follows its normal (agent, issue) resume lookup.
+// The comment response is only an acknowledgement: this method polls the
+// issue task history and returns only after the actual task, session, and
+// workdir have been verified.
+func (p *MulticaProvider) ContinueWorkItem(ctx context.Context, command ContinuationCommand) (RunBinding, error) {
+	issueID := strings.TrimSpace(command.IssueID)
+	agentID := strings.TrimSpace(command.AgentID)
+	input := strings.TrimSpace(command.Input)
+	expectedSessionID := strings.TrimSpace(command.ExpectedSessionID)
+	expectedWorkDir := strings.TrimSpace(command.ExpectedWorkDir)
+	if issueID == "" || agentID == "" || input == "" || expectedSessionID == "" || expectedWorkDir == "" {
+		return RunBinding{}, errors.New("multica continuation requires issue id, agent id, input, expected session and expected workdir")
+	}
+	if !uuidPattern.MatchString(agentID) {
+		return RunBinding{}, errors.New("multica continuation agent id must be a UUID")
+	}
+	request := map[string]any{
+		"type":    "comment",
+		"content": fmt.Sprintf("[@ADRO development agent](mention://agent/%s)\n\n%s", agentID, input),
+	}
+	var out struct {
+		ID string `json:"id"`
+	}
+	commentPath, err := p.workspaceScopedPath(ctx, "/api/issues/"+url.PathEscape(issueID)+"/comments")
+	if err != nil {
+		return RunBinding{}, err
+	}
+	if err := p.do(ctx, http.MethodPost, commentPath, request, &out); err != nil {
+		return RunBinding{}, err
+	}
+	if strings.TrimSpace(out.ID) == "" {
+		return RunBinding{}, errors.New("multica continuation comment returned no id")
+	}
+	p.markAuthenticated()
+
+	pollCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		pollCtx, cancel = context.WithTimeout(ctx, 45*time.Second)
+	}
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var tasks []multicaIssueTask
+		taskPath, pathErr := p.workspaceScopedPath(pollCtx, "/api/issues/"+url.PathEscape(issueID)+"/task-runs")
+		if pathErr != nil {
+			return RunBinding{}, pathErr
+		}
+		err := p.do(pollCtx, http.MethodGet, taskPath, nil, &tasks)
+		if err != nil {
+			return RunBinding{}, err
+		}
+		for _, task := range tasks {
+			if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.ID) == strings.TrimSpace(out.ID) {
+				continue
+			}
+			if strings.TrimSpace(task.TriggerCommentID) != strings.TrimSpace(out.ID) || strings.TrimSpace(task.AgentID) != agentID {
+				continue
+			}
+			actualSessionID, actualWorkDir := task.continuationSession()
+			if actualSessionID == "" || actualWorkDir == "" {
+				if strings.EqualFold(task.Status, "failed") || strings.EqualFold(task.Status, "cancelled") || strings.EqualFold(task.Status, "canceled") {
+					return RunBinding{}, fmt.Errorf("multica continuation task %s ended %s before session/workdir were pinned", task.ID, task.Status)
+				}
+				continue
+			}
+			if actualSessionID != expectedSessionID || actualWorkDir != expectedWorkDir {
+				return RunBinding{}, fmt.Errorf("multica continuation task %s selected session/workdir different from the original", task.ID)
+			}
+			now := time.Now().UTC()
+			return RunBinding{ID: task.ID, ProviderRunID: task.ID, SessionID: actualSessionID, WorkDir: actualWorkDir, SessionReused: true, StartedAt: now}, nil
+		}
+		select {
+		case <-pollCtx.Done():
+			return RunBinding{}, fmt.Errorf("multica continuation task for comment %s was not confirmed before timeout: %w", out.ID, pollCtx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 func (p *MulticaProvider) AppendInput(ctx context.Context, id, input string) error {
 	if err := p.requireFeature(ctx, "run.messages.v1"); err != nil {
@@ -444,6 +626,15 @@ func (p *MulticaProvider) streamWebSocket(ctx context.Context, id, cursor string
 		return EventStream{}, errors.New("invalid multica websocket URL")
 	}
 	query := target.Query()
+	// The daemon WebSocket is shared by runtimes. When the caller configured a
+	// default runtime but the URL is otherwise unscoped, keep the subscription
+	// tenant-specific so events from another online runtime cannot be treated
+	// as this run's provenance.
+	if !query.Has("runtime_id") && !query.Has("runtime_ids") {
+		if runtimeID := strings.TrimSpace(p.DefaultRuntimeID); runtimeID != "" {
+			query.Set("runtime_ids", runtimeID)
+		}
+	}
 	query.Set("run_id", id)
 	if cursor != "" {
 		query.Set("cursor", cursor)

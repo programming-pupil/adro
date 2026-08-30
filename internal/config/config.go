@@ -31,7 +31,7 @@ type Config struct {
 
 func FromEnv() Config {
 	return Config{
-		Provider:           strings.ToLower(envOr("ADRO_PROVIDER", "mock")),
+		Provider:           strings.ToLower(envOr("ADRO_PROVIDER", "multica")),
 		AuthMode:           strings.ToLower(envOr("ADRO_AUTH_MODE", "optional")),
 		Profile:            envOr("ADRO_PROFILE", "single-node"),
 		PersistenceBackend: envOr("ADRO_PERSISTENCE_BACKEND", "file"),
@@ -50,9 +50,9 @@ func FromEnv() Config {
 func Validate(c Config) error {
 	c.Provider = strings.ToLower(strings.TrimSpace(c.Provider))
 	if c.Provider == "" {
-		c.Provider = "mock"
+		c.Provider = "multica"
 	}
-	if err := oneOf("ADRO_PROVIDER", c.Provider, "mock", "multica"); err != nil {
+	if err := oneOf("ADRO_PROVIDER", c.Provider, "multica"); err != nil {
 		return err
 	}
 	c.AuthMode = strings.ToLower(strings.TrimSpace(c.AuthMode))

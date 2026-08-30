@@ -278,6 +278,7 @@ func TestMulticaProviderRejectsEmptyWorkItemTitle(t *testing.T) {
 }
 
 func TestMulticaProviderFallsBackToNativeIssueRerun(t *testing.T) {
+	workspaceID := "11111111-1111-4111-8111-111111111111"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/runs":
@@ -286,13 +287,20 @@ func TestMulticaProviderFallsBackToNativeIssueRerun(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Fatalf("method=%s", r.Method)
 			}
+			if r.URL.Query().Get("workspace_id") != workspaceID {
+				t.Fatalf("workspace_id=%q", r.URL.Query().Get("workspace_id"))
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "task-1", "status": "queued"})
+		case r.URL.Path == "/api/issues/provider-issue-1/task-runs":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "task-1", "status": "running", "session_id": "session-1", "work_dir": "/repo"}})
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
-	binding, err := NewMulticaProvider(srv.URL, "").StartRun(context.Background(), StartRunCommand{WorkItemID: "work-1", ProviderIssueID: "provider-issue-1", Input: "run"})
+	p := NewMulticaProvider(srv.URL, "")
+	p.DefaultWorkspaceID = workspaceID
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: "work-1", ProviderIssueID: "provider-issue-1", Input: "run"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,10 +309,70 @@ func TestMulticaProviderFallsBackToNativeIssueRerun(t *testing.T) {
 	}
 }
 
+func TestMulticaProviderConfirmsCommentTaskSessionAndWorkDir(t *testing.T) {
+	agentID := "33333333-3333-4333-8333-333333333333"
+	workspaceID := "11111111-1111-4111-8111-111111111111"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/issues/issue-1/comments":
+			if r.URL.Query().Get("workspace_id") != workspaceID {
+				t.Fatalf("comment workspace_id=%q", r.URL.Query().Get("workspace_id"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "comment-1"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/issues/issue-1/task-runs":
+			if r.URL.Query().Get("workspace_id") != workspaceID {
+				t.Fatalf("task-runs workspace_id=%q", r.URL.Query().Get("workspace_id"))
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": "task-1", "agent_id": agentID, "trigger_comment_id": "comment-1", "status": "queued",
+				"prior_session_id": "session-1", "prior_work_dir": "/repo",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	p := NewMulticaProvider(srv.URL, "secret")
+	p.DefaultWorkspaceID = workspaceID
+	binding, err := p.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: "issue-1", AgentID: agentID, Input: "repair", ExpectedSessionID: "session-1", ExpectedWorkDir: "/repo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.ProviderRunID != "task-1" || binding.ProviderRunID == "comment-1" || binding.SessionID != "session-1" || binding.WorkDir != "/repo" || !binding.SessionReused {
+		t.Fatalf("binding=%+v", binding)
+	}
+}
+
+func TestMulticaProviderDoesNotTreatCommentIDAsTaskID(t *testing.T) {
+	agentID := "33333333-3333-4333-8333-333333333333"
+	workspaceID := "11111111-1111-4111-8111-111111111111"
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "comment-1"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer srv.Close()
+	p := NewMulticaProvider(srv.URL, "secret")
+	p.DefaultWorkspaceID = workspaceID
+	_, err := p.ContinueWorkItem(ctx, ContinuationCommand{
+		IssueID: "issue-1", AgentID: agentID, Input: "repair", ExpectedSessionID: "session-1", ExpectedWorkDir: "/repo",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not confirmed") {
+		t.Fatalf("expected unconfirmed continuation error, got %v", err)
+	}
+}
+
 func TestMulticaProviderStreamsWebSocketEvents(t *testing.T) {
+	runtimeID := "44444444-4444-4444-8444-444444444444"
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("run_id") != "run-1" || r.URL.Query().Get("cursor") != "cursor-1" {
+		if r.URL.Query().Get("run_id") != "run-1" || r.URL.Query().Get("cursor") != "cursor-1" || r.URL.Query().Get("runtime_ids") != runtimeID {
 			t.Fatalf("query=%s", r.URL.RawQuery)
 		}
 		if r.Header.Get("Authorization") != "Bearer secret" {
@@ -321,6 +389,7 @@ func TestMulticaProviderStreamsWebSocketEvents(t *testing.T) {
 	defer srv.Close()
 	p := NewMulticaProvider(strings.Replace(srv.URL, "http://", "ws://", 1), "secret")
 	p.WebSocketURL = strings.Replace(srv.URL, "http://", "ws://", 1)
+	p.DefaultRuntimeID = runtimeID
 	stream, err := p.StreamEvents(context.Background(), "run-1", "cursor-1")
 	if err != nil {
 		t.Fatal(err)

@@ -59,29 +59,31 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	var p provider.ExecutionProvider = provider.NewMockProvider(bus)
 	router := provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
-	if cfg.Provider == "multica" {
-		var routeErr error
-		router, routeErr = provider.NewAgentRouteResolverFromEnv()
-		if routeErr != nil {
-			slog.Error("agent route configuration", "error", routeErr)
-			os.Exit(1)
-		}
-		multica := provider.NewMulticaProvider(os.Getenv("ADRO_MULTICA_URL"), os.Getenv("ADRO_MULTICA_TOKEN"))
-		multica.DefaultAgentID = os.Getenv("ADRO_MULTICA_AGENT_ID")
-		multica.DefaultWorkspaceID = os.Getenv("ADRO_MULTICA_WORKSPACE_ID")
-		multica.DefaultRuntimeID = os.Getenv("ADRO_MULTICA_RUNTIME_ID")
-		multica.DefaultProjectID = os.Getenv("ADRO_MULTICA_PROJECT_ID")
-		if value := os.Getenv("ADRO_MULTICA_CAPABILITIES_PATH"); value != "" {
-			multica.CapabilitiesPath = value
-		}
-		if value := os.Getenv("ADRO_MULTICA_ATTACHMENT_PATH"); value != "" {
-			multica.AttachmentPath = value
-		}
-		multica.WebSocketURL = os.Getenv("ADRO_MULTICA_WS_URL")
-		p = multica
+	var routeErr error
+	router, routeErr = provider.NewAgentRouteResolverFromEnv()
+	if routeErr != nil {
+		slog.Error("agent route configuration", "error", routeErr)
+		os.Exit(1)
 	}
+	multicaURL, multicaToken := os.Getenv("ADRO_MULTICA_URL"), os.Getenv("ADRO_MULTICA_TOKEN")
+	if multicaURL == "" || multicaToken == "" {
+		slog.Error("real Multica provider is required", "hint", "set ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN")
+		os.Exit(1)
+	}
+	multica := provider.NewMulticaProvider(multicaURL, multicaToken)
+	multica.DefaultAgentID = os.Getenv("ADRO_MULTICA_AGENT_ID")
+	multica.DefaultWorkspaceID = os.Getenv("ADRO_MULTICA_WORKSPACE_ID")
+	multica.DefaultRuntimeID = os.Getenv("ADRO_MULTICA_RUNTIME_ID")
+	multica.DefaultProjectID = os.Getenv("ADRO_MULTICA_PROJECT_ID")
+	if value := os.Getenv("ADRO_MULTICA_CAPABILITIES_PATH"); value != "" {
+		multica.CapabilitiesPath = value
+	}
+	if value := os.Getenv("ADRO_MULTICA_ATTACHMENT_PATH"); value != "" {
+		multica.AttachmentPath = value
+	}
+	multica.WebSocketURL = os.Getenv("ADRO_MULTICA_WS_URL")
+	var p provider.ExecutionProvider = multica
 	srv := api.NewWithRouting(controlStore, p, fs, bus, slog.Default(), router)
 	if runnerPath := os.Getenv("ADRO_RUNNER_STATE_FILE"); runnerPath != "" {
 		supervisor, supervisorErr := runner.NewPersistentSupervisor(runnerPath)

@@ -23,6 +23,7 @@ func main() {
 	target := flag.String("websocket-url", "", "Multica daemon WebSocket URL")
 	runID := flag.String("run-id", "", "provider run/task ID")
 	cursor := flag.String("cursor", "", "optional event cursor")
+	readyFile := flag.String("ready-file", "", "write this file after the WebSocket handshake succeeds")
 	timeout := flag.Duration("timeout", 30*time.Second, "maximum wait for one event")
 	flag.Parse()
 	if *target == "" || *runID == "" || os.Getenv("ADRO_MULTICA_TOKEN") == "" {
@@ -46,6 +47,11 @@ func main() {
 		fatal("daemon WebSocket connection failed")
 	}
 	defer conn.Close()
+	if *readyFile != "" {
+		if err := os.WriteFile(*readyFile, []byte("ready\n"), 0600); err != nil {
+			fatal("daemon WebSocket ready signal could not be written")
+		}
+	}
 	_ = conn.SetReadDeadline(time.Now().Add(*timeout))
 	var event map[string]any
 	if err := conn.ReadJSON(&event); err != nil {

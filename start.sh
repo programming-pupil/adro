@@ -12,17 +12,26 @@ MULTICA_VERSION="${MULTICA_VERSION:-0.4.35}"
 MULTICA_PROFILE="${MULTICA_PROFILE:-adro-local}"
 MULTICA_BACKEND_PORT="${MULTICA_BACKEND_PORT:-19080}"
 MULTICA_FRONTEND_PORT="${MULTICA_FRONTEND_PORT:-19081}"
+MULTICA_PG_PORT="${MULTICA_PG_PORT:-55432}"
+MULTICA_DATABASE_URL="${MULTICA_DATABASE_URL:-}"
+MULTICA_PG_DATA_DIR="${MULTICA_PG_DATA_DIR:-$STATE_DIR/postgres}"
+MULTICA_ENV_FILE="$STATE_DIR/multica.env"
 ADRO_API_PORT="${ADRO_API_PORT:-8080}"
 ADRO_WEB_PORT="${ADRO_WEB_PORT:-8081}"
 COMPOSE_FILE="$ROOT_DIR/deploy/compose/docker-compose.yml"
 LOCAL_API_PID_FILE="$STATE_DIR/adro-api.pid"
 LOCAL_WEB_PID_FILE="$STATE_DIR/adro-web.pid"
+LOCAL_MULTICA_PID_FILE="$STATE_DIR/multica-server.pid"
 LOCAL_API_LOG="$STATE_DIR/adro-api.log"
 LOCAL_WEB_LOG="$STATE_DIR/adro-web.log"
+LOCAL_MULTICA_LOG="$STATE_DIR/multica-server.log"
+LOCAL_MULTICA_PG_LOG="$STATE_DIR/multica-postgres.log"
 DIRECT_MODE_FILE="$STATE_DIR/direct-mode"
+LOCAL_MULTICA_MODE_FILE="$STATE_DIR/local-multica-mode"
 MODE="start"
 WITH_MULTICA=true
 NO_DOCKER=false
+LOCAL_MULTICA=false
 INTERACTIVE=true
 OPEN_BROWSER=true
 
@@ -36,9 +45,9 @@ usage() {
 Usage: ./start.sh [options]
 
 Options:
-  --without-multica  Start ADRO only with its deterministic MockProvider.
-  --no-docker         Start ADRO API and WebUI directly with Go. Uses remote
-                      Multica when ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN are set.
+  --no-docker         Start ADRO, a local Multica source checkout, and the
+                      Multica daemon directly with Go (or use a remote API when
+                      ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN are set).
   --non-interactive  Do not launch the first-time Multica login flow.
   --no-open          Do not open the ADRO WebUI in a browser.
   --status           Show ADRO, Multica, and daemon status.
@@ -47,7 +56,7 @@ Options:
 
 Environment:
   ADRO_MULTICA_TOKEN     PAT used by ADRO's Multica HTTP Provider.
-  ADRO_MULTICA_URL       Remote Multica API URL used with --no-docker.
+  ADRO_MULTICA_URL       Optional remote Multica API URL for --no-docker.
   ADRO_MULTICA_AGENT_ID  Optional default Multica Agent UUID.
   ADRO_MULTICA_WORKSPACE_ID  Optional Multica workspace UUID (auto-discovered when unique).
   ADRO_MULTICA_RUNTIME_ID    Optional Multica runtime UUID (online runtime auto-discovered when unique).
@@ -66,8 +75,7 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --without-multica) WITH_MULTICA=false ;;
-    --no-docker) NO_DOCKER=true; WITH_MULTICA=false ;;
+    --no-docker) NO_DOCKER=true ;;
     --non-interactive) INTERACTIVE=false ;;
     --no-open) OPEN_BROWSER=false ;;
     --status) MODE="status" ;;
@@ -99,6 +107,25 @@ multica_bin() {
   fi
 }
 
+run_isolated_multica_cli() {
+  local cli
+  cli="$(multica_bin)"
+  [ -x "$cli" ] || return 1
+  # The runtime injects task-local variables into child processes. Clear all
+  # of them so the real CLI treats this as an operator invocation and permits
+  # login/daemon commands for the explicitly selected local profile.
+  (
+    cd /tmp
+    env -u MULTICA_DAEMON_PORT -u MULTICA_AGENT_ID -u MULTICA_TASK_ID \
+      -u MULTICA_TASK_SLOT -u MULTICA_TOKEN -u MULTICA_WORKSPACE_ID \
+      -u MULTICA_TASK_WORKSPACES_ROOT -u MULTICA_TASK_CONFIG_ROOT \
+      -u MULTICA_AGENT_NAME \
+      MULTICA_SERVER_URL="http://127.0.0.1:$MULTICA_BACKEND_PORT" \
+      MULTICA_APP_URL="http://127.0.0.1:$ADRO_WEB_PORT" \
+      "$cli" --profile "$MULTICA_PROFILE" "$@"
+  )
+}
+
 stop_local_processes() {
   local pid_file pid
   for pid_file in "$LOCAL_API_PID_FILE" "$LOCAL_WEB_PID_FILE"; do
@@ -115,11 +142,60 @@ stop_local_processes() {
   done
 }
 
+find_postgres_tool() {
+  local tool="$1"
+  if has "$tool"; then
+    command -v "$tool"
+    return 0
+  fi
+  local candidate
+  for candidate in \
+    "/opt/homebrew/opt/postgresql@17/bin/$tool" \
+    "/usr/local/opt/postgresql@17/bin/$tool" \
+    "/opt/homebrew/opt/postgresql/bin/$tool" \
+    "/usr/local/opt/postgresql/bin/$tool"; do
+    if [ -x "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+stop_local_multica() {
+  local pid=""
+  if [ -f "$LOCAL_MULTICA_PID_FILE" ]; then
+    read -r pid < "$LOCAL_MULTICA_PID_FILE" || true
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      log "Stopping local Multica server $pid"
+      kill "$pid" 2>/dev/null || true
+    fi
+    rm -f "$LOCAL_MULTICA_PID_FILE"
+  fi
+  if [ -f "$LOCAL_MULTICA_MODE_FILE" ]; then
+    local pg_ctl
+    pg_ctl="$(find_postgres_tool pg_ctl 2>/dev/null || true)"
+    if [ -n "$pg_ctl" ] && [ -d "$MULTICA_PG_DATA_DIR" ]; then
+      "$pg_ctl" -D "$MULTICA_PG_DATA_DIR" stop -m fast >/dev/null 2>&1 || true
+    fi
+    rm -f "$LOCAL_MULTICA_MODE_FILE"
+  fi
+}
+
 show_status() {
   local direct_mode=false
   [ -f "$DIRECT_MODE_FILE" ] && direct_mode=true
-  if [ "$direct_mode" = true ]; then
-    warn "Direct no-Docker profile is active; skipping Docker and Multica checks"
+  local local_multica=false
+  [ -f "$LOCAL_MULTICA_MODE_FILE" ] && local_multica=true
+  if [ "$local_multica" = true ]; then
+    log "Local Multica source profile is active"
+    if curl -fsS "http://127.0.0.1:$MULTICA_BACKEND_PORT/health" >/dev/null 2>&1; then
+      log "Local Multica API is ready at http://127.0.0.1:$MULTICA_BACKEND_PORT"
+    else
+      warn "Local Multica API is not ready"
+    fi
+  elif [ "$direct_mode" = true ]; then
+    warn "Direct no-Docker profile is active; remote Multica is managed outside this stack"
   elif has docker; then
     if [ -f "$ADRO_ENV_FILE" ]; then
       log "ADRO services"
@@ -143,7 +219,7 @@ show_status() {
     fi
   fi
   local pid pid_file
-  for pid_file in "$LOCAL_API_PID_FILE" "$LOCAL_WEB_PID_FILE"; do
+  for pid_file in "$LOCAL_MULTICA_PID_FILE" "$LOCAL_API_PID_FILE" "$LOCAL_WEB_PID_FILE"; do
     if [ -f "$pid_file" ]; then
       pid=""
       read -r pid < "$pid_file" || true
@@ -154,29 +230,31 @@ show_status() {
       fi
     fi
   done
-  if [ "$direct_mode" = false ]; then
-    local cli
-    cli="$(multica_bin)"
-    if [ -x "$cli" ]; then
+  if [ "$local_multica" = false ] && [ "$direct_mode" = false ]; then
+    if [ -x "$(multica_bin)" ]; then
       log "Multica daemon profile: $MULTICA_PROFILE"
-      "$cli" --profile "$MULTICA_PROFILE" daemon status --output json || true
+      run_isolated_multica_cli daemon status --output json || true
     fi
   fi
 }
 
 stop_all() {
   stop_local_processes
+  if [ -f "$LOCAL_MULTICA_MODE_FILE" ]; then
+    if [ -x "$(multica_bin)" ]; then
+      run_isolated_multica_cli daemon stop || true
+    fi
+  fi
+  stop_local_multica
   if [ ! -f "$DIRECT_MODE_FILE" ] && has docker && [ -f "$ADRO_ENV_FILE" ]; then
     compose_adro down || true
   fi
   if [ ! -f "$DIRECT_MODE_FILE" ] && has docker && [ -f "$MULTICA_DIR/docker-compose.selfhost.yml" ]; then
     compose_multica down || true
   fi
-  if [ ! -f "$DIRECT_MODE_FILE" ]; then
-    local cli
-    cli="$(multica_bin)"
-    if [ -x "$cli" ]; then
-      "$cli" --profile "$MULTICA_PROFILE" daemon stop || true
+  if [ ! -f "$DIRECT_MODE_FILE" ] && [ ! -f "$LOCAL_MULTICA_MODE_FILE" ]; then
+    if [ -x "$(multica_bin)" ]; then
+      run_isolated_multica_cli daemon stop || true
     fi
   fi
   log "Stopped ADRO and the isolated Multica stack"
@@ -186,7 +264,7 @@ if [ "$MODE" = "status" ]; then show_status; exit 0; fi
 if [ "$MODE" = "stop" ]; then stop_all; exit 0; fi
 
 if [ "$NO_DOCKER" = true ]; then
-  for command_name in go curl openssl; do
+  for command_name in go curl git tar openssl; do
     has "$command_name" || fail "$command_name is required for --no-docker"
   done
 else
@@ -205,7 +283,7 @@ detect_platform() {
   case "$(uname -s)" in
     Darwin) MULTICA_OS="darwin" ;;
     Linux) MULTICA_OS="linux" ;;
-    *) fail "Multica bootstrap supports macOS and Linux; use --without-multica on this platform" ;;
+    *) fail "Multica bootstrap supports macOS and Linux; use --no-docker with a remote Multica deployment on this platform" ;;
   esac
   case "$(uname -m)" in
     x86_64|amd64) MULTICA_ARCH="amd64" ;;
@@ -251,6 +329,10 @@ install_multica_cli() {
 }
 
 prepare_multica_server() {
+	if [ "$NO_DOCKER" = true ]; then
+		prepare_local_multica
+		return
+	fi
   has git || fail "git is required to install the pinned Multica self-host assets"
   if [ ! -d "$MULTICA_DIR/.git" ]; then
     log "Cloning Multica v$MULTICA_VERSION self-host assets"
@@ -286,55 +368,160 @@ prepare_multica_server() {
   fail "Multica did not become ready; inspect with ./start.sh --status"
 }
 
-configure_multica_profile() {
-  local cli="$BIN_DIR/multica"
-  local auth_status daemon_status
-  auth_status="$("$cli" --profile "$MULTICA_PROFILE" auth status 2>&1 || true)"
-  if [[ "$auth_status" == *"Token:"* ]]; then
-    daemon_status="$("$cli" --profile "$MULTICA_PROFILE" daemon status --output json 2>/dev/null || true)"
-    if [[ "$daemon_status" != *'"status": "running"'* && "$daemon_status" != *'"status": "starting"'* ]]; then
-      "$cli" --profile "$MULTICA_PROFILE" daemon start
-    fi
-    return
-  fi
-  if [ "$INTERACTIVE" = true ]; then
-    log "First-time Multica authentication is required; verification code: 888888"
-    "$cli" --profile "$MULTICA_PROFILE" setup self-host \
-      --server-url "http://127.0.0.1:$MULTICA_BACKEND_PORT" \
-      --app-url "http://127.0.0.1:$MULTICA_FRONTEND_PORT"
-  else
-    warn "Multica profile is not authenticated; run: $cli --profile $MULTICA_PROFILE setup self-host --server-url http://127.0.0.1:$MULTICA_BACKEND_PORT --app-url http://127.0.0.1:$MULTICA_FRONTEND_PORT"
+apply_multica_compat_patch() {
+  local patch_file="$ROOT_DIR/patches/multica-v$MULTICA_VERSION/session-provenance.patch"
+  [ -f "$patch_file" ] || fail "Multica compatibility patch is missing: $patch_file"
+  if ! grep -Eq 'SessionID[[:space:]]+string.*json:"session_id' "$MULTICA_DIR/server/internal/handler/agent.go"; then
+    git -C "$MULTICA_DIR" apply --whitespace=nowarn "$patch_file" || fail "failed to apply the Multica session provenance patch"
   fi
 }
 
+prepare_local_multica() {
+  has git || fail "git is required to download the pinned Multica source"
+  has go || fail "go is required to build the pinned Multica source"
+  if [ ! -d "$MULTICA_DIR/.git" ]; then
+    log "Downloading Multica v$MULTICA_VERSION source"
+    git clone --depth 1 --branch "v$MULTICA_VERSION" https://github.com/multica-ai/multica.git "$MULTICA_DIR"
+  fi
+  local checked_out_ref
+  checked_out_ref="$(git -C "$MULTICA_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+  [ "$checked_out_ref" = "v$MULTICA_VERSION" ] || fail "Multica source is $checked_out_ref, expected v$MULTICA_VERSION; move $MULTICA_DIR aside and retry"
+  [ -d "$MULTICA_DIR/server" ] || fail "Multica server source is missing under $MULTICA_DIR/server"
+  apply_multica_compat_patch
+
+  local pg_ctl initdb createdb psql pg_isready jwt_secret
+  if [ -z "$MULTICA_DATABASE_URL" ]; then
+    pg_ctl="$(find_postgres_tool pg_ctl 2>/dev/null || true)"
+    initdb="$(find_postgres_tool initdb 2>/dev/null || true)"
+    createdb="$(find_postgres_tool createdb 2>/dev/null || true)"
+    psql="$(find_postgres_tool psql 2>/dev/null || true)"
+    pg_isready="$(find_postgres_tool pg_isready 2>/dev/null || true)"
+    [ -n "$pg_ctl" ] && [ -n "$initdb" ] && [ -n "$createdb" ] && [ -n "$psql" ] || fail "PostgreSQL 14+ client/server tools are required for local Multica (or set MULTICA_DATABASE_URL)"
+    if [ ! -f "$MULTICA_PG_DATA_DIR/PG_VERSION" ]; then
+      mkdir -p "$MULTICA_PG_DATA_DIR"
+      "$initdb" -D "$MULTICA_PG_DATA_DIR" --username=multica --auth=trust --no-locale --encoding=UTF8 >/dev/null
+    fi
+    if ! "$pg_ctl" -D "$MULTICA_PG_DATA_DIR" status >/dev/null 2>&1; then
+      "$pg_ctl" -D "$MULTICA_PG_DATA_DIR" -o "-p $MULTICA_PG_PORT -h 127.0.0.1" -l "$LOCAL_MULTICA_PG_LOG" start >/dev/null
+    fi
+    for _ in $(seq 1 30); do
+      if [ -n "$pg_isready" ] && "$pg_isready" -h 127.0.0.1 -p "$MULTICA_PG_PORT" -U multica >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.25
+    done
+    "$createdb" -h 127.0.0.1 -p "$MULTICA_PG_PORT" -U multica multica >/dev/null 2>&1 || true
+    MULTICA_DATABASE_URL="postgres://multica@127.0.0.1:$MULTICA_PG_PORT/multica?sslmode=disable"
+  fi
+
+  if [ ! -f "$MULTICA_ENV_FILE" ]; then
+    : > "$MULTICA_ENV_FILE"
+    chmod 0600 "$MULTICA_ENV_FILE"
+  fi
+  jwt_secret="$(awk -F= '$1 == "JWT_SECRET" {sub(/^[^=]*=/, ""); print; exit}' "$MULTICA_ENV_FILE")"
+  [ -n "$jwt_secret" ] || jwt_secret="$(openssl rand -hex 32)"
+  set_env_key "$MULTICA_ENV_FILE" DATABASE_URL "$MULTICA_DATABASE_URL"
+  set_env_key "$MULTICA_ENV_FILE" JWT_SECRET "$jwt_secret"
+  set_env_key "$MULTICA_ENV_FILE" APP_ENV development
+  set_env_key "$MULTICA_ENV_FILE" PORT "$MULTICA_BACKEND_PORT"
+  set_env_key "$MULTICA_ENV_FILE" MULTICA_DEV_VERIFICATION_CODE 888888
+
+  log "Running real Multica migrations without Docker"
+  (cd "$MULTICA_DIR/server" && env DATABASE_URL="$MULTICA_DATABASE_URL" APP_ENV=development JWT_SECRET="$jwt_secret" MULTICA_DEV_VERIFICATION_CODE=888888 go run ./cmd/migrate up)
+  mkdir -p "$MULTICA_DIR/bin"
+  log "Building real Multica server without Docker"
+  (cd "$MULTICA_DIR/server" && go build -o "$MULTICA_DIR/bin/multica-server" ./cmd/server)
+  if ! curl -fsS "http://127.0.0.1:$MULTICA_BACKEND_PORT/health" >/dev/null 2>&1; then
+    log "Starting real Multica server on port $MULTICA_BACKEND_PORT"
+    (
+      cd "$MULTICA_DIR/server"
+      nohup env DATABASE_URL="$MULTICA_DATABASE_URL" APP_ENV=development JWT_SECRET="$jwt_secret" MULTICA_DEV_VERIFICATION_CODE=888888 PORT="$MULTICA_BACKEND_PORT" "$MULTICA_DIR/bin/multica-server" >"$LOCAL_MULTICA_LOG" 2>&1 </dev/null &
+      printf '%s\n' "$!" > "$LOCAL_MULTICA_PID_FILE"
+    )
+  fi
+  local attempt
+  for attempt in $(seq 1 120); do
+    if curl -fsS "http://127.0.0.1:$MULTICA_BACKEND_PORT/health" >/dev/null 2>&1; then
+      : > "$LOCAL_MULTICA_MODE_FILE"
+      LOCAL_MULTICA=true
+      log "Local Multica API is ready at http://127.0.0.1:$MULTICA_BACKEND_PORT"
+      return
+    fi
+    sleep 0.5
+  done
+  fail "Local Multica did not become ready; inspect $LOCAL_MULTICA_LOG"
+}
+
+configure_multica_profile() {
+  local daemon_status
+  run_isolated_multica_cli login --token "$ADRO_MULTICA_TOKEN"
+  if [ -n "${ADRO_MULTICA_WORKSPACE_ID:-}" ]; then
+    run_isolated_multica_cli workspace switch "$ADRO_MULTICA_WORKSPACE_ID" >/dev/null
+  fi
+  daemon_status="$(run_isolated_multica_cli daemon status --output json 2>/dev/null || true)"
+  if [[ "$daemon_status" != *'"status": "running"'* && "$daemon_status" != *'"status": "starting"'* ]]; then
+    run_isolated_multica_cli daemon start
+  fi
+}
+
+provision_multica_workspace() {
+  [ -n "${ADRO_MULTICA_WORKSPACE_ID:-}" ] && return
+  local workspaces workspace_id workspace_slug workspace_json
+  workspaces="$(curl -fsS \
+    -H "Authorization: Bearer $ADRO_MULTICA_TOKEN" \
+    "http://127.0.0.1:$MULTICA_BACKEND_PORT/api/workspaces")"
+  workspace_id="$(printf '%s' "$workspaces" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([0-9a-f-]\{36\}\)".*/\1/p' | head -n 1)"
+  if [ -z "$workspace_id" ]; then
+    workspace_slug="adro-local-$(date +%s)-$$"
+    log "Creating a local Multica workspace through the real API"
+    workspace_json="$(curl -fsS -X POST \
+      -H "Authorization: Bearer $ADRO_MULTICA_TOKEN" \
+      -H 'Content-Type: application/json' \
+      --data "{\"name\":\"Adro Local E2E\",\"slug\":\"$workspace_slug\",\"issue_prefix\":\"ADRO\"}" \
+      "http://127.0.0.1:$MULTICA_BACKEND_PORT/api/workspaces")"
+    workspace_id="$(printf '%s' "$workspace_json" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([0-9a-f-]\{36\}\)".*/\1/p' | head -n 1)"
+  fi
+  [ -n "$workspace_id" ] || fail "Multica workspace provisioning returned no workspace id"
+  export ADRO_MULTICA_WORKSPACE_ID="$workspace_id"
+  log "Using local Multica workspace $workspace_id"
+}
+
 collect_multica_provider_token() {
-  [ -z "${ADRO_MULTICA_TOKEN:-}" ] || return
-  if [ -f "$ADRO_ENV_FILE" ] && awk -F= '$1 == "ADRO_MULTICA_TOKEN" && length($2) > 0 {found = 1} END {exit !found}' "$ADRO_ENV_FILE"; then
-    return
+  if [ -n "${ADRO_MULTICA_TOKEN:-}" ]; then
+    return 0
   fi
-  local cli config_output config_file profile_token
-  cli="$BIN_DIR/multica"
-  config_output="$("$cli" --profile "$MULTICA_PROFILE" config show 2>/dev/null || true)"
-  config_file="$(printf '%s\n' "$config_output" | awk -F': ' '$1 == "Config file" {print $2; exit}')"
-  if [ -f "$config_file" ]; then
-    profile_token="$(awk -F'"' '$2 == "token" {print $4; exit}' "$config_file")"
-    case "$profile_token" in
-      mul_*|mcn_*)
-        ADRO_MULTICA_TOKEN="$profile_token"
-        export ADRO_MULTICA_TOKEN
-        log "Using the PAT created by the isolated Multica profile"
-        return
-        ;;
-    esac
+  if [ "$NO_DOCKER" = true ] && [ -n "${ADRO_MULTICA_URL:-}" ]; then
+    fail "--no-docker remote Multica requires ADRO_MULTICA_TOKEN"
   fi
-  [ "$INTERACTIVE" = true ] || return
-  [ -t 0 ] || return
-  printf '\nADRO needs a Multica PAT for real Provider calls.\n'
-  printf 'Create one in http://127.0.0.1:%s/settings?tab=tokens\n' "$MULTICA_FRONTEND_PORT"
-  printf 'Paste the PAT now, or press Enter to start with MockProvider: '
-  IFS= read -r -s ADRO_MULTICA_TOKEN
+  if [ -f "$ADRO_ENV_FILE" ]; then
+    local persisted_token
+    persisted_token="$(awk -F= '$1 == "ADRO_MULTICA_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$ADRO_ENV_FILE")"
+    if [ -n "$persisted_token" ]; then
+      ADRO_MULTICA_TOKEN="$persisted_token"
+      export ADRO_MULTICA_TOKEN
+      log "Using the persisted local Multica Provider credential"
+      return
+    fi
+  fi
+  local email auth_json auth_token pat_json
+  email="${ADRO_MULTICA_BOOTSTRAP_EMAIL:-adro-bootstrap-$(date +%s)-$$@example.com}"
+  log "Provisioning an isolated Multica service identity through its public API"
+  curl -fsS -X POST "http://127.0.0.1:$MULTICA_BACKEND_PORT/auth/send-code" \
+    -H 'Content-Type: application/json' \
+    --data "{\"email\":\"$email\"}" >/dev/null || true
+  auth_json="$(curl -fsS -X POST "http://127.0.0.1:$MULTICA_BACKEND_PORT/auth/verify-code" \
+    -H 'Content-Type: application/json' \
+    --data "{\"email\":\"$email\",\"code\":\"888888\"}")"
+  auth_token="$(printf '%s' "$auth_json" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  [ -n "$auth_token" ] || fail "Multica bootstrap login returned no token"
+  pat_json="$(curl -fsS -X POST "http://127.0.0.1:$MULTICA_BACKEND_PORT/api/tokens" \
+    -H "Authorization: Bearer $auth_token" \
+    -H 'Content-Type: application/json' \
+    --data '{"name":"ADRO control plane","expires_in_days":365}')"
+  ADRO_MULTICA_TOKEN="$(printf '%s' "$pat_json" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  case "$ADRO_MULTICA_TOKEN" in mul_*|mcn_*) ;; *) fail "Multica PAT provisioning failed" ;; esac
   export ADRO_MULTICA_TOKEN
-  printf '\n'
+  log "Provisioned the Multica Provider credential without opening Multica WebUI"
 }
 
 prepare_adro_env() {
@@ -405,19 +592,9 @@ prepare_adro_env() {
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_CAPABILITIES_PATH "$provider_capabilities_path"
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_ATTACHMENT_PATH "$provider_attachment_path"
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_WS_URL "$provider_ws_url"
-  else
-    set_env_key "$ADRO_ENV_FILE" ADRO_PROVIDER mock
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_URL ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_TOKEN ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_AGENT_ID ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_WORKSPACE_ID ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_RUNTIME_ID ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_PROJECT_ID ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_AGENT_MAP ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_CAPABILITIES_PATH ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_ATTACHMENT_PATH ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_WS_URL ""
-  fi
+	else
+		fail "ADRO requires a real Multica PAT; mock execution is not supported"
+	fi
   chmod 0600 "$ADRO_ENV_FILE"
 }
 
@@ -436,6 +613,15 @@ prepare_local_env() {
     if [ -z "$provider_agent_map" ]; then
       provider_agent_map="$(awk -F= '$1 == "ADRO_MULTICA_AGENT_MAP" {sub(/^[^=]*=/, ""); print; exit}' "$ADRO_ENV_FILE")"
     fi
+    if [ -z "$provider_token" ]; then
+      provider_token="$(awk -F= '$1 == "ADRO_MULTICA_TOKEN" {sub(/^[^=]*=/, ""); print; exit}' "$ADRO_ENV_FILE")"
+    fi
+    if [ -z "$provider_url" ]; then
+      provider_url="$(awk -F= '$1 == "ADRO_MULTICA_URL" {sub(/^[^=]*=/, ""); print; exit}' "$ADRO_ENV_FILE")"
+    fi
+  fi
+  if [ "$LOCAL_MULTICA" = true ]; then
+    provider_url="http://127.0.0.1:$MULTICA_BACKEND_PORT"
   fi
   [ -n "$admin_user" ] || admin_user=admin
   [ -n "$admin_password" ] || admin_password="$(openssl rand -hex 16)"
@@ -451,8 +637,13 @@ prepare_local_env() {
   if [ -n "$provider_url" ]; then
     set_env_key "$ADRO_ENV_FILE" ADRO_PROVIDER multica
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_URL "$provider_url"
-    # Never persist a remote credential. The caller supplies it on each start.
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_TOKEN ""
+    # Local bootstrap credentials are persisted mode-0600 for restartability;
+    # remote credentials are intentionally supplied only by the caller.
+    if [ "$LOCAL_MULTICA" = true ]; then
+      set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_TOKEN "$provider_token"
+    else
+      set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_TOKEN ""
+    fi
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_AGENT_ID "${ADRO_MULTICA_AGENT_ID:-}"
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_WORKSPACE_ID "${ADRO_MULTICA_WORKSPACE_ID:-}"
     set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_RUNTIME_ID "${ADRO_MULTICA_RUNTIME_ID:-}"
@@ -472,13 +663,9 @@ prepare_local_env() {
     export ADRO_MULTICA_CAPABILITIES_PATH="${ADRO_MULTICA_CAPABILITIES_PATH:-}"
     export ADRO_MULTICA_ATTACHMENT_PATH="${ADRO_MULTICA_ATTACHMENT_PATH:-}"
     export ADRO_MULTICA_WS_URL="${ADRO_MULTICA_WS_URL:-}"
-  else
-    set_env_key "$ADRO_ENV_FILE" ADRO_PROVIDER mock
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_URL ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_TOKEN ""
-    set_env_key "$ADRO_ENV_FILE" ADRO_MULTICA_AGENT_MAP ""
-    export ADRO_PROVIDER=mock
-  fi
+	else
+		fail "--no-docker requires ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN"
+	fi
   set_env_key "$ADRO_ENV_FILE" ADRO_AUTH_MODE required
   set_env_key "$ADRO_ENV_FILE" ADRO_AUTH_STATE_FILE "$STATE_DIR/auth.json"
   set_env_key "$ADRO_ENV_FILE" ADRO_STATE_FILE "$STATE_DIR/control-plane.json"
@@ -544,9 +731,16 @@ start_local_stack() {
 
 if [ "$WITH_MULTICA" = true ]; then
   install_multica_cli
-  prepare_multica_server
-  configure_multica_profile
+  if [ "$NO_DOCKER" = true ] && [ -n "${ADRO_MULTICA_URL:-}" ]; then
+    log "Using the configured remote Multica API without Docker"
+  else
+    prepare_multica_server
+  fi
   collect_multica_provider_token
+  if [ "$LOCAL_MULTICA" = true ]; then
+    provision_multica_workspace
+    configure_multica_profile
+  fi
 fi
 
 if [ "$NO_DOCKER" = true ]; then
@@ -570,11 +764,6 @@ admin_password="$(awk -F= '$1 == "ADRO_ADMIN_PASSWORD" {sub(/^[^=]*=/, ""); prin
 printf '\nADRO WebUI: http://127.0.0.1:%s\n' "$ADRO_WEB_PORT"
 printf 'Administrator: %s\nPassword: %s\n' "$admin_user" "$admin_password"
 printf 'Status: ./start.sh --status\nStop:   ./start.sh --stop\n'
-configured_provider="$(awk -F= '$1 == "ADRO_PROVIDER" {print $2; exit}' "$ADRO_ENV_FILE")"
-if [ "$WITH_MULTICA" = true ] && [ "$configured_provider" != multica ]; then
-  warn "Multica is running, but ADRO uses MockProvider until a Multica PAT is supplied. Run the interactive bootstrap again, or use: ADRO_MULTICA_TOKEN=<PAT> ./start.sh"
-fi
-
 if [ "$OPEN_BROWSER" = true ]; then
   if has open; then open "http://127.0.0.1:$ADRO_WEB_PORT" >/dev/null 2>&1 || true
   elif has xdg-open; then xdg-open "http://127.0.0.1:$ADRO_WEB_PORT" >/dev/null 2>&1 || true

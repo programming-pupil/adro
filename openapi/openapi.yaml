@@ -3752,6 +3752,131 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     x-websocket: true
+  "/api/v1/pipelines":
+    get:
+      summary: List ADRO-owned seven-stage delivery pipelines
+      parameters:
+      - name: requirement_id
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Pipeline page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/PipelineRun"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Start a real-Multica automated delivery pipeline
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PipelineCreate"
+      responses:
+        '201':
+          description: Pipeline created and design Agent dispatched
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PipelineRun"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '503':
+          description: Real Multica provider is not configured
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/pipelines/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read durable stage, context, history, and final report
+      responses:
+        '200':
+          description: Pipeline
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PipelineRun"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/pipelines/{id}/results":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Commit current-stage evidence and automatically dispatch the next stage
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PipelineStepResult"
+      responses:
+        '200':
+          description: Updated pipeline
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PipelineRun"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        '409':
+          description: Stale stage, wrong role, issue mismatch, or broken session continuity
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
 components:
   securitySchemes:
     bearerAuth:
@@ -4069,6 +4194,77 @@ components:
         priority:
           type: string
           default: normal
+    PipelineAgentRoles:
+      type: object
+      required: [designer_agent_id, developer_agent_id, tester_agent_id, arbitrator_agent_id]
+      properties:
+        designer_agent_id: {type: string}
+        developer_agent_id: {type: string}
+        tester_agent_id: {type: string}
+        arbitrator_agent_id: {type: string}
+    PipelineCreate:
+      type: object
+      required: [requirement_id, roles]
+      properties:
+        requirement_id: {type: string}
+        roles:
+          "$ref": "#/components/schemas/PipelineAgentRoles"
+        max_retries:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 3
+        coverage_threshold:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 100
+          default: 80
+    PipelineStepResult:
+      type: object
+      required: [stage, agent_id, outcome]
+      properties:
+        stage: {type: integer, minimum: 1, maximum: 7}
+        agent_id: {type: string}
+        outcome: {type: string, enum: [pass, fail]}
+        summary: {type: string}
+        design_doc: {type: string}
+        code_version: {type: string}
+        coverage: {type: number, minimum: 0, maximum: 100}
+        passed_tests: {type: array, items: {type: string}}
+        failed_tests: {type: array, items: {type: string}}
+        error_log: {type: string}
+        repair_note: {type: string}
+        report: {type: string}
+        provider_issue_id: {type: string}
+        provider_task_id: {type: string}
+        provider_session_id: {type: string}
+    PipelineRun:
+      type: object
+      required: [id, workspace_id, requirement_id, session_id, pipeline_stage, status, roles, context, max_retries, retry_count, coverage_threshold, version, history, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        requirement_id: {type: string}
+        session_id: {type: string}
+        parent_session_id: {type: string}
+        pipeline_stage: {type: integer, minimum: 1, maximum: 7}
+        status: {type: string, enum: [running, waiting_provider, suspended, completed, failed]}
+        roles:
+          "$ref": "#/components/schemas/PipelineAgentRoles"
+        context: {type: object, additionalProperties: true}
+        max_retries: {type: integer}
+        retry_count: {type: integer}
+        unit_retry_count: {type: integer}
+        coverage_threshold: {type: number}
+        active_provider_issue_id: {type: string}
+        active_provider_task_id: {type: string}
+        active_agent_id: {type: string}
+        final_report: {type: string}
+        suspend_reason: {type: string}
+        version: {type: integer, format: int64}
+        history: {type: array, items: {type: object, additionalProperties: true}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     JsonObject:
       type: object
       description: Versioned JSON resource or page. Resource-specific fields remain
