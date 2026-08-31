@@ -92,7 +92,7 @@
     $('#appShell').hidden = true;
     $('#loginGate').hidden = false;
     document.title = t('appTitle');
-    setTimeout(() => focusIfPresent('#loginForm input[name="username"]'), 0);
+    setTimeout(() => focusIfPresent('#loginIdentity'), 0);
   }
 
   async function enterApplication(user) {
@@ -242,13 +242,23 @@
 
   async function showBugDialog() {
     $('#bugFormError').textContent = '';
-    await loadIdentityData();
-    $('#bugRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-    $('#bugAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-    $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
+    // Open from the cached control-plane snapshot first. Directory refreshes
+    // can be slow while the stream is reconnecting, but they must not make the
+    // create action appear unresponsive.
+    const populate = () => {
+      $('#bugRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
+      $('#bugAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
+      $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
+    };
+    populate();
     applyTranslations();
     $('#bugDialog').showModal();
     setTimeout(() => focusIfPresent('#bugForm input[name="title"]'), 0);
+    await loadIdentityData();
+    if ($('#bugDialog').open) {
+      populate();
+      applyTranslations();
+    }
   }
 
   const closeBugDialog = () => $('#bugDialog').close();

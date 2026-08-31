@@ -41,6 +41,7 @@ type localWorkItem struct {
 
 type localState struct {
 	Runs     map[string]RunSnapshot   `json:"runs"`
+	RunKeys  map[string]string        `json:"run_keys,omitempty"`
 	Workdirs map[string]string        `json:"workdirs"`
 	Issues   map[string]string        `json:"issues"`
 	Items    map[string]localWorkItem `json:"items"`
@@ -54,10 +55,12 @@ type LocalProvider struct {
 	StatePath  string
 
 	mu       sync.RWMutex
+	startMu  sync.Mutex
 	runs     map[string]*localRun
 	workdirs map[string]string
 	issues   map[string]string
 	items    map[string]localWorkItem
+	runKeys  map[string]string
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -69,7 +72,7 @@ func NewLocalProvider(executable string, args []string, workRoot string, bus *ev
 	}
 	return &LocalProvider{
 		Executable: strings.TrimSpace(executable), Args: append([]string(nil), args...),
-		WorkRoot: workRoot, Bus: bus, runs: map[string]*localRun{}, workdirs: map[string]string{}, issues: map[string]string{}, items: map[string]localWorkItem{},
+		WorkRoot: workRoot, Bus: bus, runs: map[string]*localRun{}, workdirs: map[string]string{}, issues: map[string]string{}, items: map[string]localWorkItem{}, runKeys: map[string]string{},
 	}
 }
 
@@ -180,6 +183,11 @@ func (p *LocalProvider) CreateWorkItem(_ context.Context, s WorkItemSpec) (Provi
 }
 
 func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (RunBinding, error) {
+	// Serialize the idempotency lookup and durable run reservation. Without this
+	// narrow gate two concurrent retries can both observe a missing key and
+	// launch duplicate child processes before either one records the key.
+	p.startMu.Lock()
+	defer p.startMu.Unlock()
 	if strings.TrimSpace(command.WorkItemID) == "" {
 		return RunBinding{}, errors.New("work item id is required")
 	}
@@ -197,10 +205,21 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 	if err := p.prepareWorkDir(ctx, workDir, item); err != nil {
 		return RunBinding{}, err
 	}
-	return p.start(ctx, command.WorkItemID, command.ProviderIssueID, command.Input, sessionID, workDir, command.ContextID, command.ContextVersion, command.SessionID != "")
+	if key := strings.TrimSpace(command.IdempotencyKey); key != "" {
+		p.mu.RLock()
+		existingID := p.runKeys[command.WorkItemID+"\x00"+key]
+		existing := p.runs[existingID]
+		p.mu.RUnlock()
+		if existing != nil {
+			return bindingFromSnapshot(existing.snapshot, command.ContextID, command.ContextVersion, command.SessionID != ""), nil
+		}
+	}
+	return p.start(ctx, command.WorkItemID, command.ProviderIssueID, command.Input, sessionID, workDir, command.ContextID, command.ContextVersion, command.SessionID != "", command.IdempotencyKey)
 }
 
 func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command ContinuationCommand) (RunBinding, error) {
+	p.startMu.Lock()
+	defer p.startMu.Unlock()
 	if command.IssueID == "" || command.Input == "" || command.ExpectedSessionID == "" || command.ExpectedWorkDir == "" {
 		return RunBinding{}, errors.New("continuation requires issue, input, session and workdir")
 	}
@@ -222,10 +241,22 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	if err := p.prepareWorkDir(ctx, workDir, item); err != nil {
 		return RunBinding{}, err
 	}
-	return p.start(ctx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true)
+	if key := strings.TrimSpace(command.IdempotencyKey); key != "" {
+		p.mu.RLock()
+		existingID := p.runKeys[workItemID+"\x00"+key]
+		existing := p.runs[existingID]
+		p.mu.RUnlock()
+		if existing != nil {
+			if existing.snapshot.SessionID != command.ExpectedSessionID || filepath.Clean(existing.snapshot.WorkDir) != filepath.Clean(command.ExpectedWorkDir) {
+				return RunBinding{}, errors.New("continuation idempotency key maps to a different session or workdir")
+			}
+			return bindingFromSnapshot(existing.snapshot, "", 0, true), nil
+		}
+	}
+	return p.start(ctx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true, command.IdempotencyKey)
 }
 
-func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, sessionID, workDir, contextID string, contextVersion int64, reused bool) (RunBinding, error) {
+func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, sessionID, workDir, contextID string, contextVersion int64, reused bool, idempotencyKey string) (RunBinding, error) {
 	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		return RunBinding{}, fmt.Errorf("create execution workdir: %w", err)
 	}
@@ -241,6 +272,14 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, Status: "running", SessionID: sessionID, WorkDir: workDir, StartedAt: &now}
 	p.mu.Lock()
 	p.runs[id] = &localRun{snapshot: snapshot, cancel: cancel, input: input}
+	runKey := strings.TrimSpace(idempotencyKey)
+	previousRunKey := ""
+	runKeyExisted := false
+	if runKey != "" {
+		mapKey := workItemID + "\x00" + runKey
+		previousRunKey, runKeyExisted = p.runKeys[mapKey]
+		p.runKeys[mapKey] = id
+	}
 	previousWorkDir, workDirExisted := p.workdirs[workItemID]
 	p.workdirs[workItemID] = workDir
 	if err := p.persistLocked(); err != nil {
@@ -249,6 +288,14 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 			p.workdirs[workItemID] = previousWorkDir
 		} else {
 			delete(p.workdirs, workItemID)
+		}
+		if runKey != "" {
+			mapKey := workItemID + "\x00" + runKey
+			if runKeyExisted {
+				p.runKeys[mapKey] = previousRunKey
+			} else {
+				delete(p.runKeys, mapKey)
+			}
 		}
 		p.mu.Unlock()
 		cancel()
@@ -259,6 +306,14 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": hex.EncodeToString(digest[:]), "session_id": sessionID, "work_dir": workDir}))
 	go p.execute(runCtx, id, input, workDir, sessionID, reused)
 	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}, nil
+}
+
+func bindingFromSnapshot(snapshot RunSnapshot, contextID string, contextVersion int64, reused bool) RunBinding {
+	now := time.Now().UTC()
+	if snapshot.StartedAt != nil {
+		now = *snapshot.StartedAt
+	}
+	return RunBinding{ID: snapshot.ID, ProviderRunID: snapshot.ID, SessionID: snapshot.SessionID, WorkDir: snapshot.WorkDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}
 }
 
 func localExecutionContext() (context.Context, context.CancelFunc) {
@@ -805,9 +860,12 @@ func (p *LocalProvider) persistLocked() error {
 	if p.StatePath == "" {
 		return nil
 	}
-	state := localState{Runs: map[string]RunSnapshot{}, Workdirs: map[string]string{}, Issues: map[string]string{}, Items: map[string]localWorkItem{}}
+	state := localState{Runs: map[string]RunSnapshot{}, RunKeys: map[string]string{}, Workdirs: map[string]string{}, Issues: map[string]string{}, Items: map[string]localWorkItem{}}
 	for id, run := range p.runs {
 		state.Runs[id] = run.snapshot
+	}
+	for key, id := range p.runKeys {
+		state.RunKeys[key] = id
 	}
 	for key, value := range p.workdirs {
 		state.Workdirs[key] = value
@@ -870,6 +928,11 @@ func (p *LocalProvider) loadState() error {
 			snapshot.FinishedAt = &now
 		}
 		p.runs[id] = &localRun{snapshot: snapshot}
+	}
+	for key, id := range state.RunKeys {
+		if _, exists := p.runs[id]; exists {
+			p.runKeys[key] = id
+		}
 	}
 	for key, value := range state.Workdirs {
 		p.workdirs[key] = value

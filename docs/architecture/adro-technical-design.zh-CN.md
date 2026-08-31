@@ -5,13 +5,13 @@
 适用范围：开源单机版、企业私有化单租户、多租户演进  
 更新时间：2026-08-30
 
-> 本文是可以拆解为代码、Migration、API、插件和测试任务的技术方案。它定义 ADRO 如何独立拥有业务事实和自动交付闭环，同时允许执行器、Git、CI、通知、存储和知识能力通过插件替换。Multica 与本地 AOS 仅作为黑盒能力和设计思想参考；本文不复制它们的源代码、目录、命名、UI、文案、私有 schema 或内部实现。
+> 本文是可以拆解为代码、Migration、API、插件和测试任务的技术方案。它定义 ADRO 如何独立拥有业务事实和自动交付闭环，同时允许执行器、Git、CI、通知、存储和知识能力通过插件替换。
 
 ## 1. 设计结论
 
 ADRO 的核心是“持久化流水线 + 可插拔执行器 + 独立证据链 + 可恢复 harness”。用户提交 Requirement、Bug 或 Analysis 后，系统创建一条不可变的 `session_id`，编排 Agent 完成方案、研发/分析、测试、部署、失败回流、复测和报告。员工负责目标、权限、策略和例外，实际执行始终由 Agent 完成。
 
-当前版本完全不包含 Multica 适配器、API、启动器或源码副本。Multica 只在本文件的黑盒对比章节中出现，不能成为 ADRO 的业务主键、数据库依赖或运行时前置条件。未来如社区实现兼容插件，必须在独立仓库通过 SPI 和许可证审查后安装，不改变业务状态模型。
+当前版本不包含任何外部编排产品的适配器、API、启动器或源码副本。社区兼容插件必须在独立仓库通过 SPI、签名和许可证审查后安装，不改变业务状态模型。
 
 最重要的三个不变量：
 
@@ -48,21 +48,12 @@ P1 可增加：远程 Runner、GitLab/Forgejo、更多代码客户端、云存�
 | observable by default | 每个 attempt、context 版本、provider 调用、事件和 Artifact 都可追溯到 hash、时间和策略版本。 |
 | real evidence | 发布验收使用真实客户端、GitHub/CI、测试环境和 IM；测试 double 只用于 SPI 单测，不能作为生产 profile。 |
 
-### 2.3 Clean-room 边界
+### 2.3 实现边界
 
-允许参考：
-
-- Multica 公共仓库的可观察 API、运行行为、插件/Agent/Runtime/Project 等能力类别，以及本仓库已有 blueprint 的需求映射。
-- AOS（本机 `/Users/shareit/program/github/aos`）中关于可恢复 session、上下文状态、压缩前记忆抽取、精确 archive、统一记忆、事件幂等、Agent Team mailbox 和故障测试的设计思想。
-- Git、OCI、OpenTelemetry、CloudEvents、MCP 等公开标准。
-
-禁止：
-
-- 复制 Multica/AOS 的源文件、目录树、函数/变量命名、UI 结构、图片、文案、私有表结构、未公开协议或生成物。
-- 通过 fork、patch、运行时注入或反向代理修改 Multica 源码以伪造 ADRO 能力。
-- 把上游数据库当作 ADRO 数据库，或将上游 ID 暴露为公共 API 主键。
-
-每个参考点都要在设计评审记录“采用、改变、拒绝”的原因，并由代码扫描和许可证检查阻止意外复制。开源发布前生成 SPDX SBOM、NOTICE、依赖许可证报告，并由维护者做商标/专利和许可证审阅。
+- 只使用 Git、OCI、OpenTelemetry、CloudEvents、MCP、HTTP 和 POSIX 等公开标准；核心不依赖某个供应商的私有协议。
+- 外部适配器必须通过版本化 SPI、签名验证、权限审查、SBOM 和 conformance test 后才能启用。
+- 外部系统的数据库、任务 ID、UI 和运行时状态不能成为 ADRO 的业务主键或事实来源。
+- 发布前生成 SPDX SBOM、NOTICE、依赖许可证报告，并由维护者做商标、专利和许可证审阅。
 
 ## 3. 总体架构
 
@@ -122,7 +113,7 @@ Web UI / OpenAPI / DingTalk / Feishu / Webhook
 | Artifact | 文件系统 driver | S3/OSS/OBS/COS 等对象存储 |
 | 实时 | SSE/WebSocket cursor | 同协议的事件网关 |
 | 观测 | OpenTelemetry、Prometheus、结构化日志 | Loki/Tempo/集中 SIEM |
-| 前端 | ADRO 自有 React/TypeScript 或现有无依赖工作台 | 同一 API，不嵌入 Multica UI |
+| 前端 | ADRO 自有 React/TypeScript 或现有无依赖工作台 | 同一 API，不嵌入外部 UI |
 | 策略 | Go policy evaluator | OPA/Rego 或企业策略服务 |
 
 ## 4. 插件化平台
@@ -349,6 +340,15 @@ turn 开始、每次工具调用前后、压缩前后、外部副作用前后写
 - 运行进程丢失时保留 `provider_process_continuity`，按能力决定 resume、重建或人工升级。
 - session 删除遵循 retention/legal hold；session memory、archive、citation、context 和 trace 不产生孤儿记录。
 
+本仓库的单节点 profile 已提供上述 harness 的可运行基线：
+`internal/harness` 以原子快照持久化完整 turn 链（`prev_hash`/`hash`）、
+checkpoint、精确 archive window、带 source turn 的 memory item，以及 lease
+和 outbox 的 claim/ack/nack/过期回收；`internal/harness.Dispatcher` 在发布
+成功后才确认副作用。`/api/v1/sessions/*` 暴露增量 transcript、context
+compile/status、compact 和 recover。PostgreSQL/NATS/Temporal 版本对应
+`migrations/004_harness.sql` 与 `sdk/harness` 契约，仍需目标企业提供真实
+适配器、故障注入和 RTO/RPO 证据后才能解除生产 gate。
+
 ## 8. 流程编排与同 session 自动修复
 
 ### 8.1 逻辑模型
@@ -396,7 +396,7 @@ Requirement/Analysis/Bug
 }
 ```
 
-`continuity_mode` 取 `provider_resume`、`harness_rebuild`、`new_unrelated_session`。最后一种永远不能作为自动 repair 通过；前两种都要能重放 manifest、hash 和 provenance。若上游只返回一个状态字符串，ADRO 必须标记 `continuity_unproven` 而暂停，这正是当前公开 Multica snapshot 能力不足时的预期行为。
+`continuity_mode` 取 `provider_resume`、`harness_rebuild`、`new_unrelated_session`。最后一种永远不能作为自动 repair 通过；前两种都要能重放 manifest、hash 和 provenance。若适配器只返回一个状态字符串，ADRO 必须标记 `continuity_unproven` 而暂停。
 
 ### 8.4 并行和资源锁
 
@@ -618,7 +618,7 @@ ADRO 使用自己的 UI，不 iframe、跳转或复用任何外部 WebUI。执�
 
 ### 14.3 质量声明边界
 
-本地单测和 deterministic fixture 只能证明机制。只有在固定模型、预算、工具、权限、客户端版本和真实仓库上完成可重复实验，才能声明召回率、成功率、延迟、成本或“优于 Multica”。任何尚未完成的 adapter、隔离、HA、备份、真实外部服务在发布报告中必须标为 `reference-only` 或 `blocked`。
+本地单测和 deterministic fixture 只能证明机制。只有在固定模型、预算、工具、权限、客户端版本和真实仓库上完成可重复实验，才能声明召回率、成功率、延迟或成本。任何尚未完成的 adapter、隔离、HA、备份、真实外部服务在发布报告中必须标为 `reference-only` 或 `blocked`。
 
 ## 15. 交付阶段
 
@@ -642,7 +642,7 @@ ADRO 使用自己的 UI，不 iframe、跳转或复用任何外部 WebUI。执�
 | 上下文过大/压缩失真 | 修复回归、错误决策 | 先抽取再压缩、精确 archive、pinned、召回探针和 fail closed |
 | Git/CI webhook 丢失或乱序 | 错误通过/重复触发 | API 补偿、cursor、签名、nonce、idempotency 和 source hash |
 | 单机存储故障 | 任务和审计丢失 | checkpoint、备份恢复；生产升级 PostgreSQL/NATS/对象存储 |
-| 全量复制 Multica 范围过大 | 延期且无法验证 | 只承诺交付闭环 P0；外围能力以插件和 P1 排期 |
+| 外部生态范围过大 | 延期且无法验证 | 只承诺交付闭环 P0；外围能力以插件和 P1 排期 |
 
 明确决策：不修改或依赖任何外部编排产品，不把父子任务树作为 ADRO 核心，不把数据源做成独立重点菜单，不把员工当研发/测试执行人，不用 Docker 作为本地启动前提，不用 mock provider 作为真实产品验收，不把一次成功的 Agent 文本当作交付证据。
 

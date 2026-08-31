@@ -91,8 +91,8 @@ func NewPersistentBus(path string) (*Bus, error) {
 }
 
 func (b *Bus) Flush() error {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.persistLocked()
 }
 
@@ -129,7 +129,17 @@ func (b *Bus) persistLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, b.statePath)
+	if err := os.Rename(tmpName, b.statePath); err != nil {
+		return err
+	}
+	// Persist the directory entry as well as file contents. Without this sync,
+	// a power loss immediately after rename can resurrect the prior snapshot.
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close()
+	return dirFile.Sync()
 }
 
 func (b *Bus) Publish(_ context.Context, event Envelope) error {

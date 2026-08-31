@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +34,58 @@ func TestLocalProviderRunsRealProcessAndCapturesSnapshot(t *testing.T) {
 	}
 	if filepath.Clean(snapshot.WorkDir) != filepath.Clean(root+"/work-1/"+binding.SessionID) {
 		t.Fatalf("unexpected workdir=%q", snapshot.WorkDir)
+	}
+}
+
+func TestLocalProviderStartRunIsIdempotentByHarnessKey(t *testing.T) {
+	p := NewLocalProvider("/usr/bin/printf", []string{"{input}"}, t.TempDir(), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "idempotent-item", Title: "idempotent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "once", IdempotencyKey: "pipeline:1:stage:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "once", IdempotencyKey: "pipeline:1:stage:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || first.ProviderRunID != second.ProviderRunID {
+		t.Fatalf("duplicate provider run first=%+v second=%+v", first, second)
+	}
+	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "different", IdempotencyKey: "pipeline:1:stage:1"}); err != nil {
+		// Providers cannot compare opaque prompt semantics after a lost response;
+		// the existing run is still the only safe result for this idempotency key.
+		t.Fatal(err)
+	}
+}
+
+func TestLocalProviderConcurrentStartRunUsesOneIdempotentReservation(t *testing.T) {
+	p := NewLocalProvider("/bin/sleep", []string{"0.05"}, t.TempDir(), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "concurrent-item", Title: "concurrent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const callers = 16
+	bindings := make([]RunBinding, callers)
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			bindings[index], errs[index] = p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "same", IdempotencyKey: "concurrent:key"})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("caller %d: %v", i, err)
+		}
+		if bindings[i].ID != bindings[0].ID {
+			t.Fatalf("caller %d created duplicate binding %q vs %q", i, bindings[i].ID, bindings[0].ID)
+		}
 	}
 }
 

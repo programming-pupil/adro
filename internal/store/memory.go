@@ -102,8 +102,8 @@ type persistedState struct {
 // Flush makes the latest in-memory state durable. It is safe to call after
 // every HTTP request and is a no-op for the default ephemeral profile.
 func (m *Memory) Flush() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.persistLocked()
 }
 
@@ -235,7 +235,17 @@ func (m *Memory) persistLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, m.statePath)
+	if err := os.Rename(tmpName, m.statePath); err != nil {
+		return err
+	}
+	// Sync the parent directory so a crash after rename cannot resurrect the
+	// previous control-plane snapshot.
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close()
+	return dirFile.Sync()
 }
 
 func (m *Memory) Idempotent(key string, value any) (any, bool) {
@@ -751,7 +761,16 @@ func (m *Memory) SaveRepairAttempt(attempt domain.RepairAttempt) (domain.RepairA
 	previous := append([]domain.RepairAttempt(nil), m.repairAttempts[attempt.BugID]...)
 	if len(previous) > 0 {
 		last := previous[len(previous)-1]
-		if attempt.Attempt <= last.Attempt {
+		if attempt.Attempt == last.Attempt {
+			// Recovery may replay a provider effect after persisting the repair
+			// attempt but before persisting its provenance/checkpoint. Treat the
+			// same attempt as idempotent while rejecting a conflicting payload.
+			if attempt.ProviderTaskID == "" || attempt.WorkItemID != last.WorkItemID || attempt.ContextID != last.ContextID || attempt.ProviderTaskID != last.ProviderTaskID || attempt.ProviderSessionID != last.ProviderSessionID {
+				return domain.RepairAttempt{}, ErrConflict
+			}
+			return cloneRepairAttempt(last), nil
+		}
+		if attempt.Attempt < last.Attempt {
 			return domain.RepairAttempt{}, ErrConflict
 		}
 	}

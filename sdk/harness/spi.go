@@ -1,0 +1,102 @@
+// Package harness defines the versioned extension contract for durable
+// sessions. Implementations may use PostgreSQL, SQLite, or another durable
+// store, but must preserve append-only transcript and idempotent side effects.
+package harness
+
+import (
+	"context"
+	"time"
+)
+
+const ProtocolVersion = "adro.harness.v1"
+
+type Session struct {
+	ID, TenantID, WorkspaceID string
+	BudgetTokens              int64
+	ContextVersion            int64
+}
+
+type Turn struct {
+	ID, SessionID, AttemptID string
+	Sequence                 int64
+	Role, Content            string
+	IdempotencyKey           string
+	PrevHash, Hash           string
+	CreatedAt                time.Time
+}
+
+type Checkpoint struct {
+	ID, SessionID, Phase, EventHash string
+	TurnSequence, ContextVersion    int64
+	OutboxIDs, LeaseIDs             []string
+	CreatedAt                       time.Time
+}
+
+type ArchiveWindow struct {
+	ID, SessionID, SourceHash, ReplacementHash string
+	StartSequence, EndSequence                 int64
+	Summary                                    string
+	ParentArchiveID                            string
+}
+
+type Lease struct {
+	ID, SessionID, Key, Owner, State string
+	Version                          int64
+	ExpiresAt                        time.Time
+}
+
+type OutboxEvent struct {
+	ID, SessionID, IdempotencyKey, State, Owner string
+	Payload                                     []byte
+	Attempts                                    int
+	LeaseUntil, NextAttemptAt                   time.Time
+	PublishedAt                                 *time.Time
+}
+
+// Store is the minimum durable session contract. AppendTurn and
+// SaveCheckpoint must be atomic with respect to their own revision and reject
+// stale or forged hashes. A provider is never allowed to replace this state.
+type Store interface {
+	CreateSession(context.Context, Session) (Session, error)
+	GetSession(context.Context, string) (Session, error)
+	AppendTurn(context.Context, string, Turn) (Turn, error)
+	ListTurns(context.Context, string, int64, int) ([]Turn, int64, error)
+	SaveCheckpoint(context.Context, string, Checkpoint) (Checkpoint, error)
+	Recover(context.Context, string, time.Time) (Recovery, error)
+	Compact(context.Context, string, CompactRequest) (ArchiveWindow, error)
+}
+
+type Recovery struct {
+	Session          Session
+	LatestCheckpoint *Checkpoint
+	PendingEffects   []OutboxEvent
+	ExpiredLeases    []Lease
+}
+
+type CompactRequest struct {
+	StartSequence, EndSequence int64
+	Summary                    string
+	RetainedTail               int
+	Reason                     string
+}
+
+type LeaseStore interface {
+	AcquireLease(context.Context, string, string, string, time.Duration) (Lease, error)
+	ReleaseLease(context.Context, string, string, string) error
+}
+
+type OutboxStore interface {
+	EnqueueOutbox(context.Context, string, string, []byte) (OutboxEvent, error)
+	ClaimOutbox(context.Context, string, string, int, time.Duration) ([]OutboxEvent, error)
+	AckOutbox(context.Context, string, string, string) error
+	NackOutbox(context.Context, string, string, string, time.Time) error
+}
+
+// AtomicOutboxStore is the preferred contract for request paths that enqueue
+// and immediately execute an effect. Implementations must make the
+// idempotent lookup and lease claim one atomic operation; recovery workers may
+// continue to use OutboxStore for records left pending by a crashed caller.
+type AtomicOutboxStore interface {
+	OutboxStore
+	EnqueueAndClaimOutbox(context.Context, string, string, []byte, string, time.Duration) (OutboxEvent, bool, error)
+}

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -182,6 +183,10 @@ type StartRunCommand struct {
 	ContextID      string `json:"context_id,omitempty"`
 	ContextVersion int64  `json:"context_version,omitempty"`
 	RepairAttempt  int    `json:"repair_attempt,omitempty"`
+	// IdempotencyKey is owned by ADRO's durable harness. Providers must return
+	// the original run for an identical key instead of creating a duplicate
+	// side effect after a lost response or API restart.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 type RunBinding struct {
 	ID             string    `json:"id,omitempty"`
@@ -204,6 +209,7 @@ type ContinuationCommand struct {
 	Input             string `json:"input"`
 	ExpectedSessionID string `json:"expected_session_id"`
 	ExpectedWorkDir   string `json:"expected_work_dir"`
+	IdempotencyKey    string `json:"idempotency_key,omitempty"`
 }
 type RunSnapshot struct {
 	ID               string     `json:"id"`
@@ -300,13 +306,14 @@ type mockRun struct {
 type MockProvider struct {
 	mu          sync.Mutex
 	runs        map[string]*mockRun
+	runKeys     map[string]string
 	bus         *events.Bus
 	caps        Capabilities
 	attachments []AttachmentSpec
 }
 
 func NewMockProvider(bus *events.Bus) *MockProvider {
-	return &MockProvider{runs: make(map[string]*mockRun), bus: bus, caps: Capabilities{
+	return &MockProvider{runs: make(map[string]*mockRun), runKeys: make(map[string]string), bus: bus, caps: Capabilities{
 		Provider: "mock", AdapterVersion: "1.0.0", ServerVersion: "local",
 		Features: []string{"agent.v1", "project.resources.v1", "issue.child.v1", "run.messages.v1", "runtime.worktree.v1", "usage.tokens.v1"},
 	}}
@@ -336,9 +343,24 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 	}
 	id := domain.NewID()
 	now := time.Now().UTC()
-	runCtx, cancel := context.WithCancel(ctx)
+	sessionID := cmd.SessionID
+	if sessionID == "" {
+		sessionID = "mock-session-" + id
+	}
 	p.mu.Lock()
-	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, Status: "running", StartedAt: &now}, cancel: cancel}
+	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
+		if existingID := p.runKeys[cmd.WorkItemID+"\x00"+key]; existingID != "" {
+			if existing := p.runs[existingID]; existing != nil {
+				p.mu.Unlock()
+				return RunBinding{ID: existing.snapshot.ID, ProviderRunID: "mock-run-" + existing.snapshot.ID, SessionID: existing.snapshot.SessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", StartedAt: *existing.snapshot.StartedAt}, nil
+			}
+		}
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, SessionID: sessionID, Status: "running", StartedAt: &now}, cancel: cancel}
+	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
+		p.runKeys[cmd.WorkItemID+"\x00"+key] = id
+	}
 	p.mu.Unlock()
 	inputDigest := sha256.Sum256([]byte(cmd.Input))
 	_ = p.bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": cmd.WorkItemID, "input_sha256": hex.EncodeToString(inputDigest[:]), "input_bytes": len(cmd.Input)}))
@@ -358,10 +380,6 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 		case <-runCtx.Done():
 		}
 	}()
-	sessionID := cmd.SessionID
-	if sessionID == "" {
-		sessionID = "mock-session-" + id
-	}
 	return RunBinding{ID: id, ProviderRunID: "mock-run-" + id, SessionID: sessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", StartedAt: now}, nil
 }
 func (p *MockProvider) AppendInput(_ context.Context, runID, input string) error {

@@ -57,8 +57,8 @@ func NewPersistentLedger(path string) (*Ledger, error) {
 }
 
 func (l *Ledger) Flush() error {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.path == "" {
 		return nil
 	}

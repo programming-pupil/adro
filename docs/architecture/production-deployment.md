@@ -30,6 +30,8 @@ the single-node profile.
 | Runner registry | atomic JSON; commands execute as local argv | rootless container or VM workers with quotas and egress policy | block production while `argv` is selected |
 | Secrets | process environment | workload identity and external SecretStore | block production while `environment` is selected |
 | Git and CI | interfaces only | authenticated adapters with webhook verification | block production while `none` is selected |
+| Harness transcript/checkpoints | atomic JSON snapshot | PostgreSQL `harness_sessions`/`session_turns`/`session_checkpoints` with hash verification | block production if the selected adapter cannot validate the chain |
+| Lease/outbox recovery | durable local snapshot plus `Dispatcher` | transactional lease/outbox tables and a supervised publisher worker | expired claims must be requeued; never acknowledge before publish |
 
 The production target names are `postgres`, `nats`, `temporal`, `s3`,
 `oidc`/`mtls`, `external`, `rootless`/`container`/`vm`, `git`, and `external`.
@@ -57,6 +59,14 @@ and prove all of the following before changing the startup gate:
   signed and replay bounded, and logs/artifacts are redacted;
 - each adapter passes an independently runnable conformance suite at the exact
   version recorded in the release manifest.
+- each plugin installation is registered through `internal/plugins`, with a
+  manifest digest and Ed25519 signature verified before activation; three
+  consecutive failed probes quarantine the installation.
+- plugin lifecycle API calls are workspace-scoped; authenticated members cannot
+  install, activate, quarantine, or report health, while a machine token may do
+  so only for the workspace named by its request boundary. A userless optional
+  local profile permits bootstrap installation until the first administrator is
+  created.
 
 Local argv execution and the reference SDK types are never sufficient evidence
 for any of these controls.
@@ -76,5 +86,7 @@ a wired online migration system. A production rollout needs a tested sequence:
 6. Run pod/node/AZ loss, bus outage, database failover, object-store failure,
    restore-time and restore-point tests.
 
-No worker, cross-AZ test, or measured RTO/RPO is shipped today. That is a P0
-production blocker, not a documentation-only known limitation.
+The local profile now ships a supervised-in-process harness dispatcher and
+restart recovery for lease/outbox claims. No cross-AZ worker, external adapter,
+or measured production RTO/RPO is shipped today. Those remain a P0 production
+gate, not a documentation-only known limitation.

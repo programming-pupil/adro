@@ -6,9 +6,10 @@ not embed, download, patch, or call any other orchestration product. Its only
 runtime dependency is an operator-selected local coding executable.
 
 The product owns requirements, bugs, work items, evidence, provenance, tenant
-boundaries, agent routing, pipeline state, context manifests, repair attempts,
-and the browser workbench. `internal/provider` exposes a small provider-neutral
-SPI. `LocalProvider` is the shipped implementation: it discovers `claude`,
+boundaries, agent routing, pipeline state, durable session transcripts,
+checkpoints, context archives, repair attempts, leases, and the browser
+workbench. `internal/provider` exposes a small provider-neutral SPI.
+`LocalProvider` is the shipped implementation: it discovers `claude`,
 `codex`, or `claude-code`, invokes the real executable with `os/exec`, captures
 output and git evidence, and keeps the original session/worktree for repairs.
 The deterministic provider in tests is not selectable by the runtime profile.
@@ -45,8 +46,9 @@ The API listens on `ADRO_API_PORT` (default `8080`) and the WebUI on
 `ADRO_WEB_PORT` (default `8081`). `ADRO_PUBLIC_API_URL` is automatically set to
 the local API URL for executor callbacks; override it when the executor runs in
 another network namespace. `ADRO_HOME`, `ADRO_ARTIFACT_ROOT`,
-`ADRO_WORK_ROOT`, and `ADRO_RUN_STATE_FILE` control execution checkouts and
-durable local run snapshots. Set
+`ADRO_WORK_ROOT`, `ADRO_RUN_STATE_FILE`, `ADRO_HARNESS_STATE_FILE`, and
+`ADRO_PLUGIN_STATE_FILE` control execution checkouts, durable harness state,
+and the signed plugin registry. Set
 `ADRO_AUTH_MODE=required` with `ADRO_ADMIN_PASSWORD` for protected routes.
 Set `ADRO_EXECUTOR_TIMEOUT=15m` (Go duration) to bound an individual client run;
 an expired run is recorded as `timed_out` with its session/worktree evidence
@@ -65,6 +67,11 @@ go run ./cmd/adro-web -addr :8081 -root ./apps/web
 
 The API exposes readiness at `/readyz`, secret-free executor diagnostics at
 `/api/v1/provider/diagnostics`, and versioned resources below `/api/v1`. The
+session harness is available at `/api/v1/sessions/{id}/turns`,
+`/checkpoints`, `/context/status`, `/context/compile`, `/compact`, and
+`/recover`; these endpoints preserve the full transcript after compaction.
+Signed adapter installations are managed through `/api/v1/plugins` and are
+never activated before manifest digest/signature verification.
 seven-stage pipeline is design, development, unit test, integration test,
 arbitration, revalidation, and report. A failed integration test returns to the
 same development session and worktree; a missing or mismatched continuity
@@ -77,6 +84,11 @@ record is rejected rather than silently starting over.
 - `internal/provider`: provider-neutral SPI and the local executable boundary.
 - `internal/store`: atomic JSON persistence for the single-node profile.
 - `internal/events`: replayable event bus and workspace streams.
+- `internal/harness`: append-only turns, hash-linked checkpoints, exact
+  compaction archives, memory citations, recoverable leases, and outbox
+  delivery.
+- `internal/plugins`: signed adapter installation registry with verified
+  activation, health tracking, and automatic quarantine.
 - `internal/api`: authenticated REST transport and workbench routes.
 - `apps/web`: ADRO-owned Chinese/English workbench; no embedded external UI.
 - `sdk/*`: extension SPIs for integrations and artifact drivers.
@@ -89,8 +101,8 @@ contract test and an explicit deployment boundary.
 The product and technical contracts are maintained in
 `docs/product-requirements.zh-CN.md` and
 `docs/architecture/adro-technical-design.zh-CN.md`. Those documents contain
-black-box comparison notes for design research only; no external source code or
-runtime API is shipped here.
+the product scope, implementation contracts, release gates, and deployment
+boundaries. No external source code or runtime API is shipped here.
 
 ## Verification
 

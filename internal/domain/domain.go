@@ -234,21 +234,22 @@ type GateResult struct {
 }
 
 type Provenance struct {
-	ID                string    `json:"id"`
-	WorkItemID        string    `json:"work_item_id"`
-	RequirementID     string    `json:"requirement_id,omitempty"`
-	BugID             string    `json:"bug_id,omitempty"`
-	AgentBindingID    string    `json:"agent_binding_id"`
-	Provider          string    `json:"provider"`
-	ProviderAgentID   string    `json:"provider_agent_id,omitempty"`
-	ProviderTaskID    string    `json:"provider_task_id,omitempty"`
-	ProviderSessionID string    `json:"provider_session_id,omitempty"`
-	ProviderWorkDir   string    `json:"provider_work_dir,omitempty"`
-	RepositoryID      string    `json:"repository_id"`
-	BaselineCommit    string    `json:"baseline_commit,omitempty"`
-	HeadCommit        string    `json:"head_commit,omitempty"`
-	ContextVersion    int64     `json:"context_version"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                     string    `json:"id"`
+	WorkItemID             string    `json:"work_item_id"`
+	RequirementID          string    `json:"requirement_id,omitempty"`
+	BugID                  string    `json:"bug_id,omitempty"`
+	AgentBindingID         string    `json:"agent_binding_id"`
+	Provider               string    `json:"provider"`
+	ProviderAgentID        string    `json:"provider_agent_id,omitempty"`
+	ProviderTaskID         string    `json:"provider_task_id,omitempty"`
+	ProviderSessionID      string    `json:"provider_session_id,omitempty"`
+	ProviderWorkDir        string    `json:"provider_work_dir,omitempty"`
+	ProviderIdempotencyKey string    `json:"provider_idempotency_key,omitempty"`
+	RepositoryID           string    `json:"repository_id"`
+	BaselineCommit         string    `json:"baseline_commit,omitempty"`
+	HeadCommit             string    `json:"head_commit,omitempty"`
+	ContextVersion         int64     `json:"context_version"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 type ImpactAction string

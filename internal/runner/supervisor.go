@@ -101,8 +101,8 @@ func NewPersistentSupervisor(path string) (*Supervisor, error) {
 }
 
 func (s *Supervisor) Flush() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.persistLocked()
 }
 

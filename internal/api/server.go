@@ -25,7 +25,9 @@ import (
 	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/harness"
 	mcpclient "github.com/adro-project/adro/internal/mcp"
+	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/adro-project/adro/internal/store"
@@ -34,19 +36,25 @@ import (
 )
 
 type Server struct {
-	Store         *store.Memory
-	Provider      provider.ExecutionProvider
-	Artifacts     artifact.Store
-	Events        *events.Bus
-	Runners       *runner.Supervisor
-	Audit         *audit.Ledger
-	Logger        *slog.Logger
-	Router        *provider.AgentRouteResolver
-	Auth          *adroauth.Service
-	uploadMu      sync.Mutex
-	materializeMu sync.Mutex
-	idempotencyMu sync.Mutex
-	uploads       map[string]*upload
+	Store           *store.Memory
+	Provider        provider.ExecutionProvider
+	Artifacts       artifact.Store
+	Events          *events.Bus
+	Runners         *runner.Supervisor
+	Audit           *audit.Ledger
+	Harness         *harness.Store
+	Plugins         *plugins.Registry
+	Logger          *slog.Logger
+	Router          *provider.AgentRouteResolver
+	Auth            *adroauth.Service
+	uploadMu        sync.Mutex
+	materializeMu   sync.Mutex
+	idempotencyMu   sync.Mutex
+	watchMu         sync.Mutex
+	recoveryMu      sync.Mutex
+	recoveryStarted bool
+	uploads         map[string]*upload
+	watchedRuns     map[string]struct{}
 }
 
 // authenticatedWorkspaceKey marks the workspace selected by the interactive
@@ -138,14 +146,34 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		logger.Error("load authentication state", "error", err)
 		authService, _ = adroauth.NewService("", os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Logger: logger, Router: router, Auth: authService, uploads: map[string]*upload{}}
+	harnessStore, harnessErr := harness.New("")
+	if harnessErr != nil {
+		logger.Error("initialize harness store", "error", harnessErr)
+		harnessStore, _ = harness.New("")
+	}
+	pluginRegistry, pluginErr := plugins.New("")
+	if pluginErr != nil {
+		logger.Error("initialize plugin registry", "error", pluginErr)
+		pluginRegistry, _ = plugins.New("")
+	}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}}
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Mutating store methods persist their own snapshots. Flushing after every
+	// read (including CORS preflights and the long-lived WebSocket route) turns
+	// a burst of dashboard reads into serialized fsyncs and can stall requests
+	// for minutes on a busy or slow filesystem.
+	flushState := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions &&
+		r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/logout"
 	// The local repository is a durable snapshot when configured. Flush after
-	// each request so a clean process restart cannot lose a completed mutation.
+	// each mutating request so a clean process restart cannot lose a completed
+	// mutation that touched more than one component.
 	defer func() {
+		if !flushState {
+			return
+		}
 		if s.Store != nil {
 			if err := s.Store.Flush(); err != nil && s.Logger != nil {
 				s.Logger.Error("persist control-plane state", "error", err)
@@ -164,6 +192,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.Runners != nil {
 			if err := s.Runners.Flush(); err != nil && s.Logger != nil {
 				s.Logger.Error("persist runner state", "error", err)
+			}
+		}
+		if s.Harness != nil {
+			if err := s.Harness.Flush(); err != nil && s.Logger != nil {
+				s.Logger.Error("persist harness state", "error", err)
+			}
+		}
+		if s.Plugins != nil {
+			if err := s.Plugins.Flush(); err != nil && s.Logger != nil {
+				s.Logger.Error("persist plugin registry", "error", err)
 			}
 		}
 	}()
@@ -308,6 +346,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.directory(w, r, user, userAuthenticated, machineAuthenticated)
 	case path == "/api/v1/provider/diagnostics" && r.Method == http.MethodGet:
 		s.providerDiagnostics(w, r)
+	case path == "/api/v1/system/diagnostics" && r.Method == http.MethodGet:
+		s.systemDiagnostics(w, r)
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {
@@ -324,6 +364,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.requirements(w, r)
 	case path == "/api/v1/pipelines" || strings.HasPrefix(path, "/api/v1/pipelines/"):
 		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
+	case path == "/api/v1/sessions" || strings.HasPrefix(path, "/api/v1/sessions/"):
+		s.sessionRoute(w, r, strings.TrimPrefix(path, "/api/v1/sessions"))
+	case path == "/api/v1/plugins" || strings.HasPrefix(path, "/api/v1/plugins/"):
+		s.pluginRoute(w, r, strings.TrimPrefix(path, "/api/v1/plugins"))
 	case strings.HasPrefix(path, "/api/v1/requirements/"):
 		s.requirement(w, r, strings.TrimPrefix(path, "/api/v1/requirements/"))
 	case path == "/api/v1/bugs":
@@ -1059,61 +1103,128 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 				return
 			}
 			var run provider.RunBinding
-			contextID := ""
-			contextVersion := int64(0)
+			contextID, contextVersion := "", int64(0)
 			priorProvenance := domain.Provenance{}
+			var workItem domain.WorkItem
+			provenanceWorkItemID := b.WorkItemID
+			if provenanceWorkItemID == "" {
+				provenanceWorkItemID = "bug-" + b.ID
+			}
+			contextID = "context-" + provenanceWorkItemID
+			contextVersion = 1
 			if b.WorkItemID != "" {
-				workItem, itemErr := s.Store.GetWorkItem(b.WorkItemID)
+				workItem, _ = s.Store.GetWorkItem(b.WorkItemID)
 				contextID = "context-" + b.WorkItemID
 				if manifest, manifestErr := s.Store.GetContextManifest(contextID, 0); manifestErr == nil {
 					contextVersion = manifest.Version
 				}
-				if savedProvenance, provenanceOK := s.Store.FindProvenance(b.WorkItemID); provenanceOK {
-					priorProvenance = savedProvenance
-					// Local Codex assigns its native thread UUID only after the
-					// first process emits thread.started. Refresh the durable
-					// provenance from that completed snapshot before starting a
-					// repair, otherwise the adapter would resume a synthetic ADRO
-					// ID and lose the original conversation.
-					if priorProvenance.ProviderTaskID != "" {
-						if snapshot, snapshotErr := s.Provider.GetRun(r.Context(), priorProvenance.ProviderTaskID); snapshotErr == nil {
-							if strings.TrimSpace(snapshot.SessionID) != "" {
-								priorProvenance.ProviderSessionID = snapshot.SessionID
-							}
-							if strings.TrimSpace(snapshot.WorkDir) != "" {
-								priorProvenance.ProviderWorkDir = snapshot.WorkDir
-							}
+			}
+			if saved, ok := s.Store.FindProvenance(provenanceWorkItemID); ok {
+				priorProvenance = saved
+				if saved.ProviderTaskID != "" {
+					if snapshot, snapshotErr := s.Provider.GetRun(r.Context(), saved.ProviderTaskID); snapshotErr == nil {
+						if strings.TrimSpace(snapshot.SessionID) != "" {
+							priorProvenance.ProviderSessionID = snapshot.SessionID
+						}
+						if strings.TrimSpace(snapshot.WorkDir) != "" {
+							priorProvenance.ProviderWorkDir = snapshot.WorkDir
 						}
 					}
 				}
-				if itemErr != nil {
-					// Legacy callers may report a bug before a WorkItem is
-					// persisted. Repairs still use the durable binding below.
-					run, e = s.Provider.StartRun(r.Context(), provider.StartRunCommand{WorkItemID: b.WorkItemID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount})
-				} else {
-					cmd := provider.StartRunCommand{WorkItemID: b.WorkItemID, AgentBindingID: workItem.DeveloperAgentBindingID, ProviderIssueID: workItem.ProviderIssueID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount}
-					if binding, bindingErr := s.Store.GetProviderBinding(workItem.DeveloperAgentBindingID); bindingErr == nil {
-						cmd.ProviderAssigneeID = binding.ProviderObjectID
+			}
+			if priorProvenance.AgentBindingID == "" {
+				priorProvenance.AgentBindingID = workItem.DeveloperAgentBindingID
+			}
+			providerWorkItemID := provenanceWorkItemID
+			cmd := provider.StartRunCommand{WorkItemID: providerWorkItemID, AgentBindingID: priorProvenance.AgentBindingID, ProviderIssueID: workItem.ProviderIssueID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, IdempotencyKey: fmt.Sprintf("bug:%s:attempt:%d", b.ID, b.AttemptCount)}
+			if binding, bindingErr := s.Store.GetProviderBinding(cmd.AgentBindingID); bindingErr == nil {
+				cmd.ProviderAssigneeID = binding.ProviderObjectID
+			}
+			harnessSessionID := "session-bug-" + b.ID
+			if b.WorkItemID != "" {
+				harnessSessionID = "session-" + b.WorkItemID
+			}
+			var dispatchEvent harness.OutboxEvent
+			dispatchClaimed := true
+			var repairTurnHash string
+			if s.Harness != nil {
+				workspaceID := requestWorkspace(r, b.WorkspaceID)
+				if workspaceID == "" {
+					workspaceID = "local"
+				}
+				if _, e = s.Harness.EnsureSession(harness.Session{ID: harnessSessionID, TenantID: tenant(r), WorkspaceID: workspaceID}); e != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", e.Error(), nil)
+					return
+				}
+				turn, turnErr := s.Harness.AppendTurn(harnessSessionID, harness.Turn{Role: harness.RoleUser, Content: repairBrief(b), IdempotencyKey: cmd.IdempotencyKey, Metadata: map[string]string{"bug_id": b.ID, "attempt": strconv.Itoa(b.AttemptCount)}})
+				if turnErr != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
+					return
+				}
+				repairTurnHash = turn.Hash
+				intent := providerDispatchIntent{Type: providerDispatchIntentType, Kind: "bug", BugID: b.ID, WorkItemID: providerWorkItemID, RequirementID: b.RequirementID, ProviderIssueID: cmd.ProviderIssueID, AgentID: cmd.AgentBindingID, HarnessSessionID: harnessSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, TurnHash: turn.Hash, Command: cmd}
+				dispatchEvent, dispatchClaimed, e = s.Harness.EnqueueAndClaimOutbox(harnessSessionID, cmd.IdempotencyKey, intent, providerDispatchOwner, dispatchLeaseTTL(), time.Now().UTC())
+				if e != nil {
+					if errors.Is(e, harness.ErrLeaseBusy) {
+						s.problem(w, r, http.StatusConflict, "dispatch_in_progress", e.Error(), nil)
+						return
 					}
-					run, e = s.Provider.StartRun(r.Context(), cmd)
+					s.problem(w, r, http.StatusServiceUnavailable, "outbox_enqueue_failed", e.Error(), nil)
+					return
+				}
+				if !dispatchClaimed {
+					s.problem(w, r, http.StatusConflict, "dispatch_in_progress", "provider dispatch intent is already in progress", nil)
+					return
+				}
+				if e = s.saveHarnessCheckpoint(harnessSessionID, harness.CheckpointEffectBefore, repairTurnHash, contextVersion, []string{dispatchEvent.ID}, nil, "bug repair provider run pending"); e != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", e.Error(), nil)
+					return
 				}
 			}
+			run, e = s.Provider.StartRun(r.Context(), cmd)
 			if e != nil {
+				if dispatchEvent.ID != "" {
+					_ = s.Harness.NackOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+				}
 				s.problem(w, r, 502, "provider_run_failed", string(provider.ErrorCodeOf(e)), nil)
 				return
 			}
-			if b.WorkItemID != "" {
-				attempt := domain.RepairAttempt{BugID: b.ID, WorkItemID: b.WorkItemID, Attempt: b.AttemptCount, ContextID: contextID, ContextVersion: contextVersion, ProviderIssueID: b.WorkItemID, ProviderSessionID: run.SessionID, ProviderWorkDir: run.WorkDir, ProviderTaskID: run.ProviderRunID, Status: "started", Brief: domain.RepairBrief{BugID: b.ID, Fingerprint: b.Fingerprint, StableSummary: b.Title, FailedEvidence: []string{b.LogExcerpt}, Attempt: b.AttemptCount}}
-				if item, itemErr := s.Store.GetWorkItem(b.WorkItemID); itemErr == nil {
-					attempt.ProviderIssueID = item.ProviderIssueID
+			if strings.TrimSpace(run.ProviderRunID) == "" {
+				if dispatchEvent.ID != "" {
+					_ = s.Harness.NackOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 				}
-				_, _ = s.Store.SaveRepairAttempt(attempt)
-				if priorProvenance.Provider != "" || run.ProviderRunID != "" {
-					providerName := priorProvenance.Provider
-					if providerName == "" {
-						providerName = "local"
+				s.problem(w, r, 502, "provider_run_failed", "provider returned an empty run binding", nil)
+				return
+			}
+			if providerWorkItemID != "" {
+				attempt := domain.RepairAttempt{BugID: b.ID, WorkItemID: providerWorkItemID, Attempt: b.AttemptCount, ContextID: contextID, ContextVersion: contextVersion, ProviderIssueID: cmd.ProviderIssueID, ProviderSessionID: run.SessionID, ProviderWorkDir: run.WorkDir, ProviderTaskID: run.ProviderRunID, Status: "started", Brief: domain.RepairBrief{BugID: b.ID, Fingerprint: b.Fingerprint, StableSummary: b.Title, FailedEvidence: []string{b.LogExcerpt}, Attempt: b.AttemptCount}}
+				if _, e = s.Store.SaveRepairAttempt(attempt); e != nil {
+					if dispatchEvent.ID != "" {
+						_ = s.Harness.NackOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 					}
-					_ = s.Store.SaveProvenance(domain.Provenance{WorkItemID: b.WorkItemID, RequirementID: b.RequirementID, BugID: b.ID, AgentBindingID: priorProvenance.AgentBindingID, Provider: providerName, ProviderTaskID: run.ProviderRunID, ProviderSessionID: run.SessionID, ProviderWorkDir: run.WorkDir, RepositoryID: b.RepositoryID, ContextVersion: contextVersion})
+					s.problem(w, r, http.StatusServiceUnavailable, "repair_attempt_persist_failed", e.Error(), nil)
+					return
+				}
+				providerName := priorProvenance.Provider
+				if providerName == "" {
+					providerName = "local"
+				}
+				if e = s.Store.SaveProvenance(domain.Provenance{WorkItemID: providerWorkItemID, RequirementID: b.RequirementID, BugID: b.ID, AgentBindingID: cmd.AgentBindingID, Provider: providerName, ProviderTaskID: run.ProviderRunID, ProviderSessionID: run.SessionID, ProviderWorkDir: run.WorkDir, ProviderIdempotencyKey: cmd.IdempotencyKey, RepositoryID: b.RepositoryID, ContextVersion: contextVersion}); e != nil {
+					if dispatchEvent.ID != "" {
+						_ = s.Harness.NackOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+					}
+					s.problem(w, r, http.StatusServiceUnavailable, "provenance_save_failed", e.Error(), nil)
+					return
+				}
+			}
+			if dispatchEvent.ID != "" {
+				if e = s.saveHarnessCheckpoint(harnessSessionID, harness.CheckpointEffectAfter, repairTurnHash, contextVersion, []string{dispatchEvent.ID}, nil, "bug repair provider run recorded"); e != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", e.Error(), nil)
+					return
+				}
+				if e = s.Harness.AckOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC()); e != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "outbox_ack_failed", e.Error(), nil)
+					return
 				}
 			}
 			s.writeJSON(w, 202, map[string]any{"bug": b, "run": run, "repair_brief": repairBrief(b), "context_id": contextID, "context_version": contextVersion, "context_available": contextID != "", "session_reused": run.SessionReused})
@@ -1775,6 +1886,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 			input.AgentBindingID = witem.DeveloperAgentBindingID
 		}
 		contextID := "context-" + id
+		sessionID := "session-" + id
 		contextVersion := int64(1)
 		if manifest, manifestErr := s.Store.GetContextManifest(contextID, 0); manifestErr == nil {
 			contextVersion = manifest.Version
@@ -1786,14 +1898,71 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 			}
 			contextVersion = manifest.Version
 		}
-		cmd := provider.StartRunCommand{WorkItemID: id, AgentBindingID: input.AgentBindingID, Input: input.Input, ProviderIssueID: witem.ProviderIssueID, ContextID: contextID, ContextVersion: contextVersion}
+		cmd := provider.StartRunCommand{WorkItemID: id, AgentBindingID: input.AgentBindingID, Input: input.Input, ProviderIssueID: witem.ProviderIssueID, SessionID: sessionID, ContextID: contextID, ContextVersion: contextVersion}
 		if binding, bindingErr := s.Store.GetProviderBinding(input.AgentBindingID); bindingErr == nil {
 			cmd.ProviderAssigneeID = binding.ProviderObjectID
 		}
+		requestKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		if requestKey == "" {
+			requestKey = strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		}
+		if requestKey == "" {
+			requestKey = domain.NewID()
+		}
+		turnKey := "work-item:" + id + ":request:" + requestKey
+		cmd.IdempotencyKey = turnKey
+		var harnessTurnHash string
+		var dispatchEvent harness.OutboxEvent
+		dispatchClaimed := true
+		if s.Harness != nil {
+			workspaceID := requestWorkspace(r, requirementWorkspace(s.Store, witem.RequirementID))
+			if workspaceID == "" {
+				workspaceID = "local"
+			}
+			if _, harnessErr := s.Harness.EnsureSession(harness.Session{ID: sessionID, TenantID: tenant(r), WorkspaceID: workspaceID}); harnessErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", harnessErr.Error(), nil)
+				return
+			}
+			turn, turnErr := s.Harness.AppendTurn(sessionID, harness.Turn{Role: harness.RoleUser, Content: input.Input, IdempotencyKey: turnKey, Metadata: map[string]string{"work_item_id": id, "agent_id": input.AgentBindingID}})
+			if turnErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
+				return
+			}
+			harnessTurnHash = turn.Hash
+			var enqueueErr error
+			var claimedErr error
+			dispatchEvent, dispatchClaimed, claimedErr = s.enqueueAndClaimExecutionDispatch(sessionID, turnKey, providerDispatchIntent{WorkItemID: id, RequirementID: witem.RequirementID, AgentID: input.AgentBindingID, RepositoryID: witem.RepositoryID, TurnHash: turn.Hash, Command: cmd})
+			enqueueErr = claimedErr
+			if enqueueErr != nil {
+				if errors.Is(enqueueErr, harness.ErrLeaseBusy) {
+					s.problem(w, r, http.StatusConflict, "dispatch_in_progress", enqueueErr.Error(), nil)
+					return
+				}
+				s.problem(w, r, http.StatusServiceUnavailable, "outbox_enqueue_failed", enqueueErr.Error(), nil)
+				return
+			}
+			if !dispatchClaimed {
+				s.problem(w, r, http.StatusConflict, "dispatch_in_progress", "provider dispatch intent is already in progress", nil)
+				return
+			}
+			if checkpointErr := s.saveHarnessCheckpoint(sessionID, harness.CheckpointEffectBefore, turn.Hash, contextVersion, []string{dispatchEvent.ID}, nil, "provider run pending"); checkpointErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", checkpointErr.Error(), nil)
+				return
+			}
+		}
 		binding, err := s.Provider.StartRun(r.Context(), cmd)
 		if err != nil {
+			if dispatchEvent.ID != "" {
+				_ = s.Harness.NackOutbox(sessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			}
 			s.problem(w, r, 502, "provider_run_failed", string(provider.ErrorCodeOf(err)), nil)
 			return
+		}
+		if s.Harness != nil {
+			if checkpointErr := s.saveHarnessCheckpoint(sessionID, harness.CheckpointEffectAfter, harnessTurnHash, contextVersion, []string{dispatchEvent.ID}, nil, "provider run recorded"); checkpointErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", checkpointErr.Error(), nil)
+				return
+			}
 		}
 		providerName := "local"
 		if capabilities, capabilityErr := s.Provider.Capabilities(r.Context()); capabilityErr == nil && capabilities.Provider != "" {
@@ -1803,9 +1972,22 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 		if providerBinding, bindingErr := s.Store.GetProviderBinding(input.AgentBindingID); bindingErr == nil {
 			provenance.ProviderAgentID = providerBinding.ProviderObjectID
 		}
-		_ = s.Store.SaveProvenance(provenance)
+		provenance.ProviderIdempotencyKey = cmd.IdempotencyKey
+		if provenanceErr := s.Store.SaveProvenance(provenance); provenanceErr != nil {
+			if dispatchEvent.ID != "" {
+				_ = s.Harness.NackOutbox(sessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			}
+			s.problem(w, r, http.StatusServiceUnavailable, "provenance_save_failed", provenanceErr.Error(), nil)
+			return
+		}
+		if dispatchEvent.ID != "" {
+			if ackErr := s.Harness.AckOutbox(sessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC()); ackErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "outbox_ack_failed", ackErr.Error(), nil)
+				return
+			}
+		}
 		_ = s.Events.Publish(r.Context(), events.New("execution.queued.v1", "work_item", id, tenant(r), "", 1, map[string]any{"run_id": binding.ID}))
-		s.writeJSON(w, 202, map[string]any{"run": binding, "work_item": witem, "context_id": contextID, "context_version": contextVersion})
+		s.writeJSON(w, 202, map[string]any{"run": binding, "work_item": witem, "session_id": sessionID, "context_id": contextID, "context_version": contextVersion})
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -3447,7 +3629,7 @@ func menuForPath(path string) string {
 		prefix string
 		menu   string
 	}{
-		{"/api/v1/users", "admin"}, {"/api/v1/audit", "admin"},
+		{"/api/v1/users", "admin"}, {"/api/v1/audit", "admin"}, {"/api/v1/plugins", "admin"},
 		{"/api/v1/requirements", "requirements"}, {"/api/v1/bugs", "bugs"},
 		{"/api/v1/pipelines", "executions"},
 		{"/api/v1/repositories", "repositories"}, {"/api/v1/repository-graph", "repositories"},

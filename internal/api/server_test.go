@@ -127,6 +127,69 @@ func TestProblemDetailsUsesStandardMediaTypeAndRequestID(t *testing.T) {
 	}
 }
 
+func TestSessionHarnessRoutesExposeDurableTurnAndRecoveryContracts(t *testing.T) {
+	s := testServer(t)
+	headers := map[string]string{"X-Workspace-ID": "workspace-1", "X-Tenant-ID": "tenant-1"}
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions", `{"id":"session-1","budget_tokens":1000}`, headers)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("session status=%d body=%s", created.Code, created.Body.String())
+	}
+	turnResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/turns", `{"role":"user","content":"preserve this turn","idempotency_key":"turn-1"}`, headers)
+	if turnResponse.Code != http.StatusCreated {
+		t.Fatalf("turn status=%d body=%s", turnResponse.Code, turnResponse.Body.String())
+	}
+	var turn struct {
+		ID   string `json:"id"`
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(turnResponse.Body.Bytes(), &turn); err != nil || turn.Hash == "" {
+		t.Fatalf("turn=%s err=%v", turnResponse.Body.String(), err)
+	}
+	checkpoint := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/checkpoints", `{"turn_sequence":1,"phase":"turn_started","event_hash":"`+turn.Hash+`","context_version":1}`, headers)
+	if checkpoint.Code != http.StatusCreated {
+		t.Fatalf("checkpoint status=%d body=%s", checkpoint.Code, checkpoint.Body.String())
+	}
+	memory := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/memory", `{"kind":"decision","content":"keep the original session","source_ids":["`+turn.ID+`"],"confidence":0.9}`, headers)
+	if memory.Code != http.StatusCreated {
+		t.Fatalf("memory status=%d body=%s", memory.Code, memory.Body.String())
+	}
+	compact := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/compact", `{"start_sequence":1,"end_sequence":1,"summary":"turn preserved as archive"}`, headers)
+	if compact.Code != http.StatusCreated {
+		t.Fatalf("compact status=%d body=%s", compact.Code, compact.Body.String())
+	}
+	recovery := request(t, s.Routes(), http.MethodGet, "/api/v1/sessions/session-1/recover", "", headers)
+	if recovery.Code != http.StatusOK || !strings.Contains(recovery.Body.String(), "session-1") {
+		t.Fatalf("recovery status=%d body=%s", recovery.Code, recovery.Body.String())
+	}
+	compiled := request(t, s.Routes(), http.MethodGet, "/api/v1/sessions/session-1/context/compile", "", headers)
+	if compiled.Code != http.StatusOK || !strings.Contains(compiled.Body.String(), "turn preserved as archive") {
+		t.Fatalf("compiled status=%d body=%s", compiled.Code, compiled.Body.String())
+	}
+}
+
+func TestSystemDiagnosticsIsSecretFreeAndReportsDurability(t *testing.T) {
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/system/diagnostics", "", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("diagnostics status=%d body=%s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "ADRO_API_TOKEN") || !strings.Contains(response.Body.String(), "harness_durable") {
+		t.Fatalf("diagnostics leaked secret or omitted harness state: %s", response.Body.String())
+	}
+}
+
+func TestPluginRegistryRouteIsVisibleAndFailClosedForUnsignedInstall(t *testing.T) {
+	s := testServer(t)
+	list := request(t, s.Routes(), http.MethodGet, "/api/v1/plugins", "", nil)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"items"`) {
+		t.Fatalf("plugin list status=%d body=%s", list.Code, list.Body.String())
+	}
+	unsigned := request(t, s.Routes(), http.MethodPost, "/api/v1/plugins", `{"manifest":{"id":"example","name":"Example","version":"1.0.0","protocol_version":"adro.plugin.v1","capabilities":["events.publish"]},"digest":"sha256:bad"}`, nil)
+	if unsigned.Code != http.StatusUnprocessableEntity || !strings.Contains(unsigned.Body.String(), "plugin_install_failed") {
+		t.Fatalf("unsigned install status=%d body=%s", unsigned.Code, unsigned.Body.String())
+	}
+}
+
 func TestRunnerExecuteRouteAuditsCommandWithoutEchoingIt(t *testing.T) {
 	s := testServer(t)
 	root := t.TempDir()
@@ -172,6 +235,30 @@ func TestBugFingerprintDeduplicatesAndRepairLimit(t *testing.T) {
 	rr := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+id+"/repair", "", nil)
 	if rr.Code != 409 {
 		t.Fatalf("expected limit, got %d", rr.Code)
+	}
+}
+
+func TestStandaloneBugRepairUsesStableSyntheticWorkItem(t *testing.T) {
+	s := testServer(t)
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","title":"standalone failure","repository_id":"repo","actual":"500"}`, nil)
+	if created.Code != http.StatusCreated {
+		t.Fatal(created.Code, created.Body.String())
+	}
+	var bug struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &bug); err != nil || bug.ID == "" {
+		t.Fatalf("bug=%s err=%v", created.Body.String(), err)
+	}
+	repair := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/repair", "", nil)
+	if repair.Code != http.StatusAccepted {
+		t.Fatalf("repair status=%d body=%s", repair.Code, repair.Body.String())
+	}
+	if attempts := s.Store.ListRepairAttempts(bug.ID); len(attempts) != 1 || attempts[0].WorkItemID != "bug-"+bug.ID || attempts[0].ContextID != "context-bug-"+bug.ID {
+		t.Fatalf("attempts=%+v", attempts)
+	}
+	if provenance, ok := s.Store.FindProvenance("bug-" + bug.ID); !ok || provenance.ProviderTaskID == "" {
+		t.Fatalf("provenance=%+v ok=%v", provenance, ok)
 	}
 }
 
@@ -238,6 +325,14 @@ func TestRepairReusesWorkItemContextAndMockSession(t *testing.T) {
 	}
 	if attempts := s.Store.ListRepairAttempts(bugBody.ID); len(attempts) != 1 || attempts[0].ContextID != repairBody.ContextID {
 		t.Fatalf("attempts=%+v", attempts)
+	}
+	status, statusErr := s.Harness.ContextStatus("session-" + page.Items[0].ID)
+	if statusErr != nil || status.TurnCount == 0 || status.CheckpointCount < 2 {
+		t.Fatalf("repair harness state=%+v err=%v", status, statusErr)
+	}
+	recovery, recoveryErr := s.Harness.Recover("session-"+page.Items[0].ID, time.Now().UTC())
+	if recoveryErr != nil || len(recovery.PendingEffects) != 0 {
+		t.Fatalf("repair outbox recovery=%+v err=%v", recovery, recoveryErr)
 	}
 	attemptsResponse := request(t, s.Routes(), http.MethodGet, "/api/v1/work-items/"+page.Items[0].ID+"/repair-attempts", "", nil)
 	if attemptsResponse.Code != http.StatusOK {

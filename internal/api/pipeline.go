@@ -14,6 +14,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/harness"
 	pipelineengine "github.com/adro-project/adro/internal/pipeline"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -96,8 +97,16 @@ func (s *Server) createPipeline(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusUnprocessableEntity, "pipeline_invalid", err.Error(), nil)
 		return
 	}
+	if err := s.ensureHarnessSession(run); err != nil {
+		s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", err.Error(), nil)
+		return
+	}
 	dispatched, err := s.dispatchPipeline(run)
 	if err != nil {
+		if errors.Is(err, harness.ErrLeaseBusy) {
+			s.problem(w, r, http.StatusConflict, "dispatch_in_progress", err.Error(), map[string]any{"pipeline_id": run.ID})
+			return
+		}
 		run.Status, run.SuspendReason, run.UpdatedAt, run.Version = domain.PipelineSuspended, providerSafeError(err), time.Now().UTC(), run.Version+1
 		updated, updateErr := s.Store.UpdatePipeline(run, run.Version-1)
 		if updateErr == nil {
@@ -148,6 +157,9 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 		return run, status, err
 	}
 	advanced.ActiveProviderIssueID, advanced.ActiveProviderTaskID = "", ""
+	if err := s.recordHarnessResult(run, result); err != nil {
+		return run, http.StatusServiceUnavailable, err
+	}
 	advanced, err = s.Store.UpdatePipeline(advanced, run.Version)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -169,6 +181,9 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 	if advanced.Status == domain.PipelineRunning {
 		advanced, err = s.dispatchPipeline(advanced)
 		if err != nil {
+			if errors.Is(err, harness.ErrLeaseBusy) {
+				return advanced, http.StatusConflict, err
+			}
 			advanced.Status, advanced.SuspendReason, advanced.UpdatedAt, advanced.Version = domain.PipelineSuspended, providerSafeError(err), time.Now().UTC(), advanced.Version+1
 			advanced, _ = s.Store.UpdatePipeline(advanced, advanced.Version-1)
 			return advanced, http.StatusBadGateway, fmt.Errorf("executor rejected the next pipeline stage: %s", advanced.SuspendReason)
@@ -221,25 +236,57 @@ func (s *Server) materializePipelineBug(run domain.PipelineRun, result domain.Pi
 }
 
 func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, error) {
+	if err := s.ensureHarnessSession(run); err != nil {
+		return run, err
+	}
 	agentID := run.Roles.AgentFor(run.PipelineStage)
+	if strings.TrimSpace(agentID) == "" {
+		return run, errors.New("pipeline stage has no assigned agent")
+	}
 	prompt, err := pipelinePrompt(run)
 	if err != nil {
 		return run, err
 	}
+	turnKey := fmt.Sprintf("pipeline:%s:stage:%d:retry:%d:prompt", run.ID, run.PipelineStage, run.RetryCount+run.UnitRetryCount)
+	turn, err := s.Harness.AppendTurn(run.SessionID, harness.Turn{Role: harness.RoleUser, Content: prompt, IdempotencyKey: turnKey, Metadata: map[string]string{"stage": fmt.Sprintf("%d", run.PipelineStage), "agent_id": agentID}})
+	if err != nil {
+		return run, fmt.Errorf("persist harness dispatch turn: %w", err)
+	}
+	var dispatchEvent harness.OutboxEvent
+	dispatchClaimed := true
 	if run.PipelineStage == domain.PipelineDevelopment && run.RetryCount > 0 {
 		issueID := originalDevelopmentIssue(run)
 		continuity, ok := s.Provider.(provider.ContinuityProvider)
 		if !ok || issueID == "" {
 			return run, errors.New("provider cannot continue the original development session")
 		}
-		binding, err := continuity.ContinueWorkItem(context.Background(), provider.ContinuationCommand{
+		continuation := provider.ContinuationCommand{
 			IssueID: issueID, AgentID: agentID, Input: prompt,
-			ExpectedSessionID: run.ParentSessionID, ExpectedWorkDir: run.ProviderWorkDir,
-		})
+			ExpectedSessionID: run.ParentSessionID, ExpectedWorkDir: run.ProviderWorkDir, IdempotencyKey: turnKey,
+		}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, Continuation: &continuation}
+		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
+			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
+		}
+		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
+			return run, err
+		}
+		if !dispatchClaimed {
+			if dispatchEvent.State == "published" {
+				if latest, latestErr := s.Store.GetPipeline(run.ID); latestErr == nil {
+					return latest, nil
+				}
+			}
+			return run, harness.ErrLeaseBusy
+		}
+		binding, err := continuity.ContinueWorkItem(context.Background(), continuation)
+		if err != nil {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 			return run, err
 		}
 		if !binding.SessionReused || binding.SessionID != run.ParentSessionID || binding.WorkDir != run.ProviderWorkDir || binding.ProviderRunID == "" {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 			return run, errors.New("provider did not confirm the original development task session and workdir")
 		}
 		if run.PipelineWorkItemID != "" {
@@ -248,7 +295,11 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 				provenance.ProviderSessionID = binding.SessionID
 				provenance.ProviderWorkDir = binding.WorkDir
 				provenance.ContextVersion = run.Version
-				_ = s.Store.SaveProvenance(provenance)
+				provenance.ProviderIdempotencyKey = turnKey
+				if provenanceErr := s.Store.SaveProvenance(provenance); provenanceErr != nil {
+					_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+					return run, fmt.Errorf("persist repair provenance: %w", provenanceErr)
+				}
 			}
 		}
 		run.ActiveProviderIssueID, run.ActiveProviderTaskID = issueID, binding.ProviderRunID
@@ -310,28 +361,61 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			}
 		}
 		run.ActiveProviderIssueID = item.ProviderIssueID
-		binding, err := s.Provider.StartRun(context.Background(), provider.StartRunCommand{
+		command := provider.StartRunCommand{
 			WorkItemID: item.ID, ProviderIssueID: item.ProviderIssueID, AgentBindingID: agentID, ProviderAssigneeID: agentID,
-			Input: prompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version,
-		})
+			Input: prompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, IdempotencyKey: turnKey,
+		}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, Command: command}
+		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
+			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
+		}
+		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
 			return run, err
 		}
+		if !dispatchClaimed {
+			if dispatchEvent.State == "published" {
+				if latest, latestErr := s.Store.GetPipeline(run.ID); latestErr == nil {
+					return latest, nil
+				}
+			}
+			return run, harness.ErrLeaseBusy
+		}
+		binding, err := s.Provider.StartRun(context.Background(), command)
+		if err != nil {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			return run, err
+		}
+		if strings.TrimSpace(binding.ProviderRunID) == "" {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			return run, errors.New("provider returned an empty run binding")
+		}
 		if run.PipelineStage == domain.PipelineDevelopment && run.PipelineWorkItemID != "" {
-			_ = s.Store.SaveProvenance(domain.Provenance{
+			provenanceErr := s.Store.SaveProvenance(domain.Provenance{
 				WorkItemID: run.PipelineWorkItemID, RequirementID: run.RequirementID, AgentBindingID: agentID,
 				Provider: "local", ProviderTaskID: binding.ProviderRunID, ProviderSessionID: binding.SessionID,
-				ProviderWorkDir: binding.WorkDir, RepositoryID: repositoryID, ContextVersion: run.Version,
+				ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: turnKey, RepositoryID: repositoryID, ContextVersion: run.Version,
 			})
+			if provenanceErr != nil {
+				_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+				return run, fmt.Errorf("persist provider provenance: %w", provenanceErr)
+			}
 		}
 		run.ActiveProviderTaskID = binding.ProviderRunID
+	}
+	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch recorded"); err != nil {
+		return run, err
 	}
 	run.ActiveAgentID, run.Status = agentID, domain.PipelineWaiting
 	run.Version++
 	run.UpdatedAt = time.Now().UTC()
 	updated, err := s.Store.UpdatePipeline(run, run.Version-1)
 	if err != nil {
+		_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 		return run, err
+	}
+	if err := s.Harness.AckOutbox(updated.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC()); err != nil {
+		return run, fmt.Errorf("ack provider dispatch intent: %w", err)
 	}
 	s.watchLocalPipelineRun(updated)
 	return updated, nil
@@ -351,8 +435,24 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 	if err != nil || caps.Provider != "local" || run.ActiveProviderTaskID == "" {
 		return
 	}
+	watchKey := run.ID + "\x00" + run.ActiveProviderTaskID
+	s.watchMu.Lock()
+	if s.watchedRuns == nil {
+		s.watchedRuns = make(map[string]struct{})
+	}
+	if _, exists := s.watchedRuns[watchKey]; exists {
+		s.watchMu.Unlock()
+		return
+	}
+	s.watchedRuns[watchKey] = struct{}{}
+	s.watchMu.Unlock()
 	watchTimeout := pipelineWatchTimeout()
 	go func(pipelineID, taskID string) {
+		defer func() {
+			s.watchMu.Lock()
+			delete(s.watchedRuns, watchKey)
+			s.watchMu.Unlock()
+		}()
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
 		deadline := time.NewTimer(watchTimeout)

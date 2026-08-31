@@ -1,5 +1,8 @@
 const { defineConfig, devices } = require('@playwright/test');
 
+// Keep matrix runs isolated from prior durable local-profile state.
+const e2eStateDir = `./var/e2e-state-${process.pid}`;
+
 module.exports = defineConfig({
   testDir: './e2e',
   testMatch: 'platform-matrix.spec.js',
@@ -22,16 +25,16 @@ module.exports = defineConfig({
   ],
   webServer: [
     {
-      command: 'ADRO_AUTH_MODE=required ADRO_ADMIN_USERNAME=admin ADRO_ADMIN_PASSWORD=AdminPass123! go run ./cmd/adro-api -addr :18080 -artifact-root ./var/e2e-artifacts',
+      command: `ADRO_HOME=${e2eStateDir} ADRO_ALLOWED_ORIGINS=http://127.0.0.1:18081,http://localhost:18081,http://[::1]:18081 ADRO_AUTH_MODE=required ADRO_ADMIN_USERNAME=admin ADRO_ADMIN_PASSWORD=AdminPass123! go run ./cmd/adro-api -addr :18080 -artifact-root ./var/e2e-artifacts`,
       url: 'http://127.0.0.1:18080/readyz',
       timeout: 120_000,
-      reuseExistingServer: !process.env.CI
+      reuseExistingServer: false
     },
     {
       command: 'node e2e/static-server.js 18081',
       url: 'http://127.0.0.1:18081',
       timeout: 30_000,
-      reuseExistingServer: !process.env.CI
+      reuseExistingServer: false
     }
   ]
 });

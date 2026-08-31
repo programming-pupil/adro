@@ -17,6 +17,8 @@ import (
 	"github.com/adro-project/adro/internal/audit"
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/adro-project/adro/internal/store"
@@ -31,6 +33,20 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	artifactRoot := flag.String("artifact-root", "", "filesystem artifact root (defaults to ADRO_ARTIFACT_ROOT or ./var/artifacts)")
 	flag.Parse()
+	// A direct binary launch must retain the same restart guarantees as the
+	// bootstrap script. Operators can override every path, while the default
+	// local profile gets one durable state directory out of the box.
+	stateDir := os.Getenv("ADRO_HOME")
+	if stateDir == "" {
+		stateDir = filepath.Join("var", "adro")
+	}
+	setDefaultEnv("ADRO_STATE_FILE", filepath.Join(stateDir, "state.json"))
+	setDefaultEnv("ADRO_EVENT_STATE_FILE", filepath.Join(stateDir, "events.json"))
+	setDefaultEnv("ADRO_AUDIT_STATE_FILE", filepath.Join(stateDir, "audit.json"))
+	setDefaultEnv("ADRO_AUTH_STATE_FILE", filepath.Join(stateDir, "auth.json"))
+	setDefaultEnv("ADRO_RUN_STATE_FILE", filepath.Join(stateDir, "runs.json"))
+	setDefaultEnv("ADRO_HARNESS_STATE_FILE", filepath.Join(stateDir, "harness.json"))
+	setDefaultEnv("ADRO_PLUGIN_STATE_FILE", filepath.Join(stateDir, "plugins.json"))
 	root := *artifactRoot
 	if root == "" {
 		root = os.Getenv("ADRO_ARTIFACT_ROOT")
@@ -81,6 +97,22 @@ func main() {
 	}
 	var p provider.ExecutionProvider = localExecutor
 	srv := api.NewWithRouting(controlStore, p, fs, bus, slog.Default(), router)
+	if harnessPath := os.Getenv("ADRO_HARNESS_STATE_FILE"); harnessPath != "" {
+		harnessStore, harnessErr := harness.New(harnessPath)
+		if harnessErr != nil {
+			slog.Error("load harness state", "error", harnessErr, "path", harnessPath)
+			os.Exit(1)
+		}
+		srv.Harness = harnessStore
+	}
+	if pluginPath := os.Getenv("ADRO_PLUGIN_STATE_FILE"); pluginPath != "" {
+		pluginRegistry, pluginErr := plugins.New(pluginPath)
+		if pluginErr != nil {
+			slog.Error("load plugin registry", "error", pluginErr, "path", pluginPath)
+			os.Exit(1)
+		}
+		srv.Plugins = pluginRegistry
+	}
 	if runnerPath := os.Getenv("ADRO_RUNNER_STATE_FILE"); runnerPath != "" {
 		supervisor, supervisorErr := runner.NewPersistentSupervisor(runnerPath)
 		if supervisorErr != nil {
@@ -100,6 +132,10 @@ func main() {
 	httpServer := &http.Server{Addr: *addr, Handler: withRequestLogging(srv.Routes()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Keep durable harness claims moving independently of HTTP traffic. The
+	// worker performs lease/outbox recovery on startup and periodically retries
+	// provider intents whose response or acknowledgement was lost.
+	srv.StartRecoveryWorker(ctx)
 	go func() {
 		slog.Info("adro api listening", "addr", *addr, "artifact_root", root)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -112,6 +148,12 @@ func main() {
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "error", err)
+	}
+}
+
+func setDefaultEnv(name, value string) {
+	if os.Getenv(name) == "" {
+		_ = os.Setenv(name, value)
 	}
 }
 
