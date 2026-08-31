@@ -37,6 +37,7 @@ Environment:
   ADRO_EXECUTOR           Executable path (auto-discovers claude, codex, claude-code).
   ADRO_EXECUTOR_COMMAND   Executable plus arguments; use {input} as prompt placeholder.
   ADRO_EXECUTOR_TIMEOUT   Optional per-run deadline (Go duration, e.g. 15m).
+  ADRO_PIPELINE_WATCH_TIMEOUT  Local pipeline watchdog deadline (Go duration, e.g. 30m).
   ADRO_HOME               Local state directory (default: ./.adro).
   ADRO_API_PORT           API port (default: 8080).
   ADRO_WEB_PORT           WebUI port (default: 8081).

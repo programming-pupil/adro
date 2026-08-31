@@ -527,6 +527,14 @@ Git provider 插件负责 branch、commit、diff、PR/review；CI 插件负责 c
 
 外部执行插件如果没有中立 snapshot，只能读取其已公开的 status/session/workdir；Git Evidence Bridge 在 ADRO 侧独立查询 commit、checks、PR，再组装自己的 `RunSnapshot`。未来插件原生提供同一能力时可直通，但仍保留证据验证层。
 
+本地执行器的终态至少区分 `completed`、`failed`、`cancelled` 和
+`timed_out`。`ADRO_EXECUTOR_TIMEOUT` 只约束真实子进程；本地 pipeline
+collector 另有 `ADRO_PIPELINE_WATCH_TIMEOUT`（默认 30 分钟）约束
+`waiting_provider`。watchdog 到期会先读取最后快照：有合法
+`ADRO_RESULT_JSON` 就按正常状态机处理，否则取消仍在运行的 provider，保存
+session/worktree/输出证据，并将 pipeline 挂起且写入可审计原因，绝不留下无限
+等待状态。超时不是模型声称失败，也不会被归并成普通退出码错误。
+
 ### 11.2 EvidenceBundle
 
 一个可推广的通过结论至少包含：

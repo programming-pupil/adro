@@ -291,7 +291,15 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if runErr != nil {
 		status = "failed"
 	}
-	if errors.Is(ctx.Err(), context.Canceled) {
+	ctxErr := ctx.Err()
+	switch {
+	case errors.Is(ctxErr, context.DeadlineExceeded):
+		// CommandContext returns an implementation-specific kill error when its
+		// deadline terminates a child. Expose a stable provider status and reason
+		// so the pipeline can distinguish an executor deadline from a real
+		// process failure and operators can retry with the same evidence.
+		status = "timed_out"
+	case errors.Is(ctxErr, context.Canceled):
 		status = "cancelled"
 	}
 	head := gitRevision(workDir)
@@ -314,7 +322,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.FinishedAt = &done
 		run.snapshot.Usage = usage
 		run.snapshot.Output = truncateOutput(output)
-		if runErr != nil {
+		if status == "timed_out" {
+			run.snapshot.Error = "executor deadline exceeded"
+		} else if runErr != nil {
 			run.snapshot.Error = runErr.Error()
 		}
 		run.snapshot.WorkspaceDirty = dirty

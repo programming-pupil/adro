@@ -36,6 +36,30 @@ func TestLocalProviderRunsRealProcessAndCapturesSnapshot(t *testing.T) {
 	}
 }
 
+func TestLocalProviderRecordsExecutorTimeout(t *testing.T) {
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "20ms")
+	root := t.TempDir()
+	p := NewLocalProvider("/bin/sleep", []string{"1"}, root, newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "timeout-item", Title: "deadline"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "long-running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.Status != "timed_out" {
+		t.Fatalf("timeout status=%q snapshot=%+v", snapshot.Status, snapshot)
+	}
+	if snapshot.Error != "executor deadline exceeded" {
+		t.Fatalf("timeout reason=%q snapshot=%+v", snapshot.Error, snapshot)
+	}
+	if snapshot.FinishedAt == nil || snapshot.SessionID != binding.SessionID || snapshot.WorkDir != binding.WorkDir {
+		t.Fatalf("timeout evidence was not retained: %+v binding=%+v", snapshot, binding)
+	}
+}
+
 func TestLocalProviderRepairReusesSessionAndWorkdir(t *testing.T) {
 	p := NewLocalProvider("/usr/bin/printf", []string{"{input}"}, t.TempDir(), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "work-2", Title: "repairable task"})

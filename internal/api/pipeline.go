@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/events"
 	pipelineengine "github.com/adro-project/adro/internal/pipeline"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -323,15 +324,17 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 	if err != nil || caps.Provider != "local" || run.ActiveProviderTaskID == "" {
 		return
 	}
+	watchTimeout := pipelineWatchTimeout()
 	go func(pipelineID, taskID string) {
 		ticker := time.NewTicker(200 * time.Millisecond)
 		defer ticker.Stop()
-		deadline := time.NewTimer(30 * time.Minute)
+		deadline := time.NewTimer(watchTimeout)
 		defer deadline.Stop()
 		for {
 			select {
 			case <-ticker.C:
 			case <-deadline.C:
+				s.handlePipelineWatchDeadline(pipelineID, taskID, watchTimeout)
 				return
 			}
 			current, getErr := s.Store.GetPipeline(pipelineID)
@@ -367,8 +370,72 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 	}(run.ID, run.ActiveProviderTaskID)
 }
 
+// pipelineWatchTimeout bounds how long a local process may leave its pipeline
+// in waiting_provider without producing a terminal marker. It is deliberately
+// separate from ADRO_EXECUTOR_TIMEOUT: the provider timeout controls the child
+// process, while this watchdog also covers a crashed API, a client that exits
+// without a marker, or a provider that stops reporting snapshots.
+func pipelineWatchTimeout() time.Duration {
+	const defaultTimeout = 30 * time.Minute
+	value := strings.TrimSpace(os.Getenv("ADRO_PIPELINE_WATCH_TIMEOUT"))
+	if value == "" {
+		return defaultTimeout
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		return defaultTimeout
+	}
+	return timeout
+}
+
+// handlePipelineWatchDeadline closes a stale local wait. A final terminal
+// snapshot with a valid marker is still allowed to advance normally; otherwise
+// the provider is cancelled and the pipeline is durably suspended with an
+// operator-visible reason. This prevents a lost child process from becoming an
+// unbounded waiting state.
+func (s *Server) handlePipelineWatchDeadline(pipelineID, taskID string, timeout time.Duration) {
+	current, err := s.Store.GetPipeline(pipelineID)
+	if err != nil || current.Status != domain.PipelineWaiting || current.ActiveProviderTaskID != taskID {
+		return
+	}
+	reason := fmt.Sprintf("local provider watcher deadline exceeded after %s", timeout)
+	if snapshot, snapshotErr := s.Provider.GetRun(context.Background(), taskID); snapshotErr == nil && snapshot.Status != "running" {
+		if result, ok := pipelineResultFromSnapshot(current, snapshot); ok {
+			if _, _, advanceErr := s.advancePipeline(current, result); advanceErr == nil {
+				return
+			} else {
+				reason = fmt.Sprintf("provider run finished with status %q but its result was rejected: %s", snapshot.Status, advanceErr)
+			}
+		} else {
+			reason = fmt.Sprintf("provider run finished with status %q without a valid pipeline result", snapshot.Status)
+		}
+	} else if cancelErr := s.Provider.CancelRun(context.Background(), taskID); cancelErr != nil {
+		reason += "; provider cancellation failed: " + cancelErr.Error()
+	}
+
+	// Re-read immediately before writing so an explicit callback that won the
+	// race cannot be overwritten by the watchdog.
+	latest, latestErr := s.Store.GetPipeline(pipelineID)
+	if latestErr != nil || latest.Status != domain.PipelineWaiting || latest.ActiveProviderTaskID != taskID {
+		return
+	}
+	latest.Status = domain.PipelineSuspended
+	latest.SuspendReason = reason
+	latest.UpdatedAt = time.Now().UTC()
+	latest.Version++
+	updated, updateErr := s.Store.UpdatePipeline(latest, latest.Version-1)
+	if updateErr != nil {
+		return
+	}
+	if s.Events != nil {
+		_ = s.Events.Publish(context.Background(), events.New("pipeline.suspended.v1", "pipeline", updated.ID, updated.WorkspaceID, "", updated.Version, map[string]any{
+			"pipeline_id": updated.ID, "provider_task_id": taskID, "reason": reason,
+		}))
+	}
+}
+
 func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSnapshot) (domain.PipelineStepResult, bool) {
-	if snapshot.Status != "completed" && snapshot.Status != "failed" && snapshot.Status != "cancelled" {
+	if snapshot.Status != "completed" && snapshot.Status != "failed" && snapshot.Status != "cancelled" && snapshot.Status != "timed_out" {
 		return domain.PipelineStepResult{}, false
 	}
 	result := domain.PipelineStepResult{
@@ -381,7 +448,7 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 		ProviderSessionID: snapshot.SessionID,
 		ProviderWorkDir:   snapshot.WorkDir,
 	}
-	if snapshot.Status == "failed" || snapshot.Status == "cancelled" {
+	if snapshot.Status == "failed" || snapshot.Status == "cancelled" || snapshot.Status == "timed_out" {
 		result.Outcome = "fail"
 		result.Summary = "local executor " + snapshot.Status + " the stage"
 		result.ErrorLog = strings.TrimSpace(snapshot.Error + "\n" + snapshot.Output)
@@ -418,7 +485,7 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 			}
 			// A non-zero process exit is authoritative. A client must not be able
 			// to print a successful marker while its command actually failed.
-			if snapshot.Status == "failed" || snapshot.Status == "cancelled" {
+			if snapshot.Status == "failed" || snapshot.Status == "cancelled" || snapshot.Status == "timed_out" {
 				marker.Outcome = "fail"
 				if strings.TrimSpace(marker.ErrorLog) == "" {
 					marker.ErrorLog = result.ErrorLog

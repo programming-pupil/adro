@@ -49,7 +49,11 @@ another network namespace. `ADRO_HOME`, `ADRO_ARTIFACT_ROOT`,
 durable local run snapshots. Set
 `ADRO_AUTH_MODE=required` with `ADRO_ADMIN_PASSWORD` for protected routes.
 Set `ADRO_EXECUTOR_TIMEOUT=15m` (Go duration) to bound an individual client run;
-an expired run is recorded as failed with its session/worktree evidence intact.
+an expired run is recorded as `timed_out` with its session/worktree evidence
+intact and is treated as an auditable pipeline failure. `ADRO_PIPELINE_WATCH_TIMEOUT`
+(default `30m`) bounds how long a local pipeline may wait for a terminal result;
+when it expires ADRO cancels the provider run and suspends the pipeline with a
+durable reason instead of leaving `waiting_provider` forever.
 
 ## From source
 
