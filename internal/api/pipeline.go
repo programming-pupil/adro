@@ -368,7 +368,7 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 }
 
 func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSnapshot) (domain.PipelineStepResult, bool) {
-	if snapshot.Status != "completed" && snapshot.Status != "failed" {
+	if snapshot.Status != "completed" && snapshot.Status != "failed" && snapshot.Status != "cancelled" {
 		return domain.PipelineStepResult{}, false
 	}
 	result := domain.PipelineStepResult{
@@ -381,10 +381,13 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 		ProviderSessionID: snapshot.SessionID,
 		ProviderWorkDir:   snapshot.WorkDir,
 	}
-	if snapshot.Status == "failed" {
+	if snapshot.Status == "failed" || snapshot.Status == "cancelled" {
 		result.Outcome = "fail"
-		result.Summary = "local executor failed the stage"
+		result.Summary = "local executor " + snapshot.Status + " the stage"
 		result.ErrorLog = strings.TrimSpace(snapshot.Error + "\n" + snapshot.Output)
+		if result.ErrorLog == "" {
+			result.ErrorLog = "local executor " + snapshot.Status + " the stage"
+		}
 	}
 	for _, candidate := range []string{snapshot.Output, extractProviderResult(snapshot.Output)} {
 		if marker := parsePipelineResultMarker(candidate); marker != nil {
@@ -415,7 +418,7 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 			}
 			// A non-zero process exit is authoritative. A client must not be able
 			// to print a successful marker while its command actually failed.
-			if snapshot.Status == "failed" {
+			if snapshot.Status == "failed" || snapshot.Status == "cancelled" {
 				marker.Outcome = "fail"
 				if strings.TrimSpace(marker.ErrorLog) == "" {
 					marker.ErrorLog = result.ErrorLog

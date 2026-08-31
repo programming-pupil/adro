@@ -221,6 +221,20 @@ func TestPipelineResultFromSnapshotCannotOverrideProcessFailure(t *testing.T) {
 	}
 }
 
+func TestPipelineResultFromSnapshotTreatsCancellationAsFailure(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineUnitTest,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{
+		ID:     "provider-run",
+		Status: "cancelled",
+	})
+	if !ok || result.Outcome != "fail" || !strings.Contains(result.ErrorLog, "cancelled") {
+		t.Fatalf("cancelled process was left unobserved: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotParsesCodexJSONLMarker(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineDesign,
