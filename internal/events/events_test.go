@@ -47,3 +47,22 @@ func TestBusPublishRollsBackWhenStateCannotBeReplaced(t *testing.T) {
 		t.Fatalf("failed event remained visible: %+v", items)
 	}
 }
+
+func TestBusDoesNotExposeMutablePayloadThroughHistoryOrSubscribers(t *testing.T) {
+	b := NewBus()
+	updates, cancel := b.Subscribe(1)
+	defer cancel()
+	e := New("payload.v1", "run", "r1", "tenant", "workspace", 1, map[string]any{
+		"nested": map[string]any{"state": "original"},
+	})
+	if err := b.Publish(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	e.Payload["nested"].(map[string]any)["state"] = "caller-mutated"
+	delivered := <-updates
+	delivered.Payload["nested"].(map[string]any)["state"] = "subscriber-mutated"
+	history, _ := b.List("r1", "", 10)
+	if got := history[0].Payload["nested"].(map[string]any)["state"]; got != "original" {
+		t.Fatalf("history payload was mutable through caller/subscriber: %v", got)
+	}
+}

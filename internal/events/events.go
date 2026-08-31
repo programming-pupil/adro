@@ -138,6 +138,10 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	if event.EventID == "" {
 		event.EventID = domain.NewID()
 	}
+	// Payload maps are mutable reference values. Clone before retaining or
+	// delivering an envelope so a caller or subscriber cannot rewrite the
+	// replay history after publication.
+	event = cloneEnvelope(event)
 	if _, ok := b.seen[event.EventID]; ok {
 		return nil
 	}
@@ -165,7 +169,7 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	}
 	for _, ch := range channels {
 		select {
-		case ch <- event:
+		case ch <- cloneEnvelope(event):
 		default:
 		}
 	}
@@ -190,7 +194,7 @@ func (b *Bus) List(aggregateID, cursor string, limit int) ([]Envelope, string) {
 		if aggregateID != "" && e.AggregateID != aggregateID {
 			continue
 		}
-		items = append(items, e)
+		items = append(items, cloneEnvelope(e))
 		if len(items) == limit {
 			break
 		}
@@ -200,6 +204,25 @@ func (b *Bus) List(aggregateID, cursor string, limit int) ([]Envelope, string) {
 		next = items[len(items)-1].EventID
 	}
 	return items, next
+}
+
+func cloneEnvelope(event Envelope) Envelope {
+	if event.Payload == nil {
+		return event
+	}
+	data, err := json.Marshal(event.Payload)
+	if err != nil {
+		// Event payloads are JSON contracts. Keep the value when a custom
+		// in-process publisher supplies an unsupported value; persistence will
+		// reject it with the same serialization error below.
+		return event
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return event
+	}
+	event.Payload = payload
+	return event
 }
 
 func (b *Bus) Subscribe(buffer int) (<-chan Envelope, func()) {

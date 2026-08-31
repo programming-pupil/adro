@@ -127,6 +127,12 @@ func (s *Server) applyPipelineResult(w http.ResponseWriter, r *http.Request, run
 // process collector. Keeping both paths on one state transition prevents the
 // native executor from gaining a second, subtly different workflow policy.
 func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineStepResult) (domain.PipelineRun, int, error) {
+	// Provider callbacks can be delivered again after the first durable update
+	// succeeds but its HTTP response is lost. Treat an exact prior attempt as an
+	// idempotent success; only a new provider task may advance the current stage.
+	if pipelineResultAlreadyApplied(run, result) {
+		return run, http.StatusOK, nil
+	}
 	if result.ProviderIssueID == "" {
 		result.ProviderIssueID = run.ActiveProviderIssueID
 	}
@@ -169,6 +175,27 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 		}
 	}
 	return advanced, http.StatusOK, nil
+}
+
+func pipelineResultAlreadyApplied(run domain.PipelineRun, result domain.PipelineStepResult) bool {
+	if result.Stage == 0 || strings.TrimSpace(result.AgentID) == "" {
+		return false
+	}
+	for _, transition := range run.History {
+		if transition.From != result.Stage || transition.AgentID != result.AgentID || transition.Outcome != result.Outcome {
+			continue
+		}
+		if result.ProviderTaskID != "" {
+			if transition.ProviderTaskID == result.ProviderTaskID {
+				return true
+			}
+			continue
+		}
+		if result.ProviderIssueID != "" && transition.ProviderIssueID == result.ProviderIssueID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) materializePipelineBug(run domain.PipelineRun, result domain.PipelineStepResult) (domain.Bug, error) {

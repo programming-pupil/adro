@@ -639,6 +639,45 @@ func (p *LocalProvider) StreamEvents(ctx context.Context, runID, cursor string) 
 	go func() {
 		defer close(filtered)
 		defer cancelSource()
+		seen := make(map[string]struct{})
+		send := func(event events.Envelope) bool {
+			if event.EventID != "" {
+				if _, duplicate := seen[event.EventID]; duplicate {
+					return true
+				}
+				seen[event.EventID] = struct{}{}
+			}
+			if event.AggregateID != runID && event.Payload["run_id"] != runID {
+				return true
+			}
+			select {
+			case filtered <- event:
+				return true
+			case <-streamCtx.Done():
+				return false
+			}
+		}
+
+		// Subscribe before replay to close the publication race. A provider
+		// stream must honor its cursor after a reconnect; replayed events are
+		// de-duplicated against the live buffer in case both contain the same
+		// envelope.
+		replayCursor := cursor
+		for {
+			page, next := p.Bus.List("", replayCursor, 250)
+			if len(page) == 0 {
+				break
+			}
+			for _, event := range page {
+				if !send(event) {
+					return
+				}
+			}
+			if next == "" || next == replayCursor {
+				break
+			}
+			replayCursor = next
+		}
 		for {
 			select {
 			case <-streamCtx.Done():
@@ -647,18 +686,12 @@ func (p *LocalProvider) StreamEvents(ctx context.Context, runID, cursor string) 
 				if !ok {
 					return
 				}
-				if event.AggregateID != runID && event.Payload["run_id"] != runID {
-					continue
-				}
-				select {
-				case filtered <- event:
-				case <-streamCtx.Done():
+				if !send(event) {
 					return
 				}
 			}
 		}
 	}()
-	_ = cursor
 	return EventStream{Events: filtered, Close: func() { cancelStream(); cancelSource() }}, nil
 }
 

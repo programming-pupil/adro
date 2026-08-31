@@ -686,12 +686,21 @@ func (m *Memory) SaveContextManifest(manifest domain.ContextManifest) (domain.Co
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	items := m.contexts[manifest.ContextID]
+	lastVersion := int64(0)
+	if len(items) > 0 {
+		lastVersion = items[len(items)-1].Version
+	}
 	if manifest.Version == 0 {
-		manifest.Version = int64(len(items) + 1)
+		manifest.Version = lastVersion + 1
+	} else if manifest.Version <= lastVersion {
+		return domain.ContextManifest{}, ErrConflict
 	}
 	if manifest.StableSummary == "" {
 		return domain.ContextManifest{}, errors.New("stable_summary is required")
 	}
+	manifest.Repositories = append([]domain.ContextRepository(nil), manifest.Repositories...)
+	manifest.LatestEvidenceIDs = append([]string(nil), manifest.LatestEvidenceIDs...)
+	manifest.ArtifactRefs = append([]string(nil), manifest.ArtifactRefs...)
 	items = append(items, manifest)
 	m.contexts[manifest.ContextID] = items
 	if err := m.persistLocked(); err != nil {
@@ -702,7 +711,7 @@ func (m *Memory) SaveContextManifest(manifest domain.ContextManifest) (domain.Co
 		}
 		return domain.ContextManifest{}, fmt.Errorf("persist context manifest: %w", err)
 	}
-	return manifest, nil
+	return cloneContextManifest(manifest), nil
 }
 
 func (m *Memory) GetContextManifest(contextID string, version int64) (domain.ContextManifest, error) {
@@ -713,19 +722,19 @@ func (m *Memory) GetContextManifest(contextID string, version int64) (domain.Con
 		return domain.ContextManifest{}, ErrNotFound
 	}
 	if version <= 0 {
-		return items[len(items)-1], nil
+		return cloneContextManifest(items[len(items)-1]), nil
 	}
 	for _, item := range items {
 		if item.Version == version {
-			return item, nil
+			return cloneContextManifest(item), nil
 		}
 	}
 	return domain.ContextManifest{}, ErrNotFound
 }
 
 func (m *Memory) SaveRepairAttempt(attempt domain.RepairAttempt) (domain.RepairAttempt, error) {
-	if strings.TrimSpace(attempt.BugID) == "" || strings.TrimSpace(attempt.WorkItemID) == "" || attempt.Attempt < 1 {
-		return domain.RepairAttempt{}, errors.New("bug_id, work_item_id and positive attempt are required")
+	if strings.TrimSpace(attempt.BugID) == "" || strings.TrimSpace(attempt.WorkItemID) == "" || strings.TrimSpace(attempt.ContextID) == "" || attempt.Attempt < 1 {
+		return domain.RepairAttempt{}, errors.New("bug_id, work_item_id, context_id and positive attempt are required")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -738,7 +747,14 @@ func (m *Memory) SaveRepairAttempt(attempt domain.RepairAttempt) (domain.RepairA
 	if attempt.CreatedAt.IsZero() {
 		attempt.CreatedAt = time.Now().UTC()
 	}
+	attempt = cloneRepairAttempt(attempt)
 	previous := append([]domain.RepairAttempt(nil), m.repairAttempts[attempt.BugID]...)
+	if len(previous) > 0 {
+		last := previous[len(previous)-1]
+		if attempt.Attempt <= last.Attempt {
+			return domain.RepairAttempt{}, ErrConflict
+		}
+	}
 	m.repairAttempts[attempt.BugID] = append(m.repairAttempts[attempt.BugID], attempt)
 	if err := m.persistLocked(); err != nil {
 		if len(previous) == 0 {
@@ -748,13 +764,18 @@ func (m *Memory) SaveRepairAttempt(attempt domain.RepairAttempt) (domain.RepairA
 		}
 		return domain.RepairAttempt{}, fmt.Errorf("persist repair attempt: %w", err)
 	}
-	return attempt, nil
+	return cloneRepairAttempt(attempt), nil
 }
 
 func (m *Memory) ListRepairAttempts(bugID string) []domain.RepairAttempt {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return append([]domain.RepairAttempt(nil), m.repairAttempts[bugID]...)
+	items := m.repairAttempts[bugID]
+	cloned := make([]domain.RepairAttempt, len(items))
+	for i, item := range items {
+		cloned[i] = cloneRepairAttempt(item)
+	}
+	return cloned
 }
 
 // ListRepairAttemptsForWorkItem returns append-only repair records associated
@@ -766,7 +787,7 @@ func (m *Memory) ListRepairAttemptsForWorkItem(workItemID string) []domain.Repai
 	for _, attempts := range m.repairAttempts {
 		for _, attempt := range attempts {
 			if attempt.WorkItemID == workItemID {
-				items = append(items, attempt)
+				items = append(items, cloneRepairAttempt(attempt))
 			}
 		}
 	}
@@ -1757,4 +1778,16 @@ func clonePipelineRun(run domain.PipelineRun) domain.PipelineRun {
 	run.Context.RepairNotes = append([]string(nil), run.Context.RepairNotes...)
 	run.History = append([]domain.PipelineTransition(nil), run.History...)
 	return run
+}
+
+func cloneContextManifest(manifest domain.ContextManifest) domain.ContextManifest {
+	manifest.Repositories = append([]domain.ContextRepository(nil), manifest.Repositories...)
+	manifest.LatestEvidenceIDs = append([]string(nil), manifest.LatestEvidenceIDs...)
+	manifest.ArtifactRefs = append([]string(nil), manifest.ArtifactRefs...)
+	return manifest
+}
+
+func cloneRepairAttempt(attempt domain.RepairAttempt) domain.RepairAttempt {
+	attempt.Brief.FailedEvidence = append([]string(nil), attempt.Brief.FailedEvidence...)
+	return attempt
 }

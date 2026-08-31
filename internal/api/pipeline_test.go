@@ -78,6 +78,62 @@ func TestPipelineAPIUsesNativeLocalExecutor(t *testing.T) {
 	}
 }
 
+func TestPipelineResultRetryIsIdempotentAfterDurableAdvance(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	control := store.NewMemory()
+	requirement, err := control.CreateRequirement(domain.Requirement{
+		WorkspaceID: "workspace", Title: "idempotent result", Description: "retry a lost callback",
+		AcceptanceCriteria: []string{"duplicate result is harmless"}, AssigneeMemberIDs: []string{"member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := provider.NewLocalProvider("/usr/bin/true", nil, t.TempDir(), bus)
+	server := New(control, local, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	create := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines", map[string]any{
+		"requirement_id": requirement.ID,
+		"roles": map[string]any{
+			"designer_agent_id":   "11111111-1111-1111-1111-111111111111",
+			"developer_agent_id":  "22222222-2222-2222-2222-222222222222",
+			"tester_agent_id":     "33333333-3333-3333-3333-333333333333",
+			"arbitrator_agent_id": "44444444-4444-4444-4444-444444444444",
+		},
+		"max_retries": 2, "coverage_threshold": 80,
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", create.Code, create.Body.String())
+	}
+	var initial domain.PipelineRun
+	if err := json.Unmarshal(create.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+	result := map[string]any{
+		"stage": 1, "agent_id": initial.Roles.Designer, "outcome": "pass",
+		"design_doc": "design", "provider_issue_id": initial.ActiveProviderIssueID,
+		"provider_task_id": initial.ActiveProviderTaskID,
+	}
+	advanced := pipelineResult(t, server, initial.ID, result, http.StatusOK)
+	if advanced.PipelineStage != domain.PipelineDevelopment {
+		t.Fatalf("first result did not advance: %+v", advanced)
+	}
+	retried := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines/"+initial.ID+"/results", result)
+	if retried.Code != http.StatusOK {
+		t.Fatalf("duplicate result was rejected: status=%d body=%s", retried.Code, retried.Body.String())
+	}
+	var replayed domain.PipelineRun
+	if err := json.Unmarshal(retried.Body.Bytes(), &replayed); err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Version != advanced.Version || replayed.PipelineStage != advanced.PipelineStage {
+		t.Fatalf("duplicate result changed pipeline: first=%+v replay=%+v", advanced, replayed)
+	}
+}
+
 func TestPipelineLocalCollectorCompletesRealProcessRepairLoop(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "optional")
 	root := t.TempDir()

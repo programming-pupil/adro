@@ -258,6 +258,37 @@ func TestLocalProviderStreamFiltersOtherRuns(t *testing.T) {
 	}
 }
 
+func TestLocalProviderStreamReplaysAfterCursor(t *testing.T) {
+	bus := newTestBus()
+	p := NewLocalProvider("/usr/bin/printf", []string{"{input}"}, t.TempDir(), bus)
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "stream-cursor", Title: "cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSnapshot(t, p, binding.ID)
+	all, _ := bus.List(binding.ID, "", 20)
+	if len(all) < 2 {
+		t.Fatalf("expected start and completion events, got %d", len(all))
+	}
+	stream, err := p.StreamEvents(context.Background(), binding.ID, all[0].EventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	select {
+	case event := <-stream.Events:
+		if event.EventID != all[1].EventID {
+			t.Fatalf("cursor replay returned %q, want %q", event.EventID, all[1].EventID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cursor replay did not return the completion event")
+	}
+}
+
 func TestUsageFromOutputParsesClaudeResult(t *testing.T) {
 	usage := usageFromOutput([]byte(`{"usage":{"input_tokens":12,"output_tokens":7,"cache_read_input_tokens":5,"cache_creation_input_tokens":3},"total_cost_usd":0.0042}`))
 	if usage.InputTokens != 12 || usage.OutputTokens != 7 || usage.CacheReadTokens != 5 || usage.CacheWriteTokens != 3 || usage.EstimatedCost != 0.0042 {
