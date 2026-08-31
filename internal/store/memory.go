@@ -250,14 +250,24 @@ func (m *Memory) Idempotent(key string, value any) (any, bool) {
 	}
 	return v, ok
 }
-func (m *Memory) RememberIdempotency(key string, value any) {
+func (m *Memory) RememberIdempotency(key string, value any) error {
 	if key == "" {
-		return
+		return nil
 	}
 	m.mu.Lock()
+	previous, existed := m.idempotency[key]
 	m.idempotency[key] = value
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.idempotency[key] = previous
+		} else {
+			delete(m.idempotency, key)
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("persist idempotency record: %w", err)
+	}
 	m.mu.Unlock()
+	return nil
 }
 
 func (m *Memory) CreateRequirement(r domain.Requirement) (domain.Requirement, error) {
@@ -285,8 +295,14 @@ func (m *Memory) CreateRequirement(r domain.Requirement) (domain.Requirement, er
 			return domain.Requirement{}, fmt.Errorf("requirement key %q already exists", r.Key)
 		}
 	}
+	if _, exists := m.requirements[r.ID]; exists {
+		return domain.Requirement{}, ErrConflict
+	}
 	m.requirements[r.ID] = r
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		delete(m.requirements, r.ID)
+		return domain.Requirement{}, fmt.Errorf("persist requirement: %w", err)
+	}
 	return r, nil
 }
 func (m *Memory) GetRequirement(id string) (domain.Requirement, error) {
@@ -354,7 +370,10 @@ func (m *Memory) UpdateRequirement(r domain.Requirement, expectedVersion int64) 
 	r.CreatedAt = current.CreatedAt
 	r.UpdatedAt = time.Now().UTC()
 	m.requirements[r.ID] = r
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.requirements[r.ID] = current
+		return domain.Requirement{}, fmt.Errorf("persist requirement: %w", err)
+	}
 	return r, nil
 }
 func (m *Memory) TransitionRequirement(id string, to domain.RequirementStatus, expectedVersion int64) (domain.Requirement, error) {
@@ -370,11 +389,17 @@ func (m *Memory) TransitionRequirement(id string, to domain.RequirementStatus, e
 	if err := domain.Transition(r.Status, to); err != nil {
 		return domain.Requirement{}, err
 	}
+	previous := r
 	r.Status = to
 	r.Version++
 	r.UpdatedAt = time.Now().UTC()
 	m.requirements[id] = r
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		// Keep the pre-transition value when the durable snapshot cannot be
+		// replaced; callers must never observe an acknowledged but lost update.
+		m.requirements[id] = previous
+		return domain.Requirement{}, fmt.Errorf("persist requirement: %w", err)
+	}
 	return r, nil
 }
 
@@ -408,8 +433,14 @@ func (m *Memory) CreateWorkItemIfAbsent(w domain.WorkItem) (domain.WorkItem, boo
 			return existing, false, nil
 		}
 	}
+	if _, exists := m.workItems[w.ID]; exists {
+		return domain.WorkItem{}, false, ErrConflict
+	}
 	m.workItems[w.ID] = w
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		delete(m.workItems, w.ID)
+		return domain.WorkItem{}, false, fmt.Errorf("persist work item: %w", err)
+	}
 	return w, true, nil
 }
 func (m *Memory) ListWorkItems(requirementID string) []domain.WorkItem {
@@ -449,7 +480,10 @@ func (m *Memory) UpdateWorkItem(w domain.WorkItem) error {
 	w.CreatedAt = current.CreatedAt
 	w.UpdatedAt = time.Now().UTC()
 	m.workItems[w.ID] = w
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.workItems[w.ID] = current
+		return fmt.Errorf("persist work item: %w", err)
+	}
 	return nil
 }
 
@@ -476,8 +510,14 @@ func (m *Memory) UpsertBug(b domain.Bug) (domain.Bug, bool, error) {
 	now := time.Now().UTC()
 	b.CreatedAt = now
 	b.UpdatedAt = now
+	if _, exists := m.bugs[b.ID]; exists {
+		return domain.Bug{}, false, ErrConflict
+	}
 	m.bugs[b.ID] = b
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		delete(m.bugs, b.ID)
+		return domain.Bug{}, false, fmt.Errorf("persist bug: %w", err)
+	}
 	return b, false, nil
 }
 func (m *Memory) GetBug(id string) (domain.Bug, error) {
@@ -512,8 +552,12 @@ func (m *Memory) UpdateBug(b domain.Bug) error {
 		return ErrNotFound
 	}
 	b.UpdatedAt = time.Now().UTC()
+	previous := m.bugs[b.ID]
 	m.bugs[b.ID] = b
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.bugs[b.ID] = previous
+		return fmt.Errorf("persist bug: %w", err)
+	}
 	return nil
 }
 
@@ -531,8 +575,17 @@ func (m *Memory) SaveAttachment(item domain.EntityAttachment) (domain.EntityAtta
 		item.CreatedAt = time.Now().UTC()
 	}
 	m.mu.Lock()
+	previous, existed := m.attachments[item.ID]
 	m.attachments[item.ID] = item
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.attachments[item.ID] = previous
+		} else {
+			delete(m.attachments, item.ID)
+		}
+		m.mu.Unlock()
+		return domain.EntityAttachment{}, fmt.Errorf("persist attachment: %w", err)
+	}
 	m.mu.Unlock()
 	return item, nil
 }
@@ -565,8 +618,17 @@ func (m *Memory) SaveEvidence(e domain.EvidenceBundle) error {
 		e.CreatedAt = time.Now().UTC()
 	}
 	m.mu.Lock()
+	previous, existed := m.evidence[e.ID]
 	m.evidence[e.ID] = e
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.evidence[e.ID] = previous
+		} else {
+			delete(m.evidence, e.ID)
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("persist evidence: %w", err)
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -589,8 +651,17 @@ func (m *Memory) SaveProvenance(p domain.Provenance) error {
 		p.CreatedAt = time.Now().UTC()
 	}
 	m.mu.Lock()
+	previous, existed := m.provenance[p.ID]
 	m.provenance[p.ID] = p
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.provenance[p.ID] = previous
+		} else {
+			delete(m.provenance, p.ID)
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("persist provenance: %w", err)
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -623,7 +694,14 @@ func (m *Memory) SaveContextManifest(manifest domain.ContextManifest) (domain.Co
 	}
 	items = append(items, manifest)
 	m.contexts[manifest.ContextID] = items
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if len(items) == 1 {
+			delete(m.contexts, manifest.ContextID)
+		} else {
+			m.contexts[manifest.ContextID] = items[:len(items)-1]
+		}
+		return domain.ContextManifest{}, fmt.Errorf("persist context manifest: %w", err)
+	}
 	return manifest, nil
 }
 
@@ -660,8 +738,16 @@ func (m *Memory) SaveRepairAttempt(attempt domain.RepairAttempt) (domain.RepairA
 	if attempt.CreatedAt.IsZero() {
 		attempt.CreatedAt = time.Now().UTC()
 	}
+	previous := append([]domain.RepairAttempt(nil), m.repairAttempts[attempt.BugID]...)
 	m.repairAttempts[attempt.BugID] = append(m.repairAttempts[attempt.BugID], attempt)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if len(previous) == 0 {
+			delete(m.repairAttempts, attempt.BugID)
+		} else {
+			m.repairAttempts[attempt.BugID] = previous
+		}
+		return domain.RepairAttempt{}, fmt.Errorf("persist repair attempt: %w", err)
+	}
 	return attempt, nil
 }
 
@@ -706,7 +792,10 @@ func (m *Memory) SaveProviderBinding(binding domain.ProviderBinding) (domain.Pro
 		binding.CreatedAt = time.Now().UTC()
 	}
 	m.providerBindings[binding.ID] = binding
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		delete(m.providerBindings, binding.ID)
+		return domain.ProviderBinding{}, fmt.Errorf("persist provider binding: %w", err)
+	}
 	return binding, nil
 }
 
@@ -744,7 +833,14 @@ func (m *Memory) CreateImpactReport(report domain.ImpactReport) (domain.ImpactRe
 	}
 	report.Candidates = append([]domain.ImpactCandidate(nil), report.Candidates...)
 	m.impactReports[report.RequirementID] = append(reports, report)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if len(reports) == 0 {
+			delete(m.impactReports, report.RequirementID)
+		} else {
+			m.impactReports[report.RequirementID] = reports
+		}
+		return domain.ImpactReport{}, fmt.Errorf("persist impact report: %w", err)
+	}
 	return report, nil
 }
 
@@ -776,10 +872,15 @@ func (m *Memory) ConfirmImpactReport(requirementID string, version int64, reposi
 				return domain.ImpactReport{}, fmt.Errorf("repository %q is not a candidate in impact report", repositoryID)
 			}
 		}
+		previous := reports[i]
 		reports[i].ConfirmedRepositories = append([]string(nil), repositories...)
 		reports[i].Status = "confirmed"
 		m.impactReports[requirementID] = reports
-		_ = m.persistLocked()
+		if err := m.persistLocked(); err != nil {
+			reports[i] = previous
+			m.impactReports[requirementID] = reports
+			return domain.ImpactReport{}, fmt.Errorf("persist impact report: %w", err)
+		}
 		return reports[i], nil
 	}
 	return domain.ImpactReport{}, ErrNotFound
@@ -818,8 +919,16 @@ func (m *Memory) UpsertRepository(repository domain.Repository) (domain.Reposito
 			return domain.Repository{}, fmt.Errorf("repository %q already exists", repository.CanonicalName)
 		}
 	}
+	previous, existed := m.repositories[repository.ID]
 	m.repositories[repository.ID] = repository
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.repositories[repository.ID] = previous
+		} else {
+			delete(m.repositories, repository.ID)
+		}
+		return domain.Repository{}, fmt.Errorf("persist repository: %w", err)
+	}
 	return repository, nil
 }
 
@@ -856,8 +965,12 @@ func (m *Memory) MarkRepositoryIndexed(id, commit string) (domain.Repository, er
 	repository.IndexedCommit = commit
 	repository.IndexStatus = "ready"
 	repository.UpdatedAt = time.Now().UTC()
+	previous := m.repositories[id]
 	m.repositories[id] = repository
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.repositories[id] = previous
+		return domain.Repository{}, fmt.Errorf("persist repository: %w", err)
+	}
 	return repository, nil
 }
 
@@ -867,8 +980,12 @@ func (m *Memory) DeleteRepository(id string) error {
 	if _, ok := m.repositories[id]; !ok {
 		return ErrNotFound
 	}
+	previous := m.repositories[id]
 	delete(m.repositories, id)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.repositories[id] = previous
+		return fmt.Errorf("persist repository: %w", err)
+	}
 	return nil
 }
 
@@ -898,8 +1015,16 @@ func (m *Memory) UpsertTeamWorkspace(workspace domain.TeamWorkspace) (domain.Tea
 		workspace.CreatedAt = now
 	}
 	workspace.UpdatedAt = now
+	previous, existed := m.teamWorkspaces[workspace.ID]
 	m.teamWorkspaces[workspace.ID] = workspace
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.teamWorkspaces[workspace.ID] = previous
+		} else {
+			delete(m.teamWorkspaces, workspace.ID)
+		}
+		return domain.TeamWorkspace{}, fmt.Errorf("persist team workspace: %w", err)
+	}
 	return workspace, nil
 }
 
@@ -955,8 +1080,16 @@ func (m *Memory) UpsertDeveloperProfile(profile domain.DeveloperProfile) (domain
 		profile.CreatedAt = now
 	}
 	profile.UpdatedAt = now
+	previous, existed := m.profiles[profile.ID]
 	m.profiles[profile.ID] = profile
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.profiles[profile.ID] = previous
+		} else {
+			delete(m.profiles, profile.ID)
+		}
+		return domain.DeveloperProfile{}, fmt.Errorf("persist developer profile: %w", err)
+	}
 	return profile, nil
 }
 func (m *Memory) GetDeveloperProfile(workspaceID, memberID string) (domain.DeveloperProfile, error) {
@@ -1016,8 +1149,16 @@ func upsertMCP(m *Memory, server domain.MCPServer) (domain.MCPServer, error) {
 		server.CreatedAt = now
 	}
 	server.UpdatedAt = now
+	previous, existed := m.mcpServers[server.ID]
 	m.mcpServers[server.ID] = server
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.mcpServers[server.ID] = previous
+		} else {
+			delete(m.mcpServers, server.ID)
+		}
+		return domain.MCPServer{}, fmt.Errorf("persist mcp server: %w", err)
+	}
 	return server, nil
 }
 func (m *Memory) ListMCPServers(workspaceID string) []domain.MCPServer {
@@ -1038,8 +1179,12 @@ func (m *Memory) DeleteMCPServer(id string) error {
 	if _, ok := m.mcpServers[id]; !ok {
 		return ErrNotFound
 	}
+	previous := m.mcpServers[id]
 	delete(m.mcpServers, id)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.mcpServers[id] = previous
+		return fmt.Errorf("persist mcp server: %w", err)
+	}
 	return nil
 }
 
@@ -1065,8 +1210,16 @@ func (m *Memory) UpsertSkill(skill domain.Skill) (domain.Skill, error) {
 		skill.CreatedAt = now
 	}
 	skill.UpdatedAt = now
+	previous, existed := m.skills[skill.ID]
 	m.skills[skill.ID] = skill
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.skills[skill.ID] = previous
+		} else {
+			delete(m.skills, skill.ID)
+		}
+		return domain.Skill{}, fmt.Errorf("persist skill: %w", err)
+	}
 	return skill, nil
 }
 func (m *Memory) ListSkills(workspaceID string) []domain.Skill {
@@ -1087,8 +1240,12 @@ func (m *Memory) DeleteSkill(id string) error {
 	if _, ok := m.skills[id]; !ok {
 		return ErrNotFound
 	}
+	previous := m.skills[id]
 	delete(m.skills, id)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.skills[id] = previous
+		return fmt.Errorf("persist skill: %w", err)
+	}
 	return nil
 }
 
@@ -1112,8 +1269,16 @@ func (m *Memory) UpsertAutomation(automation domain.Automation) (domain.Automati
 		automation.CreatedAt = now
 	}
 	automation.UpdatedAt = now
+	previous, existed := m.automations[automation.ID]
 	m.automations[automation.ID] = automation
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.automations[automation.ID] = previous
+		} else {
+			delete(m.automations, automation.ID)
+		}
+		return domain.Automation{}, fmt.Errorf("persist automation: %w", err)
+	}
 	return automation, nil
 }
 func (m *Memory) ListAutomations(workspaceID string) []domain.Automation {
@@ -1134,8 +1299,12 @@ func (m *Memory) DeleteAutomation(id string) error {
 	if _, ok := m.automations[id]; !ok {
 		return ErrNotFound
 	}
+	previous := m.automations[id]
 	delete(m.automations, id)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.automations[id] = previous
+		return fmt.Errorf("persist automation: %w", err)
+	}
 	return nil
 }
 
@@ -1154,8 +1323,16 @@ func (m *Memory) CreateApproval(approval domain.Approval) (domain.Approval, erro
 	if approval.CreatedAt.IsZero() {
 		approval.CreatedAt = time.Now().UTC()
 	}
+	previous, existed := m.approvals[approval.ID]
 	m.approvals[approval.ID] = approval
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.approvals[approval.ID] = previous
+		} else {
+			delete(m.approvals, approval.ID)
+		}
+		return domain.Approval{}, fmt.Errorf("persist approval: %w", err)
+	}
 	return approval, nil
 }
 func (m *Memory) DecideApproval(id, decision, member, reason string) (domain.Approval, error) {
@@ -1171,8 +1348,12 @@ func (m *Memory) DecideApproval(id, decision, member, reason string) (domain.App
 	approval.Decision, approval.DecidedBy, approval.Reason = decision, member, reason
 	now := time.Now().UTC()
 	approval.DecidedAt = &now
+	previous := m.approvals[id]
 	m.approvals[id] = approval
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.approvals[id] = previous
+		return domain.Approval{}, fmt.Errorf("persist approval: %w", err)
+	}
 	return approval, nil
 }
 
@@ -1201,9 +1382,18 @@ func (m *Memory) SaveDiff(diff domain.DiffSnapshot) (domain.DiffSnapshot, error)
 	}
 	diff.Files = append([]string(nil), diff.Files...)
 	m.mu.Lock()
+	previous, existed := m.diffs[diff.WorkItemID]
 	m.diffs[diff.WorkItemID] = diff
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.diffs[diff.WorkItemID] = previous
+		} else {
+			delete(m.diffs, diff.WorkItemID)
+		}
+		m.mu.Unlock()
+		return domain.DiffSnapshot{}, fmt.Errorf("persist diff: %w", err)
+	}
 	m.mu.Unlock()
-	_ = m.Flush()
 	return diff, nil
 }
 
@@ -1233,9 +1423,18 @@ func (m *Memory) CreateArtifactMigration(migration domain.ArtifactMigration) (do
 	now := time.Now().UTC()
 	migration.CreatedAt, migration.UpdatedAt = now, now
 	m.mu.Lock()
+	previous, existed := m.migrations[migration.ID]
 	m.migrations[migration.ID] = migration
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.migrations[migration.ID] = previous
+		} else {
+			delete(m.migrations, migration.ID)
+		}
+		m.mu.Unlock()
+		return domain.ArtifactMigration{}, fmt.Errorf("persist artifact migration: %w", err)
+	}
 	m.mu.Unlock()
-	_ = m.Flush()
 	return migration, nil
 }
 
@@ -1261,8 +1460,12 @@ func (m *Memory) UpdateArtifactMigration(id, status string) (domain.ArtifactMigr
 	}
 	migration.Status = status
 	migration.UpdatedAt = time.Now().UTC()
+	previous := m.migrations[id]
 	m.migrations[id] = migration
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.migrations[id] = previous
+		return domain.ArtifactMigration{}, fmt.Errorf("persist artifact migration: %w", err)
+	}
 	return migration, nil
 }
 
@@ -1280,9 +1483,18 @@ func (m *Memory) SaveMCPInvocation(invocation domain.MCPInvocation) (domain.MCPI
 		invocation.Status = "completed"
 	}
 	m.mu.Lock()
+	previous, existed := m.invocations[invocation.ID]
 	m.invocations[invocation.ID] = invocation
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.invocations[invocation.ID] = previous
+		} else {
+			delete(m.invocations, invocation.ID)
+		}
+		m.mu.Unlock()
+		return domain.MCPInvocation{}, fmt.Errorf("persist mcp invocation: %w", err)
+	}
 	m.mu.Unlock()
-	_ = m.Flush()
 	return invocation, nil
 }
 
@@ -1310,9 +1522,18 @@ func (m *Memory) SaveBinding(binding domain.CapabilityBinding) (domain.Capabilit
 		binding.CreatedAt = time.Now().UTC()
 	}
 	m.mu.Lock()
+	previous, existed := m.bindings[binding.ID]
 	m.bindings[binding.ID] = binding
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.bindings[binding.ID] = previous
+		} else {
+			delete(m.bindings, binding.ID)
+		}
+		m.mu.Unlock()
+		return domain.CapabilityBinding{}, fmt.Errorf("persist capability binding: %w", err)
+	}
 	m.mu.Unlock()
-	_ = m.Flush()
 	return binding, nil
 }
 
@@ -1342,8 +1563,12 @@ func (m *Memory) DeleteBinding(id string) error {
 	if _, ok := m.bindings[id]; !ok {
 		return ErrNotFound
 	}
+	previous := m.bindings[id]
 	delete(m.bindings, id)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.bindings[id] = previous
+		return fmt.Errorf("persist capability binding: %w", err)
+	}
 	return nil
 }
 
@@ -1361,9 +1586,18 @@ func (m *Memory) CreateAutomationRun(run domain.AutomationRun) (domain.Automatio
 		run.StartedAt = time.Now().UTC()
 	}
 	m.mu.Lock()
+	previous, existed := m.automationRuns[run.ID]
 	m.automationRuns[run.ID] = run
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.automationRuns[run.ID] = previous
+		} else {
+			delete(m.automationRuns, run.ID)
+		}
+		m.mu.Unlock()
+		return domain.AutomationRun{}, fmt.Errorf("persist automation run: %w", err)
+	}
 	m.mu.Unlock()
-	_ = m.Flush()
 	return run, nil
 }
 
@@ -1408,8 +1642,12 @@ func (m *Memory) UpdateAutomationRun(id, status, takenOverBy string) (domain.Aut
 		now := time.Now().UTC()
 		run.FinishedAt = &now
 	}
+	previous := m.automationRuns[id]
 	m.automationRuns[id] = run
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.automationRuns[id] = previous
+		return domain.AutomationRun{}, fmt.Errorf("persist automation run: %w", err)
+	}
 	return run, nil
 }
 
@@ -1445,8 +1683,14 @@ func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, err
 			return domain.PipelineRun{}, fmt.Errorf("an active pipeline already exists for requirement %s", run.RequirementID)
 		}
 	}
+	if _, exists := m.pipelines[run.ID]; exists {
+		return domain.PipelineRun{}, ErrConflict
+	}
 	m.pipelines[run.ID] = clonePipelineRun(run)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		delete(m.pipelines, run.ID)
+		return domain.PipelineRun{}, fmt.Errorf("persist pipeline: %w", err)
+	}
 	return clonePipelineRun(run), nil
 }
 
@@ -1495,7 +1739,10 @@ func (m *Memory) UpdatePipeline(run domain.PipelineRun, expectedVersion int64) (
 	}
 	run.CreatedAt = current.CreatedAt
 	m.pipelines[run.ID] = clonePipelineRun(run)
-	_ = m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		m.pipelines[run.ID] = current
+		return domain.PipelineRun{}, fmt.Errorf("persist pipeline: %w", err)
+	}
 	return clonePipelineRun(run), nil
 }
 

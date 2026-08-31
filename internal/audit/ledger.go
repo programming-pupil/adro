@@ -104,17 +104,23 @@ func (l *Ledger) Append(input Event) (Event, error) {
 	if len(l.events) > 0 {
 		input.PreviousHash = l.events[len(l.events)-1].ContentHash
 	}
-	payload, _ := json.Marshal(struct {
+	payload, err := json.Marshal(struct {
 		Sequence                                                         int64 `json:"sequence"`
 		TenantID, WorkspaceID, ActorType, ActorID, Action, CorrelationID string
 		Payload                                                          map[string]any
 		PreviousHash                                                     string `json:"previous_hash"`
 		CreatedAt                                                        time.Time
 	}{input.Sequence, input.TenantID, input.WorkspaceID, input.ActorType, input.ActorID, input.Action, input.CorrelationID, input.Payload, input.PreviousHash, input.CreatedAt})
+	if err != nil {
+		return Event{}, fmt.Errorf("encode audit event: %w", err)
+	}
 	sum := sha256.Sum256(payload)
 	input.ContentHash = hex.EncodeToString(sum[:])
 	l.events = append(l.events, input)
-	_ = l.persistLocked()
+	if err := l.persistLocked(); err != nil {
+		l.events = l.events[:len(l.events)-1]
+		return Event{}, fmt.Errorf("persist audit event: %w", err)
+	}
 	return input, nil
 }
 

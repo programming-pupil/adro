@@ -89,3 +89,14 @@ func TestPersistentSupervisorRequiresHeartbeatAfterRestart(t *testing.T) {
 		t.Fatalf("test setup did not persist active run: %+v", persisted[r.ID])
 	}
 }
+
+func TestSupervisorRejectsUnpersistedRegistration(t *testing.T) {
+	s := NewSupervisor()
+	s.path = t.TempDir()
+	if _, err := s.Register(Runner{Name: "durability", Provider: "local", Version: "1"}); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if got := s.List(); len(got) != 0 {
+		t.Fatalf("failed runner registration remained visible: %+v", got)
+	}
+}

@@ -93,6 +93,10 @@ func NewPersistentBus(path string) (*Bus, error) {
 func (b *Bus) Flush() error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.persistLocked()
+}
+
+func (b *Bus) persistLocked() error {
 	if b.statePath == "" {
 		return nil
 	}
@@ -130,29 +134,35 @@ func (b *Bus) Flush() error {
 
 func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	if event.EventID == "" {
 		event.EventID = domain.NewID()
 	}
 	if _, ok := b.seen[event.EventID]; ok {
-		b.mu.Unlock()
 		return nil
 	}
+	providerKey := ""
 	if event.Provider != "" && event.ProviderEventID != "" {
-		providerKey := event.Provider + "\x00" + event.ProviderEventID
+		providerKey = event.Provider + "\x00" + event.ProviderEventID
 		if _, ok := b.seenProvider[providerKey]; ok {
-			b.mu.Unlock()
 			return nil
 		}
 		b.seenProvider[providerKey] = struct{}{}
 	}
 	b.seen[event.EventID] = struct{}{}
 	b.events = append(b.events, event)
+	if err := b.persistLocked(); err != nil {
+		b.events = b.events[:len(b.events)-1]
+		delete(b.seen, event.EventID)
+		if providerKey != "" {
+			delete(b.seenProvider, providerKey)
+		}
+		return fmt.Errorf("persist event: %w", err)
+	}
 	channels := make([]chan Envelope, 0, len(b.subscribers))
 	for _, ch := range b.subscribers {
 		channels = append(channels, ch)
 	}
-	b.mu.Unlock()
-	_ = b.Flush()
 	for _, ch := range channels {
 		select {
 		case ch <- event:

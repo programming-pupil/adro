@@ -257,6 +257,18 @@ func TestPipelineResultFromSnapshotAcceptsStructuredCoverageAndErrorLog(t *testi
 	}
 }
 
+func TestPipelineResultFromSnapshotAcceptsHumanReadableCoverageAndTestsAlias(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineUnitTest,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"stage\":3,\"outcome\":\"success\",\"coverage\":\"100.0% of statements\",\"tests\":[\"go test ./...\",\"go test -cover ./...\"]}"}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.Coverage != 100 || len(result.PassedTests) != 2 {
+		t.Fatalf("human-readable coverage or tests alias was not parsed: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotAcceptsFinalReportAlias(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineReport,

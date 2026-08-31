@@ -157,8 +157,17 @@ func (s *Supervisor) Register(r Runner) (Runner, error) {
 	}
 	r.LastHeartbeat = time.Now().UTC()
 	s.mu.Lock()
+	previous, existed := s.runners[r.ID]
 	s.runners[r.ID] = r
-	_ = s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		if existed {
+			s.runners[r.ID] = previous
+		} else {
+			delete(s.runners, r.ID)
+		}
+		s.mu.Unlock()
+		return Runner{}, fmt.Errorf("persist runner registration: %w", err)
+	}
 	s.mu.Unlock()
 	return r, nil
 }
@@ -177,8 +186,12 @@ func (s *Supervisor) Heartbeat(id string, activeRuns int) (Runner, error) {
 	}
 	r.ActiveRuns = activeRuns
 	r.LastHeartbeat = time.Now().UTC()
+	previous := s.runners[id]
 	s.runners[id] = r
-	_ = s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		s.runners[id] = previous
+		return Runner{}, fmt.Errorf("persist runner heartbeat: %w", err)
+	}
 	return r, nil
 }
 func (s *Supervisor) SetStatus(id string, status Status) (Runner, error) {
@@ -193,9 +206,13 @@ func (s *Supervisor) SetStatus(id string, status Status) (Runner, error) {
 	default:
 		return Runner{}, errors.New("invalid runner status")
 	}
+	previous := r
 	r.Status = status
 	s.runners[id] = r
-	_ = s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		s.runners[id] = previous
+		return Runner{}, fmt.Errorf("persist runner status: %w", err)
+	}
 	return r, nil
 }
 func (s *Supervisor) List() []Runner {
@@ -277,13 +294,25 @@ func (s *Supervisor) Reap(after time.Duration) []Runner {
 	cutoff := time.Now().Add(-after)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := make(map[string]Runner, len(s.runners))
+	for id, runner := range s.runners {
+		previous[id] = runner
+	}
 	changed := []Runner{}
 	for id, r := range s.runners {
 		if r.Status == Healthy && r.LastHeartbeat.Before(cutoff) {
 			r.Status = Offline
 			s.runners[id] = r
-			_ = s.persistLocked()
 			changed = append(changed, r)
+		}
+	}
+	if len(changed) > 0 {
+		if err := s.persistLocked(); err != nil {
+			// Reaping is a durable health decision. If it cannot be written,
+			// retain the prior state and return no acknowledgements so a caller
+			// cannot act on an offline transition that would vanish on restart.
+			s.runners = previous
+			return nil
 		}
 	}
 	return changed
@@ -294,7 +323,7 @@ func (s *Supervisor) Reap(after time.Duration) []Runner {
 // inherits no ambient environment, and is capacity-accounted as one run.
 // Production deployments should replace this method with a rootless/VM worker
 // while retaining the request/result and audit contracts.
-func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (ExecuteResult, error) {
+func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (result ExecuteResult, err error) {
 	if len(request.Command) == 0 || strings.TrimSpace(request.Command[0]) == "" {
 		return ExecuteResult{}, errors.New("command is required")
 	}
@@ -353,15 +382,29 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (Execu
 		s.mu.Unlock()
 		return ExecuteResult{}, errors.New("work_dir is outside runner workspace_root")
 	}
+	previous := r
 	r.ActiveRuns++
 	s.runners[r.ID] = r
+	if err := s.persistLocked(); err != nil {
+		s.runners[r.ID] = previous
+		s.mu.Unlock()
+		return ExecuteResult{}, fmt.Errorf("persist runner capacity: %w", err)
+	}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		if current, exists := s.runners[r.ID]; exists && current.ActiveRuns > 0 {
+			previous := current
 			current.ActiveRuns--
 			s.runners[r.ID] = current
-			_ = s.persistLocked()
+			if persistErr := s.persistLocked(); persistErr != nil {
+				// Keep the conservative active-run count when the completion
+				// update cannot be made durable; this prevents oversubscription
+				// after a restart, and propagates the durability failure to the
+				// caller instead of acknowledging the run unconditionally.
+				s.runners[r.ID] = previous
+				err = errors.Join(err, fmt.Errorf("persist runner completion: %w", persistErr))
+			}
 		}
 		s.mu.Unlock()
 	}()
@@ -384,7 +427,7 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (Execu
 	cmd.Stderr = &limitedWriter{writer: &stderr, limit: 4 << 20}
 	started := time.Now()
 	err = cmd.Run()
-	result := ExecuteResult{RunnerID: r.ID, WorkDir: workDir, Stdout: stdout.String(), Stderr: stderr.String(), DurationMS: time.Since(started).Milliseconds(), ExitCode: 0}
+	result = ExecuteResult{RunnerID: r.ID, WorkDir: workDir, Stdout: stdout.String(), Stderr: stderr.String(), DurationMS: time.Since(started).Milliseconds(), ExitCode: 0}
 	if err != nil {
 		if commandCtx.Err() != nil {
 			return result, commandCtx.Err()

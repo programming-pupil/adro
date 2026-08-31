@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -600,6 +601,7 @@ type pipelineStepResultWire struct {
 	CodeVersion       string               `json:"code_version"`
 	Coverage          json.RawMessage      `json:"coverage"`
 	PassedTests       json.RawMessage      `json:"passed_tests"`
+	Tests             json.RawMessage      `json:"tests"`
 	FailedTests       json.RawMessage      `json:"failed_tests"`
 	ErrorLog          json.RawMessage      `json:"error_log"`
 	RepairNote        string               `json:"repair_note"`
@@ -625,6 +627,9 @@ func decodePipelineStepResult(data []byte) (*domain.PipelineStepResult, error) {
 		Coverage: pipelineCoverage(wire.Coverage), PassedTests: pipelineStrings(wire.PassedTests),
 		FailedTests: pipelineStrings(wire.FailedTests), ErrorLog: pipelineErrorLog(wire.ErrorLog),
 	}
+	if len(result.PassedTests) == 0 {
+		result.PassedTests = pipelineStrings(wire.Tests)
+	}
 	if result.Report == "" {
 		result.Report = wire.FinalReport
 	}
@@ -638,6 +643,20 @@ func pipelineCoverage(raw json.RawMessage) float64 {
 	var number float64
 	if json.Unmarshal(raw, &number) == nil {
 		return number
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		// CLIs commonly report coverage as "100.0% of statements". Keep the
+		// wire contract provider-neutral while accepting that human-readable
+		// form from real executors.
+		for _, token := range strings.Fields(text) {
+			token = strings.Trim(token, ":,;()[]")
+			token = strings.TrimSuffix(token, "%")
+			if value, err := strconv.ParseFloat(token, 64); err == nil && value >= 0 && value <= 100 {
+				return value
+			}
+		}
+		return 0
 	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(raw, &object) != nil {

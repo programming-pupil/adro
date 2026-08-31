@@ -234,7 +234,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w = buffered
 		defer func() {
 			response := buffered.response()
-			s.Store.RememberIdempotency(key, idempotencyRecord{RequestSHA256: fingerprint, Response: response})
+			if err := s.Store.RememberIdempotency(key, idempotencyRecord{RequestSHA256: fingerprint, Response: response}); err != nil {
+				// A mutation whose replay record was not durably stored must not be
+				// acknowledged as successful: a retry could otherwise apply it twice.
+				// Keep the storage detail in server logs and return a stable problem.
+				if s.Logger != nil {
+					s.Logger.Error("persist idempotency record", "error", err, "request_id", requestID)
+				}
+				body, _ := json.Marshal(map[string]any{
+					"type":       "https://adro.dev/problems/idempotency-storage",
+					"title":      "Idempotency record unavailable",
+					"status":     http.StatusServiceUnavailable,
+					"detail":     "the mutation was not acknowledged because its replay record could not be stored",
+					"request_id": requestID,
+				})
+				response = idempotencyResponse{Status: http.StatusServiceUnavailable, Headers: map[string][]string{"Content-Type": {"application/problem+json"}}, Body: body}
+			}
 			writeBufferedResponse(originalWriter, response)
 		}()
 	}

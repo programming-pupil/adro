@@ -34,3 +34,16 @@ func TestBusDeduplicatesProviderRetries(t *testing.T) {
 		t.Fatalf("provider retry was published twice: %d", len(got))
 	}
 }
+
+func TestBusPublishRollsBackWhenStateCannotBeReplaced(t *testing.T) {
+	b := NewBus()
+	b.statePath = t.TempDir()
+	e := New("durability.v1", "run", "r1", "tenant", "workspace", 1, nil)
+	if err := b.Publish(context.Background(), e); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	items, _ := b.List("r1", "", 10)
+	if len(items) != 0 {
+		t.Fatalf("failed event remained visible: %+v", items)
+	}
+}

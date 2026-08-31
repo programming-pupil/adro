@@ -96,6 +96,30 @@ func TestLocalProviderPersistsRunSnapshotAndMarksInterruptedRun(t *testing.T) {
 	}
 }
 
+func TestLocalProviderRejectsUnpersistedMutations(t *testing.T) {
+	p := NewLocalProvider("/usr/bin/printf", []string{"{input}"}, t.TempDir(), newTestBus())
+	p.StatePath = t.TempDir()
+	if _, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "durability-item", Title: "must persist"}); err == nil {
+		t.Fatal("expected work item persistence failure")
+	}
+	if len(p.items) != 0 || len(p.issues) != 0 {
+		t.Fatalf("failed work item remained visible: items=%d issues=%d", len(p.items), len(p.issues))
+	}
+
+	p.StatePath = ""
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "run-durability-item", Title: "run must persist"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.StatePath = t.TempDir()
+	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "must fail closed"}); err == nil {
+		t.Fatal("expected run persistence failure")
+	}
+	if len(p.runs) != 0 || len(p.workdirs) != 0 {
+		t.Fatalf("failed run remained visible: runs=%d workdirs=%d", len(p.runs), len(p.workdirs))
+	}
+}
+
 func TestLocalProviderClonesConfiguredRepository(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
 	if err := os.MkdirAll(source, 0o750); err != nil {

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -17,7 +18,9 @@ func TestPersistentMemoryRoundTripsControlPlaneAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.RememberIdempotency("requirement:local:key", req)
+	if err := first.RememberIdempotency("requirement:local:key", req); err != nil {
+		t.Fatal(err)
+	}
 	item, _, err := first.CreateWorkItemIfAbsent(domain.WorkItem{RequirementID: req.ID, RepositoryID: "repo", MemberID: "dev"})
 	if err != nil {
 		t.Fatal(err)
@@ -43,5 +46,31 @@ func TestPersistentMemoryRoundTripsControlPlaneAndContext(t *testing.T) {
 	}
 	if got := second.ListRepairAttempts("bug-1"); len(got) != 1 || got[0].Attempt != 1 {
 		t.Fatalf("repair attempts=%+v", got)
+	}
+}
+
+func TestPersistentMutationRollsBackWhenStateCannotBeReplaced(t *testing.T) {
+	m := NewMemory()
+	// A directory is a valid parent for the temporary file, but cannot be the
+	// destination of the atomic rename. This simulates a storage outage without
+	// relying on platform-specific permission behavior.
+	m.statePath = t.TempDir()
+	req := domain.Requirement{WorkspaceID: "w", Title: "must not acknowledge", Description: "durability", AcceptanceCriteria: []string{"rollback"}, AssigneeMemberIDs: []string{"dev"}, RepositoryIDs: []string{"repo"}}
+	if _, err := m.CreateRequirement(req); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if _, err := m.GetRequirement(req.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("failed mutation remained visible: %v", err)
+	}
+}
+
+func TestIdempotencyMutationRollsBackWhenStateCannotBeReplaced(t *testing.T) {
+	m := NewMemory()
+	m.statePath = t.TempDir()
+	if err := m.RememberIdempotency("broken", map[string]any{"value": "must not stick"}); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if _, ok := m.Idempotent("broken", nil); ok {
+		t.Fatal("failed idempotency mutation remained visible")
 	}
 }

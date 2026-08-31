@@ -157,9 +157,24 @@ func (p *LocalProvider) CreateWorkItem(_ context.Context, s WorkItemSpec) (Provi
 	}
 	issueID := "local-item-" + s.ID
 	p.mu.Lock()
+	previousIssue, issueExisted := p.issues[issueID]
+	previousItem, itemExisted := p.items[s.ID]
 	p.issues[issueID] = s.ID
 	p.items[s.ID] = localWorkItem{RepositoryPath: s.RepositoryPath, CloneURL: s.CloneURL, DefaultBranch: s.DefaultBranch}
-	_ = p.persistLocked()
+	if err := p.persistLocked(); err != nil {
+		if issueExisted {
+			p.issues[issueID] = previousIssue
+		} else {
+			delete(p.issues, issueID)
+		}
+		if itemExisted {
+			p.items[s.ID] = previousItem
+		} else {
+			delete(p.items, s.ID)
+		}
+		p.mu.Unlock()
+		return ProviderWorkItem{}, fmt.Errorf("persist local work item: %w", err)
+	}
 	p.mu.Unlock()
 	return ProviderWorkItem{ID: s.ID, ProviderIssueID: issueID}, nil
 }
@@ -226,8 +241,19 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, Status: "running", SessionID: sessionID, WorkDir: workDir, StartedAt: &now}
 	p.mu.Lock()
 	p.runs[id] = &localRun{snapshot: snapshot, cancel: cancel, input: input}
+	previousWorkDir, workDirExisted := p.workdirs[workItemID]
 	p.workdirs[workItemID] = workDir
-	_ = p.persistLocked()
+	if err := p.persistLocked(); err != nil {
+		delete(p.runs, id)
+		if workDirExisted {
+			p.workdirs[workItemID] = previousWorkDir
+		} else {
+			delete(p.workdirs, workItemID)
+		}
+		p.mu.Unlock()
+		cancel()
+		return RunBinding{}, fmt.Errorf("persist local run: %w", err)
+	}
 	p.mu.Unlock()
 	digest := sha256.Sum256([]byte(input))
 	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": hex.EncodeToString(digest[:]), "session_id": sessionID, "work_dir": workDir}))
@@ -278,7 +304,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	usage.DurationMS = time.Since(started).Milliseconds()
 	p.mu.Lock()
 	run := p.runs[runID]
+	persistenceFailure := ""
 	if run != nil && run.snapshot.Status == "running" {
+		previous := run.snapshot
 		run.snapshot.Status = status
 		run.snapshot.SessionID = sessionID
 		run.snapshot.BaselineCommit = baseline
@@ -292,12 +320,31 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.WorkspaceDirty = dirty
 		run.snapshot.ChangedFiles = changedFiles
 		run.snapshot.LastEventID = domain.NewID()
-		_ = p.persistLocked()
+		if err := p.persistLocked(); err != nil {
+			// The process result is not acknowledged as completed when its
+			// durable snapshot cannot be written. Preserve the evidence in the
+			// live record, but fail closed so callers do not advance on a result
+			// that would disappear after restart.
+			run.snapshot = previous
+			run.snapshot.Status = "failed"
+			run.snapshot.SessionID = sessionID
+			run.snapshot.FinishedAt = &done
+			run.snapshot.Usage = usage
+			run.snapshot.Output = truncateOutput(output)
+			run.snapshot.Error = "durable run snapshot unavailable"
+			run.snapshot.WorkspaceDirty = dirty
+			run.snapshot.ChangedFiles = changedFiles
+			persistenceFailure = err.Error()
+			status = "failed"
+		}
 	}
 	p.mu.Unlock()
 	payload := map[string]any{"run_id": runID, "status": status, "output": truncateOutput(output), "duration_ms": time.Since(started).Milliseconds()}
 	if runErr != nil {
 		payload["error"] = runErr.Error()
+	}
+	if persistenceFailure != "" {
+		payload["error"] = "durable run snapshot unavailable"
 	}
 	_ = p.Bus.Publish(context.Background(), events.New("execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
 }
@@ -550,11 +597,15 @@ func (p *LocalProvider) CancelRun(_ context.Context, runID string) error {
 	if run.snapshot.Status != "running" {
 		return errors.New("run is not running")
 	}
+	previous := run.snapshot
 	run.cancel()
 	run.snapshot.Status = "cancelled"
 	now := time.Now().UTC()
 	run.snapshot.FinishedAt = &now
-	_ = p.persistLocked()
+	if err := p.persistLocked(); err != nil {
+		run.snapshot = previous
+		return fmt.Errorf("persist cancelled local run: %w", err)
+	}
 	return nil
 }
 
