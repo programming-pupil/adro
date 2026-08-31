@@ -1,5 +1,7 @@
 # ADRO
 
+[![CI](https://github.com/programming-pupil/adro/actions/workflows/ci.yml/badge.svg)](https://github.com/programming-pupil/adro/actions/workflows/ci.yml)
+
 ADRO (Agentic Delivery & Release Orchestrator) is an independent control plane
 for auditable, multi-repository delivery by coding agents. The repository does
 not embed, download, patch, or call any other orchestration product. Its only
@@ -13,6 +15,46 @@ workbench. `internal/provider` exposes a small provider-neutral SPI.
 `codex`, or `claude-code`, invokes the real executable with `os/exec`, captures
 output and git evidence, and keeps the original session/worktree for repairs.
 The deterministic provider in tests is not selectable by the runtime profile.
+
+## 中文简介 / Chinese overview
+
+ADRO 是独立的 AI 研发交付控制面。它把需求、Bug 或分析目标编排为可审计、
+可恢复的七阶段流程：方案、研发、单测、集成测试、仲裁、复测和报告。每个
+阶段都绑定租户、项目、仓库、Agent、Session、证据和权限；失败会回到原始
+开发上下文，不会静默创建一条失去历史的新链路。
+
+ADRO is an independent AI delivery control plane. It turns a requirement, bug,
+or analysis goal into a seven-stage, auditable and recoverable workflow. Each
+stage carries tenant, project, repository, agent, session, evidence, and policy
+state; failures return to the original development context instead of silently
+starting an unrelated chain.
+
+```mermaid
+flowchart LR
+  R[Requirement / Bug / Analysis\n需求、Bug、分析] --> D[Design\n方案]
+  D --> C[Develop\n研发]
+  C --> U[Unit tests\n单测]
+  U --> I[Integration\n集成测试]
+  I --> A{Evidence gate\n证据门禁}
+  A -->|pass / 通过| V[Revalidate\n复测]
+  A -->|fail / 失败| C
+  V --> O[Report\n报告]
+  C -. same session + worktree\n同 Session 与工作区 .-> C
+```
+
+## Push checks / Push 检查
+
+Every push and pull request runs the repository gate in
+`.github/workflows/ci.yml`: formatting, vet, race tests, build, API/HTML
+contracts, SBOM and license checks, startup checks, and the Chromium, Firefox,
+and WebKit browser suites. A green badge means the deterministic gates passed;
+the real-client acceptance path remains an explicit operator command (`make
+real-e2e`) because it requires local credentials.
+
+每次 push 和 Pull Request 都会执行 `.github/workflows/ci.yml` 中的代码检查：
+格式、静态分析、竞态测试、构建、API/HTML 契约、SBOM 与许可证、启动检查，
+以及 Chromium、Firefox、WebKit 浏览器测试。徽章为绿色表示自动门禁通过；
+真实客户端验收需要本机凭证，因此通过 `make real-e2e` 显式执行。
 
 ## Quick start
 
