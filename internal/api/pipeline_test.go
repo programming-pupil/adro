@@ -233,6 +233,30 @@ func TestPipelineResultFromSnapshotParsesCodexJSONLMarker(t *testing.T) {
 	}
 }
 
+func TestPipelineResultFromSnapshotParsesCurrentCodexAgentMessageEnvelope(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineReport,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"ADRO_RESULT_JSON={\"stage\":7,\"outcome\":\"pass\",\"final_report\":\"current Codex report\"}"}]}}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.Report != "current Codex report" {
+		t.Fatalf("current Codex envelope was not parsed: ok=%v result=%+v", ok, result)
+	}
+}
+
+func TestPipelineResultFromSnapshotAcceptsStructuredCoverageAndErrorLog(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineReport,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"stage\":7,\"outcome\":\"success\",\"coverage\":{\"percent\":100.0},\"error_log\":[\"first failure\",\"rerun passed\"],\"final_report\":\"structured report\"}"}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.Coverage != 100 || result.ErrorLog != "first failure; rerun passed" || result.Report != "structured report" {
+		t.Fatalf("structured marker fields were not parsed: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotAcceptsFinalReportAlias(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineReport,
@@ -270,6 +294,21 @@ func TestProviderNarrativeUsesCodexAgentMessages(t *testing.T) {
 	narrative := providerNarrative(output)
 	if narrative != "Plan: implement the change." {
 		t.Fatalf("unexpected narrative=%q", narrative)
+	}
+}
+
+func TestPipelinePromptMakesIntegrationCounterExplicit(t *testing.T) {
+	run := domain.PipelineRun{
+		ID: "pipeline", SessionID: "session", PipelineStage: domain.PipelineIntegration,
+		Roles: domain.PipelineAgentRoles{Tester: "tester"}, MaxRetries: 2,
+		Context: domain.PipelineContext{RequirementText: "run integration"},
+	}
+	prompt, err := pipelinePrompt(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "ADRO_E2E_INTEGRATION_COUNTER=.adro-e2e-integration-counter ./integration-check.sh exactly once") {
+		t.Fatalf("integration counter contract missing from prompt: %s", prompt)
 	}
 }
 

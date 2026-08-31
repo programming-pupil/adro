@@ -498,21 +498,73 @@ func parseCodexAgentMessageMarker(output string) *domain.PipelineStepResult {
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
 	var marker *domain.PipelineStepResult
 	for scanner.Scan() {
-		var event struct {
-			Type string `json:"type"`
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "item.completed" || event.Item.Type != "agent_message" {
+		itemType, itemText, ok := codexAgentMessage(scanner.Bytes())
+		if !ok || !isCodexAgentMessageType(itemType) {
 			continue
 		}
-		if candidate := parseMarkerText(event.Item.Text); candidate != nil {
+		if candidate := parseMarkerText(itemText); candidate != nil {
 			marker = candidate
 		}
 	}
 	return marker
+}
+
+func isCodexAgentMessageType(value string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", ""))
+	return normalized == "agentmessage"
+}
+
+// codexAgentMessage extracts assistant text from both Codex JSONL envelopes
+// seen in the wild. Older clients emit item.completed with a lower-case
+// agent_message/text item; current clients wrap item_completed inside an
+// event_msg payload and expose an AgentMessage content array.
+func codexAgentMessage(line []byte) (itemType, text string, ok bool) {
+	var event struct {
+		Type    string           `json:"type"`
+		Item    codexMessageItem `json:"item"`
+		Payload struct {
+			Type string           `json:"type"`
+			Item codexMessageItem `json:"item"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &event) != nil {
+		return "", "", false
+	}
+	item := event.Item
+	if item.Type != "" {
+		if !isCodexCompletedEvent(event.Type) {
+			return "", "", false
+		}
+	} else {
+		item = event.Payload.Item
+		if item.Type == "" || !isCodexCompletedEvent(event.Payload.Type) {
+			return "", "", false
+		}
+	}
+	if item.Text != "" {
+		return item.Type, item.Text, true
+	}
+	var parts []string
+	for _, part := range item.Content {
+		if strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, part.Text)
+		}
+	}
+	return item.Type, strings.Join(parts, "\n"), true
+}
+
+func isCodexCompletedEvent(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return normalized == "item.completed" || normalized == "item_completed"
+}
+
+type codexMessageItem struct {
+	Type    string `json:"type"`
+	Text    string `json:"text"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
 }
 
 func parseMarkerText(output string) *domain.PipelineStepResult {
@@ -525,32 +577,104 @@ func parseMarkerText(output string) *domain.PipelineStepResult {
 	if start < 0 {
 		return nil
 	}
-	decoder := json.NewDecoder(strings.NewReader(fragment[start:]))
-	var result domain.PipelineStepResult
-	if err := decoder.Decode(&result); err == nil {
-		var aliases struct {
-			FinalReport string `json:"final_report"`
-		}
-		if json.Unmarshal([]byte(fragment[start:]), &aliases) == nil && result.Report == "" {
-			result.Report = aliases.FinalReport
-		}
-		return &result
+	if result, err := decodePipelineStepResult([]byte(fragment[start:])); err == nil {
+		return result
 	}
 	// Codex --json emits the agent message as a JSON string, so the marker
 	// appears as {\"stage\":...} in the raw JSONL stream. Decode the escaped
 	// object as a second pass while keeping the provider output auditable.
 	unescaped := strings.ReplaceAll(fragment[start:], `\"`, `"`)
-	decoder = json.NewDecoder(strings.NewReader(unescaped))
-	if err := decoder.Decode(&result); err != nil {
+	result, err := decodePipelineStepResult([]byte(unescaped))
+	if err != nil {
 		return nil
 	}
-	var aliases struct {
-		FinalReport string `json:"final_report"`
+	return result
+}
+
+type pipelineStepResultWire struct {
+	Stage             domain.PipelineStage `json:"stage"`
+	AgentID           string               `json:"agent_id"`
+	Outcome           string               `json:"outcome"`
+	Summary           string               `json:"summary"`
+	DesignDoc         string               `json:"design_doc"`
+	CodeVersion       string               `json:"code_version"`
+	Coverage          json.RawMessage      `json:"coverage"`
+	PassedTests       json.RawMessage      `json:"passed_tests"`
+	FailedTests       json.RawMessage      `json:"failed_tests"`
+	ErrorLog          json.RawMessage      `json:"error_log"`
+	RepairNote        string               `json:"repair_note"`
+	Report            string               `json:"report"`
+	FinalReport       string               `json:"final_report"`
+	ProviderIssueID   string               `json:"provider_issue_id"`
+	ProviderTaskID    string               `json:"provider_task_id"`
+	ProviderSessionID string               `json:"provider_session_id"`
+	ProviderWorkDir   string               `json:"provider_work_dir"`
+}
+
+func decodePipelineStepResult(data []byte) (*domain.PipelineStepResult, error) {
+	var wire pipelineStepResultWire
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	if err := decoder.Decode(&wire); err != nil {
+		return nil, err
 	}
-	if json.Unmarshal([]byte(unescaped), &aliases) == nil && result.Report == "" {
-		result.Report = aliases.FinalReport
+	result := &domain.PipelineStepResult{
+		Stage: wire.Stage, AgentID: wire.AgentID, Outcome: wire.Outcome, Summary: wire.Summary,
+		DesignDoc: wire.DesignDoc, CodeVersion: wire.CodeVersion, RepairNote: wire.RepairNote,
+		Report: wire.Report, ProviderIssueID: wire.ProviderIssueID, ProviderTaskID: wire.ProviderTaskID,
+		ProviderSessionID: wire.ProviderSessionID, ProviderWorkDir: wire.ProviderWorkDir,
+		Coverage: pipelineCoverage(wire.Coverage), PassedTests: pipelineStrings(wire.PassedTests),
+		FailedTests: pipelineStrings(wire.FailedTests), ErrorLog: pipelineErrorLog(wire.ErrorLog),
 	}
-	return &result
+	if result.Report == "" {
+		result.Report = wire.FinalReport
+	}
+	return result, nil
+}
+
+func pipelineCoverage(raw json.RawMessage) float64 {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	var number float64
+	if json.Unmarshal(raw, &number) == nil {
+		return number
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return 0
+	}
+	for _, key := range []string{"percent", "percentage", "value", "coverage"} {
+		if value := pipelineCoverage(object[key]); value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func pipelineStrings(raw json.RawMessage) []string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var values []string
+	if json.Unmarshal(raw, &values) == nil {
+		return values
+	}
+	return nil
+}
+
+func pipelineErrorLog(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var message string
+	if json.Unmarshal(raw, &message) == nil {
+		return message
+	}
+	var messages []string
+	if json.Unmarshal(raw, &messages) == nil {
+		return strings.Join(messages, "; ")
+	}
+	return ""
 }
 
 func codexAgentNarrative(output string) string {
@@ -558,17 +682,11 @@ func codexAgentNarrative(output string) string {
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
 	var messages []string
 	for scanner.Scan() {
-		var event struct {
-			Type string `json:"type"`
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "item.completed" || event.Item.Type != "agent_message" {
+		itemType, itemText, ok := codexAgentMessage(scanner.Bytes())
+		if !ok || !isCodexAgentMessageType(itemType) {
 			continue
 		}
-		text := strings.TrimSpace(event.Item.Text)
+		text := strings.TrimSpace(itemText)
 		if text == "" {
 			continue
 		}
@@ -620,9 +738,9 @@ func pipelinePrompt(run domain.PipelineRun) (string, error) {
 		domain.PipelineDesign:       "Describe the implementation plan only; do not modify files or run later-stage checks.",
 		domain.PipelineDevelopment:  "Implement the requested change in the existing checkout and add focused tests. Keep all prior work and make an incremental change.",
 		domain.PipelineUnitTest:     "Run the requested unit tests (go test ./... when the checkout is Go). Report measured coverage and fix failures within this stage.",
-		domain.PipelineIntegration:  "Run the requested integration check exactly as described, preserving its failure output and exit code as evidence.",
+		domain.PipelineIntegration:  "Run ADRO_E2E_INTEGRATION_COUNTER=.adro-e2e-integration-counter ./integration-check.sh exactly once in this stage. If it exits non-zero, stop immediately and emit outcome=fail with the real exit code and error output; do not rerun it, repair files, or report pass. ADRO will create the Bug and schedule arbitration and repair. Only the revalidation stage may rerun checks after repair.",
 		domain.PipelineArbitration:  "Review the recorded integration failure and approve a focused repair back to the original development session when it is actionable.",
-		domain.PipelineRevalidation: "After repair, rerun unit and integration checks and report their real exit codes and evidence.",
+		domain.PipelineRevalidation: "After repair, rerun go test ./... and then run ADRO_E2E_INTEGRATION_COUNTER=.adro-e2e-integration-counter ./integration-check.sh. Report both real exit codes and evidence; this is the only stage allowed to rerun the integration check after the recorded failure.",
 		domain.PipelineReport:       "Summarize the complete run with coverage, test pass/fail evidence, failure and repair history.",
 	}[run.PipelineStage]
 	return fmt.Sprintf(`You are the dedicated %s role in ADRO pipeline %s.

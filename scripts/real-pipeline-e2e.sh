@@ -16,8 +16,10 @@ WORKSPACE="adro-real-e2e"
 # Keep the model-backed test independent from the parent Codex runtime. The
 # parent exports CODEX_* session variables and skills for this coding run; if
 # they leak into the child, the real executor can resume the wrong thread or
-# spend the test processing the agent-runtime instructions. Reuse only the
-# operator's real auth file in an isolated home.
+# spend the test processing the agent-runtime instructions. Reuse the
+# operator's real auth and provider configuration in an isolated home so a
+# configured OpenAI-compatible relay (for example a custom model_provider)
+# remains active without sharing the parent session database.
 SOURCE_CODEX_HOME="${CODEX_HOME:-}"
 CODEX_AUTH_FILE=""
 if [ -f "$SOURCE_CODEX_HOME/auth.json" ]; then
@@ -29,6 +31,15 @@ CODEX_RUN_HOME="$RUN_ROOT/codex-home"
 mkdir -p "$CODEX_RUN_HOME"
 if [ -n "$CODEX_AUTH_FILE" ]; then
   ln -s "$CODEX_AUTH_FILE" "$CODEX_RUN_HOME/auth.json"
+fi
+CODEX_CONFIG_FILE=""
+if [ -f "$SOURCE_CODEX_HOME/config.toml" ]; then
+  CODEX_CONFIG_FILE="$SOURCE_CODEX_HOME/config.toml"
+elif [ -f "${HOME:-}/.codex/config.toml" ]; then
+  CODEX_CONFIG_FILE="${HOME}/.codex/config.toml"
+fi
+if [ -n "$CODEX_CONFIG_FILE" ]; then
+  install -m 600 "$CODEX_CONFIG_FILE" "$CODEX_RUN_HOME/config.toml"
 fi
 export CODEX_HOME="$CODEX_RUN_HOME"
 unset CODEX_SESSION_ID CODEX_THREAD_ID CODEX_CI
@@ -117,9 +128,11 @@ EOF
 cat > "$FIXTURE/integration-check.sh" <<'EOF'
 #!/usr/bin/env sh
 set -eu
-: "${ADRO_E2E_INTEGRATION_COUNTER:?ADRO_E2E_INTEGRATION_COUNTER is required}"
-if [ ! -f "$ADRO_E2E_INTEGRATION_COUNTER" ]; then
-  : > "$ADRO_E2E_INTEGRATION_COUNTER"
+# Codex command sandboxes may strip orchestration-only environment variables;
+# retain an explicit override while keeping the fixture deterministic there.
+counter_path="${ADRO_E2E_INTEGRATION_COUNTER:-.adro-e2e-integration-counter}"
+if [ ! -f "$counter_path" ]; then
+  : > "$counter_path"
   printf '%s\n' 'intentional first integration failure' >&2
   exit 1
 fi
