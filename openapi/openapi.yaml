@@ -3779,7 +3779,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Problem"
     post:
-      summary: Start a real-Multica automated delivery pipeline
+      summary: Start an automated delivery pipeline with the local executor
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
       - "$ref": "#/components/parameters/RequestID"
@@ -3802,7 +3802,7 @@ paths:
             Idempotency-Replayed:
               "$ref": "#/components/headers/IdempotencyReplayed"
         '503':
-          description: Real Multica provider is not configured
+          description: Local executor is not configured
           content:
             application/problem+json:
               schema:
@@ -4246,6 +4246,8 @@ components:
         workspace_id: {type: string}
         requirement_id: {type: string}
         session_id: {type: string}
+        work_item_id: {type: string}
+        bug_id: {type: string}
         parent_session_id: {type: string}
         pipeline_stage: {type: integer, minimum: 1, maximum: 7}
         status: {type: string, enum: [running, waiting_provider, suspended, completed, failed]}

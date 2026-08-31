@@ -12,6 +12,8 @@
 
 本文是可直接进入研发排期、架构评审和开源仓库的技术规格。实现团队可以将每个章节拆成 Epic、Service、API、UI 和测试任务。
 
+> 实现边界说明（2026-08-30）：当前仓库已采用独立本地执行器，不包含任何外部编排产品的源码、API、启动器或适配器。文中涉及外部产品的章节仅保留为黑盒能力对比和未来社区插件参考，不能当作当前版本的运行时依赖。
+
 ---
 
 ## 1. 产品定义
@@ -52,7 +54,7 @@ ADRO 是产品名称，不是 “AI DevOps” 的泛化缩写。它只承诺一�
   -> 交给专业测试人员人工验收
 ```
 
-平台的业务事实、审批、证据、上下文、成本和实时事件由本系统拥有。Multica 是首个 Agent 执行 Provider，可以被替换为其他执行后端。
+平台的业务事实、审批、证据、上下文、成本和实时事件由本系统拥有。本版本使用本地 Agent 执行器；其他执行后端只能作为独立插件接入。
 
 ### 1.3 核心价值
 
@@ -76,7 +78,7 @@ ADRO 的开源辨识度必须集中在三个可演示、可测量的承诺，而
 
 开箱体验分为两条路径：
 
-- `adroctl up --demo`：不需要云存储、Git 或模型 Key，使用本地仓库和 MockProvider，在 10 分钟内走完完整流程，用于评估产品和验证部署。
+- `adroctl up --demo`：使用本地仓库和测试 fixture，在 10 分钟内走完控制面流程，用于评估产品和验证部署；它不构成真实 Agent 验收。
 - `adroctl install --profile single-node`：完成可持久运行的服务器安装；平台本身零配置启动，连接真实 Git、模型、CI 和测试环境时，只要求配置对应外部系统凭证。不能把外部系统天然需要的凭证宣传成“完全零 Key”。
 
 ### 1.5 非目标
@@ -124,7 +126,7 @@ Multica 当前适合作为执行底座的能力包括：
 
 ### 2.3 Provider 可替换原则
 
-业务代码禁止直接调用 Multica API。所有执行后端都实现以下 SPI：
+业务代码禁止直接调用任何外部 API。所有执行后端都实现以下 SPI：
 
 ```text
 ExecutionProvider
@@ -158,7 +160,7 @@ Browser / Feishu / DingTalk / OpenAPI Client
  Requirement/Bug     Temporal                           Provider SPI
  Project/Approval                                      MulticaProvider
         |                  |                                  |
-        v                  v                             Multica API/WS
+        v                  v                             local API/WS
  Control PostgreSQL  Temporal DB                             |
         |                                             Multica Backend
         v                                                     |

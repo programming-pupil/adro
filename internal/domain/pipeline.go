@@ -119,6 +119,8 @@ type PipelineRun struct {
 	WorkspaceID           string               `json:"workspace_id"`
 	RequirementID         string               `json:"requirement_id"`
 	SessionID             string               `json:"session_id"`
+	PipelineWorkItemID    string               `json:"work_item_id,omitempty"`
+	BugID                 string               `json:"bug_id,omitempty"`
 	ParentSessionID       string               `json:"parent_session_id,omitempty"`
 	ProviderWorkDir       string               `json:"provider_work_dir,omitempty"`
 	PipelineStage         PipelineStage        `json:"pipeline_stage"`

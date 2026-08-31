@@ -61,21 +61,16 @@ spec:
               value: /var/lib/adro/audit.json
             - name: ADRO_RUNNER_STATE_FILE
               value: /var/lib/adro/runners.json
+            - name: ADRO_RUN_STATE_FILE
+              value: /var/lib/adro/runs.json
+            - name: ADRO_WORK_ROOT
+              value: /var/lib/adro/workspaces
             - name: ADRO_PROVIDER
               value: {{ .Values.provider.name | quote }}
-            - name: ADRO_MULTICA_URL
-              value: {{ .Values.provider.multicaUrl | quote }}
-            - name: ADRO_MULTICA_WORKSPACE_ID
-              value: {{ .Values.provider.multicaWorkspaceId | quote }}
-            - name: ADRO_MULTICA_RUNTIME_ID
-              value: {{ .Values.provider.multicaRuntimeId | quote }}
-            {{- if .Values.provider.multicaTokenSecret }}
-            - name: ADRO_MULTICA_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.provider.multicaTokenSecret | quote }}
-                  key: {{ .Values.provider.multicaTokenSecretKey | quote }}
-            {{- end }}
+            - name: ADRO_EXECUTOR
+              value: {{ .Values.provider.executor | quote }}
+            - name: ADRO_EXECUTOR_COMMAND
+              value: {{ .Values.provider.executorCommand | quote }}
           ports: [{name: http, containerPort: 8080}]
           readinessProbe: {httpGet: {path: /readyz, port: http}, initialDelaySeconds: 3, periodSeconds: 10}
           livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 20}

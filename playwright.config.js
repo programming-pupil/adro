@@ -6,6 +6,10 @@ module.exports = defineConfig({
   timeout: 30_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
+  // The acceptance specs intentionally share one in-memory control plane and
+  // the fixed local workspace. Keep one worker so mutations cannot race while
+  // a browser is refreshing the same workspace snapshot.
+  workers: 1,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',
   use: {
     ...devices['Desktop Chrome'],

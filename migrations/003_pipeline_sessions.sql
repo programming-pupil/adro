@@ -1,4 +1,4 @@
--- Durable ADRO-owned 1-7 pipeline state. Multica task/session identifiers are
+-- Durable ADRO-owned 1-7 pipeline state. External task/session identifiers are
 -- execution provenance only; the global session_id remains an ADRO identity.
 create table if not exists pipeline_runs (
   id uuid primary key default gen_random_uuid(),
@@ -50,7 +50,7 @@ create table if not exists pipeline_transitions (
 
 -- Work Items can be queried directly by session/stage during recovery without
 -- joining provider-native tables. parent_session_id records the originally
--- pinned Multica development session used by every incremental repair.
+-- pinned development session used by every incremental repair.
 alter table work_items add column if not exists session_id uuid;
 alter table work_items add column if not exists pipeline_stage smallint check (pipeline_stage between 1 and 7);
 alter table work_items add column if not exists parent_session_id text;

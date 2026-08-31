@@ -40,8 +40,8 @@ func TestAuthModeIsDocumentedAndUnknownValuesFailClosed(t *testing.T) {
 }
 
 func TestFromEnvNormalizesProviderCase(t *testing.T) {
-	t.Setenv("ADRO_PROVIDER", "MULTICA")
-	if got := FromEnv().Provider; got != "multica" {
+	t.Setenv("ADRO_PROVIDER", "LOCAL")
+	if got := FromEnv().Provider; got != "local" {
 		t.Fatalf("provider was not normalized: %q", got)
 	}
 }

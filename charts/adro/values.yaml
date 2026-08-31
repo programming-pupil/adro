@@ -28,12 +28,9 @@ artifact:
   size: 20Gi
   storageClassName: ""
 provider:
-  name: mock
-  multicaUrl: ""
-  multicaTokenSecret: ""
-  multicaTokenSecretKey: token
-  multicaWorkspaceId: ""
-  multicaRuntimeId: ""
+  name: local
+  executor: claude
+  executorCommand: ""
 resources:
   requests: {cpu: 100m, memory: 128Mi}
   limits: {cpu: 1, memory: 512Mi}

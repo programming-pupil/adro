@@ -66,24 +66,20 @@ func main() {
 		slog.Error("agent route configuration", "error", routeErr)
 		os.Exit(1)
 	}
-	multicaURL, multicaToken := os.Getenv("ADRO_MULTICA_URL"), os.Getenv("ADRO_MULTICA_TOKEN")
-	if multicaURL == "" || multicaToken == "" {
-		slog.Error("real Multica provider is required", "hint", "set ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN")
+	workRoot := os.Getenv("ADRO_WORK_ROOT")
+	if workRoot == "" {
+		workRoot = filepath.Join(root, "workspaces")
+	}
+	runStatePath := os.Getenv("ADRO_RUN_STATE_FILE")
+	localExecutor, executorErr := provider.DiscoverLocalProvider(workRoot, bus)
+	if executorErr == nil && runStatePath != "" {
+		localExecutor, executorErr = provider.NewPersistentLocalProvider(localExecutor.Executable, localExecutor.Args, workRoot, runStatePath, bus)
+	}
+	if executorErr != nil {
+		slog.Error("local executor discovery failed", "error", executorErr, "hint", "install claude or codex, or set ADRO_EXECUTOR")
 		os.Exit(1)
 	}
-	multica := provider.NewMulticaProvider(multicaURL, multicaToken)
-	multica.DefaultAgentID = os.Getenv("ADRO_MULTICA_AGENT_ID")
-	multica.DefaultWorkspaceID = os.Getenv("ADRO_MULTICA_WORKSPACE_ID")
-	multica.DefaultRuntimeID = os.Getenv("ADRO_MULTICA_RUNTIME_ID")
-	multica.DefaultProjectID = os.Getenv("ADRO_MULTICA_PROJECT_ID")
-	if value := os.Getenv("ADRO_MULTICA_CAPABILITIES_PATH"); value != "" {
-		multica.CapabilitiesPath = value
-	}
-	if value := os.Getenv("ADRO_MULTICA_ATTACHMENT_PATH"); value != "" {
-		multica.AttachmentPath = value
-	}
-	multica.WebSocketURL = os.Getenv("ADRO_MULTICA_WS_URL")
-	var p provider.ExecutionProvider = multica
+	var p provider.ExecutionProvider = localExecutor
 	srv := api.NewWithRouting(controlStore, p, fs, bus, slog.Default(), router)
 	if runnerPath := os.Getenv("ADRO_RUNNER_STATE_FILE"); runnerPath != "" {
 		supervisor, supervisorErr := runner.NewPersistentSupervisor(runnerPath)

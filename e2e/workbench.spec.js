@@ -36,7 +36,7 @@ test('opens every workbench menu and keeps the browser error-free', async ({ pag
     await expect(page.locator('#appView')).toBeVisible();
   }
   await expect(page.locator('iframe')).toHaveCount(0);
-  await expect(page.locator('a[href*="multica"]')).toHaveCount(0);
+  await expect(page.locator('a[href^="http"]')).toHaveCount(0);
   expect([...page.__adroRequestHosts]).toEqual(['127.0.0.1']);
   expect(page.__adroErrors).toEqual([]);
 });

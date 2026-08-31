@@ -26,7 +26,7 @@ func TestBusDeduplicatesAndCursors(t *testing.T) {
 func TestBusDeduplicatesProviderRetries(t *testing.T) {
 	b := NewBus()
 	a := New("execution.message.v1", "run", "r1", "t", "w", 1, nil)
-	a.Provider, a.ProviderEventID = "multica", "task:1"
+	a.Provider, a.ProviderEventID = "local", "task:1"
 	_ = b.Publish(context.Background(), a)
 	_ = b.Publish(context.Background(), Envelope{EventID: "different", EventType: a.EventType, AggregateType: a.AggregateType, AggregateID: a.AggregateID, Provider: a.Provider, ProviderEventID: a.ProviderEventID})
 	got, _ := b.List("r1", "", 10)

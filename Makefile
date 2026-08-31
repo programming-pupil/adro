@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build contracts supply-chain browser verify run demo
+.PHONY: test test-race vet build contracts supply-chain browser real-e2e verify run local
 
 test:
 	go test ./...
@@ -23,7 +23,6 @@ contracts:
 	node --check e2e/visuals.spec.js
 	node --check e2e/platform-matrix.spec.js
 	node --check playwright.matrix.config.js
-	node --check scripts/multica-conformance.mjs
 	node --check scripts/release-assets.mjs
 	node scripts/check-html.mjs
 	ruby scripts/openapi-contract.rb
@@ -37,9 +36,12 @@ browser:
 	npm run test:e2e
 	npm run test:e2e:matrix
 
+real-e2e:
+	bash scripts/real-pipeline-e2e.sh
+
 verify: test test-race vet build contracts supply-chain browser
 
 run:
 	go run ./cmd/adro-api -addr $${ADRO_ADDR:-:8080} -artifact-root $${ADRO_ARTIFACT_ROOT:-./var/artifacts}
 
-demo: run
+local: run

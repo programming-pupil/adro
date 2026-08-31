@@ -1,6 +1,6 @@
 // Package provider defines the execution SPI. Business code depends on this
-// interface, so Multica can be replaced with the local MockProvider or another
-// execution backend.
+// interface, so the local executable boundary can be replaced by another
+// execution backend without changing business code.
 package provider
 
 import (
@@ -147,9 +147,8 @@ type WorkspaceBinding struct {
 }
 type WorkItemSpec struct {
 	ID, RequirementID, RepositoryID, MemberID string
-	// WorkspaceID and the display fields are required by Multica's issue
-	// create contract. Provider-neutral callers may leave the optional remote
-	// binding fields empty when the provider can resolve them itself.
+	// WorkspaceID and the display fields are provider-neutral. An execution
+	// backend may use the optional binding fields when it supports native IDs.
 	WorkspaceID           string `json:"workspace_id,omitempty"`
 	Title                 string `json:"title,omitempty"`
 	Description           string `json:"description,omitempty"`
@@ -158,6 +157,12 @@ type WorkItemSpec struct {
 	ProviderAssigneeID    string `json:"provider_assignee_id,omitempty"`
 	AssigneeType          string `json:"assignee_type,omitempty"`
 	Stage                 int    `json:"stage,omitempty"`
+	// RepositoryPath and CloneURL are optional local execution inputs. They are
+	// copied into an isolated workdir by LocalProvider; remote plugins may
+	// ignore them and use their own source-control binding.
+	RepositoryPath string `json:"repository_path,omitempty"`
+	CloneURL       string `json:"clone_url,omitempty"`
+	DefaultBranch  string `json:"default_branch,omitempty"`
 }
 type ProviderWorkItem struct {
 	ID              string `json:"id,omitempty"`
@@ -212,6 +217,10 @@ type RunSnapshot struct {
 	HeadCommit       string     `json:"head_commit,omitempty"`
 	SubmissionURL    string     `json:"submission_url,omitempty"`
 	ChecksConclusion string     `json:"checks_conclusion,omitempty"`
+	Output           string     `json:"output,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	WorkspaceDirty   bool       `json:"workspace_dirty,omitempty"`
+	ChangedFiles     []string   `json:"changed_files,omitempty"`
 	StartedAt        *time.Time `json:"started_at,omitempty"`
 	FinishedAt       *time.Time `json:"finished_at,omitempty"`
 	Usage            Usage      `json:"usage"`
@@ -230,7 +239,7 @@ type ProviderHealth struct {
 }
 
 // AttachmentSpec is the provider-neutral payload used when a UI or extension
-// publishes an image or other evidence to an external issue/comment.
+// publishes an image or other evidence to an execution target.
 // Content is kept in memory only for the duration of the request and is never
 // persisted in the control-plane event stream.
 type AttachmentSpec struct {
@@ -249,9 +258,8 @@ type AttachmentReceipt struct {
 	ArtifactURI          string `json:"artifact_uri,omitempty"`
 }
 
-// AttachmentPublisher is optional so existing providers can remain
-// execution-only. Providers that implement it expose the same capability to
-// the WebUI without coupling the domain to Multica's attachment API.
+// AttachmentPublisher is optional so execution-only backends can omit remote
+// delivery while providers that implement it expose evidence publishing.
 type AttachmentPublisher interface {
 	PublishAttachment(context.Context, AttachmentSpec) (AttachmentReceipt, error)
 }

@@ -122,12 +122,7 @@ func writeBufferedResponse(dst http.ResponseWriter, response idempotencyResponse
 }
 
 func New(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger) *Server {
-	legacyID := os.Getenv("ADRO_MULTICA_AGENT_ID")
-	if legacyID == "" {
-		if multica, ok := p.(*provider.MulticaProvider); ok {
-			legacyID = multica.DefaultAgentID
-		}
-	}
+	legacyID := os.Getenv("ADRO_DEFAULT_AGENT_ID")
 	return NewWithRouting(s, p, a, b, logger, provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, legacyID))
 }
 
@@ -273,14 +268,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		health, healthErr := s.Provider.Health(r.Context())
 		providerName := capabilities.Provider
 		if providerName == "" {
-			switch s.Provider.(type) {
-			case *provider.MulticaProvider:
-				providerName = "multica"
-			case *provider.MockProvider:
-				providerName = "mock"
-			default:
-				providerName = "unknown"
-			}
+			providerName = "local"
 		}
 		response := map[string]any{"name": "ADRO", "version": "0.1.0", "api": "/api/v1", "provider": providerName, "capabilities": capabilities.Features, "provider_reachable": capabilityErr == nil && healthErr == nil && health.Healthy}
 		if capabilityErr != nil {
@@ -415,12 +403,7 @@ func (s *Server) agentRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providerName := "provider"
-	switch s.Provider.(type) {
-	case *provider.MulticaProvider:
-		providerName = "multica"
-	case *provider.MockProvider:
-		providerName = "mock"
-	}
+	providerName = "local"
 	binding := provider.NewProviderBinding(providerName, input.WorkspaceID, "agent", nativeID, "configured", "webui", "ui")
 	if _, err := s.Store.SaveProviderBinding(binding); err != nil {
 		s.problem(w, r, http.StatusInternalServerError, "binding_persist_failed", err.Error(), nil)
@@ -486,10 +469,8 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]any{"status": "ready", "provider": health, "capabilities": capabilities})
 }
 
-// providerDiagnostics is intentionally a read-only, secret-free probe for the
-// WebUI and operators. It distinguishes an adapter being configured from one
-// that is actually reachable, which prevents a local MockProvider or a 404
-// gateway from being presented as a healthy Multica connection.
+// providerDiagnostics is a read-only, secret-free probe for the WebUI and
+// operators. It reports the selected execution boundary and its capabilities.
 func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
@@ -497,50 +478,18 @@ func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 	health, healthErr := s.Provider.Health(ctx)
 	providerName := caps.Provider
 	if providerName == "" {
-		switch s.Provider.(type) {
-		case *provider.MulticaProvider:
-			providerName = "multica"
-		case *provider.MockProvider:
-			providerName = "mock"
-		default:
-			providerName = "unknown"
-		}
+		providerName = "local"
 	}
 	workspaceID := strings.TrimSpace(r.Header.Get("X-Workspace-ID"))
 	routeDiagnostics := provider.RouteDiagnostics{}
 	if s.Router != nil && workspaceID != "" {
 		routeDiagnostics = s.Router.Diagnostics(workspaceID)
 	}
-	isMultica := providerName == "multica"
-	tokenConfigured := false
-	if multica, ok := s.Provider.(*provider.MulticaProvider); ok {
-		tokenConfigured = multica.Token != ""
-	}
 	reachable := capsErr == nil && healthErr == nil
-	authenticationState := "not_configured"
-	if !isMultica {
-		authenticationState = "verified"
-	} else if tokenConfigured {
-		if multica, ok := s.Provider.(*provider.MulticaProvider); ok && multica.AuthenticationVerified() {
-			authenticationState = "verified"
-		} else {
-			authenticationState = "unverified"
-		}
-	} else if reachable {
-		authenticationState = "unverified"
-	}
-	if isMultica {
-		for _, err := range []error{capsErr, healthErr} {
-			if provider.ErrorCodeOf(err) == provider.ErrorUnauthorized {
-				authenticationState = "failed"
-			}
-		}
-	}
+	authenticationState := "not_required"
 	configurationState := "configured"
-	if isMultica {
-		if multica, ok := s.Provider.(*provider.MulticaProvider); !ok || strings.TrimSpace(multica.BaseURL) == "" {
-			configurationState = "unconfigured"
-		}
+	if capsErr != nil || healthErr != nil {
+		configurationState = "unconfigured"
 	}
 	routingState := "unknown"
 	if workspaceID != "" {
@@ -571,7 +520,7 @@ func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"reachability_state":            map[bool]string{true: "reachable", false: "unreachable"}[reachable],
 		"authentication_state":          authenticationState,
 		"routing_state":                 routingState,
-		"token_configured":              tokenConfigured,
+		"executor_configured":           configurationState == "configured",
 		"verified_binding_count":        0,
 		"error_codes":                   errorCodes,
 		"attachment_delivery_supported": false,
@@ -582,7 +531,7 @@ func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 		result["member_route_count"] = routeDiagnostics.MemberRouteCount
 		result["role_route_count"] = routeDiagnostics.RoleRouteCount
 	}
-	if health.Message != "" && !isMultica {
+	if health.Message != "" {
 		result["health_message"] = health.Message
 	}
 	if capsErr != nil {
@@ -592,14 +541,7 @@ func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 		result["health_error"] = string(provider.ErrorCodeOf(healthErr))
 	}
 	if _, ok := s.Provider.(provider.AttachmentPublisher); ok {
-		// MockProvider is deliberately a complete local contract. A real adapter
-		// must advertise attachment.v1 from the upstream capability handshake;
-		// merely having a method is not proof that the remote endpoint supports it.
-		result["attachment_delivery_supported"] = providerName == "mock" || caps.Supports("attachment.v1")
-	}
-	if wsProvider, ok := s.Provider.(*provider.MulticaProvider); ok {
-		result["websocket_configured"] = wsProvider.WebSocketURL != ""
-		result["default_project_configured"] = strings.TrimSpace(wsProvider.DefaultProjectID) != ""
+		result["attachment_delivery_supported"] = caps.Supports("attachment.v1")
 	}
 	s.writeJSON(w, http.StatusOK, result)
 }
@@ -1101,11 +1043,25 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 				}
 				if savedProvenance, provenanceOK := s.Store.FindProvenance(b.WorkItemID); provenanceOK {
 					priorProvenance = savedProvenance
+					// Local Codex assigns its native thread UUID only after the
+					// first process emits thread.started. Refresh the durable
+					// provenance from that completed snapshot before starting a
+					// repair, otherwise the adapter would resume a synthetic ADRO
+					// ID and lose the original conversation.
+					if priorProvenance.ProviderTaskID != "" {
+						if snapshot, snapshotErr := s.Provider.GetRun(r.Context(), priorProvenance.ProviderTaskID); snapshotErr == nil {
+							if strings.TrimSpace(snapshot.SessionID) != "" {
+								priorProvenance.ProviderSessionID = snapshot.SessionID
+							}
+							if strings.TrimSpace(snapshot.WorkDir) != "" {
+								priorProvenance.ProviderWorkDir = snapshot.WorkDir
+							}
+						}
+					}
 				}
 				if itemErr != nil {
 					// Legacy callers may report a bug before a WorkItem is
-					// persisted. Preserve the MockProvider contract; real provider
-					// repairs still use the persisted binding below.
+					// persisted. Repairs still use the durable binding below.
 					run, e = s.Provider.StartRun(r.Context(), provider.StartRunCommand{WorkItemID: b.WorkItemID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount})
 				} else {
 					cmd := provider.StartRunCommand{WorkItemID: b.WorkItemID, AgentBindingID: workItem.DeveloperAgentBindingID, ProviderIssueID: workItem.ProviderIssueID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount}
@@ -1128,7 +1084,7 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 				if priorProvenance.Provider != "" || run.ProviderRunID != "" {
 					providerName := priorProvenance.Provider
 					if providerName == "" {
-						providerName = "mock"
+						providerName = "local"
 					}
 					_ = s.Store.SaveProvenance(domain.Provenance{WorkItemID: b.WorkItemID, RequirementID: b.RequirementID, BugID: b.ID, AgentBindingID: priorProvenance.AgentBindingID, Provider: providerName, ProviderTaskID: run.ProviderRunID, ProviderSessionID: run.SessionID, ProviderWorkDir: run.WorkDir, RepositoryID: b.RepositoryID, ContextVersion: contextVersion})
 				}
@@ -1812,7 +1768,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 			s.problem(w, r, 502, "provider_run_failed", string(provider.ErrorCodeOf(err)), nil)
 			return
 		}
-		providerName := "mock"
+		providerName := "local"
 		if capabilities, capabilityErr := s.Provider.Capabilities(r.Context()); capabilityErr == nil && capabilities.Provider != "" {
 			providerName = capabilities.Provider
 		}
@@ -2943,7 +2899,7 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 		if bindingErr != nil {
 			return provider.RouteDecision{}, fmt.Errorf("work item provider binding unavailable")
 		}
-		if binding.Provider != "multica" || binding.Kind != "agent" || binding.ProviderObjectID == "" {
+		if binding.Provider == "" || binding.Kind != "agent" || binding.ProviderObjectID == "" {
 			return provider.RouteDecision{}, fmt.Errorf("work item provider binding is invalid")
 		}
 		decision.Binding = binding
@@ -2975,19 +2931,18 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 			}
 		} else {
 			profile := domain.DeveloperProfile{}
-			_, isMultica := s.Provider.(*provider.MulticaProvider)
 			if storedProfile, profileErr := s.Store.GetDeveloperProfile(req.WorkspaceID, memberID); profileErr == nil {
 				profile = storedProfile
 			}
 			var profileBinding *domain.ProviderBinding
-			if isMultica && profile.DefaultAgentBindingID != "" {
+			if profile.DefaultAgentBindingID != "" {
 				resolved, bindingErr := s.Store.GetProviderBinding(profile.DefaultAgentBindingID)
 				if bindingErr != nil {
 					return fmt.Errorf("developer profile binding unavailable")
 				}
 				profileBinding = &resolved
 			}
-			if isMultica && s.Router != nil {
+			if s.Router != nil {
 				decision = s.Router.Resolve(req.WorkspaceID, memberID, profile.DefaultRole, profileBinding)
 			}
 			if decision.Binding.ID != "" {
@@ -3017,6 +2972,15 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 				}
 			}
 		}
+		repositoryPath, cloneURL, defaultBranch := "", "", ""
+		if repository, repositoryErr := s.Store.GetRepository(repositoryID); repositoryErr == nil {
+			cloneURL, defaultBranch = repository.CloneURL, repository.DefaultBranch
+			if repository.Metadata != nil {
+				if value, ok := repository.Metadata["local_path"].(string); ok {
+					repositoryPath = strings.TrimSpace(value)
+				}
+			}
+		}
 		binding, err := s.Provider.CreateWorkItem(ctx, provider.WorkItemSpec{
 			ID: item.ID, RequirementID: req.ID, RepositoryID: repositoryID, MemberID: memberID,
 			WorkspaceID:        req.WorkspaceID,
@@ -3025,6 +2989,9 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 			ProviderAssigneeID: decision.ProviderAssigneeID,
 			AssigneeType:       decision.AssigneeType,
 			Stage:              1,
+			RepositoryPath:     repositoryPath,
+			CloneURL:           cloneURL,
+			DefaultBranch:      defaultBranch,
 		})
 		if err != nil {
 			return err

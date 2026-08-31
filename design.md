@@ -1,11 +1,13 @@
-为父场景设计“多 Multica Agent 路由与可审计诊断”实现方案。
+# ADRO design notes
 
-先读取 `ADRO-production-blueprint.zh-CN.md`、`internal/provider`、`internal/api`、`cmd/adro-api`、README 和 GA readiness。明确：
+ADRO is an independent, plugin-first delivery control plane. The kernel owns
+requirements, Bugs, projects, Agent roles, workflow state, context manifests,
+evidence and audit. A local execution plugin discovers the installed coding
+client and runs it in a bounded worktree; Git, CI, deployment, notification,
+memory and data access integrations are separate SPI modules.
 
-- 配置格式、校验、优先级和向后兼容；
-- WorkItem/DeveloperProfile/Provider binding 如何携带稳定 agent ID；
-- API/WebUI 诊断不得泄露 token 或把可配置误报为已连通；
-- 单元、API contract、真实 Multica conformance 与失败路径；
-- QA 可执行验收矩阵和回滚方案。
-
-只产出方案与验收标准，不修改生产代码。完成后在本 issue 留下完整交接并设为 `in_review`。
+The primary product invariant is continuity: a failed test creates a repair
+attempt that returns to the original development session and worktree. The
+engine accepts the repair only when the session, worktree and evidence records
+match. Employees govern objectives, permissions and exceptions; Agents perform
+the actual engineering, testing and analysis work.

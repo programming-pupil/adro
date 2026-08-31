@@ -326,42 +326,6 @@ func TestScreenshotUploadStoresArtifactAndDeliversToProvider(t *testing.T) {
 	}
 }
 
-func TestProviderDiagnosticsKeepsRemoteAttachmentCapabilityHonest(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/capabilities":
-			_ = json.NewEncoder(w).Encode(provider.Capabilities{Provider: "multica", AdapterVersion: "1", ServerVersion: "test"})
-		case "/healthz":
-			_ = json.NewEncoder(w).Encode(provider.ProviderHealth{Healthy: true, Message: "ready"})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer upstream.Close()
-	bus := events.NewBus()
-	fs, err := artifact.NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := New(store.NewMemory(), provider.NewMulticaProvider(upstream.URL, "token"), fs, bus, nil)
-	response := request(t, s.Routes(), http.MethodGet, "/api/v1/provider/diagnostics", "", nil)
-	if response.Code != http.StatusOK {
-		t.Fatal(response.Code, response.Body.String())
-	}
-	var result struct {
-		Provider       string `json:"provider"`
-		Healthy        bool   `json:"healthy"`
-		Attachment     bool   `json:"attachment_delivery_supported"`
-		Authentication string `json:"authentication_state"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Provider != "multica" || !result.Healthy || result.Attachment || result.Authentication != "unverified" {
-		t.Fatalf("diagnostics=%+v", result)
-	}
-}
-
 func TestControlPlaneResourcesAndAudit(t *testing.T) {
 	s := testServer(t)
 	register := request(t, s.Routes(), http.MethodPost, "/api/v1/repositories", `{"workspace_id":"w","canonical_name":"service","clone_url":"https://git.example/service"}`, nil)

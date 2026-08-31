@@ -220,6 +220,7 @@ type AgentRouteResolver struct {
 	config   AgentRouteConfig
 	legacyID string
 	revision string
+	provider string
 }
 
 func NewAgentRouteResolver(config AgentRouteConfig, legacyID string) *AgentRouteResolver {
@@ -230,17 +231,21 @@ func NewAgentRouteResolver(config AgentRouteConfig, legacyID string) *AgentRoute
 	if snapshot.Workspaces == nil {
 		snapshot.Workspaces = map[string]WorkspaceAgentRoutes{}
 	}
-	return &AgentRouteResolver{config: snapshot, legacyID: strings.TrimSpace(legacyID), revision: "cfg-" + hex.EncodeToString(hash[:8])}
+	providerName := strings.TrimSpace(getenv("ADRO_PROVIDER"))
+	if providerName == "" {
+		providerName = "local"
+	}
+	return &AgentRouteResolver{config: snapshot, legacyID: strings.TrimSpace(legacyID), revision: "cfg-" + hex.EncodeToString(hash[:8]), provider: providerName}
 }
 
 func NewAgentRouteResolverFromEnv() (*AgentRouteResolver, error) {
-	config, err := ParseAgentRouteConfig(strings.TrimSpace(getenv("ADRO_MULTICA_AGENT_MAP")))
+	config, err := ParseAgentRouteConfig(strings.TrimSpace(getenv("ADRO_AGENT_ROUTE_MAP")))
 	if err != nil {
 		return nil, err
 	}
-	legacyID := getenv("ADRO_MULTICA_AGENT_ID")
+	legacyID := getenv("ADRO_DEFAULT_AGENT_ID")
 	if legacyID != "" && !uuidPattern.MatchString(legacyID) {
-		return nil, errors.New("ADRO_MULTICA_AGENT_ID must be a UUID")
+		return nil, errors.New("ADRO_DEFAULT_AGENT_ID must be a UUID")
 	}
 	return NewAgentRouteResolver(config, canonicalUUID(legacyID)), nil
 }
@@ -253,7 +258,7 @@ func (r *AgentRouteResolver) Revision() string { return r.revision }
 
 func (r *AgentRouteResolver) Resolve(workspaceID, memberID, role string, profileBinding *domain.ProviderBinding) RouteDecision {
 	if profileBinding != nil && profileBinding.ID != "" && profileBinding.ProviderObjectID != "" &&
-		profileBinding.Provider == "multica" && profileBinding.Kind == "agent" &&
+		profileBinding.Provider != "" && profileBinding.Kind == "agent" &&
 		strings.EqualFold(strings.TrimSpace(profileBinding.WorkspaceID), strings.TrimSpace(workspaceID)) {
 		return decisionFromBinding(*profileBinding, "profile")
 	}
@@ -292,7 +297,7 @@ func (r *AgentRouteResolver) Diagnostics(workspaceID string) RouteDiagnostics {
 }
 
 func (r *AgentRouteResolver) newDecision(workspaceID, nativeID, source string) RouteDecision {
-	binding := NewProviderBinding("multica", workspaceID, "agent", nativeID, "configured", source, r.revision)
+	binding := NewProviderBinding(r.provider, workspaceID, "agent", nativeID, "configured", source, r.revision)
 	return decisionFromBinding(binding, source)
 }
 

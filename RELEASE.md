@@ -1,8 +1,13 @@
-ADRO release acceptance is defined by
-`docs/operations/release-runbook.md`. The checked-in version is 0.1.0 and is a
-single-node reference profile, not GA.
+## ADRO release acceptance
 
-Every release must retain a verified SPDX SBOM/NOTICE/license set, a clean
-commit/tag release manifest, full local verification, the browser matrix, and a
-real Multica conformance JSON report. Mock, configuration-only, emulated device,
-or interface-only evidence cannot satisfy an external production gate.
+The checked-in release is a single-node reference profile. A release candidate
+must pass `go test ./...`, `go test -race ./...`, `go vet ./...`, `go build
+./...`, `make contracts`, and the browser matrix. The real end-to-end report
+must use an installed coding client and record session, worktree, git, check,
+repair, attachment, and report evidence. Test doubles may cover unit contracts,
+but cannot be used as runtime proof.
+
+Run the model-backed acceptance path with `make real-e2e`. It is intentionally
+outside the default `verify` target because it requires an authenticated local
+Claude Code/Codex installation and can take several minutes. The script starts
+the native profile only; Docker is neither required nor started.

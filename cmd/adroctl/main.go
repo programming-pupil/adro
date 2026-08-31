@@ -34,7 +34,9 @@ func main() {
 		os.Exit(2)
 	}
 }
-func usage() { fmt.Println("Usage: adroctl <up|install --profile single-node|health|config-check|version>") }
+func usage() {
+	fmt.Println("Usage: adroctl <up|install --profile single-node|health|config-check|version>")
+}
 
 func configCheck(_ []string) {
 	if err := config.Validate(config.FromEnv()); err != nil {
@@ -48,7 +50,7 @@ func up(args []string) {
 	addr := fs.String("addr", ":8080", "API listen address")
 	fs.Parse(args)
 	if err := config.Validate(config.FromEnv()); err != nil {
-		fmt.Fprintf(os.Stderr, "real Multica configuration required: %v\n", err)
+		fmt.Fprintf(os.Stderr, "local executor configuration required: %v\n", err)
 		os.Exit(1)
 	}
 	root := filepath.Join("var", "artifacts")
@@ -73,37 +75,28 @@ func up(args []string) {
 }
 
 // install performs the deterministic single-node bootstrap. The reference
-// distribution owns the ADRO API, workbench, and filesystem volume; external
-// Multica and production dependencies remain explicit deployment inputs.
+// distribution owns the ADRO API, workbench, and filesystem volume; the local
+// coding executable remains an explicit operator-selected dependency.
 func install(args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	profile := fs.String("profile", "", "installation profile (single-node)")
-	compose := fs.String("compose-file", filepath.Join("deploy", "compose", "docker-compose.yml"), "Docker Compose file")
-	dryRun := fs.Bool("dry-run", false, "validate and print the bootstrap command without starting containers")
+	dryRun := fs.Bool("dry-run", false, "validate and print the native bootstrap command without starting processes")
 	fs.Parse(args)
 	if *profile != "single-node" {
 		fmt.Fprintln(os.Stderr, "only --profile single-node is available in this release")
 		os.Exit(2)
-	}
-	if _, err := os.Stat(*compose); err != nil {
-		fmt.Fprintf(os.Stderr, "compose file is unavailable: %v\n", err)
-		os.Exit(1)
 	}
 	artifactRoot := filepath.Join("var", "artifacts")
 	if err := os.MkdirAll(artifactRoot, 0750); err != nil {
 		fmt.Fprintf(os.Stderr, "create artifact volume: %v\n", err)
 		os.Exit(1)
 	}
-	command := []string{"compose", "-f", *compose, "up", "-d", "--build"}
+	command := []string{"./start.sh", "--no-open"}
 	if *dryRun {
-		fmt.Printf("profile=%s\nartifact_root=%s\ncommand=docker %s\n", *profile, artifactRoot, strings.Join(command, " "))
+		fmt.Printf("profile=%s\nartifact_root=%s\ncommand=%s\n", *profile, artifactRoot, strings.Join(command, " "))
 		return
 	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(os.Stderr, "Docker is required for install; use `adroctl up` with ADRO_MULTICA_URL and ADRO_MULTICA_TOKEN for a remote Multica deployment")
-		os.Exit(1)
-	}
-	cmd := exec.Command("docker", command...)
+	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "single-node install failed: %v\n", err)

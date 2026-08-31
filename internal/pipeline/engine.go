@@ -62,22 +62,26 @@ func (Engine) Apply(run domain.PipelineRun, result domain.PipelineStepResult) (d
 		run.Context.RepairNotes = append(run.Context.RepairNotes, result.RepairNote)
 	}
 
-	// The first development task pins the native session. Every returned repair
-	// must present that exact session; a new/empty session is a hard failure.
+	// The first development task pins the native session even when the client
+	// fails. Every retry must present that exact session and worktree; otherwise
+	// a broken repair could silently start over with lost context.
 	if from == domain.PipelineDevelopment {
-		if run.ParentSessionID == "" && result.Outcome == "pass" {
-			if result.ProviderSessionID == "" {
-				return run, errors.New("development result requires provider_session_id")
-			}
-			if result.ProviderWorkDir == "" {
-				return run, errors.New("development result requires provider_work_dir")
-			}
+		if strings.TrimSpace(result.ProviderSessionID) == "" {
+			return run, errors.New("development result requires provider_session_id")
+		}
+		if strings.TrimSpace(result.ProviderWorkDir) == "" {
+			return run, errors.New("development result requires provider_work_dir")
+		}
+		if run.ParentSessionID == "" {
 			run.ParentSessionID = result.ProviderSessionID
 			run.ProviderWorkDir = result.ProviderWorkDir
-		} else if run.RetryCount > 0 && result.ProviderSessionID != run.ParentSessionID {
+		} else if result.ProviderSessionID != run.ParentSessionID {
 			return run, ErrSessionContinuity
-		} else if run.RetryCount > 0 && result.ProviderWorkDir != run.ProviderWorkDir {
+		} else if result.ProviderWorkDir != run.ProviderWorkDir {
 			return run, ErrSessionContinuity
+		}
+		if result.Outcome == "fail" {
+			run.RetryCount++
 		}
 	}
 	if from == domain.PipelineUnitTest && (result.Outcome == "fail" || result.Coverage < run.CoverageThreshold) {

@@ -1,111 +1,31 @@
 # ADRO
 
-ADRO (Agentic Delivery & Release Orchestrator) is a provider-independent control plane for auditable, multi-repository AI delivery. It owns requirements, work items, evidence, provenance and workflow state; execution providers such as Multica are replaceable adapters.
+ADRO (Agentic Delivery & Release Orchestrator) is an independent control plane
+for auditable, multi-repository delivery by coding agents. The repository does
+not embed, download, patch, or call any other orchestration product. Its only
+runtime dependency is an operator-selected local coding executable.
 
-This repository contains a dependency-free, directly runnable reference profile that is useful on a laptop, in CI, or as the control-plane core of a production deployment:
-
-- versioned requirement and bug REST APIs under `/api/v1`;
-- explicit requirement state transitions with optimistic versions;
-- deterministic multi-repository work-item fan-out;
-- `ExecutionProvider` SPI with a fail-closed real Multica runtime path (the deterministic provider is test-only);
-- content-addressed filesystem ArtifactStore with atomic writes, tenant-scoped logical URIs and HTTP Range downloads;
-- deduplicated versioned events with cursor replay;
-- WebSocket workspace streams with cursor replay and changed-files snapshots;
-- optional durable single-node JSON snapshots for control-plane, events, audit,
-  runner registration, context manifests and repair attempts;
-- argv-only Runner execution confined to a registered workspace root with bounded
-  environment/output and command-digest auditing;
-- real MCP JSON-RPC tools/list and tools/call over HTTP/SSE with bounded
-  responses, schema digests and failure-aware health/invocation records;
-- governed MCP, Skill and Automation resources with audit records;
-- artifact upload verification, Range/HEAD downloads and migration control records;
-- a responsive Chinese/English browser workbench in `apps/web` and PostgreSQL migration boundary in `migrations`;
-- a repeatable Playwright acceptance suite that opens all 18 workbench menus and exercises requirement, WebSocket, i18n, and screenshot delivery paths.
-
-The ADRO workbench is the product surface: agents are created from **Agents &
-squads**, requirements are submitted and advanced from **Requirements** and
-their detail view, and evidence is captured from **Extensions & storage**. The
-browser calls ADRO APIs only; it does not embed or depend on the Multica WebUI.
-The Provider remains an explicit SPI boundary, so a local demo can run offline
-while a production Multica gateway must be configured and contract-tested.
-
-The full architecture and production acceptance criteria are specified in [ADRO-production-blueprint.zh-CN.md](ADRO-production-blueprint.zh-CN.md). Runtime execution always uses Multica and fails startup when its URL or PAT is absent. Deterministic provider doubles exist only inside automated tests; they are not a selectable product profile.
-
-The implementation-to-GA boundary is tracked in [docs/architecture/ga-readiness.md](docs/architecture/ga-readiness.md); release status must not be inferred from unit-test results alone.
-
-Production/HA fail-closed rules, state ownership, migration gates, and adapter
-acceptance are documented in
-[docs/architecture/production-deployment.md](docs/architecture/production-deployment.md).
-The reproducible release procedure is in
-[docs/operations/release-runbook.md](docs/operations/release-runbook.md), and
-browser/platform claims are bounded by [docs/compatibility.md](docs/compatibility.md).
-
-Set `ADRO_PROVIDER=multica`, `ADRO_MULTICA_URL` and `ADRO_MULTICA_TOKEN` to use the included HTTP Provider adapter. The token is read only from the process environment and is never serialized into requirements, events or artifacts. `ADRO_MULTICA_WORKSPACE_ID` and `ADRO_MULTICA_RUNTIME_ID` pin the provider-native workspace and runtime; a single visible workspace and a single/online runtime are auto-discovered when those variables are omitted. Ambiguous discovery fails closed. Optional `ADRO_MULTICA_WS_URL` enables the upstream run-event WebSocket; `ADRO_MULTICA_CAPABILITIES_PATH` and `ADRO_MULTICA_ATTACHMENT_PATH` override gateway paths when a daemon exposes a versioned route. The API exposes a secret-free probe at `GET /api/v1/provider/diagnostics` and reports the connection as unavailable until both health and capabilities are reachable.
-
-Authentication mode is controlled by `ADRO_AUTH_MODE`: `optional` (the
-single-node default) permits unauthenticated local API use, while `required`
-requires an active local identity or machine token for protected API routes.
-Only these two values are accepted; a typo fails startup and readiness instead
-of disabling authentication silently.
-
-For the current public Multica API, set `ADRO_MULTICA_AGENT_ID` to a real
-workspace Agent UUID when you want newly materialized Work Items assigned to
-that Agent. The adapter sends Multica's required `workspace_id`, issue title,
-description and stage fields, and falls back from the optional `/api/runs`
-contract to Multica's native `POST /api/issues/{id}/rerun` task action. Full
-run snapshots, messages, cancellation, usage and event replay still require a
-gateway that exposes those provider-neutral endpoints (or an explicitly
-configured WebSocket), so diagnostics never over-claims those capabilities.
-
-Multiple Multica Agents can be routed per workspace with the optional
-`ADRO_MULTICA_AGENT_MAP` JSON environment variable. It is parsed strictly at
-startup (64 KiB / 1000 route limit, UUID-only native IDs, no unknown fields):
-
-```json
-{"workspaces":{"<workspace-uuid>":{"default_agent_id":"<agent-uuid>","members":{"alice":"<agent-uuid>"},"roles":{"developer":"<agent-uuid>"}}}}
-```
-
-Resolution is captured once in an opaque binding when a Work Item is created:
-existing binding, developer profile, member, role, workspace default, then the
-legacy `ADRO_MULTICA_AGENT_ID`. Repairs and reruns reuse that binding even if
-the environment changes. Diagnostics expose only configuration, reachability,
-authentication and routing states plus counts; tokens, map contents and native
-Agent UUIDs are never returned.
-
-Token presence alone is reported as authentication `unverified`; the adapter
-marks it `verified` only after an authenticated Agent/Issue or run mutation
-succeeds. Public configuration and health probes do not count as authentication
-evidence.
+The product owns requirements, bugs, work items, evidence, provenance, tenant
+boundaries, agent routing, pipeline state, context manifests, repair attempts,
+and the browser workbench. `internal/provider` exposes a small provider-neutral
+SPI. `LocalProvider` is the shipped implementation: it discovers `claude`,
+`codex`, or `claude-code`, invokes the real executable with `os/exec`, captures
+output and git evidence, and keeps the original session/worktree for repairs.
+The deterministic provider in tests is not selectable by the runtime profile.
 
 ## Quick start
 
-Docker Compose, Git, curl, and OpenSSL are the only bootstrap prerequisites on
-macOS or Linux. From a fresh checkout, run:
+Prerequisites: Go 1.24+, Git, curl, and one installed coding client. Docker is
+not required or used by the local profile.
 
 ```bash
-./start.sh
+ADRO_ADMIN_PASSWORD='change-this-password' ./start.sh --no-open
 ```
 
-The script generates a persistent ADRO administrator, builds ADRO, installs the
-pinned Multica `v0.4.35` CLI after checking its official SHA-256 checksum,
-starts Multica's self-host backend/PostgreSQL on loopback, and uses the isolated
-Multica CLI profile `adro-local`. It never changes a user's existing Multica
-profile or daemon. The ADRO WebUI is served at `http://127.0.0.1:8081`.
-
-The login screen has an `EN`/`中文` toggle in the upper-right corner. The choice
-is persisted in `localStorage` and applies before authentication as well as in
-the signed-in workbench; the document language and date formatting follow the
-selected locale.
-
-The first self-host run has one unavoidable local trust step: the bootstrap
-creates an isolated Multica service identity with development verification code
-`888888`, issues a PAT, and persists it in the mode-0600 `.adro/adro.env` file.
-Runtime execution always uses the real Multica Provider; there is no product
-MockProvider fallback.
-
-```bash
-ADRO_MULTICA_TOKEN='<local Multica PAT>' ./start.sh
-```
+`start.sh` builds the API and WebUI binaries, discovers the first available
+executor (`ADRO_EXECUTOR` overrides discovery), creates state under `.adro`,
+starts both local processes, and verifies `/readyz` plus the WebUI. Open
+`http://127.0.0.1:8081` after startup.
 
 Useful lifecycle commands:
 
@@ -114,153 +34,83 @@ Useful lifecycle commands:
 ./start.sh --stop
 ```
 
-When Docker is unavailable, `--no-docker` downloads the pinned Multica source,
-starts it with a local PostgreSQL instance, starts the real Multica daemon, and
-then starts both ADRO processes directly with Go:
+For a custom command, set `ADRO_EXECUTOR_COMMAND`. Arguments are split without
+a shell and `{input}` is replaced with the stage prompt:
 
 ```bash
-ADRO_ADMIN_PASSWORD='change-this-local-password' ./start.sh --no-docker
+ADRO_EXECUTOR_COMMAND='claude -p {input} --permission-mode acceptEdits' ./start.sh
 ```
 
-This serves the API on `http://127.0.0.1:8080` and the ADRO WebUI on
-`http://127.0.0.1:8081/?api=http://127.0.0.1:8080`. It requires Go, Git, curl,
-OpenSSL, and PostgreSQL client/server tools (`pg_ctl`, `initdb`, `createdb`, and
-`psql`), persists local identities and Multica state under `.adro`, and supports
-`--status`, `--stop`, and `--no-open` like the container path. Set
-`MULTICA_DATABASE_URL` to use an existing PostgreSQL database instead of the
-isolated local instance.
+The API listens on `ADRO_API_PORT` (default `8080`) and the WebUI on
+`ADRO_WEB_PORT` (default `8081`). `ADRO_PUBLIC_API_URL` is automatically set to
+the local API URL for executor callbacks; override it when the executor runs in
+another network namespace. `ADRO_HOME`, `ADRO_ARTIFACT_ROOT`,
+`ADRO_WORK_ROOT`, and `ADRO_RUN_STATE_FILE` control execution checkouts and
+durable local run snapshots. Set
+`ADRO_AUTH_MODE=required` with `ADRO_ADMIN_PASSWORD` for protected routes.
+Set `ADRO_EXECUTOR_TIMEOUT=15m` (Go duration) to bound an individual client run;
+an expired run is recorded as failed with its session/worktree evidence intact.
 
-To run without Docker against an existing hosted or remote Multica API, provide
-a PAT and pin the workspace/runtime when discovery would be ambiguous:
-
-```bash
-ADRO_ADMIN_PASSWORD='change-this-local-password' \
-ADRO_MULTICA_URL='https://api.multica.ai' \
-ADRO_MULTICA_TOKEN='<multica-pat>' \
-ADRO_MULTICA_WORKSPACE_ID='<workspace-uuid>' \
-ADRO_MULTICA_RUNTIME_ID='<runtime-uuid>' \
-ADRO_MULTICA_PROJECT_ID='<project-uuid>' \
-./start.sh --no-docker
-```
-
-The remote token is inherited only by the API process and is deliberately not
-written to `.adro/adro.env`; supply it again on the next start. Diagnostics
-remain unavailable until the remote health and capability handshakes succeed,
-and authentication is verified only after a successful Agent, Issue, run, or
-attachment mutation. This avoids Docker locally, but the remote Multica
-deployment and its database/runtime remain external prerequisites.
-
-`ADRO_MULTICA_PROJECT_ID` is important for end-to-end delivery: it makes every
-materialized Multica Work Item inherit the project resources (repositories and
-local-directory bindings) required by the assigned Agent. ADRO rejects
-ambiguous workspace/runtime discovery instead of silently selecting a target.
-
-For a disposable clean-room run, stop the stack first and remove only the
-local ADRO/Multica state (this deletes local demo identities, artifacts, and
-the self-host database volumes):
-
-```bash
-./start.sh --stop || true
-docker compose -p adro -f deploy/compose/docker-compose.yml down -v --remove-orphans || true
-docker compose -p adro-multica -f .adro/multica-server/docker-compose.selfhost.yml down -v --remove-orphans || true
-rm -rf .adro
-```
-
-Then set a known local administrator password and bootstrap again:
-
-```bash
-ADRO_ADMIN_PASSWORD='change-this-local-password' ./start.sh
-```
-
-The script prints the selected administrator credentials and opens the ADRO
-WebUI. The only upstream step is the local development identity bootstrap using
-verification code `888888`; return to ADRO at `http://127.0.0.1:8081`.
-
-Multica's frontend at `http://127.0.0.1:19081` is used only for its bootstrap
-authentication and PAT issuance. Normal requirement, bug, agent, permission,
-workflow, evidence, extension, and screenshot operations use ADRO's own WebUI.
-Eliminating that one-time upstream identity bootstrap requires a supported
-Multica service-account/bootstrap API; ADRO does not bypass or scrape Multica
-credentials.
-
-## Run from source
+## From source
 
 ```bash
 go test ./...
 go run ./cmd/adro-api -addr :8080 -artifact-root ./var/artifacts
+go run ./cmd/adro-web -addr :8081 -root ./apps/web
 ```
 
-Open `apps/web/index.html` through a static server pointed at the API origin, or use the API directly. For a separately served workbench, pass the API origin as a query parameter, for example `http://localhost:8081/?api=http://localhost:8080`; same-origin deployments need no parameter. The API has readiness checks at `GET /readyz` and requires a reachable Multica Provider.
+The API exposes readiness at `/readyz`, secret-free executor diagnostics at
+`/api/v1/provider/diagnostics`, and versioned resources below `/api/v1`. The
+seven-stage pipeline is design, development, unit test, integration test,
+arbitration, revalidation, and report. A failed integration test returns to the
+same development session and worktree; a missing or mismatched continuity
+record is rejected rather than silently starting over.
 
-The workbench's **Extensions & storage** view can capture a browser screen with
-the native Screen Capture permission or accept an image file. `POST
-/api/v1/screenshots` first writes an immutable `artifact://` object, then
-forwards the bytes through the provider's optional attachment contract when a
-target (`issue`, `comment`, `run`, or `workspace`) is selected. A failed remote
-delivery never loses the stored Artifact URI. MockProvider implements this
-contract for offline verification; a Multica deployment must advertise
-`attachment.v1` in capabilities before the UI marks delivery as supported.
+## Architecture and extension points
 
-For an ADRO-only container profile (API on `:8080`, workbench on `:8081`),
-provide the mandatory initial administrator password:
+- `internal/domain`: tenant-scoped business contracts and state transitions.
+- `internal/pipeline`: strict stage machine and evidence validation.
+- `internal/provider`: provider-neutral SPI and the local executable boundary.
+- `internal/store`: atomic JSON persistence for the single-node profile.
+- `internal/events`: replayable event bus and workspace streams.
+- `internal/api`: authenticated REST transport and workbench routes.
+- `apps/web`: ADRO-owned Chinese/English workbench; no embedded external UI.
+- `sdk/*`: extension SPIs for integrations and artifact drivers.
+
+Modules are intentionally replaceable. A community plugin may implement the
+provider, artifact, event, identity, or workflow SPI without changing domain
+code. Production profiles remain fail-closed until each external adapter has a
+contract test and an explicit deployment boundary.
+
+The product and technical contracts are maintained in
+`docs/product-requirements.zh-CN.md` and
+`docs/architecture/adro-technical-design.zh-CN.md`. Those documents contain
+black-box comparison notes for design research only; no external source code or
+runtime API is shipped here.
+
+## Verification
+
+Run the complete local checks with:
 
 ```bash
-ADRO_ADMIN_PASSWORD='replace-with-a-strong-password' \
-  docker compose -f deploy/compose/docker-compose.yml up --build
+make test
+make contracts
+go vet ./...
+go build ./...
 ```
 
-The operator CLI exposes the same deterministic bootstrap and a validation-only
-mode:
+For the repeatable real workflow (no Docker and no MockProvider), authenticate a
+local Claude Code or Codex client and run:
 
 ```bash
-adroctl install --profile single-node
-adroctl install --profile single-node --dry-run
+make real-e2e
 ```
 
-The Compose profile starts ADRO, its authentication state, workbench, and
-filesystem artifact volume. `start.sh` can provision the separately licensed,
-pinned Multica self-host distribution alongside it. PostgreSQL/NATS/Temporal,
-OIDC, cloud ArtifactStore, and organization-specific production integrations
-remain separate deployment choices.
-
-Create a requirement:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/requirements \
-  -H 'Content-Type: application/json' -H 'Idempotency-Key: req-demo-1' \
-  -d '{"workspace_id":"local","title":"Invite API","description":"Add the invite endpoint","acceptance_criteria":["POST /invite returns code 0"],"assignee_member_ids":["alice","bob"],"repository_ids":["provider-service","caller-service"]}'
-```
-
-`POST /api/v1/requirements/{id}/start` advances the workflow to `TRIAGED` and creates one work item per confirmed repository, assigning them round-robin across the requested members. Bug creation computes a stable SHA-256 fingerprint when one is not supplied; repeated failures are deduplicated and automatic repair is capped at three attempts.
-
-After a Work Item run, `GET /api/v1/work-items/{id}/context` exposes the
-versioned `ContextManifest` and latest `Provenance`; repair history is available
-from `GET /api/v1/work-items/{id}/repair-attempts`. A runner command is sent as
-an argv array to `POST /api/v1/runners/{id}/execute`, never as a shell string.
-
-Run the browser acceptance suite locally after installing Chromium:
-
-```bash
-npm install
-npx playwright install chromium
-npm run test:e2e
-npx playwright install firefox webkit
-npm run test:e2e:matrix
-```
-
-## Project layout
-
-`internal/domain` contains business contracts and transitions; `internal/workflow` applies deterministic quality gates and repair limits; `internal/store` is the in-memory reference repository with an optional atomic JSON snapshot profile; `internal/provider` and `internal/artifact` are extension SPIs; `internal/events` is the outbox-compatible event bus; `internal/api` is the transport layer. No business package imports a Multica client.
-
-`internal/observer` provides the runner-side Git Diff snapshotter. It records
-changed files and a stable digest without putting repository contents into the
-control-plane event payload. The same `DiffSnapshot` contract is used by the
-HTTP endpoint and by future filesystem watchers.
-
-## Security notes
-
-Artifact addresses are logical `artifact://tenant/id/version` values and path traversal is rejected. Uploads are published atomically after hashing, immutable objects cannot be overwritten, legal-hold deletion is refused, and problem responses include a stable `error_code` and request ID. The local profile provides password login, hashed server-side sessions, per-user menu RBAC, administrator safeguards, and persisted identities. For an interactive session, the server overwrites member and workspace headers from the authenticated identity; browser-supplied identity headers cannot impersonate another account or select another workspace. Runner execution is a local command boundary, not a production sandbox: deployments must add rootless/container or VM isolation, federated OIDC, PostgreSQL RLS, mTLS, SecretStore and external ArtifactStore controls required by the blueprint.
-
-## License
-
-ADRO core is intended for Apache-2.0 distribution. A Multica adapter or full distribution must carry Multica's applicable license and NOTICE separately; the core profile does not redistribute Multica.
+`scripts/real-pipeline-e2e.sh` creates a temporary Git repository, submits a
+Requirement and evidence attachment, starts the seven-stage pipeline, waits for
+the real client to implement code, injects and records one integration failure,
+checks the generated Bug, verifies same-session/worktree repair and revalidation,
+then checks the final report. Set `ADRO_REAL_E2E_TIMEOUT` to change the deadline
+and `ADRO_E2E_KEEP=1` to retain the run evidence. Missing client credentials are
+reported as an environment prerequisite; the script never substitutes a fake
+runtime result.

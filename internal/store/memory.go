@@ -1445,9 +1445,9 @@ func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, err
 			return domain.PipelineRun{}, fmt.Errorf("an active pipeline already exists for requirement %s", run.RequirementID)
 		}
 	}
-	m.pipelines[run.ID] = run
+	m.pipelines[run.ID] = clonePipelineRun(run)
 	_ = m.persistLocked()
-	return run, nil
+	return clonePipelineRun(run), nil
 }
 
 func (m *Memory) GetPipeline(id string) (domain.PipelineRun, error) {
@@ -1457,7 +1457,7 @@ func (m *Memory) GetPipeline(id string) (domain.PipelineRun, error) {
 	if !ok {
 		return domain.PipelineRun{}, ErrNotFound
 	}
-	return run, nil
+	return clonePipelineRun(run), nil
 }
 
 func (m *Memory) ListPipelines(workspaceID, requirementID string) []domain.PipelineRun {
@@ -1471,7 +1471,7 @@ func (m *Memory) ListPipelines(workspaceID, requirementID string) []domain.Pipel
 		if requirementID != "" && run.RequirementID != requirementID {
 			continue
 		}
-		items = append(items, run)
+		items = append(items, clonePipelineRun(run))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	return items
@@ -1494,7 +1494,20 @@ func (m *Memory) UpdatePipeline(run domain.PipelineRun, expectedVersion int64) (
 		return domain.PipelineRun{}, errors.New("pipeline identity fields are immutable")
 	}
 	run.CreatedAt = current.CreatedAt
-	m.pipelines[run.ID] = run
+	m.pipelines[run.ID] = clonePipelineRun(run)
 	_ = m.persistLocked()
-	return run, nil
+	return clonePipelineRun(run), nil
+}
+
+// clonePipelineRun prevents callers from mutating slices that are also held by
+// the in-memory store. Pipeline watchers intentionally run concurrently, so a
+// shallow map value copy would let one transition race another while appending
+// context evidence or history.
+func clonePipelineRun(run domain.PipelineRun) domain.PipelineRun {
+	run.Context.PassedTests = append([]string(nil), run.Context.PassedTests...)
+	run.Context.FailedTests = append([]string(nil), run.Context.FailedTests...)
+	run.Context.ErrorLogs = append([]string(nil), run.Context.ErrorLogs...)
+	run.Context.RepairNotes = append([]string(nil), run.Context.RepairNotes...)
+	run.History = append([]domain.PipelineTransition(nil), run.History...)
+	return run
 }
