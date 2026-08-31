@@ -86,6 +86,25 @@ func TestInteractiveIdentityCannotSpoofWorkspaceOrActor(t *testing.T) {
 	}
 }
 
+func TestRequirementRejectsForeignRegisteredRepository(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	s := testServer(t)
+	foreign, err := s.Store.UpsertRepository(domain.Repository{
+		WorkspaceID: "foreign-workspace", CanonicalName: "private-repository", CloneURL: "file:///srv/private-repository",
+		Metadata: map[string]any{"local_path": "/srv/private-repository"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", `{"workspace_id":"local","title":"cross-workspace","description":"must be rejected","acceptance_criteria":["deny foreign repository"],"assignee_member_ids":["member-1"],"repository_ids":["`+foreign.ID+`"]}`, nil)
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "invalid_repository_relation") {
+		t.Fatalf("foreign repository status=%d body=%s", response.Code, response.Body.String())
+	}
+	if items, _ := s.Store.ListRequirements("local", "", "", 10); len(items) != 0 {
+		t.Fatalf("foreign repository request created a requirement: %+v", items)
+	}
+}
+
 func TestInteractiveIdentityCannotSpoofArtifactTenant(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "required")
 	t.Setenv("ADRO_ADMIN_USERNAME", "admin")

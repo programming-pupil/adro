@@ -31,7 +31,7 @@ P0 必须实现：
 - 自动扫描本机 Codex、Claude Code 等客户端，完成能力探测、权限校验和可用性展示。
 - 长流程状态机、队列 lease、幂等、超时、重试、暂停、人工升级和重启恢复。
 - 上下文清单、工作记忆、会话记忆、项目记忆、精确归档、压缩和可验证召回。
-- Git、CI、部署、测试、Artifact、EvidenceBundle、钉钉和飞书适配器。
+- Git、CI、部署、测试、Artifact、EvidenceBundle、钉钉和飞书的 provider-neutral SPI、证据模型和契约测试；具体生产适配器必须作为外部插件安装并通过真实凭证验收，本地 profile 不宣称内置这些连接器。
 - 自有 API/UI、实时事件、操作审计、成本计量和插件安装/回滚。
 
 P1 可增加：远程 Runner、GitLab/Forgejo、更多代码客户端、云存储、移动端和更复杂的调度策略。
@@ -588,7 +588,7 @@ ADRO 使用自己的 UI，不 iframe、跳转或复用任何外部 WebUI。执�
 
 1. Unit：状态机、hash、压缩窗口、错误分类、权限和 serializer；允许 test doubles。
 2. Contract：每个插件运行相同 conformance suite，覆盖 manifest、能力协商、幂等、乱序、取消、重启、secret redaction 和版本升级。
-3. Integration：真实本地 Codex/Claude Code（已配置时）、真实 Git repository、真实 GitHub App/PAT、真实 CI、真实测试环境和真实钉钉/飞书 webhook。没有凭证的用例只能标记 `blocked_external_prerequisite`，不能伪造 PASS。
+3. Integration：真实本地 Codex/Claude Code（已配置时）、真实 Git repository、真实 GitHub App/PAT、真实 CI、真实测试环境和真实钉钉/飞书 webhook。当前仓库只提供本地执行器和 provider-neutral 契约；未安装外部连接器或没有凭证的用例只能标记 `blocked_external_prerequisite`，不能伪造 PASS。
 4. Failure injection：进程崩溃、数据库断电、Outbox 重复、网络超时、provider 消失、webhook 乱序、客户端升级、上下文超预算、测试失败和 repair cap。
 5. E2E：从空租户提交 Requirement/Bug/Analysis，到方案、Agent 执行、提交、部署、测试失败、同 session repair、复测、EvidenceBundle、报告和通知。
 6. Security/performance：跨租户 IDOR、插件逃逸、并发公平、事件吞吐、Artifact Range、长 session 压缩、恢复 RTO/RPO 和成本预算。
@@ -621,7 +621,7 @@ ADRO 使用自己的 UI，不 iframe、跳转或复用任何外部 WebUI。执�
 | Wave 2 | Context memory、compression、archive、compiler、恢复 | 压缩/重启/召回探针与 hash 账本通过 |
 | Wave 3 | GitHub/CI/Test/Deploy/Evidence、Requirement/Bug pipeline | 真实代码提交、测试和 PR 证据通过 |
 | Wave 4 | same-session repair、并行调度、报告、Artifact | 故意失败后原 session 多轮修复闭环通过 |
-| Wave 5 | DingTalk/Feishu、OIDC、PostgreSQL/NATS/Temporal、远程 Runner | 企业安全、故障和迁移门禁通过 |
+| Wave 5 | DingTalk/Feishu、OIDC、PostgreSQL/NATS/Temporal、远程 Runner | 外部适配器安装、真实凭证、企业安全、故障和迁移门禁通过；未完成时保持 `reference-only`/`blocked` |
 | Wave 6 | 社区注册表、更多 provider、开源发布 | 插件 conformance、SBOM、文档和支持流程齐全 |
 
 ## 16. 风险与决策

@@ -626,6 +626,10 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 	if memberID := r.Header.Get("X-Member-ID"); memberID != "" {
 		in.CreatedBy = memberID
 	}
+	if err := s.validateRequirementRepositoryRelations(in.WorkspaceID, in.RepositoryIDs); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
+		return
+	}
 	req := domain.Requirement{WorkspaceID: in.WorkspaceID, Title: in.Title, Description: in.Description, AcceptanceCriteria: in.AcceptanceCriteria, Priority: in.Priority, CreatedBy: in.CreatedBy, AssigneeMemberIDs: in.AssigneeMemberIDs, RepositoryIDs: in.RepositoryIDs, WorkflowTemplateID: in.WorkflowTemplateID}
 	created, err := s.Store.CreateRequirement(req)
 	if err != nil {
@@ -849,6 +853,10 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 	if patch.RepositoryIDs != nil {
 		req.RepositoryIDs = patch.RepositoryIDs
 	}
+	if err := s.validateRequirementRepositoryRelations(req.WorkspaceID, req.RepositoryIDs); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
+		return
+	}
 	expected := patch.Version
 	if expected == 0 {
 		expected = parseIfMatch(r.Header.Get("If-Match"))
@@ -877,6 +885,10 @@ func (s *Server) addRelation(w http.ResponseWriter, r *http.Request, req domain.
 		req.AssigneeMemberIDs = appendUnique(req.AssigneeMemberIDs, in.IDs...)
 	} else {
 		req.RepositoryIDs = appendUnique(req.RepositoryIDs, in.IDs...)
+		if err := s.validateRequirementRepositoryRelations(req.WorkspaceID, req.RepositoryIDs); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
+			return
+		}
 	}
 	updated, e := s.Store.UpdateRequirement(req, req.Version)
 	if e != nil {
@@ -2900,6 +2912,9 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 	if len(req.RepositoryIDs) == 0 || len(req.AssigneeMemberIDs) == 0 {
 		return nil
 	}
+	if err := s.validateRequirementRepositoryRelations(req.WorkspaceID, req.RepositoryIDs); err != nil {
+		return err
+	}
 	existing := s.Store.ListWorkItems(req.ID)
 	known := make(map[string]domain.WorkItem, len(existing))
 	for _, item := range existing {
@@ -3016,6 +3031,35 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 			return err
 		}
 		_ = s.Events.Publish(ctx, events.New("work_item.created.v1", "work_item", item.ID, "", req.WorkspaceID, 1, map[string]any{"requirement_id": req.ID, "repository_id": repositoryID, "member_id": memberID, "agent_route_source": item.AgentRouteSource, "routing_config_revision": item.RoutingConfigRevision}))
+	}
+	return nil
+}
+
+// validateRequirementRepositoryRelations prevents a requirement from using a
+// repository registered in another workspace. Unknown IDs remain valid for
+// provider-native resources that are intentionally not mirrored in ADRO's
+// repository registry; once an ID is registered locally, its workspace is
+// authoritative and must match the requirement.
+func (s *Server) validateRequirementRepositoryRelations(workspaceID string, repositoryIDs []string) error {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" || s == nil || s.Store == nil {
+		return nil
+	}
+	for _, repositoryID := range repositoryIDs {
+		repositoryID = strings.TrimSpace(repositoryID)
+		if repositoryID == "" {
+			continue
+		}
+		repository, err := s.Store.GetRepository(repositoryID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("repository %q is unavailable", repositoryID)
+		}
+		if strings.TrimSpace(repository.WorkspaceID) != workspaceID {
+			return fmt.Errorf("repository %q does not belong to workspace %q", repositoryID, workspaceID)
+		}
 	}
 	return nil
 }
