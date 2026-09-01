@@ -411,7 +411,11 @@ func (p *MockProvider) CancelRun(_ context.Context, runID string) error {
 func (p *MockProvider) GetRun(_ context.Context, runID string) (RunSnapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	r, ok := p.runs[runID]
+	lookupID := runID
+	if strings.HasPrefix(lookupID, "mock-run-") {
+		lookupID = strings.TrimPrefix(lookupID, "mock-run-")
+	}
+	r, ok := p.runs[lookupID]
 	if !ok {
 		return RunSnapshot{}, fmt.Errorf("run %q not found", runID)
 	}

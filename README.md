@@ -128,6 +128,17 @@ provider session/worktree when continuity is proven; otherwise it is reported
 as unavailable instead of silently starting a new context. Mutations accept
 `Idempotency-Key` and replay the original response safely.
 
+Follow-up execution receipts are available at
+`/api/v1/comments/{comment_id}/follow-up` for status polling and explicit
+retries. The prompt contains the complete immutable thread, so a later reply
+does not lose earlier questions or decisions.
+
+Memory items support three deterministic tiers: `working` for an attempt,
+`session` for one conversation, and `project` for all sessions sharing a
+project ID. Each item can be pinned, weighted by importance, expired, cited to
+source turns, and superseded. Context compilation uses those fields for
+bounded priority ordering; no vector index is required.
+
 有界 Session 默认启用自动上下文压缩：设置 `budget_tokens` 后，达到
 `compaction_threshold`（默认 80%）会归档最旧的连续 turn，并保留最近
 `compaction_retain_tail`（默认 4）条原文。归档带 source/replacement hash，

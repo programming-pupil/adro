@@ -637,6 +637,52 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/comments/{id}/follow-up":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read durable comment follow-up execution status
+      responses:
+        '200':
+          description: Follow-up receipt
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Retry or dispatch a comment follow-up
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '202':
+          description: Follow-up queued or started
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/requirements/{id}/comments":
     parameters:
     - name: id
@@ -4043,7 +4089,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/JsonObject"
+              "$ref": "#/components/schemas/HarnessSessionCreate"
       responses:
         '201':
           description: Session created
@@ -4260,7 +4306,7 @@ paths:
       schema:
         type: string
     get:
-      summary: List cited session memory items
+      summary: List active working, session, and project memory items
       responses:
         '200':
           description: Memory items
@@ -4275,7 +4321,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Problem"
     post:
-      summary: Add a memory item with source turn citations
+      summary: Add a scoped memory item with source turn citations (deterministic, non-semantic)
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
       - "$ref": "#/components/parameters/RequestID"
@@ -4284,7 +4330,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/JsonObject"
+              "$ref": "#/components/schemas/HarnessMemoryItem"
       responses:
         '201':
           description: Memory item created
@@ -4562,6 +4608,65 @@ components:
         minLength: 1
         maxLength: 255
   schemas:
+    HarnessSessionCreate:
+      type: object
+      required: [workspace_id]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+          description: Optional deterministic project-memory namespace shared by sessions.
+        budget_tokens:
+          type: integer
+          minimum: 0
+        auto_compaction:
+          type: boolean
+        compaction_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        compaction_retain_tail:
+          type: integer
+          minimum: 0
+    HarnessMemoryItem:
+      type: object
+      required: [kind, content, source_ids, confidence]
+      properties:
+        scope:
+          type: string
+          enum: [working, session, project]
+          default: session
+        project_id:
+          type: string
+        kind:
+          type: string
+        content:
+          type: string
+        source_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        importance:
+          type: number
+          minimum: 0
+          maximum: 1
+        pinned:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        supersedes:
+          type: array
+          items:
+            type: string
     LoginRequest:
       type: object
       required:

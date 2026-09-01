@@ -110,20 +110,29 @@ type ArchiveWindow struct {
 }
 
 type MemoryItem struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"session_id"`
-	Kind       string    `json:"kind"`
-	Content    string    `json:"content"`
-	SourceIDs  []string  `json:"source_ids"`
-	Confidence float64   `json:"confidence"`
-	Supersedes []string  `json:"supersedes,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	// Scope controls retention and visibility without requiring semantic search.
+	// working is attempt-local, session is conversation-local, and project is
+	// shared by sessions that opt into the same project ID.
+	Scope      string     `json:"scope"`
+	ProjectID  string     `json:"project_id,omitempty"`
+	Kind       string     `json:"kind"`
+	Content    string     `json:"content"`
+	SourceIDs  []string   `json:"source_ids"`
+	Confidence float64    `json:"confidence"`
+	Importance float64    `json:"importance,omitempty"`
+	Pinned     bool       `json:"pinned,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Supersedes []string   `json:"supersedes,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type Session struct {
 	ID                   string    `json:"id"`
 	TenantID             string    `json:"tenant_id"`
 	WorkspaceID          string    `json:"workspace_id"`
+	ProjectID            string    `json:"project_id,omitempty"`
 	BudgetTokens         int64     `json:"budget_tokens"`
 	AutoCompaction       bool      `json:"auto_compaction"`
 	CompactionThreshold  float64   `json:"compaction_threshold"`
@@ -194,14 +203,16 @@ type sessionState struct {
 }
 
 type persistedState struct {
-	Version  int                     `json:"version"`
-	Sessions map[string]sessionState `json:"sessions"`
+	Version         int                     `json:"version"`
+	Sessions        map[string]sessionState `json:"sessions"`
+	ProjectMemories map[string][]MemoryItem `json:"project_memories,omitempty"`
 }
 
 type Store struct {
-	mu       sync.RWMutex
-	path     string
-	sessions map[string]sessionState
+	mu              sync.RWMutex
+	path            string
+	sessions        map[string]sessionState
+	projectMemories map[string][]MemoryItem
 }
 
 // Durable reports whether this store is backed by an operator-owned snapshot
@@ -216,7 +227,7 @@ func (s *Store) Durable() bool {
 }
 
 func New(path string) (*Store, error) {
-	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}}
+	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}, projectMemories: map[string][]MemoryItem{}}
 	if s.path == "" {
 		return s, nil
 	}
@@ -237,9 +248,46 @@ func New(path string) (*Store, error) {
 	if state.Sessions != nil {
 		s.sessions = state.Sessions
 	}
+	if state.ProjectMemories != nil {
+		s.projectMemories = state.ProjectMemories
+	}
+	// Older snapshots predate memory scopes. Treat those records as session
+	// memory so upgrades preserve their visibility and ordering.
+	for sessionID, sessionState := range s.sessions {
+		for i := range sessionState.Memories {
+			if strings.TrimSpace(sessionState.Memories[i].Scope) == "" {
+				sessionState.Memories[i].Scope = "session"
+			}
+		}
+		s.sessions[sessionID] = sessionState
+	}
+	for projectID, memories := range s.projectMemories {
+		for i := range memories {
+			memories[i].Scope = "project"
+			if memories[i].ProjectID == "" {
+				memories[i].ProjectID = projectID
+			}
+		}
+		s.projectMemories[projectID] = memories
+	}
 	for id := range s.sessions {
 		if err := validateSessionState(s.sessions[id]); err != nil {
 			return nil, fmt.Errorf("validate session %s: %w", id, err)
+		}
+	}
+	for projectID, memories := range s.projectMemories {
+		if strings.TrimSpace(projectID) == "" {
+			return nil, fmt.Errorf("%w: project memory has empty project id", ErrCorrupt)
+		}
+		seen := map[string]struct{}{}
+		for _, memory := range memories {
+			if memory.ID == "" || memory.Scope != "project" || memory.ProjectID != projectID || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 {
+				return nil, fmt.Errorf("%w: project memory %s", ErrCorrupt, memory.ID)
+			}
+			if _, duplicate := seen[memory.ID]; duplicate {
+				return nil, fmt.Errorf("%w: duplicate project memory %s", ErrCorrupt, memory.ID)
+			}
+			seen[memory.ID] = struct{}{}
 		}
 	}
 	return s, nil
@@ -257,7 +305,7 @@ func (s *Store) persistLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(persistedState{Version: 1, Sessions: s.sessions}, "", "  ")
+	data, err := json.MarshalIndent(persistedState{Version: 1, Sessions: s.sessions, ProjectMemories: s.projectMemories}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -736,8 +784,29 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 	if !ok {
 		return MemoryItem{}, ErrNotFound
 	}
-	if strings.TrimSpace(item.Kind) == "" || strings.TrimSpace(item.Content) == "" || len(item.SourceIDs) == 0 || item.Confidence < 0 || item.Confidence > 1 {
+	item.Scope = strings.ToLower(strings.TrimSpace(item.Scope))
+	if item.Scope == "" {
+		item.Scope = "session"
+	}
+	if item.Scope != "working" && item.Scope != "session" && item.Scope != "project" {
+		return MemoryItem{}, errors.New("memory scope must be working, session, or project")
+	}
+	if strings.TrimSpace(item.Kind) == "" || strings.TrimSpace(item.Content) == "" || len(item.SourceIDs) == 0 || item.Confidence < 0 || item.Confidence > 1 || item.Importance < 0 || item.Importance > 1 {
 		return MemoryItem{}, errors.New("memory kind, content, source_ids and confidence are required")
+	}
+	if item.Scope == "project" && strings.TrimSpace(state.Session.ProjectID) == "" {
+		return MemoryItem{}, errors.New("project memory requires a session project_id")
+	}
+	if item.Scope == "project" {
+		item.ProjectID = strings.TrimSpace(item.ProjectID)
+		if item.ProjectID == "" {
+			item.ProjectID = state.Session.ProjectID
+		}
+		if item.ProjectID != state.Session.ProjectID {
+			return MemoryItem{}, ErrConflict
+		}
+	} else {
+		item.ProjectID = ""
 	}
 	for _, source := range item.SourceIDs {
 		if !hasTurnID(state.Turns, source) {
@@ -748,25 +817,38 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 	if item.ID == "" {
 		item.ID = domain.NewID()
 	}
-	if hasMemoryID(state.Memories, item.ID) {
+	if hasMemoryID(state.Memories, item.ID) || hasMemoryID(s.projectMemories[item.ProjectID], item.ID) {
 		return MemoryItem{}, ErrConflict
+	}
+	availableMemories := state.Memories
+	if item.Scope == "project" {
+		availableMemories = s.projectMemories[item.ProjectID]
 	}
 	for _, superseded := range item.Supersedes {
 		if strings.TrimSpace(superseded) == item.ID {
 			return MemoryItem{}, fmt.Errorf("%w: memory cannot supersede itself", ErrConflict)
 		}
-		if !hasMemoryID(state.Memories, superseded) {
+		if !hasMemoryID(availableMemories, superseded) {
 			return MemoryItem{}, fmt.Errorf("%w: superseded memory %s is missing", ErrCorrupt, superseded)
 		}
 	}
 	item.SourceIDs = append([]string(nil), item.SourceIDs...)
 	item.Supersedes = append([]string(nil), item.Supersedes...)
 	item.CreatedAt = time.Now().UTC()
-	state.Memories = append(state.Memories, item)
+	if item.Scope == "project" {
+		s.projectMemories[item.ProjectID] = append(s.projectMemories[item.ProjectID], item)
+	} else {
+		state.Memories = append(state.Memories, item)
+	}
 	state.Session.UpdatedAt = item.CreatedAt
 	s.sessions[item.SessionID] = state
 	if err := s.persistLocked(); err != nil {
-		state.Memories = state.Memories[:len(state.Memories)-1]
+		if item.Scope == "project" {
+			items := s.projectMemories[item.ProjectID]
+			s.projectMemories[item.ProjectID] = items[:len(items)-1]
+		} else {
+			state.Memories = state.Memories[:len(state.Memories)-1]
+		}
 		s.sessions[item.SessionID] = state
 		return MemoryItem{}, fmt.Errorf("persist memory: %w", err)
 	}
@@ -780,11 +862,20 @@ func (s *Store) ListMemories(sessionID string) ([]MemoryItem, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	items := make([]MemoryItem, len(state.Memories))
+	items := make([]MemoryItem, 0, len(state.Memories)+len(s.projectMemories[state.Session.ProjectID]))
 	for i := range state.Memories {
-		items[i] = cloneMemory(state.Memories[i])
+		if memoryActive(state.Memories[i], time.Now().UTC()) {
+			items = append(items, cloneMemory(state.Memories[i]))
+		}
 	}
-	return items, nil
+	if state.Session.ProjectID != "" {
+		for _, memory := range s.projectMemories[state.Session.ProjectID] {
+			if memoryActive(memory, time.Now().UTC()) {
+				items = append(items, cloneMemory(memory))
+			}
+		}
+	}
+	return activeMemoryFrontier(items, time.Now().UTC()), nil
 }
 
 func (s *Store) ListArchives(sessionID string) ([]ArchiveWindow, error) {
@@ -814,7 +905,10 @@ func (s *Store) ContextStatus(sessionID string) (ContextStatus, error) {
 			tokens += int64(len([]rune(turn.Content))+3) / 4
 		}
 	}
-	status := ContextStatus{SessionID: sessionID, ContextVersion: state.Session.ContextVersion, TurnCount: len(state.Turns), ArchivedTurns: archived, TokenEstimate: tokens, BudgetTokens: state.Session.BudgetTokens, ArchiveCount: len(state.Archives), MemoryCount: len(state.Memories), CheckpointCount: len(state.Checkpoints), AutoCompaction: state.Session.AutoCompaction, CompactionThreshold: state.Session.CompactionThreshold, CompactionRetainTail: state.Session.CompactionRetainTail}
+	memoryItems := append([]MemoryItem(nil), state.Memories...)
+	memoryItems = append(memoryItems, s.projectMemories[state.Session.ProjectID]...)
+	memoryCount := len(activeMemoryFrontier(memoryItems, time.Now().UTC()))
+	status := ContextStatus{SessionID: sessionID, ContextVersion: state.Session.ContextVersion, TurnCount: len(state.Turns), ArchivedTurns: archived, TokenEstimate: tokens, BudgetTokens: state.Session.BudgetTokens, ArchiveCount: len(state.Archives), MemoryCount: memoryCount, CheckpointCount: len(state.Checkpoints), AutoCompaction: state.Session.AutoCompaction, CompactionThreshold: state.Session.CompactionThreshold, CompactionRetainTail: state.Session.CompactionRetainTail}
 	if len(state.Turns) > 0 {
 		status.LastTurnHash = state.Turns[len(state.Turns)-1].Hash
 	}
@@ -1250,6 +1344,16 @@ func validateSessionState(state sessionState) error {
 			}
 		}
 	}
+	for _, memory := range state.Memories {
+		if memory.ID == "" || memory.SessionID != state.Session.ID || memory.Scope == "project" || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 {
+			return fmt.Errorf("%w: memory %s", ErrCorrupt, memory.ID)
+		}
+		for _, sourceID := range memory.SourceIDs {
+			if !hasTurnID(state.Turns, sourceID) {
+				return fmt.Errorf("%w: memory source %s", ErrCorrupt, sourceID)
+			}
+		}
+	}
 	return nil
 }
 
@@ -1335,6 +1439,62 @@ func cloneMemory(item MemoryItem) MemoryItem {
 	return item
 }
 
+func memoryActive(item MemoryItem, now time.Time) bool {
+	return item.ExpiresAt == nil || item.ExpiresAt.After(now)
+}
+
+func memoryScopeRank(scope string) int {
+	switch scope {
+	case "working":
+		return 0
+	case "session":
+		return 1
+	case "project":
+		return 2
+	default:
+		return 3
+	}
+}
+
+// sortMemories gives deterministic, non-semantic prioritization to the
+// compiler. Pinned constraints and high-importance working/session facts win;
+// project facts remain available as a lower-priority long-term tier.
+func sortMemories(items []MemoryItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Pinned != items[j].Pinned {
+			return items[i].Pinned
+		}
+		if items[i].Importance != items[j].Importance {
+			return items[i].Importance > items[j].Importance
+		}
+		if memoryScopeRank(items[i].Scope) != memoryScopeRank(items[j].Scope) {
+			return memoryScopeRank(items[i].Scope) < memoryScopeRank(items[j].Scope)
+		}
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+}
+
+func activeMemoryFrontier(items []MemoryItem, now time.Time) []MemoryItem {
+	superseded := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		for _, id := range item.Supersedes {
+			superseded[id] = struct{}{}
+		}
+	}
+	active := make([]MemoryItem, 0, len(items))
+	for _, item := range items {
+		if _, hidden := superseded[item.ID]; hidden || !memoryActive(item, now) {
+			continue
+		}
+		active = append(active, cloneMemory(item))
+	}
+	sortMemories(active)
+	return active
+}
+
 func cloneLease(lease Lease) Lease { return lease }
 
 func cloneOutbox(event OutboxEvent) OutboxEvent {
@@ -1369,7 +1529,22 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 	if maxTokens <= 0 {
 		maxTokens = 1
 	}
-	prefixLines := make([]string, 0, len(state.Archives)+len(state.Memories))
+	memoryItems := make([]MemoryItem, 0, len(state.Memories)+len(s.projectMemories[state.Session.ProjectID]))
+	now := time.Now().UTC()
+	for _, memory := range state.Memories {
+		if memoryActive(memory, now) {
+			memoryItems = append(memoryItems, cloneMemory(memory))
+		}
+	}
+	if state.Session.ProjectID != "" {
+		for _, memory := range s.projectMemories[state.Session.ProjectID] {
+			if memoryActive(memory, now) {
+				memoryItems = append(memoryItems, cloneMemory(memory))
+			}
+		}
+	}
+	sortMemories(memoryItems)
+	prefixLines := make([]string, 0, len(state.Archives)+len(memoryItems))
 	appendLine := func(line string) (string, bool) {
 		line = strings.TrimSuffix(line, "\n") + "\n"
 		remaining := maxTokens - estimateTokens(strings.Join(prefixLines, ""))
@@ -1404,12 +1579,12 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 	// the full ledger for audit while compiling only the active frontier; this
 	// prevents stale decisions from consuming the model budget after repair.
 	superseded := make(map[string]struct{})
-	for _, memory := range state.Memories {
+	for _, memory := range memoryItems {
 		for _, id := range memory.Supersedes {
 			superseded[id] = struct{}{}
 		}
 	}
-	for _, memory := range state.Memories {
+	for _, memory := range memoryItems {
 		if _, hidden := superseded[memory.ID]; hidden {
 			continue
 		}

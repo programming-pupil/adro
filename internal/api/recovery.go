@@ -287,6 +287,7 @@ func (s *Server) processCommentDispatchIntent(ctx context.Context, event harness
 		workItemID = "comment-" + intent.CommentID
 	}
 	if provenance, found := s.Store.FindProvenance(workItemID); found && provenance.ProviderIdempotencyKey == event.IdempotencyKey && provenance.ProviderTaskID != "" {
+		s.markCommentFollowUpStarted(intent, provenance.ProviderTaskID, provenance.ProviderSessionID, provenance.ProviderWorkDir)
 		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "comment follow-up dispatched")
 	}
 	var binding provider.RunBinding
@@ -325,10 +326,34 @@ func (s *Server) processCommentDispatchIntent(ctx context.Context, event harness
 	if err := s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "comment follow-up dispatched"); err != nil {
 		return err
 	}
+	s.markCommentFollowUpStarted(intent, binding.ProviderRunID, binding.SessionID, binding.WorkDir)
 	if s.Events != nil {
 		_ = s.Events.Publish(ctx, events.New("comment.follow_up.started.v1", "comment", intent.CommentID, "", intent.WorkspaceID, intent.ContextVersion, map[string]any{"comment_id": intent.CommentID, "run_id": binding.ProviderRunID, "session_id": binding.SessionID, "session_reused": binding.SessionReused}))
 	}
 	return nil
+}
+
+func (s *Server) markCommentFollowUpStarted(intent providerDispatchIntent, providerRunID, providerSessionID, providerWorkDir string) {
+	if s == nil || s.Store == nil || strings.TrimSpace(intent.CommentID) == "" {
+		return
+	}
+	receipt, err := s.Store.GetCommentFollowUp(intent.CommentID)
+	if err != nil {
+		targetType, targetID := "requirement", intent.RequirementID
+		if intent.BugID != "" {
+			targetType, targetID = "bug", intent.BugID
+		}
+		receipt = domain.CommentFollowUp{CommentID: intent.CommentID, WorkspaceID: intent.WorkspaceID, TargetType: targetType, TargetID: targetID, AgentBindingID: intent.AgentID, HarnessSessionID: intent.HarnessSessionID, ContextVersion: intent.ContextVersion, TurnHash: intent.TurnHash, Status: "started", Mode: "continuation"}
+	}
+	if receipt.Mode == "" {
+		receipt.Mode = "continuation"
+	}
+	receipt.Status = "started"
+	receipt.ProviderRunID = providerRunID
+	receipt.ProviderSessionID = providerSessionID
+	receipt.ProviderWorkDir = providerWorkDir
+	receipt.Attempts++
+	_, _ = s.Store.SaveCommentFollowUp(receipt)
 }
 
 func (s *Server) processBugDispatchIntent(ctx context.Context, event harness.OutboxEvent, intent providerDispatchIntent) error {

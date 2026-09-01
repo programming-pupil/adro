@@ -128,6 +128,45 @@ type Comment struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// CommentFollowUp is the durable execution receipt for a discussion comment.
+// Keeping it separate preserves comment immutability while allowing retries,
+// provider continuation, and status polling to converge after a lost response.
+type CommentFollowUp struct {
+	ID                string    `json:"id"`
+	CommentID         string    `json:"comment_id"`
+	WorkspaceID       string    `json:"workspace_id"`
+	TargetType        string    `json:"target_type"`
+	TargetID          string    `json:"target_id"`
+	AgentBindingID    string    `json:"agent_binding_id"`
+	HarnessSessionID  string    `json:"session_id"`
+	ContextVersion    int64     `json:"context_version"`
+	TurnID            string    `json:"turn_id,omitempty"`
+	TurnHash          string    `json:"turn_hash,omitempty"`
+	OutboxID          string    `json:"outbox_id,omitempty"`
+	ProviderRunID     string    `json:"provider_run_id,omitempty"`
+	ProviderSessionID string    `json:"provider_session_id,omitempty"`
+	ProviderWorkDir   string    `json:"provider_work_dir,omitempty"`
+	Mode              string    `json:"mode,omitempty"`
+	Status            string    `json:"status"`
+	Reason            string    `json:"reason,omitempty"`
+	Attempts          int       `json:"attempts"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+func (f CommentFollowUp) Validate() error {
+	if strings.TrimSpace(f.CommentID) == "" || strings.TrimSpace(f.WorkspaceID) == "" || strings.TrimSpace(f.TargetID) == "" {
+		return errors.New("comment_id, workspace_id and target_id are required")
+	}
+	if f.TargetType != "requirement" && f.TargetType != "bug" {
+		return errors.New("target_type must be requirement or bug")
+	}
+	if strings.TrimSpace(f.Status) == "" {
+		return errors.New("follow-up status is required")
+	}
+	return nil
+}
+
 func (c Comment) Validate() error {
 	if strings.TrimSpace(c.WorkspaceID) == "" || strings.TrimSpace(c.TargetID) == "" {
 		return errors.New("workspace_id and target_id are required")

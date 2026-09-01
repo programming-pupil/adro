@@ -63,6 +63,20 @@ outbox intent and before-effect checkpoint exist. Replays restore a missing
 after-effect checkpoint and use provider continuity only when the original
 session and work directory are proven.
 
+Follow-up execution is itself a durable receipt, exposed through
+`/api/v1/comments/{comment_id}/follow-up`. The receipt records the selected
+agent, thread turn, outbox, provider run, mode, attempts, and terminal reason.
+This makes status polling and retry safe after a lost HTTP response. The
+follow-up prompt includes every comment in the immutable root thread in
+chronological order, not only the latest reply.
+
+Memory is split into `working`, `session`, and `project` scopes. Pinned and
+high-importance facts are compiled first, expired items are omitted, and
+superseded facts leave an auditable ledger while disappearing from the active
+frontier. Project memory is shared by sessions with the same project ID. This
+deterministic tiering intentionally works without a vector index; semantic
+retrieval can be added behind the same compiler boundary later.
+
 ## Seven-stage workflow
 
 ```mermaid

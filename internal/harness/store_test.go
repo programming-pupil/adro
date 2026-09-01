@@ -193,6 +193,56 @@ func TestCompileUsesActiveMemoryFrontier(t *testing.T) {
 	}
 }
 
+func TestProjectMemoryCrossesSessionsWithoutSemanticSearch(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "project-session-1", TenantID: "tenant-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := store.AppendTurn("project-session-1", Turn{Role: RoleUser, Content: "the service must preserve idempotency"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMemory(MemoryItem{SessionID: "project-session-1", Scope: "project", Kind: "constraint", Content: "all mutations are idempotent", SourceIDs: []string{turn.ID}, Confidence: 1, Pinned: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "project-session-2", TenantID: "tenant-1", WorkspaceID: "workspace-1", ProjectID: "project-1"}); err != nil {
+		t.Fatal(err)
+	}
+	memories, err := store.ListMemories("project-session-2")
+	if err != nil || len(memories) != 1 || memories[0].Scope != "project" {
+		t.Fatalf("cross-session memories=%+v err=%v", memories, err)
+	}
+	compiled, err := store.Compile("project-session-2", 100)
+	if err != nil || !strings.Contains(compiled, "all mutations are idempotent") {
+		t.Fatalf("compiled project memory=%q err=%v", compiled, err)
+	}
+}
+
+func TestExpiredWorkingMemoryIsExcluded(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "working-session", TenantID: "tenant-1", WorkspaceID: "workspace-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := store.AppendTurn("working-session", Turn{Role: RoleUser, Content: "temporary context"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().UTC().Add(-time.Minute)
+	if _, err := store.AddMemory(MemoryItem{SessionID: "working-session", Scope: "working", Kind: "scratch", Content: "expired scratch", SourceIDs: []string{turn.ID}, Confidence: 1, ExpiresAt: &expired}); err != nil {
+		t.Fatal(err)
+	}
+	memories, err := store.ListMemories("working-session")
+	if err != nil || len(memories) != 0 {
+		t.Fatalf("expired memory remained visible: %+v err=%v", memories, err)
+	}
+}
+
 func TestMemoryCannotSupersedeItself(t *testing.T) {
 	store := newTestSession(t, "")
 	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "source"})

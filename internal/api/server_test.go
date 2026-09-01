@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -131,6 +132,70 @@ func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
 	bugComment := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/comments", `{"content":"@agent-1 please investigate","mentions":["agent-1"]}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
 	if bugComment.Code != http.StatusCreated || !strings.Contains(bugComment.Body.String(), `"requested":true`) {
 		t.Fatalf("bug comment status=%d body=%s", bugComment.Code, bugComment.Body.String())
+	}
+	var bugCommentBody struct {
+		Comment struct {
+			ID string `json:"id"`
+		} `json:"comment"`
+	}
+	if err := json.Unmarshal(bugComment.Body.Bytes(), &bugCommentBody); err != nil || bugCommentBody.Comment.ID == "" {
+		t.Fatalf("bug comment body=%s err=%v", bugComment.Body.String(), err)
+	}
+	followUpStatus := request(t, s.Routes(), http.MethodGet, "/api/v1/comments/"+bugCommentBody.Comment.ID+"/follow-up", "", map[string]string{"X-Workspace-ID": "w1"})
+	if followUpStatus.Code != http.StatusOK || !strings.Contains(followUpStatus.Body.String(), `"status":"started"`) {
+		t.Fatalf("follow-up status=%d body=%s", followUpStatus.Code, followUpStatus.Body.String())
+	}
+	retry := request(t, s.Routes(), http.MethodPost, "/api/v1/comments/"+bugCommentBody.Comment.ID+"/follow-up", `{}`, map[string]string{"X-Workspace-ID": "w1", "Idempotency-Key": "follow-up-retry"})
+	if retry.Code != http.StatusAccepted || !strings.Contains(retry.Body.String(), `"requested":true`) {
+		t.Fatalf("follow-up retry=%d body=%s", retry.Code, retry.Body.String())
+	}
+}
+
+func TestCommentFollowUpPromptIncludesAllPagesAndReceiptDoesNotRegress(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "Long discussion", Description: "exercise pagination", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := s.Store.CreateComment(domain.Comment{WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, AuthorID: "member", AuthorType: "member", Content: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 251; i++ {
+		if _, err := s.Store.CreateComment(domain.Comment{WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, ParentID: root.ID, AuthorID: "member", AuthorType: "member", Content: fmt.Sprintf("reply-%03d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompt := s.commentFollowUpPrompt(root)
+	if !strings.Contains(prompt, "reply-000") || !strings.Contains(prompt, "reply-250") {
+		t.Fatalf("paginated prompt omitted thread entries: start=%v end=%v", strings.Contains(prompt, "reply-000"), strings.Contains(prompt, "reply-250"))
+	}
+	followUp, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "started", Attempts: 3, ProviderRunID: "run-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "dispatching", Attempts: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != followUp.ID || updated.Status != "started" || updated.Attempts != 3 || updated.ProviderRunID != "run-1" {
+		t.Fatalf("receipt regressed: before=%+v after=%+v", followUp, updated)
+	}
+	failedRetry, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "failed", Attempts: 4})
+	if err != nil || failedRetry.Status != "failed" {
+		t.Fatalf("failed receipt=%+v err=%v", failedRetry, err)
+	}
+	reopened, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "dispatching", Attempts: 4})
+	if err != nil || reopened.Status != "dispatching" {
+		t.Fatalf("failed receipt could not be retried: %+v err=%v", reopened, err)
+	}
+	completed, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "completed", Attempts: 5})
+	if err != nil || completed.Status != "completed" {
+		t.Fatalf("complete receipt=%+v err=%v", completed, err)
+	}
+	failed, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: root.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, Status: "failed", Attempts: 6})
+	if err != nil || failed.Status != "completed" {
+		t.Fatalf("terminal receipt was overwritten: %+v err=%v", failed, err)
 	}
 }
 

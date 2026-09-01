@@ -252,6 +252,10 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 	if err != nil {
 		return run, fmt.Errorf("persist harness dispatch turn: %w", err)
 	}
+	dispatchPrompt, err := s.compiledHarnessPrompt(run.SessionID, prompt)
+	if err != nil {
+		return run, err
+	}
 	var dispatchEvent harness.OutboxEvent
 	dispatchClaimed := true
 	if run.PipelineStage == domain.PipelineDevelopment && run.RetryCount > 0 {
@@ -261,7 +265,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			return run, errors.New("provider cannot continue the original development session")
 		}
 		continuation := provider.ContinuationCommand{
-			IssueID: issueID, AgentID: agentID, Input: prompt,
+			IssueID: issueID, AgentID: agentID, Input: dispatchPrompt,
 			ExpectedSessionID: run.ParentSessionID, ExpectedWorkDir: run.ProviderWorkDir, IdempotencyKey: turnKey,
 		}
 		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, Continuation: &continuation}
@@ -344,7 +348,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			item, err = s.Provider.CreateWorkItem(context.Background(), provider.WorkItemSpec{
 				ID: providerWorkItemID, RequirementID: run.RequirementID, WorkspaceID: run.WorkspaceID,
 				Title:       fmt.Sprintf("ADRO %s · %d/7 %s", run.SessionID[:8], run.PipelineStage, run.PipelineStage.String()),
-				Description: prompt, ProviderAssigneeID: agentID, AssigneeType: "agent", Stage: int(run.PipelineStage),
+				Description: dispatchPrompt, ProviderAssigneeID: agentID, AssigneeType: "agent", Stage: int(run.PipelineStage),
 				RepositoryID: repositoryID, RepositoryPath: repositoryPath, CloneURL: cloneURL, DefaultBranch: defaultBranch,
 			})
 			if err != nil {
@@ -363,7 +367,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 		run.ActiveProviderIssueID = item.ProviderIssueID
 		command := provider.StartRunCommand{
 			WorkItemID: item.ID, ProviderIssueID: item.ProviderIssueID, AgentBindingID: agentID, ProviderAssigneeID: agentID,
-			Input: prompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, IdempotencyKey: turnKey,
+			Input: dispatchPrompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, IdempotencyKey: turnKey,
 		}
 		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, Command: command}
 		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
@@ -939,6 +943,30 @@ func originalDevelopmentIssue(run domain.PipelineRun) string {
 		}
 	}
 	return ""
+}
+
+// compiledHarnessPrompt is the single dispatch boundary for bounded sessions.
+// The complete prompt remains in the transcript; providers receive the
+// deterministic archive/memory/tail view only when a positive budget is set.
+func (s *Server) compiledHarnessPrompt(sessionID, fallback string) (string, error) {
+	if s == nil || s.Harness == nil {
+		return fallback, nil
+	}
+	session, err := s.Harness.GetSession(sessionID)
+	if err != nil {
+		return fallback, nil
+	}
+	if session.BudgetTokens <= 0 {
+		return fallback, nil
+	}
+	compiled, err := s.Harness.Compile(sessionID, session.BudgetTokens)
+	if err != nil {
+		return "", fmt.Errorf("compile bounded harness context: %w", err)
+	}
+	if strings.TrimSpace(compiled) == "" {
+		return fallback, nil
+	}
+	return compiled, nil
 }
 
 func pipelinePrompt(run domain.PipelineRun) (string, error) {

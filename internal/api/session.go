@@ -96,6 +96,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 			ID                   string  `json:"id,omitempty"`
 			TenantID             string  `json:"tenant_id,omitempty"`
 			WorkspaceID          string  `json:"workspace_id"`
+			ProjectID            string  `json:"project_id,omitempty"`
 			BudgetTokens         int64   `json:"budget_tokens,omitempty"`
 			AutoCompaction       *bool   `json:"auto_compaction,omitempty"`
 			CompactionThreshold  float64 `json:"compaction_threshold,omitempty"`
@@ -117,7 +118,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 		if input.AutoCompaction != nil {
 			autoCompaction = *input.AutoCompaction
 		}
-		created, err := s.Harness.CreateSession(harness.Session{ID: strings.TrimSpace(input.ID), TenantID: strings.TrimSpace(input.TenantID), WorkspaceID: strings.TrimSpace(input.WorkspaceID), BudgetTokens: input.BudgetTokens, AutoCompaction: autoCompaction, AutoCompactionSet: input.AutoCompaction != nil, CompactionThreshold: input.CompactionThreshold, CompactionRetainTail: input.CompactionRetainTail})
+		created, err := s.Harness.CreateSession(harness.Session{ID: strings.TrimSpace(input.ID), TenantID: strings.TrimSpace(input.TenantID), WorkspaceID: strings.TrimSpace(input.WorkspaceID), ProjectID: strings.TrimSpace(input.ProjectID), BudgetTokens: input.BudgetTokens, AutoCompaction: autoCompaction, AutoCompactionSet: input.AutoCompaction != nil, CompactionThreshold: input.CompactionThreshold, CompactionRetainTail: input.CompactionRetainTail})
 		if err != nil {
 			status := http.StatusUnprocessableEntity
 			if errors.Is(err, harness.ErrConflict) {

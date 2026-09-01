@@ -268,6 +268,12 @@ type ClientInstallation struct {
 | Session memory | 一条 ADRO session | 需求、设计、对话摘要、失败证据、决策、repair history | tenant + session 隔离；删 session 按 retention 和审计规则处理 |
 | Project/semantic memory | 跨 session | 项目规范、架构约束、稳定事实、偏好、知识引用 | 必须有来源、scope、confidence、version 和 supersession |
 
+当前内置实现提供 `working/session/project` 三层确定性记忆：working 可设置
+过期时间，session 只对当前会话可见，project 对绑定同一 project ID 的会话共享。
+Context Compiler 按 pinned、importance、scope 和创建顺序确定优先级，并排除过期或
+已被 supersede 的事实；完整 ledger 和 source turn 仍保留。该能力不依赖向量索引，
+语义检索可以后续作为可选投影接入而不改变记忆事实模型。
+
 所有大文本、日志、截图和报告放 ArtifactStore；Memory 只存可检索摘要、结构化事实和 Artifact 引用。`ContextManifest` 是某次 provider 调用的完整输入目录，不把进程内缓存当作事实源。
 
 ### 7.2 ContextManifest
@@ -348,6 +354,12 @@ checkpoint、精确 archive window、带 source turn 的 memory item，以及 le
 compile/status、compact 和 recover。PostgreSQL/NATS/Temporal 版本对应
 `migrations/004_harness.sql` 与 `sdk/harness` 契约，仍需目标企业提供真实
 适配器、故障注入和 RTO/RPO 证据后才能解除生产 gate。
+
+Requirement/Bug 评论通过 parent/root 构成不可变线程。评论触发 Agent 后会生成
+独立的 durable follow-up receipt，记录 Agent、turn、outbox、provider run、
+continuation mode、attempt 和失败原因；`/api/v1/comments/{id}/follow-up`
+支持状态查询和幂等重试。派发 prompt 包含该 root thread 的完整时间序列，避免只
+传最后一条回复造成上下文丢失。
 
 ## 8. 流程编排与同 session 自动修复
 

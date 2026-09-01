@@ -366,6 +366,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
 	case path == "/api/v1/sessions" || strings.HasPrefix(path, "/api/v1/sessions/"):
 		s.sessionRoute(w, r, strings.TrimPrefix(path, "/api/v1/sessions"))
+	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/follow-up"):
+		s.commentFollowUpRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/follow-up"))
 	case path == "/api/v1/plugins" || strings.HasPrefix(path, "/api/v1/plugins/"):
 		s.pluginRoute(w, r, strings.TrimPrefix(path, "/api/v1/plugins"))
 	case strings.HasPrefix(path, "/api/v1/requirements/"):

@@ -11,9 +11,18 @@ import (
 const ProtocolVersion = "adro.harness.v1"
 
 type Session struct {
-	ID, TenantID, WorkspaceID string
+	ID, TenantID, WorkspaceID, ProjectID string
 	BudgetTokens              int64
 	ContextVersion            int64
+}
+
+type MemoryItem struct {
+	ID, SessionID, Scope, ProjectID, Kind, Content string
+	SourceIDs, Supersedes                     []string
+	Confidence, Importance                    float64
+	Pinned                                    bool
+	ExpiresAt                                 *time.Time
+	CreatedAt                                 time.Time
 }
 
 type Turn struct {
@@ -64,6 +73,14 @@ type Store interface {
 	SaveCheckpoint(context.Context, string, Checkpoint) (Checkpoint, error)
 	Recover(context.Context, string, time.Time) (Recovery, error)
 	Compact(context.Context, string, CompactRequest) (ArchiveWindow, error)
+}
+
+// MemoryStore is optional for providers that want to persist structured
+// working/session/project facts. Implementations must keep source citations
+// and supersession deterministic; semantic or vector indexes are not required.
+type MemoryStore interface {
+	AddMemory(context.Context, MemoryItem) (MemoryItem, error)
+	ListMemories(context.Context, string) ([]MemoryItem, error)
 }
 
 type Recovery struct {

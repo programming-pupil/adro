@@ -27,6 +27,7 @@ type Memory struct {
 	bugs             map[string]domain.Bug
 	attachments      map[string]domain.EntityAttachment
 	comments         map[string]domain.Comment
+	commentFollowUps map[string]domain.CommentFollowUp
 	workItems        map[string]domain.WorkItem
 	evidence         map[string]domain.EvidenceBundle
 	provenance       map[string]domain.Provenance
@@ -69,7 +70,7 @@ func NewPersistentMemory(path string) (*Memory, error) {
 }
 
 func newMemory(path string) *Memory {
-	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
+	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, commentFollowUps: map[string]domain.CommentFollowUp{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
 }
 
 type persistedState struct {
@@ -78,6 +79,7 @@ type persistedState struct {
 	Bugs             map[string]domain.Bug               `json:"bugs"`
 	Attachments      map[string]domain.EntityAttachment  `json:"attachments"`
 	Comments         map[string]domain.Comment           `json:"comments"`
+	CommentFollowUps map[string]domain.CommentFollowUp   `json:"comment_follow_ups,omitempty"`
 	WorkItems        map[string]domain.WorkItem          `json:"work_items"`
 	Evidence         map[string]domain.EvidenceBundle    `json:"evidence"`
 	Provenance       map[string]domain.Provenance        `json:"provenance"`
@@ -122,7 +124,7 @@ func (m *Memory) load() error {
 		return fmt.Errorf("decode control-plane state: %w", err)
 	}
 	for name, value := range map[string]any{
-		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments,
+		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments, "comment_follow_ups": state.CommentFollowUps,
 		"work_items": state.WorkItems, "evidence": state.Evidence, "provenance": state.Provenance,
 		"provider_bindings": state.ProviderBindings, "repositories": state.Repositories,
 		"team_workspaces": state.TeamWorkspaces, "profiles": state.Profiles, "mcp_servers": state.MCPServers,
@@ -142,6 +144,8 @@ func (m *Memory) load() error {
 			m.attachments = value.(map[string]domain.EntityAttachment)
 		case "comments":
 			m.comments = value.(map[string]domain.Comment)
+		case "comment_follow_ups":
+			m.commentFollowUps = value.(map[string]domain.CommentFollowUp)
 		case "work_items":
 			m.workItems = value.(map[string]domain.WorkItem)
 		case "evidence":
@@ -198,7 +202,7 @@ func (m *Memory) persistLocked() error {
 	if strings.TrimSpace(m.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
+	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
 	for key, value := range m.idempotency {
 		if raw, ok := value.(json.RawMessage); ok {
 			state.Idempotency[key] = raw
@@ -409,6 +413,121 @@ func (m *Memory) GetComment(id string) (domain.Comment, error) {
 		return domain.Comment{}, ErrNotFound
 	}
 	return cloneComment(comment), nil
+}
+
+// SaveCommentFollowUp records the execution receipt for an immutable comment.
+// The comment ID is the natural idempotency key: retries update the same
+// receipt instead of creating another provider dispatch record.
+func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.CommentFollowUp, error) {
+	if err := followUp.Validate(); err != nil {
+		return domain.CommentFollowUp{}, err
+	}
+	followUp.CommentID = strings.TrimSpace(followUp.CommentID)
+	followUp.WorkspaceID = strings.TrimSpace(followUp.WorkspaceID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	comment, ok := m.comments[followUp.CommentID]
+	if !ok {
+		return domain.CommentFollowUp{}, ErrNotFound
+	}
+	if comment.WorkspaceID != followUp.WorkspaceID || comment.TargetType != followUp.TargetType || comment.TargetID != followUp.TargetID {
+		return domain.CommentFollowUp{}, ErrConflict
+	}
+	if existing, exists := m.commentFollowUps[followUp.CommentID]; exists {
+		// Callers persist partial progress after every handoff. Merge omitted
+		// fields so a retry or recovery update cannot erase the provider
+		// provenance already recorded by an earlier phase.
+		if followUp.ID == "" {
+			followUp.ID = existing.ID
+		}
+		if followUp.CreatedAt.IsZero() {
+			followUp.CreatedAt = existing.CreatedAt
+		}
+		if followUp.AgentBindingID == "" {
+			followUp.AgentBindingID = existing.AgentBindingID
+		}
+		if followUp.HarnessSessionID == "" {
+			followUp.HarnessSessionID = existing.HarnessSessionID
+		}
+		if followUp.ContextVersion == 0 {
+			followUp.ContextVersion = existing.ContextVersion
+		}
+		if followUp.TurnID == "" {
+			followUp.TurnID = existing.TurnID
+		}
+		if followUp.TurnHash == "" {
+			followUp.TurnHash = existing.TurnHash
+		}
+		if followUp.OutboxID == "" {
+			followUp.OutboxID = existing.OutboxID
+		}
+		if followUp.ProviderRunID == "" {
+			followUp.ProviderRunID = existing.ProviderRunID
+		}
+		if followUp.ProviderSessionID == "" {
+			followUp.ProviderSessionID = existing.ProviderSessionID
+		}
+		if followUp.ProviderWorkDir == "" {
+			followUp.ProviderWorkDir = existing.ProviderWorkDir
+		}
+		if followUp.Mode == "" {
+			followUp.Mode = existing.Mode
+		}
+		if followUp.Status == "" || followUpStatusRegresses(existing.Status, followUp.Status) {
+			followUp.Status = existing.Status
+		}
+		if followUp.Reason == "" && existing.Reason != "" {
+			followUp.Reason = existing.Reason
+		}
+		if followUp.Attempts < existing.Attempts {
+			followUp.Attempts = existing.Attempts
+		}
+	}
+	if followUp.ID == "" {
+		followUp.ID = domain.NewID()
+	}
+	if followUp.CreatedAt.IsZero() {
+		followUp.CreatedAt = time.Now().UTC()
+	}
+	followUp.UpdatedAt = time.Now().UTC()
+	previous, existed := m.commentFollowUps[followUp.CommentID]
+	m.commentFollowUps[followUp.CommentID] = followUp
+	if err := m.persistLocked(); err != nil {
+		if existed {
+			m.commentFollowUps[followUp.CommentID] = previous
+		} else {
+			delete(m.commentFollowUps, followUp.CommentID)
+		}
+		return domain.CommentFollowUp{}, fmt.Errorf("persist comment follow-up: %w", err)
+	}
+	return followUp, nil
+}
+
+func followUpStatusRegresses(existing, incoming string) bool {
+	existing = strings.ToLower(strings.TrimSpace(existing))
+	incoming = strings.ToLower(strings.TrimSpace(incoming))
+	if existing == "completed" && incoming != "completed" {
+		return true
+	}
+	// A retry may intentionally reopen a failed/cancelled/timeout receipt.
+	// Only in-flight success state is protected from those retry markers.
+	if (existing == "started" || existing == "running") && (incoming == "retrying" || incoming == "dispatching" || incoming == "queued") {
+		return true
+	}
+	if (existing == "dispatching" || existing == "queued") && incoming == "retrying" {
+		return true
+	}
+	return false
+}
+
+func (m *Memory) GetCommentFollowUp(commentID string) (domain.CommentFollowUp, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	followUp, ok := m.commentFollowUps[strings.TrimSpace(commentID)]
+	if !ok {
+		return domain.CommentFollowUp{}, ErrNotFound
+	}
+	return followUp, nil
 }
 
 func (m *Memory) ListComments(workspaceID, targetType, targetID, cursor string, limit int) ([]domain.Comment, string) {
