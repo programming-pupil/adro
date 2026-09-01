@@ -18,20 +18,7 @@ extensible without coupling the kernel to a particular execution vendor.
 
 ## Runtime shape
 
-```mermaid
-flowchart TB
-  UI[Web UI / OpenAPI] --> API[Authenticated Control API]
-  API --> K[Domain kernel]
-  K --> W[Workflow engine]
-  K --> H[Durable harness]
-  K --> E[Evidence and audit]
-  W --> X[Execution gateway]
-  X --> P[Provider SPI]
-  P --> L[Local process provider]
-  L --> G[Isolated git worktree]
-  H --> S[(Transcript / checkpoints / memory)]
-  E --> B[(Artifacts / event stream)]
-```
+![Layered ADRO architecture](./adro-architecture.svg)
 
 The local profile stores state in atomic mode-0600 JSON snapshots and keeps a
 fsynced append-only `harness.json.transcript.jsonl` alongside a short-lived
@@ -85,18 +72,7 @@ retrieval can be added behind the same compiler boundary later.
 
 ## Seven-stage workflow
 
-```mermaid
-stateDiagram-v2
-  [*] --> design
-  design --> development
-  development --> unit_test
-  unit_test --> integration_test
-  integration_test --> arbitration
-  arbitration --> development: actionable failure
-  arbitration --> revalidation: accepted repair
-  revalidation --> report
-  report --> [*]
-```
+![ADRO delivery capability map](./adro-capability-map.svg)
 
 An integration failure carries the failed evidence, context manifest, commit
 baseline, and provider provenance back to the original development stage. The

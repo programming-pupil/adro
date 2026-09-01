@@ -29,18 +29,9 @@ stage carries tenant, project, repository, agent, session, evidence, and policy
 state; failures return to the original development context instead of silently
 starting an unrelated chain.
 
-```mermaid
-flowchart LR
-  R[Requirement / Bug / Analysis\n需求、Bug、分析] --> D[Design\n方案]
-  D --> C[Develop\n研发]
-  C --> U[Unit tests\n单测]
-  U --> I[Integration\n集成测试]
-  I --> A{Evidence gate\n证据门禁}
-  A -->|pass / 通过| V[Revalidate\n复测]
-  A -->|fail / 失败| C
-  V --> O[Report\n报告]
-  C -. same session + worktree\n同 Session 与工作区 .-> C
-```
+![ADRO architecture](docs/architecture/adro-architecture.svg)
+
+![ADRO capability map](docs/architecture/adro-capability-map.svg)
 
 ## Push checks / Push 检查
 

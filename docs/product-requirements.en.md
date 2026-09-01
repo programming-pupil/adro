@@ -24,22 +24,7 @@ the repeatable design, coding, testing, repair, and reporting work.
 
 ## User journey
 
-```mermaid
-sequenceDiagram
-  actor Member
-  participant API as ADRO API
-  participant Agent as Agent team
-  participant Harness as Session harness
-  participant Evidence as Evidence ledger
-  Member->>API: Submit goal and acceptance criteria
-  API->>Harness: Create session and initial checkpoint
-  API->>Agent: Dispatch design and development
-  Agent->>Harness: Append turns, tools, and context citations
-  Agent->>Evidence: Attach commit, test, and deployment evidence
-  Evidence-->>API: Pass or actionable failure
-  API->>Agent: Resume original context for repair
-  API-->>Member: Report with evidence and repair history
-```
+![ADRO capability map](./architecture/adro-capability-map.svg)
 
 ## Acceptance and boundaries
 

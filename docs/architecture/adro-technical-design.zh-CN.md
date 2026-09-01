@@ -57,34 +57,7 @@ P1 可增加：远程 Runner、GitLab/Forgejo、更多代码客户端、云存�
 
 ## 3. 总体架构
 
-```text
-Web UI / OpenAPI / DingTalk / Feishu / Webhook
-                    |
-              Edge Gateway
-                    |
-        +-----------+-----------+
-        |                       |
-     Control API           Event Gateway
-        |                       |
-        +-----------+-----------+
-                    |
-             ADRO Kernel
-     domain / policy / idempotency / audit
-        |          |             |
-        |      Workflow       Context
-        |       Engine        Compiler
-        |          |             |
-   Plugin Runtime--+--------Execution Gateway
-        |                         |
-  Registry/Health/Policy     Provider SPI
-        |                  Codex / Claude / other plugins
-        |                         |
-   Git/CI/Test/Deploy/Notify/Artifact/Knowledge plugins
-                    |
-             Runner Supervisor
-                    |
-      isolated worktree + local or remote process
-```
+![ADRO 分层架构图](./adro-architecture.svg)
 
 ### 3.1 分层和依赖方向
 
