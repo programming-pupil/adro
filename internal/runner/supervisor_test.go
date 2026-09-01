@@ -100,3 +100,30 @@ func TestSupervisorRejectsUnpersistedRegistration(t *testing.T) {
 		t.Fatalf("failed runner registration remained visible: %+v", got)
 	}
 }
+
+func TestReapStaleRunnersRequiresFreshHeartbeat(t *testing.T) {
+	s := NewSupervisor()
+	r, err := s.Register(Runner{Name: "stale", Provider: "local", Version: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	stale := s.runners[r.ID]
+	stale.Status = Healthy
+	stale.LastHeartbeat = time.Now().UTC().Add(-time.Minute)
+	s.runners[r.ID] = stale
+	s.mu.Unlock()
+	reaped, err := s.ReapStale(time.Now().UTC(), 10*time.Second)
+	if err != nil || len(reaped) != 1 || reaped[0].Status != Offline {
+		t.Fatalf("reaped=%+v err=%v", reaped, err)
+	}
+	if _, err := s.Choose(""); err == nil {
+		t.Fatal("stale runner remained schedulable")
+	}
+	if _, err := s.Heartbeat(r.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Choose(""); err != nil {
+		t.Fatalf("fresh heartbeat did not restore scheduling: %v", err)
+	}
+}

@@ -194,6 +194,42 @@ func (s *Supervisor) Heartbeat(id string, activeRuns int) (Runner, error) {
 	}
 	return r, nil
 }
+
+// ReapStale marks healthy/registered runners offline when their heartbeat is
+// older than maxAge. Scheduling can then fail closed until the runner proves
+// liveness again with Heartbeat; this is the cross-process counterpart to
+// harness lease expiry.
+func (s *Supervisor) ReapStale(now time.Time, maxAge time.Duration) ([]Runner, error) {
+	if maxAge <= 0 {
+		return nil, errors.New("max_age must be positive")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := make(map[string]Runner, len(s.runners))
+	changed := make([]Runner, 0)
+	for id, runner := range s.runners {
+		previous[id] = runner
+		if (runner.Status == Healthy || runner.Status == Registered) && now.Sub(runner.LastHeartbeat) > maxAge {
+			runner.Status = Offline
+			runner.ActiveRuns = 0
+			s.runners[id] = runner
+			changed = append(changed, runner)
+		}
+	}
+	if len(changed) == 0 {
+		return changed, nil
+	}
+	if err := s.persistLocked(); err != nil {
+		for id, runner := range previous {
+			s.runners[id] = runner
+		}
+		return nil, fmt.Errorf("persist stale runner reaping: %w", err)
+	}
+	return changed, nil
+}
 func (s *Supervisor) SetStatus(id string, status Status) (Runner, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

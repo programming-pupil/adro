@@ -12,6 +12,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/provider"
 )
 
 func (s *Server) ensureHarnessSession(run domain.PipelineRun) error {
@@ -73,6 +74,38 @@ func (s *Server) recordHarnessResult(run domain.PipelineRun, result domain.Pipel
 	}
 	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointToolAfter, turn.Hash, run.Version, nil, nil, "pipeline result recorded"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *Server) recordProviderToolEvents(run domain.PipelineRun, snapshot provider.RunSnapshot) error {
+	if s.Harness == nil || run.SessionID == "" || len(snapshot.ToolEvents) == 0 {
+		return nil
+	}
+	type pendingTool struct{ name, input string }
+	pending := map[string]pendingTool{}
+	for _, event := range snapshot.ToolEvents {
+		callID := strings.TrimSpace(event.CallID)
+		if callID == "" {
+			continue
+		}
+		switch event.Phase {
+		case "before":
+			if _, exists := pending[callID]; !exists {
+				pending[callID] = pendingTool{name: event.Name, input: event.Payload}
+			}
+		case "after":
+			before, exists := pending[callID]
+			if !exists {
+				// An incomplete stream is retained in the provider snapshot but
+				// cannot be acknowledged as a side effect without a before phase.
+				continue
+			}
+			if _, err := s.Harness.RecordToolCall(run.SessionID, callID, before.name, before.input, event.Payload, run.Version); err != nil {
+				return fmt.Errorf("record tool checkpoint %s: %w", callID, err)
+			}
+			delete(pending, callID)
+		}
 	}
 	return nil
 }
@@ -165,6 +198,10 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 		s.sessionMemory(w, r, session)
 		return
 	}
+	if len(parts) == 3 && parts[1] == "memory" && parts[2] == "reduce" && r.Method == http.MethodPost {
+		s.sessionMemoryReduce(w, r, session)
+		return
+	}
 	if len(parts) == 3 && parts[1] == "context" && parts[2] == "archives" && r.Method == http.MethodGet {
 		items, listErr := s.Harness.ListArchives(session.ID)
 		if listErr != nil {
@@ -191,6 +228,15 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"session_id": session.ID, "context_version": session.ContextVersion, "compiled": compiled})
+		return
+	}
+	if len(parts) == 3 && parts[1] == "context" && parts[2] == "integrity" && r.Method == http.MethodGet {
+		integrity, integrityErr := s.Harness.VerifyCompaction(session.ID)
+		if integrityErr != nil {
+			s.problem(w, r, http.StatusConflict, "context_integrity_failed", integrityErr.Error(), map[string]any{"integrity": integrity})
+			return
+		}
+		s.writeJSON(w, http.StatusOK, integrity)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "compact" && r.Method == http.MethodPost {
@@ -313,6 +359,27 @@ func (s *Server) sessionMemory(w http.ResponseWriter, r *http.Request, session h
 		return
 	}
 	s.writeJSON(w, http.StatusCreated, saved)
+}
+
+func (s *Server) sessionMemoryReduce(w http.ResponseWriter, r *http.Request, session harness.Session) {
+	var input struct {
+		SourceIDs []string `json:"source_ids"`
+		Content   string   `json:"content"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+		return
+	}
+	reduction, err := s.Harness.ReduceMemories(session.ID, input.SourceIDs, input.Content)
+	if err != nil {
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, harness.ErrConflict) || errors.Is(err, harness.ErrCorrupt) {
+			status = http.StatusConflict
+		}
+		s.problem(w, r, status, "memory_reduce_failed", err.Error(), nil)
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, reduction)
 }
 
 func (s *Server) sessionCompact(w http.ResponseWriter, r *http.Request, session harness.Session) {

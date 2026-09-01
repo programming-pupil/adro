@@ -18,6 +18,7 @@ type Session struct {
 
 type MemoryItem struct {
 	ID, SessionID, Scope, ProjectID, Kind, Content string
+	Fingerprint                                    string
 	SourceIDs, Supersedes                          []string
 	Confidence, Importance                         float64
 	Pinned                                         bool
@@ -26,12 +27,13 @@ type MemoryItem struct {
 }
 
 type Turn struct {
-	ID, SessionID, AttemptID string
-	Sequence                 int64
-	Role, Content            string
-	IdempotencyKey           string
-	PrevHash, Hash           string
-	CreatedAt                time.Time
+	ID, SessionID, AttemptID         string
+	Sequence                         int64
+	Role, Content                    string
+	IdempotencyKey                   string
+	PrevHash, Hash                   string
+	CreatedAt                        time.Time
+	ToolName, ToolCallID, ToolStatus string
 }
 
 type Checkpoint struct {
@@ -73,6 +75,32 @@ type Store interface {
 	SaveCheckpoint(context.Context, string, Checkpoint) (Checkpoint, error)
 	Recover(context.Context, string, time.Time) (Recovery, error)
 	Compact(context.Context, string, CompactRequest) (ArchiveWindow, error)
+}
+
+type TranscriptIntegrity struct {
+	SessionID      string
+	TurnCount      int
+	ArchiveCount   int
+	Valid          bool
+	RecallVerified bool
+	CheckedAt      time.Time
+	Error          string
+}
+
+type MemoryReduction struct {
+	Added       []MemoryItem
+	Superseded  []string
+	Conflicts   []string
+	SourceTurns []string
+}
+
+// IntegrityStore is optional for adapters that expose append-only transcript
+// and compaction recall probes. It is separate from Store to preserve binary
+// compatibility with existing providers.
+type IntegrityStore interface {
+	VerifyTranscript(context.Context, string) (TranscriptIntegrity, error)
+	VerifyCompaction(context.Context, string) (TranscriptIntegrity, error)
+	ReduceMemories(context.Context, string, []string, string) (MemoryReduction, error)
 }
 
 // MemoryStore is optional for providers that want to persist structured

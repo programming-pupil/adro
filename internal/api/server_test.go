@@ -260,6 +260,10 @@ func TestSessionHarnessRoutesExposeDurableTurnAndRecoveryContracts(t *testing.T)
 	if memory.Code != http.StatusCreated {
 		t.Fatalf("memory status=%d body=%s", memory.Code, memory.Body.String())
 	}
+	reduced := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/memory/reduce", `{"source_ids":["`+turn.ID+`"],"content":"constraint: all writes are idempotent"}`, headers)
+	if reduced.Code != http.StatusCreated || !strings.Contains(reduced.Body.String(), `"added"`) {
+		t.Fatalf("memory reducer status=%d body=%s", reduced.Code, reduced.Body.String())
+	}
 	compact := request(t, s.Routes(), http.MethodPost, "/api/v1/sessions/session-1/compact", `{"start_sequence":1,"end_sequence":1,"summary":"turn preserved as archive"}`, headers)
 	if compact.Code != http.StatusCreated {
 		t.Fatalf("compact status=%d body=%s", compact.Code, compact.Body.String())
@@ -271,6 +275,10 @@ func TestSessionHarnessRoutesExposeDurableTurnAndRecoveryContracts(t *testing.T)
 	compiled := request(t, s.Routes(), http.MethodGet, "/api/v1/sessions/session-1/context/compile", "", headers)
 	if compiled.Code != http.StatusOK || !strings.Contains(compiled.Body.String(), "turn preserved as archive") {
 		t.Fatalf("compiled status=%d body=%s", compiled.Code, compiled.Body.String())
+	}
+	integrity := request(t, s.Routes(), http.MethodGet, "/api/v1/sessions/session-1/context/integrity", "", headers)
+	if integrity.Code != http.StatusOK || !strings.Contains(integrity.Body.String(), `"recall_verified":true`) {
+		t.Fatalf("integrity status=%d body=%s", integrity.Code, integrity.Body.String())
 	}
 }
 

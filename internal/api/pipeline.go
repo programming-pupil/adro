@@ -476,6 +476,9 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 			if snapshotErr != nil || snapshot.Status == "running" {
 				continue
 			}
+			if checkpointErr := s.recordProviderToolEvents(current, snapshot); checkpointErr != nil && s.Logger != nil {
+				s.Logger.Error("record provider tool checkpoints", "pipeline_id", pipelineID, "error", checkpointErr)
+			}
 			result, ok := pipelineResultFromSnapshot(current, snapshot)
 			if !ok {
 				// A completed client that did not emit the marker can still be
@@ -531,6 +534,7 @@ func (s *Server) handlePipelineWatchDeadline(pipelineID, taskID string, timeout 
 	}
 	reason := fmt.Sprintf("local provider watcher deadline exceeded after %s", timeout)
 	if snapshot, snapshotErr := s.Provider.GetRun(context.Background(), taskID); snapshotErr == nil && snapshot.Status != "running" {
+		_ = s.recordProviderToolEvents(current, snapshot)
 		if result, ok := pipelineResultFromSnapshot(current, snapshot); ok {
 			if _, _, advanceErr := s.advancePipeline(current, result); advanceErr == nil {
 				return

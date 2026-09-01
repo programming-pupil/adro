@@ -111,7 +111,11 @@ The API exposes readiness at `/readyz`, secret-free executor diagnostics at
 `/api/v1/provider/diagnostics`, and versioned resources below `/api/v1`. The
 session harness is available at `/api/v1/sessions/{id}/turns`,
 `/checkpoints`, `/context/status`, `/context/compile`, `/compact`, and
-`/recover`; these endpoints preserve the full transcript after compaction.
+`/recover`; `/memory/reduce` extracts cited fact/constraint/decision claims and
+`/context/integrity` runs transcript hash and archive recall probes. A durable
+profile keeps the complete turn chain in `harness.json.transcript.jsonl` using
+fsynced append-only records; startup reconciles it with the fast snapshot and
+fails closed on tampering or reordering.
 Signed adapter installations are managed through `/api/v1/plugins` and are
 never activated before manifest digest/signature verification.
 seven-stage pipeline is design, development, unit test, integration test,
@@ -152,9 +156,11 @@ bounded priority ordering; no vector index is required.
 - `internal/provider`: provider-neutral SPI and the local executable boundary.
 - `internal/store`: atomic JSON persistence for the single-node profile.
 - `internal/events`: replayable event bus and workspace streams.
-- `internal/harness`: append-only turns, hash-linked checkpoints (including
-  tool before/after pairing), exact compaction archives, memory citations,
-  recoverable leases, outbox delivery, and a fsynced crash-window journal.
+- `internal/harness`: append-only transcript records, hash-linked checkpoints
+  (including automatic tool before/after pairing), deterministic memory claim
+  reduction with conflict/supersession, exact compaction archives plus recall
+  probes, recoverable leases, outbox delivery, and a fsynced crash-window
+  journal.
 - `internal/plugins`: signed adapter installation registry with verified
   activation, health tracking, and automatic quarantine.
 - `internal/api`: authenticated REST transport and workbench routes.

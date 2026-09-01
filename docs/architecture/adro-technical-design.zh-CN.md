@@ -347,13 +347,16 @@ turn 开始、每次工具调用前后、压缩前后、外部副作用前后写
 - session 删除遵循 retention/legal hold；session memory、archive、citation、context 和 trace 不产生孤儿记录。
 
 本仓库的单节点 profile 已提供上述 harness 的可运行基线：
-`internal/harness` 以原子快照加短暂 fsynced journal 持久化完整 turn 链
+`internal/harness` 以原子快照加长期 fsynced append-only JSONL transcript 及短暂
+crash-window journal 持久化完整 turn 链
 （`prev_hash`/`hash`）、带前序 hash 链的 checkpoint（tool checkpoint 还校验
 `tool_call_id` 的 before/after 成对关系）、精确 archive window、带 source
 turn 的 memory item，以及 lease 和 outbox 的 claim/ack/nack/过期回收；
 `internal/harness.Dispatcher` 在发布
 成功后才确认副作用。`/api/v1/sessions/*` 暴露增量 transcript、context
-compile/status、compact 和 recover。PostgreSQL/NATS/Temporal 版本对应
+compile/status、compact 和 recover；`/memory/reduce` 提取带来源的
+fact/constraint/decision 等声明并对冲突建立 supersession，`/context/integrity`
+验证 transcript 和 archive 召回。PostgreSQL/NATS/Temporal 版本对应
 `migrations/004_harness.sql` 与 `sdk/harness` 契约，仍需目标企业提供真实
 适配器、故障注入和 RTO/RPO 证据后才能解除生产 gate。
 

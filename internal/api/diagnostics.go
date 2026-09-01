@@ -49,6 +49,19 @@ func (s *Server) systemDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"harness_durable":       s.Harness != nil && s.Harness.Durable(),
 		"plugins_durable":       s.Plugins != nil && s.Plugins.Durable(),
 	}
+	transcriptValid, compactionRecall := true, true
+	if s.Harness != nil {
+		for _, session := range s.Harness.ListSessions() {
+			if probe, err := s.Harness.VerifyTranscript(session.ID); err != nil || !probe.Valid {
+				transcriptValid = false
+			}
+			if probe, err := s.Harness.VerifyCompaction(session.ID); err != nil || !probe.RecallVerified {
+				compactionRecall = false
+			}
+		}
+	}
+	state["harness_transcript_valid"] = transcriptValid
+	state["harness_compaction_recall_verified"] = compactionRecall
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"profile":          profile,
 		"provider_state":   providerState,

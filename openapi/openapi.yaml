@@ -4298,6 +4298,28 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+  "/api/v1/sessions/{id}/context/integrity":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Verify transcript hashes and archive recall
+      responses:
+        '200':
+          description: Integrity probe result
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/sessions/{id}/memory":
     parameters:
     - name: id
@@ -4310,6 +4332,34 @@ paths:
       responses:
         '200':
           description: Memory items
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/sessions/{id}/memory/reduce":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Extract cited deterministic claims and record supersession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '201':
+          description: Memory reduction result
           content:
             application/json:
               schema:
@@ -4642,6 +4692,8 @@ components:
         project_id:
           type: string
         kind:
+          type: string
+        fingerprint:
           type: string
         content:
           type: string

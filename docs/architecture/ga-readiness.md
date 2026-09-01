@@ -11,8 +11,8 @@ contract is present but a production adapter is intentionally external;
 | Multi-tenant and multi-project authorization | implemented | authenticated API and persistence tests |
 | Agent routing and role orchestration | implemented | immutable bindings and route tests |
 | Seven-stage pipeline and same-session repair | implemented | pipeline engine/API tests and context manifests |
-| Durable harness transcript and context recovery | implemented for local profile | hash-linked turns/checkpoints, tool before/after validation, exact archive windows, fsynced crash journal, recovery API and restart/tamper tests |
-| Lease/outbox crash recovery | implemented for local profile | durable claim/ack/nack, expiry requeue and dispatcher fault-injection tests |
+| Durable harness transcript and context recovery | implemented for local profile | long-lived fsynced append-only JSONL transcript reconciled with the snapshot, hash-linked checkpoints, automatic provider tool before/after evidence, exact archive windows, recall/integrity probes, recovery API and restart/tamper tests |
+| Lease/outbox crash recovery | implemented for local profile | durable claim/ack/nack, expiry requeue, lease heartbeats, stale runner reaping and dispatcher fault-injection tests |
 | Local client discovery and real process boundary | implemented | `LocalProvider`, `start.sh`, real Claude version/readiness smoke |
 | Run snapshot, git baseline/head, checks and usage | implemented for local process | captured from process exit and git; external CI/Git adapters remain optional |
 | Evidence, artifacts, attachment receipt and audit | implemented | filesystem artifact and API tests |

@@ -61,6 +61,18 @@ func TestLocalProviderStartRunIsIdempotentByHarnessKey(t *testing.T) {
 	}
 }
 
+func TestExtractToolEventsFromCodexJSONL(t *testing.T) {
+	output := []byte("{\"type\":\"item.started\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"shell\",\"arguments\":\"go test ./...\"}}\n" +
+		"{\"type\":\"item.completed\",\"item\":{\"type\":\"function_call_output\",\"call_id\":\"call-1\",\"output\":\"ok\"}}\n")
+	events := extractToolEvents(output, "codex")
+	if len(events) != 2 || events[0].CallID != "call-1" || events[0].Phase != "before" || events[1].Phase != "after" {
+		t.Fatalf("tool events=%+v", events)
+	}
+	if got := extractToolEvents(output, "other"); len(got) != 0 {
+		t.Fatalf("unknown provider emitted tool events=%+v", got)
+	}
+}
+
 func TestLocalProviderConcurrentStartRunUsesOneIdempotentReservation(t *testing.T) {
 	p := NewLocalProvider("/bin/sleep", []string{"0.05"}, t.TempDir(), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "concurrent-item", Title: "concurrent"})

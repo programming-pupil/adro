@@ -212,24 +212,37 @@ type ContinuationCommand struct {
 	IdempotencyKey    string `json:"idempotency_key,omitempty"`
 }
 type RunSnapshot struct {
-	ID               string     `json:"id"`
-	WorkItemID       string     `json:"work_item_id,omitempty"`
-	ProviderIssueID  string     `json:"provider_issue_id,omitempty"`
-	Status           string     `json:"status"`
-	LastEventID      string     `json:"last_event_id,omitempty"`
-	SessionID        string     `json:"session_id,omitempty"`
-	WorkDir          string     `json:"work_dir,omitempty"`
-	BaselineCommit   string     `json:"baseline_commit,omitempty"`
-	HeadCommit       string     `json:"head_commit,omitempty"`
-	SubmissionURL    string     `json:"submission_url,omitempty"`
-	ChecksConclusion string     `json:"checks_conclusion,omitempty"`
-	Output           string     `json:"output,omitempty"`
-	Error            string     `json:"error,omitempty"`
-	WorkspaceDirty   bool       `json:"workspace_dirty,omitempty"`
-	ChangedFiles     []string   `json:"changed_files,omitempty"`
-	StartedAt        *time.Time `json:"started_at,omitempty"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
-	Usage            Usage      `json:"usage"`
+	ID               string      `json:"id"`
+	WorkItemID       string      `json:"work_item_id,omitempty"`
+	ProviderIssueID  string      `json:"provider_issue_id,omitempty"`
+	Status           string      `json:"status"`
+	LastEventID      string      `json:"last_event_id,omitempty"`
+	SessionID        string      `json:"session_id,omitempty"`
+	WorkDir          string      `json:"work_dir,omitempty"`
+	BaselineCommit   string      `json:"baseline_commit,omitempty"`
+	HeadCommit       string      `json:"head_commit,omitempty"`
+	SubmissionURL    string      `json:"submission_url,omitempty"`
+	ChecksConclusion string      `json:"checks_conclusion,omitempty"`
+	Output           string      `json:"output,omitempty"`
+	Error            string      `json:"error,omitempty"`
+	WorkspaceDirty   bool        `json:"workspace_dirty,omitempty"`
+	ChangedFiles     []string    `json:"changed_files,omitempty"`
+	StartedAt        *time.Time  `json:"started_at,omitempty"`
+	FinishedAt       *time.Time  `json:"finished_at,omitempty"`
+	Usage            Usage       `json:"usage"`
+	ToolEvents       []ToolEvent `json:"tool_events,omitempty"`
+}
+
+// ToolEvent is provider-neutral evidence extracted from a structured executor
+// stream. A pair with the same CallID forms one automatic harness checkpoint
+// boundary; unpaired events are retained as evidence but never acknowledged
+// as a completed side effect.
+type ToolEvent struct {
+	CallID   string `json:"call_id"`
+	Name     string `json:"name,omitempty"`
+	Phase    string `json:"phase"`
+	Payload  string `json:"payload,omitempty"`
+	Sequence int    `json:"sequence"`
 }
 type Usage struct {
 	InputTokens      int64   `json:"input_tokens"`

@@ -40,6 +40,7 @@ Environment:
   ADRO_PIPELINE_WATCH_TIMEOUT  Local pipeline watchdog deadline (Go duration, e.g. 30m).
   ADRO_HARNESS_RECOVERY_INTERVAL  Harness recovery worker interval (default: 1s).
   ADRO_HARNESS_DISPATCH_LEASE_TTL  Provider intent claim lease (must exceed executor timeout).
+  ADRO_RUNNER_HEARTBEAT_MAX_AGE  Mark runners offline after this heartbeat age (default: 30s).
   ADRO_HARNESS_STATE_FILE  Durable session/turn/checkpoint state file.
   ADRO_PLUGIN_STATE_FILE   Durable signed plugin installation registry.
   ADRO_HOME               Local state directory (default: ./.adro).

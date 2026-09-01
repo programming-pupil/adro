@@ -34,10 +34,11 @@ flowchart TB
 ```
 
 The local profile stores state in atomic mode-0600 JSON snapshots and keeps a
-short-lived fsynced journal across the snapshot rename window. On startup, a
-valid journal record can recover a torn snapshot; external adapters expose the
-same versioned interfaces and remain explicit deployment inputs that must pass
-the matching conformance suite before activation.
+fsynced append-only `harness.json.transcript.jsonl` alongside a short-lived
+crash-window journal. Startup verifies every transcript hash/sequence and
+reconciles a missing snapshot turn from the log; mid-log tampering or reordering
+fails closed. External adapters expose the same versioned interfaces and remain
+explicit deployment inputs that must pass the matching conformance suite.
 
 ## Harness contract
 
@@ -72,7 +73,10 @@ This makes status polling and retry safe after a lost HTTP response. The
 follow-up prompt includes every comment in the immutable root thread in
 chronological order, not only the latest reply.
 
-Memory is split into `working`, `session`, and `project` scopes. Pinned and
+Memory is split into `working`, `session`, and `project` scopes. The local
+`/memory/reduce` endpoint performs a deterministic lexical claim extraction for
+fact/constraint/decision/invariant/preference lines, assigns a fingerprint, and
+records conflicting claims through explicit supersession. Pinned and
 high-importance facts are compiled first, expired items are omitted, and
 superseded facts leave an auditable ledger while disappearing from the active
 frontier. Project memory is shared by sessions with the same project ID. This

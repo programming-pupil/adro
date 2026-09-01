@@ -79,6 +79,68 @@ func TestTranscriptTamperFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAppendOnlyTranscriptRebuildsMissingSnapshotTurns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "long lived transcript"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	session := state.Sessions["session-1"]
+	session.Turns = nil
+	state.Sessions["session-1"] = session
+	data, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, _, err := recovered.ListTurns("session-1", 0, 10)
+	if err != nil || len(turns) != 1 || turns[0].Hash != turn.Hash {
+		t.Fatalf("replayed turns=%+v err=%v", turns, err)
+	}
+	integrity, err := recovered.VerifyTranscript("session-1")
+	if err != nil || !integrity.Valid {
+		t.Fatalf("integrity=%+v err=%v", integrity, err)
+	}
+}
+
+func TestAppendOnlyTranscriptTamperFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleAssistant, Content: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	transcript := transcriptPath(path)
+	data, err := os.ReadFile(transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "second", "tampered", 1))
+	if err := os.WriteFile(transcript, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("tampered append-only transcript err=%v", err)
+	}
+}
+
 func TestJournalRecoversWhenSnapshotWasTorn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	first := newTestSession(t, path)
@@ -370,6 +432,82 @@ func TestMemoryCannotSupersedeItself(t *testing.T) {
 	_, err = store.AddMemory(MemoryItem{SessionID: "session-1", ID: "memory-1", Kind: "decision", Content: "invalid", SourceIDs: []string{turn.ID}, Supersedes: []string{"memory-1"}, Confidence: 1})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("self-supersede err=%v", err)
+	}
+}
+
+func TestMemoryFingerprintReplayIsIdempotent(t *testing.T) {
+	store := newTestSession(t, "")
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := MemoryItem{SessionID: "session-1", Kind: "fact", Content: "the API is durable", SourceIDs: []string{turn.ID}, Confidence: 1}
+	first, err := store.AddMemory(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AddMemory(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || first.Fingerprint == "" || second.Fingerprint != first.Fingerprint {
+		t.Fatalf("memory replay was not idempotent: first=%+v second=%+v", first, second)
+	}
+	memories, err := store.ListMemories("session-1")
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memory replay created duplicate records: memories=%+v err=%v", memories, err)
+	}
+}
+
+func TestMemoryReducerExtractsAndSupersedesClaims(t *testing.T) {
+	store := newTestSession(t, "")
+	first, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "constraint: all writes are idempotent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reduction, err := store.ReduceMemories("session-1", []string{first.ID}, first.Content)
+	if err != nil || len(reduction.Added) != 1 || reduction.Added[0].Kind != "constraint" {
+		t.Fatalf("first reduction=%+v err=%v", reduction, err)
+	}
+	second, err := store.AppendTurn("session-1", Turn{Role: RoleAssistant, Content: "constraint: all writes are serialized"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reduction, err = store.ReduceMemories("session-1", []string{second.ID}, second.Content)
+	if err != nil || len(reduction.Added) != 1 || len(reduction.Superseded) != 1 || len(reduction.Conflicts) != 1 {
+		t.Fatalf("conflict reduction=%+v err=%v", reduction, err)
+	}
+	memories, err := store.ListMemories("session-1")
+	if err != nil || len(memories) != 1 || memories[0].Content != "all writes are serialized" {
+		t.Fatalf("active memory frontier=%+v err=%v", memories, err)
+	}
+}
+
+func TestCompactionRecallProbe(t *testing.T) {
+	store := newTestSession(t, "")
+	for _, content := range []string{"one long turn", "two long turn", "tail"} {
+		if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.Compact("session-1", CompactRequest{StartSequence: 1, EndSequence: 2, Summary: "one and two are archived", RetainedTail: 1}); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := store.VerifyCompaction("session-1")
+	if err != nil || !probe.Valid || !probe.RecallVerified {
+		t.Fatalf("compaction probe=%+v err=%v", probe, err)
+	}
+}
+
+func TestRecordToolCallPersistsPairedCheckpoints(t *testing.T) {
+	store := newTestSession(t, "")
+	checkpoints, err := store.RecordToolCall("session-1", "tool-42", "shell", "go test ./...", "ok", 1)
+	if err != nil || len(checkpoints) != 2 || checkpoints[0].Phase != CheckpointToolBefore || checkpoints[1].Phase != CheckpointToolAfter {
+		t.Fatalf("checkpoints=%+v err=%v", checkpoints, err)
+	}
+	turns, _, err := store.ListTurns("session-1", 0, 10)
+	if err != nil || len(turns) != 2 || turns[0].ToolCallID != "tool-42" || turns[1].ToolStatus != "after" {
+		t.Fatalf("tool turns=%+v err=%v", turns, err)
 	}
 }
 

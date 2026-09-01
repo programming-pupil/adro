@@ -133,7 +133,7 @@ func (p *LocalProvider) Capabilities(context.Context) (Capabilities, error) {
 	}
 	return Capabilities{
 		Provider: p.providerName(), AdapterVersion: "local-exec-v1", ServerVersion: "process",
-		Features: []string{"agent.v1", "project.resources.v1", "issue.child.v1", "run.snapshot.v1", "runtime.worktree.v1", "usage.tokens.v1", "attachment.v1", "run.repair.v1"},
+		Features: []string{"agent.v1", "project.resources.v1", "issue.child.v1", "run.snapshot.v1", "runtime.worktree.v1", "usage.tokens.v1", "attachment.v1", "run.repair.v1", "tool.checkpoint.v1"},
 	}, nil
 }
 
@@ -365,6 +365,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	done := time.Now().UTC()
 	usage := usageFromOutput(output)
 	usage.DurationMS = time.Since(started).Milliseconds()
+	toolEvents := extractToolEvents(output, p.executorKind())
 	p.mu.Lock()
 	run := p.runs[runID]
 	persistenceFailure := ""
@@ -376,6 +377,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.HeadCommit = head
 		run.snapshot.FinishedAt = &done
 		run.snapshot.Usage = usage
+		run.snapshot.ToolEvents = append([]ToolEvent(nil), toolEvents...)
 		run.snapshot.Output = truncateOutput(output)
 		if status == "timed_out" {
 			run.snapshot.Error = "executor deadline exceeded"
@@ -412,6 +414,90 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		payload["error"] = "durable run snapshot unavailable"
 	}
 	_ = p.Bus.Publish(context.Background(), events.New("execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
+}
+
+// extractToolEvents accepts the JSONL shapes emitted by Codex and Claude
+// without trusting free-form model text. Unknown records are ignored. The
+// resulting sequence is stable and can be replayed into harness checkpoints.
+func extractToolEvents(output []byte, kind string) []ToolEvent {
+	if kind != "codex" && kind != "claude" {
+		return nil
+	}
+	events := make([]ToolEvent, 0)
+	sequence := 0
+	for _, line := range bytes.Split(output, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var value map[string]any
+		if json.Unmarshal(line, &value) != nil {
+			continue
+		}
+		collectToolValue(value, &events, &sequence)
+	}
+	return events
+}
+
+func collectToolValue(raw any, events *[]ToolEvent, sequence *int) {
+	switch value := raw.(type) {
+	case []any:
+		for _, child := range value {
+			collectToolValue(child, events, sequence)
+		}
+	case map[string]any:
+		collectToolEvent(value, events, sequence)
+	}
+}
+
+func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) {
+	if value == nil {
+		return
+	}
+	typ, _ := value["type"].(string)
+	item, _ := value["item"].(map[string]any)
+	if item == nil {
+		item = value
+	}
+	itemType, _ := item["type"].(string)
+	callID := firstString(item, "call_id", "tool_call_id", "id")
+	name := firstString(item, "name", "tool_name")
+	phase := ""
+	lower := strings.ToLower(typ + " " + itemType)
+	switch {
+	case strings.Contains(lower, "completed") || strings.Contains(lower, "complete") || strings.Contains(lower, "tool_result") || strings.Contains(lower, "result"):
+		phase = "after"
+	case strings.Contains(lower, "started") || strings.Contains(lower, "start") || strings.Contains(lower, "tool_use") || strings.Contains(lower, "function_call"):
+		phase = "before"
+	}
+	if callID != "" && phase != "" && (strings.Contains(lower, "tool") || strings.Contains(lower, "function") || itemType == "command_execution") {
+		payload := firstString(item, "arguments", "input", "output", "aggregated_output", "content")
+		*sequence++
+		*events = append(*events, ToolEvent{CallID: callID, Name: name, Phase: phase, Payload: payload, Sequence: *sequence})
+	}
+	for _, key := range []string{"tool", "content_block", "data"} {
+		if child := value[key]; child != nil {
+			collectToolValue(child, events, sequence)
+		}
+	}
+	if child := value["content"]; child != nil {
+		collectToolValue(child, events, sequence)
+	}
+}
+
+func firstString(value map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if stringValue, ok := value[key].(string); ok {
+			return stringValue
+		}
+		if value[key] != nil {
+			data, _ := json.Marshal(value[key])
+			if len(data) > 0 {
+				return string(data)
+			}
+		}
+	}
+	return ""
 }
 
 func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []string {

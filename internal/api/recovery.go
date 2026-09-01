@@ -444,6 +444,11 @@ func (s *Server) StartRecoveryWorker(ctx context.Context) {
 }
 
 func (s *Server) recoverOnce(ctx context.Context, dispatcher harness.Dispatcher) {
+	if s.Runners != nil {
+		if _, err := s.Runners.ReapStale(time.Now().UTC(), runnerHeartbeatMaxAge()); err != nil && s.Logger != nil {
+			s.Logger.Error("runner heartbeat recovery failed", "error", err)
+		}
+	}
 	for _, session := range s.Harness.ListSessions() {
 		if _, err := s.Harness.Recover(session.ID, time.Now().UTC()); err != nil {
 			if s.Logger != nil {
@@ -464,6 +469,7 @@ func (s *Server) recoverOnce(ctx context.Context, dispatcher harness.Dispatcher)
 		}
 		snapshot, err := s.Provider.GetRun(ctx, run.ActiveProviderTaskID)
 		if err == nil && snapshot.Status != "running" {
+			_ = s.recordProviderToolEvents(run, snapshot)
 			if result, ok := pipelineResultFromSnapshot(run, snapshot); ok {
 				_, _, _ = s.advancePipeline(run, result)
 				continue
@@ -471,6 +477,16 @@ func (s *Server) recoverOnce(ctx context.Context, dispatcher harness.Dispatcher)
 		}
 		s.watchLocalPipelineRun(run)
 	}
+}
+
+func runnerHeartbeatMaxAge() time.Duration {
+	value := strings.TrimSpace(os.Getenv("ADRO_RUNNER_HEARTBEAT_MAX_AGE"))
+	if value != "" {
+		if age, err := time.ParseDuration(value); err == nil && age > 0 {
+			return age
+		}
+	}
+	return 30 * time.Second
 }
 
 func recoveryInterval() time.Duration {
