@@ -79,7 +79,14 @@ executor="${ADRO_EXECUTOR:-}"
 if [ -z "$executor" ] && [ -n "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   executor="${ADRO_EXECUTOR_COMMAND%% *}"
 fi
-if [ -z "$executor" ]; then
+if [ "${ADRO_REQUIRE_CODEX:-0}" = "1" ]; then
+  [ -n "$executor" ] || executor="$(command -v codex 2>/dev/null || true)"
+  [ -n "$executor" ] || fail "Codex is required for the real pipeline suite; install codex or set ADRO_EXECUTOR"
+  case "$(basename "$executor")" in
+    codex|codex.exe) ;;
+    *) fail "real pipeline suite requires Codex, got $(basename "$executor"); refusing to substitute another client" ;;
+  esac
+elif [ -z "$executor" ]; then
   for candidate in claude codex claude-code; do
     if command -v "$candidate" >/dev/null 2>&1; then
       executor="$(command -v "$candidate")"

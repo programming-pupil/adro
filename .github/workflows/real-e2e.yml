@@ -1,0 +1,35 @@
+name: Real Codex system acceptance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# This job intentionally targets a controlled self-hosted runner. A hosted
+# runner without a configured Codex account cannot provide real-executor proof.
+jobs:
+  real-codex:
+    name: Native Codex system and pipeline E2E
+    runs-on: [self-hosted, adro-codex]
+    timeout-minutes: 45
+    env:
+      ADRO_REQUIRE_CODEX: '1'
+      ADRO_EXECUTOR: codex
+      ADRO_EXECUTOR_COMMAND: ${{ secrets.ADRO_CODEX_COMMAND }}
+      ADRO_AUTH_MODE: optional
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Verify Codex prerequisite
+        run: |
+          command -v codex
+          codex --version
+          test -n "$ADRO_EXECUTOR_COMMAND"
+      - name: Run real system acceptance
+        run: make real-e2e

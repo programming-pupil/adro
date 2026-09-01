@@ -16,6 +16,8 @@ contracts:
 	bash -n start.sh
 	bash -n scripts/lib/env-file.sh
 	bash -n scripts/test-start-permissions.sh
+	bash -n scripts/release-system-e2e.sh
+	bash -n scripts/real-pipeline-e2e.sh
 	./scripts/test-start-permissions.sh
 	node --check apps/web/enhancements.js
 	node --check e2e/static-server.js
@@ -37,7 +39,8 @@ browser:
 	npm run test:e2e:matrix
 
 real-e2e:
-	bash scripts/real-pipeline-e2e.sh
+	ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
+	ADRO_REQUIRE_CODEX=1 bash scripts/real-pipeline-e2e.sh
 
 verify: test test-race vet build contracts supply-chain browser
 
