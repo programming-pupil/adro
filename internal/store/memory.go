@@ -26,6 +26,7 @@ type Memory struct {
 	requirements     map[string]domain.Requirement
 	bugs             map[string]domain.Bug
 	attachments      map[string]domain.EntityAttachment
+	comments         map[string]domain.Comment
 	workItems        map[string]domain.WorkItem
 	evidence         map[string]domain.EvidenceBundle
 	provenance       map[string]domain.Provenance
@@ -68,7 +69,7 @@ func NewPersistentMemory(path string) (*Memory, error) {
 }
 
 func newMemory(path string) *Memory {
-	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
+	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
 }
 
 type persistedState struct {
@@ -76,6 +77,7 @@ type persistedState struct {
 	Requirements     map[string]domain.Requirement       `json:"requirements"`
 	Bugs             map[string]domain.Bug               `json:"bugs"`
 	Attachments      map[string]domain.EntityAttachment  `json:"attachments"`
+	Comments         map[string]domain.Comment           `json:"comments"`
 	WorkItems        map[string]domain.WorkItem          `json:"work_items"`
 	Evidence         map[string]domain.EvidenceBundle    `json:"evidence"`
 	Provenance       map[string]domain.Provenance        `json:"provenance"`
@@ -120,7 +122,7 @@ func (m *Memory) load() error {
 		return fmt.Errorf("decode control-plane state: %w", err)
 	}
 	for name, value := range map[string]any{
-		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments,
+		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments,
 		"work_items": state.WorkItems, "evidence": state.Evidence, "provenance": state.Provenance,
 		"provider_bindings": state.ProviderBindings, "repositories": state.Repositories,
 		"team_workspaces": state.TeamWorkspaces, "profiles": state.Profiles, "mcp_servers": state.MCPServers,
@@ -138,6 +140,8 @@ func (m *Memory) load() error {
 			m.bugs = value.(map[string]domain.Bug)
 		case "attachments":
 			m.attachments = value.(map[string]domain.EntityAttachment)
+		case "comments":
+			m.comments = value.(map[string]domain.Comment)
 		case "work_items":
 			m.workItems = value.(map[string]domain.WorkItem)
 		case "evidence":
@@ -194,7 +198,7 @@ func (m *Memory) persistLocked() error {
 	if strings.TrimSpace(m.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
+	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
 	for key, value := range m.idempotency {
 		if raw, ok := value.(json.RawMessage); ok {
 			state.Idempotency[key] = raw
@@ -324,6 +328,157 @@ func (m *Memory) GetRequirement(id string) (domain.Requirement, error) {
 	}
 	return r, nil
 }
+
+// CreateComment stores an immutable discussion entry. Parent and root
+// validation happens while holding the same lock as the insert so concurrent
+// replies cannot escape their target thread or workspace.
+func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
+	if err := comment.Validate(); err != nil {
+		return domain.Comment{}, err
+	}
+	comment.TargetType = strings.ToLower(strings.TrimSpace(comment.TargetType))
+	comment.AuthorType = strings.ToLower(strings.TrimSpace(comment.AuthorType))
+	comment.Content = strings.TrimSpace(comment.Content)
+	comment.ParentID = strings.TrimSpace(comment.ParentID)
+	comment.AuthorID = strings.TrimSpace(comment.AuthorID)
+	comment.TargetID = strings.TrimSpace(comment.TargetID)
+	comment.WorkspaceID = strings.TrimSpace(comment.WorkspaceID)
+	comment.Mentions = normalizeCommentMentions(comment.Mentions)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch comment.TargetType {
+	case "requirement":
+		requirement, ok := m.requirements[comment.TargetID]
+		if !ok {
+			return domain.Comment{}, ErrNotFound
+		}
+		if requirement.WorkspaceID != comment.WorkspaceID {
+			return domain.Comment{}, ErrConflict
+		}
+	case "bug":
+		bug, ok := m.bugs[comment.TargetID]
+		if !ok {
+			return domain.Comment{}, ErrNotFound
+		}
+		if bug.WorkspaceID != comment.WorkspaceID {
+			return domain.Comment{}, ErrConflict
+		}
+	}
+	if comment.ParentID != "" {
+		parent, ok := m.comments[comment.ParentID]
+		if !ok {
+			return domain.Comment{}, ErrNotFound
+		}
+		if parent.WorkspaceID != comment.WorkspaceID || parent.TargetType != comment.TargetType || parent.TargetID != comment.TargetID {
+			return domain.Comment{}, ErrConflict
+		}
+		comment.RootID = parent.RootID
+		if comment.RootID == "" {
+			comment.RootID = parent.ID
+		}
+	} else {
+		comment.RootID = comment.ID
+	}
+	if comment.ID == "" {
+		comment.ID = domain.NewID()
+		if comment.ParentID == "" {
+			comment.RootID = comment.ID
+		}
+	}
+	if comment.RootID == "" {
+		comment.RootID = comment.ID
+	}
+	if _, exists := m.comments[comment.ID]; exists {
+		return domain.Comment{}, ErrConflict
+	}
+	now := time.Now().UTC()
+	comment.CreatedAt, comment.UpdatedAt = now, now
+	m.comments[comment.ID] = cloneComment(comment)
+	if err := m.persistLocked(); err != nil {
+		delete(m.comments, comment.ID)
+		return domain.Comment{}, fmt.Errorf("persist comment: %w", err)
+	}
+	return cloneComment(comment), nil
+}
+
+func (m *Memory) GetComment(id string) (domain.Comment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	comment, ok := m.comments[strings.TrimSpace(id)]
+	if !ok {
+		return domain.Comment{}, ErrNotFound
+	}
+	return cloneComment(comment), nil
+}
+
+func (m *Memory) ListComments(workspaceID, targetType, targetID, cursor string, limit int) ([]domain.Comment, string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if limit <= 0 || limit > 250 {
+		limit = 50
+	}
+	items := make([]domain.Comment, 0)
+	for _, comment := range m.comments {
+		if workspaceID != "" && comment.WorkspaceID != workspaceID {
+			continue
+		}
+		if targetType != "" && comment.TargetType != targetType {
+			continue
+		}
+		if targetID != "" && comment.TargetID != targetID {
+			continue
+		}
+		items = append(items, cloneComment(comment))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	start := 0
+	for i, comment := range items {
+		if comment.ID == cursor {
+			start = i + 1
+			break
+		}
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	next := ""
+	if end < len(items) {
+		next = items[end-1].ID
+	}
+	return items[start:end], next
+}
+
+func normalizeCommentMentions(mentions []string) []string {
+	seen := make(map[string]struct{}, len(mentions))
+	result := make([]string, 0, len(mentions))
+	for _, mention := range mentions {
+		mention = strings.TrimSpace(strings.TrimPrefix(mention, "@"))
+		if mention == "" {
+			continue
+		}
+		if _, exists := seen[mention]; exists {
+			continue
+		}
+		seen[mention] = struct{}{}
+		result = append(result, mention)
+		if len(result) == 32 {
+			break
+		}
+	}
+	return result
+}
+
+func cloneComment(comment domain.Comment) domain.Comment {
+	comment.Mentions = append([]string(nil), comment.Mentions...)
+	return comment
+}
+
 func (m *Memory) ListRequirements(workspaceID, status, cursor string, limit int) ([]domain.Requirement, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

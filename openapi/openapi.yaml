@@ -637,6 +637,71 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/requirements/{id}/comments":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List requirement discussion comments
+      parameters:
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 250
+      responses:
+        '200':
+          description: Comment page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CommentPage"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Add a requirement comment or reply and optionally dispatch a follow-up
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CommentCreate"
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/requirements/{id}/start":
     parameters:
     - name: id
@@ -1152,6 +1217,71 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/bugs/{id}/comments":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List bug discussion comments
+      parameters:
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 250
+      responses:
+        '200':
+          description: Comment page
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CommentPage"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Add a bug comment or reply and optionally dispatch a follow-up
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CommentCreate"
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/bugs/{id}/triage":
     parameters:
     - name: id
@@ -4567,6 +4697,87 @@ components:
         created_at:
           type: string
           format: date-time
+    Comment:
+      type: object
+      required:
+      - id
+      - workspace_id
+      - target_type
+      - target_id
+      - root_id
+      - author_id
+      - author_type
+      - content
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        target_type:
+          type: string
+          enum: [requirement, bug]
+        target_id:
+          type: string
+        parent_id:
+          type: string
+        root_id:
+          type: string
+        author_id:
+          type: string
+        author_type:
+          type: string
+          enum: [member, agent, system]
+        content:
+          type: string
+          minLength: 1
+        mentions:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CommentCreate:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+        parent_id:
+          type: string
+        author_id:
+          type: string
+        author_type:
+          type: string
+          enum: [member, agent, system]
+        mentions:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+        dispatch:
+          type: boolean
+          default: false
+          description: Dispatch a follow-up to the target work item; omitted defaults to true when mentions are present.
+        agent_binding_id:
+          type: string
+    CommentPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Comment"
+        next_cursor:
+          type: string
     BugCreate:
       type: object
       required:

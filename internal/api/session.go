@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,11 +18,23 @@ func (s *Server) ensureHarnessSession(run domain.PipelineRun) error {
 	if s.Harness == nil {
 		return errors.New("session harness is not configured")
 	}
-	_, err := s.Harness.EnsureSession(harness.Session{ID: run.SessionID, TenantID: run.WorkspaceID, WorkspaceID: run.WorkspaceID})
+	_, err := s.Harness.EnsureSession(harness.Session{ID: run.SessionID, TenantID: run.WorkspaceID, WorkspaceID: run.WorkspaceID, BudgetTokens: harnessSessionBudget()})
 	if err != nil {
 		return fmt.Errorf("ensure durable session: %w", err)
 	}
 	return nil
+}
+
+func harnessSessionBudget() int64 {
+	value := strings.TrimSpace(os.Getenv("ADRO_SESSION_BUDGET_TOKENS"))
+	if value == "" {
+		return 0
+	}
+	budget, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || budget <= 0 {
+		return 0
+	}
+	return budget
 }
 
 func (s *Server) saveHarnessCheckpoint(sessionID string, phase harness.CheckpointPhase, eventHash string, contextVersion int64, outboxIDs, leaseIDs []string, state string) error {
@@ -80,10 +93,13 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 			return
 		}
 		var input struct {
-			ID           string `json:"id,omitempty"`
-			TenantID     string `json:"tenant_id,omitempty"`
-			WorkspaceID  string `json:"workspace_id"`
-			BudgetTokens int64  `json:"budget_tokens,omitempty"`
+			ID                   string  `json:"id,omitempty"`
+			TenantID             string  `json:"tenant_id,omitempty"`
+			WorkspaceID          string  `json:"workspace_id"`
+			BudgetTokens         int64   `json:"budget_tokens,omitempty"`
+			AutoCompaction       *bool   `json:"auto_compaction,omitempty"`
+			CompactionThreshold  float64 `json:"compaction_threshold,omitempty"`
+			CompactionRetainTail int     `json:"compaction_retain_tail,omitempty"`
 		}
 		if err := decodeJSON(r, &input); err != nil {
 			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
@@ -97,7 +113,11 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 			s.problem(w, r, http.StatusUnprocessableEntity, "validation_error", "workspace_id is required", nil)
 			return
 		}
-		created, err := s.Harness.CreateSession(harness.Session{ID: strings.TrimSpace(input.ID), TenantID: strings.TrimSpace(input.TenantID), WorkspaceID: strings.TrimSpace(input.WorkspaceID), BudgetTokens: input.BudgetTokens})
+		autoCompaction := input.BudgetTokens > 0
+		if input.AutoCompaction != nil {
+			autoCompaction = *input.AutoCompaction
+		}
+		created, err := s.Harness.CreateSession(harness.Session{ID: strings.TrimSpace(input.ID), TenantID: strings.TrimSpace(input.TenantID), WorkspaceID: strings.TrimSpace(input.WorkspaceID), BudgetTokens: input.BudgetTokens, AutoCompaction: autoCompaction, AutoCompactionSet: input.AutoCompaction != nil, CompactionThreshold: input.CompactionThreshold, CompactionRetainTail: input.CompactionRetainTail})
 		if err != nil {
 			status := http.StatusUnprocessableEntity
 			if errors.Is(err, harness.ErrConflict) {

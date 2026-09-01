@@ -105,6 +105,51 @@ func TestCompactionRequiresExactNonOverlappingWindowAndKeepsArchive(t *testing.T
 	}
 }
 
+func TestAutomaticCompactionUsesBudgetGuardAndKeepsTail(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "auto-session", TenantID: "tenant", WorkspaceID: "workspace", BudgetTokens: 10, CompactionRetainTail: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{strings.Repeat("first long turn ", 8), strings.Repeat("second long turn ", 8), strings.Repeat("third long turn ", 8)} {
+		if _, err := store.AppendTurn("auto-session", Turn{Role: RoleUser, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archives, err := store.ListArchives("auto-session")
+	if err != nil || len(archives) == 0 {
+		t.Fatalf("automatic archives=%+v err=%v", archives, err)
+	}
+	if archives[0].Reason != "automatic budget guard" || archives[0].StartSequence != 1 {
+		t.Fatalf("automatic archive=%+v", archives[0])
+	}
+	compiled, err := store.Compile("auto-session", 100)
+	if err != nil || !strings.Contains(compiled, "Auto-archived transcript") || !strings.Contains(compiled, "third long turn") {
+		t.Fatalf("compiled=%q err=%v", compiled, err)
+	}
+}
+
+func TestAutomaticCompactionCanBeDisabled(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "manual-session", TenantID: "tenant", WorkspaceID: "workspace", BudgetTokens: 10, AutoCompactionSet: true, AutoCompaction: false}); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{strings.Repeat("first long turn ", 8), strings.Repeat("second long turn ", 8)} {
+		if _, err := store.AppendTurn("manual-session", Turn{Role: RoleUser, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archives, err := store.ListArchives("manual-session")
+	if err != nil || len(archives) != 0 {
+		t.Fatalf("manual archives=%+v err=%v", archives, err)
+	}
+}
+
 func TestCompileIncludesMemoryAndHonorsBudget(t *testing.T) {
 	store := newTestSession(t, "")
 	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "the original requirement and constraints"})
@@ -171,6 +216,30 @@ func TestCheckpointContextVersionCannotRewind(t *testing.T) {
 	}
 	if _, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, EventHash: turn.Hash, Phase: CheckpointToolAfter, ContextVersion: 2}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("context checkpoint rewind accepted: %v", err)
+	}
+}
+
+func TestCheckpointReplayReturnsExistingRecord(t *testing.T) {
+	store := newTestSession(t, "")
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "dispatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := Checkpoint{TurnSequence: 1, EventHash: turn.Hash, Phase: CheckpointEffectAfter, ContextVersion: 1, OutboxIDs: []string{"outbox-1"}, State: "provider run recorded"}
+	first, err := store.SaveCheckpoint("session-1", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.SaveCheckpoint("session-1", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == "" || second.ID != first.ID {
+		t.Fatalf("checkpoint replay created a duplicate: first=%+v second=%+v", first, second)
+	}
+	checkpoints, err := store.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 1 {
+		t.Fatalf("checkpoint count=%d err=%v", len(checkpoints), err)
 	}
 }
 

@@ -119,6 +119,21 @@ arbitration, revalidation, and report. A failed integration test returns to the
 same development session and worktree; a missing or mismatched continuity
 record is rejected rather than silently starting over.
 
+Requirement and bug discussions are first-class, immutable threads:
+`GET/POST /api/v1/requirements/{id}/comments` and
+`GET/POST /api/v1/bugs/{id}/comments` support replies through `parent_id`,
+cursor pagination, explicit mentions, and an optional follow-up dispatch to the
+target agent. A follow-up appends to the durable session and uses the original
+provider session/worktree when continuity is proven; otherwise it is reported
+as unavailable instead of silently starting a new context. Mutations accept
+`Idempotency-Key` and replay the original response safely.
+
+有界 Session 默认启用自动上下文压缩：设置 `budget_tokens` 后，达到
+`compaction_threshold`（默认 80%）会归档最旧的连续 turn，并保留最近
+`compaction_retain_tail`（默认 4）条原文。归档带 source/replacement hash，
+完整 transcript 仍可审计和回放；需要高质量摘要时仍可调用 `/compact` 手动
+提供摘要，也可以在创建 Session 时显式关闭自动压缩。
+
 ## Architecture and extension points
 
 - `internal/domain`: tenant-scoped business contracts and state transitions.

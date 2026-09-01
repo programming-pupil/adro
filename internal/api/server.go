@@ -817,6 +817,11 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 				s.writeJSON(w, 200, map[string]any{"items": s.Store.ListWorkItems(id)})
 				return
 			}
+		case "comments":
+			if len(parts) == 2 {
+				s.commentRoute(w, r, "requirement", req.ID, req.WorkspaceID)
+				return
+			}
 		case "assignees", "repositories":
 			if r.Method == http.MethodPost {
 				s.addRelation(w, r, req, parts[1])
@@ -855,7 +860,8 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 		}
 	}
 	if r.Method == http.MethodGet {
-		s.writeJSON(w, 200, map[string]any{"requirement": req, "work_items": s.Store.ListWorkItems(id), "events": s.eventList(id, r), "attachments": s.Store.ListAttachments(req.WorkspaceID, "requirement", req.ID)})
+		comments, _ := s.Store.ListComments(req.WorkspaceID, "requirement", req.ID, "", 250)
+		s.writeJSON(w, 200, map[string]any{"requirement": req, "work_items": s.Store.ListWorkItems(id), "events": s.eventList(id, r), "comments": comments, "attachments": s.Store.ListAttachments(req.WorkspaceID, "requirement", req.ID)})
 		return
 	}
 	if r.Method != http.MethodPatch {
@@ -1152,7 +1158,7 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 				if workspaceID == "" {
 					workspaceID = "local"
 				}
-				if _, e = s.Harness.EnsureSession(harness.Session{ID: harnessSessionID, TenantID: tenant(r), WorkspaceID: workspaceID}); e != nil {
+				if _, e = s.Harness.EnsureSession(harness.Session{ID: harnessSessionID, TenantID: tenant(r), WorkspaceID: workspaceID, BudgetTokens: harnessSessionBudget()}); e != nil {
 					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", e.Error(), nil)
 					return
 				}
@@ -1241,10 +1247,16 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 			}
 			s.writeJSON(w, 200, b)
 			return
+		case "comments":
+			if len(parts) == 2 {
+				s.commentRoute(w, r, "bug", b.ID, b.WorkspaceID)
+				return
+			}
 		}
 	}
 	if r.Method == http.MethodGet {
-		s.writeJSON(w, 200, map[string]any{"bug": b, "attachments": s.Store.ListAttachments(b.WorkspaceID, "bug", b.ID)})
+		comments, _ := s.Store.ListComments(b.WorkspaceID, "bug", b.ID, "", 250)
+		s.writeJSON(w, 200, map[string]any{"bug": b, "comments": comments, "attachments": s.Store.ListAttachments(b.WorkspaceID, "bug", b.ID)})
 		return
 	}
 	s.problem(w, r, 405, "method_not_allowed", "method not allowed", nil)
@@ -1919,7 +1931,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 			if workspaceID == "" {
 				workspaceID = "local"
 			}
-			if _, harnessErr := s.Harness.EnsureSession(harness.Session{ID: sessionID, TenantID: tenant(r), WorkspaceID: workspaceID}); harnessErr != nil {
+			if _, harnessErr := s.Harness.EnsureSession(harness.Session{ID: sessionID, TenantID: tenant(r), WorkspaceID: workspaceID, BudgetTokens: harnessSessionBudget()}); harnessErr != nil {
 				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", harnessErr.Error(), nil)
 				return
 			}

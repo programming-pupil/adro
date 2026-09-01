@@ -52,6 +52,16 @@ The harness is an append-only session ledger:
    are explicit, so stale facts are not silently merged into the active context.
 5. Leases, outbox events, and recovery scans make an interrupted attempt
    observable and replayable. Duplicate claims are rejected atomically.
+6. Bounded sessions enable an automatic budget guard. The guard archives the
+   oldest contiguous transcript window, retains a configured tail, and keeps
+   source/replacement hashes so the complete transcript remains auditable.
+
+Requirement and bug comments are immutable, workspace-scoped records with
+parent/root pointers. A mention or explicit dispatch request appends a follow-up
+turn to the target session and dispatches the provider only after the durable
+outbox intent and before-effect checkpoint exist. Replays restore a missing
+after-effect checkpoint and use provider continuity only when the original
+session and work directory are proven.
 
 ## Seven-stage workflow
 

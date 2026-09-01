@@ -38,6 +38,8 @@ type providerDispatchIntent struct {
 	WorkItemID         string                        `json:"work_item_id,omitempty"`
 	RequirementID      string                        `json:"requirement_id,omitempty"`
 	BugID              string                        `json:"bug_id,omitempty"`
+	CommentID          string                        `json:"comment_id,omitempty"`
+	WorkspaceID        string                        `json:"workspace_id,omitempty"`
 	HarnessSessionID   string                        `json:"harness_session_id,omitempty"`
 	ContextID          string                        `json:"context_id,omitempty"`
 	ContextVersion     int64                         `json:"context_version,omitempty"`
@@ -153,6 +155,9 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 	if intent.Kind == "bug" {
 		return s.processBugDispatchIntent(ctx, event, intent)
 	}
+	if intent.Kind == "comment" {
+		return s.processCommentDispatchIntent(ctx, event, intent)
+	}
 	if strings.TrimSpace(intent.PipelineID) == "" || intent.ExpectedVersion <= 0 || !intent.Stage.Valid() || strings.TrimSpace(intent.AgentID) == "" || strings.TrimSpace(intent.TurnHash) == "" {
 		return errors.New("invalid provider dispatch intent")
 	}
@@ -247,7 +252,7 @@ func (s *Server) processWorkItemDispatchIntent(ctx context.Context, event harnes
 		return err
 	}
 	if provenance, found := s.Store.FindProvenance(item.ID); found && provenance.ProviderIdempotencyKey == event.IdempotencyKey && provenance.ProviderTaskID != "" {
-		return nil
+		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.Command.ContextVersion, []string{event.ID}, nil, "provider run recorded")
 	}
 	binding, err := s.Provider.StartRun(ctx, intent.Command)
 	if err != nil {
@@ -273,6 +278,59 @@ func (s *Server) processWorkItemDispatchIntent(ctx context.Context, event harnes
 	return nil
 }
 
+func (s *Server) processCommentDispatchIntent(ctx context.Context, event harness.OutboxEvent, intent providerDispatchIntent) error {
+	if strings.TrimSpace(intent.CommentID) == "" || strings.TrimSpace(intent.HarnessSessionID) == "" || strings.TrimSpace(intent.TurnHash) == "" || strings.TrimSpace(intent.AgentID) == "" {
+		return errors.New("invalid comment dispatch intent")
+	}
+	workItemID := strings.TrimSpace(intent.WorkItemID)
+	if workItemID == "" {
+		workItemID = "comment-" + intent.CommentID
+	}
+	if provenance, found := s.Store.FindProvenance(workItemID); found && provenance.ProviderIdempotencyKey == event.IdempotencyKey && provenance.ProviderTaskID != "" {
+		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "comment follow-up dispatched")
+	}
+	var binding provider.RunBinding
+	var err error
+	if intent.Continuation != nil {
+		continuity, ok := s.Provider.(provider.ContinuityProvider)
+		if !ok {
+			return errors.New("provider cannot continue the comment thread session")
+		}
+		binding, err = continuity.ContinueWorkItem(ctx, *intent.Continuation)
+		if err == nil && (!binding.SessionReused || binding.SessionID != intent.Continuation.ExpectedSessionID || filepathClean(binding.WorkDir) != filepathClean(intent.Continuation.ExpectedWorkDir)) {
+			err = errors.New("provider did not confirm the comment thread session and workdir")
+		}
+	} else {
+		binding, err = s.Provider.StartRun(ctx, intent.Command)
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(binding.ProviderRunID) == "" {
+		return errors.New("provider returned an empty run binding")
+	}
+	providerName := "local"
+	if caps, capsErr := s.Provider.Capabilities(ctx); capsErr == nil && caps.Provider != "" {
+		providerName = caps.Provider
+	}
+	repositoryID := ""
+	if intent.WorkItemID != "" {
+		if item, itemErr := s.Store.GetWorkItem(intent.WorkItemID); itemErr == nil {
+			repositoryID = item.RepositoryID
+		}
+	}
+	if err := s.Store.SaveProvenance(domain.Provenance{WorkItemID: workItemID, RequirementID: intent.RequirementID, BugID: intent.BugID, AgentBindingID: intent.AgentID, Provider: providerName, ProviderTaskID: binding.ProviderRunID, ProviderSessionID: binding.SessionID, ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: event.IdempotencyKey, RepositoryID: repositoryID, ContextVersion: intent.ContextVersion}); err != nil {
+		return err
+	}
+	if err := s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "comment follow-up dispatched"); err != nil {
+		return err
+	}
+	if s.Events != nil {
+		_ = s.Events.Publish(ctx, events.New("comment.follow_up.started.v1", "comment", intent.CommentID, "", intent.WorkspaceID, intent.ContextVersion, map[string]any{"comment_id": intent.CommentID, "run_id": binding.ProviderRunID, "session_id": binding.SessionID, "session_reused": binding.SessionReused}))
+	}
+	return nil
+}
+
 func (s *Server) processBugDispatchIntent(ctx context.Context, event harness.OutboxEvent, intent providerDispatchIntent) error {
 	if strings.TrimSpace(intent.BugID) == "" || strings.TrimSpace(intent.HarnessSessionID) == "" || strings.TrimSpace(intent.TurnHash) == "" || intent.RepairAttempt <= 0 {
 		return errors.New("invalid bug dispatch intent")
@@ -291,7 +349,7 @@ func (s *Server) processBugDispatchIntent(ctx context.Context, event harness.Out
 		providerWorkItemID = "bug-" + bug.ID
 	}
 	if provenance, found := s.Store.FindProvenance(providerWorkItemID); found && provenance.ProviderIdempotencyKey == event.IdempotencyKey && provenance.ProviderTaskID != "" {
-		return nil
+		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "bug repair provider run recorded")
 	}
 	intent.Command.WorkItemID = providerWorkItemID
 	binding, err := s.Provider.StartRun(ctx, intent.Command)

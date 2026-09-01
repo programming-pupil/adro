@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/artifact"
+	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -89,6 +90,47 @@ func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 	run := request(t, s.Routes(), http.MethodPost, "/api/v1/work-items/"+itemPage.Items[0].ID+"/run", `{"input":"design the change"}`, nil)
 	if run.Code != http.StatusAccepted {
 		t.Fatalf("run status=%d body=%s", run.Code, run.Body.String())
+	}
+}
+
+func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "Commentable requirement", Description: "exercise discussion", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.Store.CreateWorkItem(domain.WorkItem{RequirementID: requirement.ID, RepositoryID: "repo", MemberID: "member", DeveloperAgentBindingID: "agent-1", Role: "developer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"content":"Please clarify the API contract","dispatch":true}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer", "Idempotency-Key": "comment-root"})
+	if root.Code != http.StatusCreated || !strings.Contains(root.Body.String(), `"status":"started"`) {
+		t.Fatalf("root comment status=%d body=%s", root.Code, root.Body.String())
+	}
+	var rootBody struct {
+		Comment struct {
+			ID     string `json:"id"`
+			RootID string `json:"root_id"`
+		} `json:"comment"`
+	}
+	if err := json.Unmarshal(root.Body.Bytes(), &rootBody); err != nil || rootBody.Comment.ID == "" || rootBody.Comment.RootID != rootBody.Comment.ID {
+		t.Fatalf("root comment=%s err=%v", root.Body.String(), err)
+	}
+	reply := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"parent_id":"`+rootBody.Comment.ID+`","content":"The response must be idempotent"}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer-2"})
+	if reply.Code != http.StatusCreated || !strings.Contains(reply.Body.String(), rootBody.Comment.ID) {
+		t.Fatalf("reply status=%d body=%s", reply.Code, reply.Body.String())
+	}
+	list := request(t, s.Routes(), http.MethodGet, "/api/v1/requirements/"+requirement.ID+"/comments", "", map[string]string{"X-Workspace-ID": "w1"})
+	if list.Code != http.StatusOK || strings.Count(list.Body.String(), `"target_type":"requirement"`) != 2 {
+		t.Fatalf("comment list status=%d body=%s", list.Code, list.Body.String())
+	}
+	bug, _, err := s.Store.UpsertBug(domain.Bug{WorkspaceID: "w1", RequirementID: requirement.ID, WorkItemID: item.ID, RepositoryID: "repo", AssigneeMemberID: "agent-1", Title: "A reproducible bug", Fingerprint: "bug-fingerprint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bugComment := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/comments", `{"content":"@agent-1 please investigate","mentions":["agent-1"]}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
+	if bugComment.Code != http.StatusCreated || !strings.Contains(bugComment.Body.String(), `"requested":true`) {
+		t.Fatalf("bug comment status=%d body=%s", bugComment.Code, bugComment.Body.String())
 	}
 }
 

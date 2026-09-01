@@ -121,13 +121,17 @@ type MemoryItem struct {
 }
 
 type Session struct {
-	ID             string    `json:"id"`
-	TenantID       string    `json:"tenant_id"`
-	WorkspaceID    string    `json:"workspace_id"`
-	BudgetTokens   int64     `json:"budget_tokens"`
-	ContextVersion int64     `json:"context_version"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                   string    `json:"id"`
+	TenantID             string    `json:"tenant_id"`
+	WorkspaceID          string    `json:"workspace_id"`
+	BudgetTokens         int64     `json:"budget_tokens"`
+	AutoCompaction       bool      `json:"auto_compaction"`
+	CompactionThreshold  float64   `json:"compaction_threshold"`
+	CompactionRetainTail int       `json:"compaction_retain_tail"`
+	AutoCompactionSet    bool      `json:"-"`
+	ContextVersion       int64     `json:"context_version"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 type Lease struct {
@@ -164,16 +168,19 @@ type Recovery struct {
 }
 
 type ContextStatus struct {
-	SessionID       string `json:"session_id"`
-	ContextVersion  int64  `json:"context_version"`
-	TurnCount       int    `json:"turn_count"`
-	ArchivedTurns   int    `json:"archived_turns"`
-	TokenEstimate   int64  `json:"token_estimate"`
-	BudgetTokens    int64  `json:"budget_tokens"`
-	ArchiveCount    int    `json:"archive_count"`
-	MemoryCount     int    `json:"memory_count"`
-	CheckpointCount int    `json:"checkpoint_count"`
-	LastTurnHash    string `json:"last_turn_hash,omitempty"`
+	SessionID            string  `json:"session_id"`
+	ContextVersion       int64   `json:"context_version"`
+	TurnCount            int     `json:"turn_count"`
+	ArchivedTurns        int     `json:"archived_turns"`
+	TokenEstimate        int64   `json:"token_estimate"`
+	BudgetTokens         int64   `json:"budget_tokens"`
+	ArchiveCount         int     `json:"archive_count"`
+	MemoryCount          int     `json:"memory_count"`
+	CheckpointCount      int     `json:"checkpoint_count"`
+	AutoCompaction       bool    `json:"auto_compaction"`
+	CompactionThreshold  float64 `json:"compaction_threshold"`
+	CompactionRetainTail int     `json:"compaction_retain_tail"`
+	LastTurnHash         string  `json:"last_turn_hash,omitempty"`
 }
 
 type sessionState struct {
@@ -304,6 +311,25 @@ func (s *Store) CreateSession(session Session) (Session, error) {
 	if session.BudgetTokens < 0 {
 		return Session{}, errors.New("budget_tokens cannot be negative")
 	}
+	if session.CompactionThreshold <= 0 {
+		session.CompactionThreshold = 0.80
+	}
+	if session.CompactionThreshold > 1 {
+		return Session{}, errors.New("compaction_threshold must be in (0,1]")
+	}
+	if session.CompactionRetainTail < 0 {
+		return Session{}, errors.New("compaction_retain_tail cannot be negative")
+	}
+	if session.BudgetTokens > 0 {
+		// A bounded session needs an automatic guard by default. The explicit
+		// compact endpoint remains available when a caller has a better summary.
+		if !session.AutoCompactionSet {
+			session.AutoCompaction = true
+		}
+		if session.CompactionRetainTail == 0 {
+			session.CompactionRetainTail = 4
+		}
+	}
 	if _, exists := s.sessions[session.ID]; exists {
 		return Session{}, ErrConflict
 	}
@@ -421,9 +447,14 @@ func (s *Store) AppendTurn(sessionID string, turn Turn) (Turn, error) {
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
+	_, autoCompacted := autoCompactLocked(&state)
 	s.sessions[sessionID] = state
 	if err := s.persistLocked(); err != nil {
 		state.Turns = state.Turns[:len(state.Turns)-1]
+		if autoCompacted {
+			state.Archives = state.Archives[:len(state.Archives)-1]
+			state.Session.ContextVersion--
+		}
 		s.sessions[sessionID] = state
 		return Turn{}, fmt.Errorf("persist turn: %w", err)
 	}
@@ -479,6 +510,21 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 	if len(state.Checkpoints) > 0 && checkpoint.ContextVersion < state.Checkpoints[len(state.Checkpoints)-1].ContextVersion {
 		return Checkpoint{}, ErrConflict
 	}
+	// A provider dispatch may have committed its provenance before the process
+	// lost the response while writing the after-effect checkpoint. Replaying
+	// the durable intent must converge on the existing checkpoint instead of
+	// growing an unbounded duplicate trail.
+	for _, existing := range state.Checkpoints {
+		if existing.TurnSequence == checkpoint.TurnSequence &&
+			existing.Phase == checkpoint.Phase &&
+			existing.EventHash == checkpoint.EventHash &&
+			existing.ContextVersion == checkpoint.ContextVersion &&
+			existing.State == checkpoint.State &&
+			sameStrings(existing.OutboxIDs, checkpoint.OutboxIDs) &&
+			sameStrings(existing.LeaseIDs, checkpoint.LeaseIDs) {
+			return cloneCheckpoint(existing), nil
+		}
+	}
 	checkpoint.ID = strings.TrimSpace(checkpoint.ID)
 	if checkpoint.ID == "" {
 		checkpoint.ID = domain.NewID()
@@ -528,6 +574,24 @@ func (s *Store) Compact(sessionID string, request CompactRequest) (ArchiveWindow
 	if !ok {
 		return ArchiveWindow{}, ErrNotFound
 	}
+	archive, err := compactLocked(&state, request)
+	if err != nil {
+		return ArchiveWindow{}, err
+	}
+	s.sessions[sessionID] = state
+	if err := s.persistLocked(); err != nil {
+		state.Archives = state.Archives[:len(state.Archives)-1]
+		state.Session.ContextVersion--
+		s.sessions[sessionID] = state
+		return ArchiveWindow{}, fmt.Errorf("persist compaction: %w", err)
+	}
+	return archive, nil
+}
+
+func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, error) {
+	if state == nil {
+		return ArchiveWindow{}, ErrNotFound
+	}
 	if request.StartSequence < 1 || request.EndSequence < request.StartSequence || request.EndSequence > int64(len(state.Turns)) || strings.TrimSpace(request.Summary) == "" {
 		return ArchiveWindow{}, errors.New("invalid compaction window or summary")
 	}
@@ -549,21 +613,120 @@ func (s *Store) Compact(sessionID string, request CompactRequest) (ArchiveWindow
 	}
 	sourceHash := digest([]byte(source.String()))
 	replacementHash := digest([]byte(strings.TrimSpace(request.Summary)))
-	archive := ArchiveWindow{ID: domain.NewID(), SessionID: sessionID, StartSequence: request.StartSequence, EndSequence: request.EndSequence, SourceHash: sourceHash, ReplacementHash: replacementHash, Summary: strings.TrimSpace(request.Summary), RetainedTail: request.RetainedTail, Reason: strings.TrimSpace(request.Reason), CreatedAt: time.Now().UTC()}
+	archive := ArchiveWindow{ID: domain.NewID(), SessionID: state.Session.ID, StartSequence: request.StartSequence, EndSequence: request.EndSequence, SourceHash: sourceHash, ReplacementHash: replacementHash, Summary: strings.TrimSpace(request.Summary), RetainedTail: request.RetainedTail, Reason: strings.TrimSpace(request.Reason), CreatedAt: time.Now().UTC()}
 	if len(state.Archives) > 0 {
 		archive.ParentArchiveID = state.Archives[len(state.Archives)-1].ID
 	}
 	state.Archives = append(state.Archives, archive)
 	state.Session.ContextVersion++
 	state.Session.UpdatedAt = archive.CreatedAt
-	s.sessions[sessionID] = state
-	if err := s.persistLocked(); err != nil {
-		state.Archives = state.Archives[:len(state.Archives)-1]
-		state.Session.ContextVersion--
-		s.sessions[sessionID] = state
-		return ArchiveWindow{}, fmt.Errorf("persist compaction: %w", err)
-	}
 	return archive, nil
+}
+
+// autoCompactLocked archives the oldest unarchived turns once a bounded
+// session reaches its configured threshold. The generated summary is
+// deterministic and provenance-preserving; callers can still replace it with
+// a higher-quality model summary through Compact because the full transcript
+// remains intact for audit and replay.
+func autoCompactLocked(state *sessionState) (ArchiveWindow, bool) {
+	if state == nil || !state.Session.AutoCompaction || state.Session.BudgetTokens <= 0 || len(state.Turns) == 0 {
+		return ArchiveWindow{}, false
+	}
+	threshold := state.Session.CompactionThreshold
+	if threshold <= 0 || threshold > 1 {
+		threshold = 0.80
+	}
+	budget := state.Session.BudgetTokens
+	var total int64
+	for _, turn := range state.Turns {
+		if !turnArchived(state.Archives, turn.Sequence) {
+			total += estimateTokens(turn.Content)
+		}
+	}
+	if float64(total) <= float64(budget)*threshold {
+		return ArchiveWindow{}, false
+	}
+	retain := state.Session.CompactionRetainTail
+	if retain < 1 {
+		retain = 1
+	}
+	active := make([]Turn, 0, len(state.Turns))
+	started := false
+	for _, turn := range state.Turns {
+		if turnArchived(state.Archives, turn.Sequence) {
+			if started {
+				break
+			}
+			continue
+		}
+		started = true
+		active = append(active, turn)
+	}
+	if len(active) <= retain {
+		return ArchiveWindow{}, false
+	}
+	end := active[len(active)-retain-1].Sequence
+	start := active[0].Sequence
+	selected := active[:len(active)-retain]
+	var selectedTokens int64
+	for _, turn := range selected {
+		selectedTokens += estimateTokens(turn.Content)
+	}
+	// A tiny window is cheaper and more faithful when left as-is. The bounded
+	// compiler will truncate it if the caller chose an unusually small budget.
+	if selectedTokens < 16 {
+		return ArchiveWindow{}, false
+	}
+	summary := automaticSummary(selected, budget)
+	archive, err := compactLocked(state, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary, RetainedTail: retain, Reason: "automatic budget guard"})
+	if err != nil {
+		return ArchiveWindow{}, false
+	}
+	return archive, true
+}
+
+func turnArchived(archives []ArchiveWindow, sequence int64) bool {
+	for _, archive := range archives {
+		if sequence >= archive.StartSequence && sequence <= archive.EndSequence {
+			return true
+		}
+	}
+	return false
+}
+
+func automaticSummary(turns []Turn, budget int64) string {
+	sourceRunes := 0
+	for _, turn := range turns {
+		sourceRunes += len([]rune(turn.Content)) + 24
+	}
+	maxRunes := sourceRunes / 3
+	budgetRunes := int(budget * 2)
+	if budgetRunes > 0 && maxRunes > budgetRunes {
+		maxRunes = budgetRunes
+	}
+	if maxRunes < 96 {
+		maxRunes = 96
+	}
+	if maxRunes > 12000 {
+		maxRunes = 12000
+	}
+	var builder strings.Builder
+	builder.WriteString("Auto-archived transcript; full turns remain available for replay.\n")
+	for _, turn := range turns {
+		line := fmt.Sprintf("[%d %s] %s\n", turn.Sequence, turn.Role, strings.TrimSpace(turn.Content))
+		remaining := maxRunes - builder.Len()
+		if remaining <= 0 {
+			break
+		}
+		if len([]rune(line)) > remaining {
+			runes := []rune(line)
+			if remaining > 4 {
+				line = string(runes[:remaining-4]) + "...\n"
+			}
+		}
+		builder.WriteString(line)
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
@@ -651,7 +814,7 @@ func (s *Store) ContextStatus(sessionID string) (ContextStatus, error) {
 			tokens += int64(len([]rune(turn.Content))+3) / 4
 		}
 	}
-	status := ContextStatus{SessionID: sessionID, ContextVersion: state.Session.ContextVersion, TurnCount: len(state.Turns), ArchivedTurns: archived, TokenEstimate: tokens, BudgetTokens: state.Session.BudgetTokens, ArchiveCount: len(state.Archives), MemoryCount: len(state.Memories), CheckpointCount: len(state.Checkpoints)}
+	status := ContextStatus{SessionID: sessionID, ContextVersion: state.Session.ContextVersion, TurnCount: len(state.Turns), ArchivedTurns: archived, TokenEstimate: tokens, BudgetTokens: state.Session.BudgetTokens, ArchiveCount: len(state.Archives), MemoryCount: len(state.Memories), CheckpointCount: len(state.Checkpoints), AutoCompaction: state.Session.AutoCompaction, CompactionThreshold: state.Session.CompactionThreshold, CompactionRetainTail: state.Session.CompactionRetainTail}
 	if len(state.Turns) > 0 {
 		status.LastTurnHash = state.Turns[len(state.Turns)-1].Hash
 	}
@@ -1141,6 +1304,18 @@ func hasMemoryID(items []MemoryItem, value string) bool {
 		}
 	}
 	return false
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneTurn(turn Turn) Turn {

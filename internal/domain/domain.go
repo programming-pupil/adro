@@ -110,6 +110,40 @@ type Requirement struct {
 	UpdatedAt          time.Time         `json:"updated_at"`
 }
 
+// Comment is an immutable, provider-neutral discussion entry attached to a
+// requirement or bug. Replies point at ParentID and RootID makes it possible
+// to render a complete thread without depending on provider-native comments.
+type Comment struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	TargetType  string    `json:"target_type"`
+	TargetID    string    `json:"target_id"`
+	ParentID    string    `json:"parent_id,omitempty"`
+	RootID      string    `json:"root_id"`
+	AuthorID    string    `json:"author_id"`
+	AuthorType  string    `json:"author_type"`
+	Content     string    `json:"content"`
+	Mentions    []string  `json:"mentions,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (c Comment) Validate() error {
+	if strings.TrimSpace(c.WorkspaceID) == "" || strings.TrimSpace(c.TargetID) == "" {
+		return errors.New("workspace_id and target_id are required")
+	}
+	if c.TargetType != "requirement" && c.TargetType != "bug" {
+		return errors.New("target_type must be requirement or bug")
+	}
+	if strings.TrimSpace(c.AuthorID) == "" || strings.TrimSpace(c.Content) == "" {
+		return errors.New("author_id and content are required")
+	}
+	if c.AuthorType != "member" && c.AuthorType != "agent" && c.AuthorType != "system" {
+		return errors.New("author_type must be member, agent, or system")
+	}
+	return nil
+}
+
 func (r Requirement) Validate() error {
 	if strings.TrimSpace(r.Title) == "" {
 		return errors.New("title is required")
