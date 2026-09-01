@@ -32,7 +32,7 @@ func (Engine) Apply(run domain.PipelineRun, result domain.PipelineStepResult) (d
 	if result.Stage != run.PipelineStage {
 		return run, ErrStaleStage
 	}
-	expectedAgent := run.Roles.AgentFor(run.PipelineStage)
+	expectedAgent := run.AgentFor(run.PipelineStage)
 	if strings.TrimSpace(result.AgentID) == "" || result.AgentID != expectedAgent {
 		return run, ErrWrongAgent
 	}
@@ -100,7 +100,7 @@ func (Engine) Apply(run domain.PipelineRun, result domain.PipelineStepResult) (d
 	run.SuspendReason = reason
 	run.ActiveProviderIssueID = result.ProviderIssueID
 	run.ActiveProviderTaskID = result.ProviderTaskID
-	run.ActiveAgentID = run.Roles.AgentFor(next)
+	run.ActiveAgentID = run.AgentFor(next)
 	if next == domain.PipelineReport && result.Report != "" {
 		run.FinalReport = result.Report
 	}
@@ -121,6 +121,9 @@ func (Engine) Apply(run domain.PipelineRun, result domain.PipelineStepResult) (d
 }
 
 func nextStage(run domain.PipelineRun, result domain.PipelineStepResult) (domain.PipelineStage, domain.PipelineStatus, string, error) {
+	if len(run.Workflow) > 0 {
+		return nextCustomStage(run, result)
+	}
 	pass := result.Outcome == "pass"
 	switch run.PipelineStage {
 	case domain.PipelineDesign:
@@ -129,6 +132,9 @@ func nextStage(run domain.PipelineRun, result domain.PipelineStepResult) (domain
 		}
 		if strings.TrimSpace(result.DesignDoc) == "" {
 			return 0, "", "", errors.New("design stage requires design_doc")
+		}
+		if run.WorkflowMode == domain.WorkflowDesignApproval && run.DesignApprovalStatus != "approved" {
+			return domain.PipelineDesign, domain.PipelineWaitingApproval, "design approval required", nil
 		}
 		return domain.PipelineDevelopment, domain.PipelineRunning, "", nil
 	case domain.PipelineDevelopment:
@@ -182,6 +188,86 @@ func nextStage(run domain.PipelineRun, result domain.PipelineStepResult) (domain
 	default:
 		return 0, "", "", errors.New("invalid pipeline stage")
 	}
+}
+
+func nextCustomStage(run domain.PipelineRun, result domain.PipelineStepResult) (domain.PipelineStage, domain.PipelineStatus, string, error) {
+	pass := result.Outcome == "pass"
+	current := run.PipelineStage
+	if current == domain.PipelineDesign {
+		if !pass {
+			return current, domain.PipelineSuspended, "design generation failed", nil
+		}
+		if strings.TrimSpace(result.DesignDoc) == "" {
+			return 0, "", "", errors.New("design stage requires design_doc")
+		}
+		if run.WorkflowMode == domain.WorkflowDesignApproval && run.DesignApprovalStatus != "approved" {
+			return current, domain.PipelineWaitingApproval, "design approval required", nil
+		}
+	}
+	if current == domain.PipelineDevelopment {
+		if !pass {
+			if run.RetryCount >= retryLimit(run, current) {
+				return current, domain.PipelineSuspended, "development retry limit reached", nil
+			}
+			return current, domain.PipelineRunning, "", nil
+		}
+		if strings.TrimSpace(result.CodeVersion) == "" {
+			return 0, "", "", errors.New("development stage requires code_version")
+		}
+	}
+	if current == domain.PipelineUnitTest && (!pass || result.Coverage < run.CoverageThreshold) {
+		if run.UnitRetryCount >= retryLimit(run, current) {
+			return current, domain.PipelineSuspended, "unit-test or coverage retry limit reached", nil
+		}
+		return current, domain.PipelineRunning, "", nil
+	}
+	if current == domain.PipelineReport {
+		if !pass {
+			return current, domain.PipelineSuspended, "report generation failed", nil
+		}
+		if strings.TrimSpace(result.Report) == "" {
+			return 0, "", "", errors.New("report stage requires report")
+		}
+		return current, domain.PipelineCompleted, "", nil
+	}
+	if current == domain.PipelineIntegration && !pass {
+		if run.HasStage(domain.PipelineArbitration) {
+			return domain.PipelineArbitration, domain.PipelineRunning, "", nil
+		}
+		if run.HasStage(domain.PipelineDevelopment) && run.RetryCount < retryLimit(run, domain.PipelineDevelopment) {
+			return domain.PipelineDevelopment, domain.PipelineRunning, "", nil
+		}
+		return current, domain.PipelineSuspended, "integration failed and no repair stage is configured", nil
+	}
+	if current == domain.PipelineArbitration {
+		if !pass {
+			return current, domain.PipelineSuspended, "arbitrator rejected automatic repair", nil
+		}
+		if run.RetryCount > retryLimit(run, current) {
+			return current, domain.PipelineSuspended, "repair retry limit reached", nil
+		}
+		if run.HasStage(domain.PipelineDevelopment) {
+			return domain.PipelineDevelopment, domain.PipelineRunning, "", nil
+		}
+	}
+	if current == domain.PipelineRevalidation && !pass {
+		if run.HasStage(domain.PipelineArbitration) {
+			return domain.PipelineArbitration, domain.PipelineRunning, "", nil
+		}
+		return current, domain.PipelineSuspended, "revalidation failed and no arbitration stage is configured", nil
+	}
+	next := run.NextSelectedStage(current)
+	if next == current && current != domain.PipelineReport {
+		return current, domain.PipelineSuspended, "workflow has no subsequent stage", nil
+	}
+	return next, domain.PipelineRunning, "", nil
+}
+
+func retryLimit(run domain.PipelineRun, stage domain.PipelineStage) int {
+	if step := run.StepFor(stage); step.RetryLimit > 0 {
+		return step.RetryLimit
+	}
+	return run.MaxRetries
 }
 
 func appendUnique(existing []string, values ...string) []string {

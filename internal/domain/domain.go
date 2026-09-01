@@ -105,6 +105,7 @@ type Requirement struct {
 	AssigneeMemberIDs  []string          `json:"assignee_member_ids"`
 	RepositoryIDs      []string          `json:"repository_ids"`
 	WorkflowTemplateID string            `json:"workflow_template_id,omitempty"`
+	WorkflowMode       WorkflowMode      `json:"workflow_mode,omitempty"`
 	Version            int64             `json:"version"`
 	CreatedAt          time.Time         `json:"created_at"`
 	UpdatedAt          time.Time         `json:"updated_at"`

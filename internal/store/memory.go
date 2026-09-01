@@ -21,34 +21,37 @@ var ErrNotFound = errors.New("not found")
 var ErrConflict = errors.New("conflict")
 
 type Memory struct {
-	mu               sync.RWMutex
-	statePath        string
-	requirements     map[string]domain.Requirement
-	bugs             map[string]domain.Bug
-	attachments      map[string]domain.EntityAttachment
-	comments         map[string]domain.Comment
-	commentFollowUps map[string]domain.CommentFollowUp
-	workItems        map[string]domain.WorkItem
-	evidence         map[string]domain.EvidenceBundle
-	provenance       map[string]domain.Provenance
-	providerBindings map[string]domain.ProviderBinding
-	impactReports    map[string][]domain.ImpactReport
-	idempotency      map[string]any
-	repositories     map[string]domain.Repository
-	teamWorkspaces   map[string]domain.TeamWorkspace
-	profiles         map[string]domain.DeveloperProfile
-	mcpServers       map[string]domain.MCPServer
-	skills           map[string]domain.Skill
-	automations      map[string]domain.Automation
-	approvals        map[string]domain.Approval
-	diffs            map[string]domain.DiffSnapshot
-	migrations       map[string]domain.ArtifactMigration
-	invocations      map[string]domain.MCPInvocation
-	bindings         map[string]domain.CapabilityBinding
-	automationRuns   map[string]domain.AutomationRun
-	contexts         map[string][]domain.ContextManifest
-	repairAttempts   map[string][]domain.RepairAttempt
-	pipelines        map[string]domain.PipelineRun
+	mu                sync.RWMutex
+	statePath         string
+	requirements      map[string]domain.Requirement
+	bugs              map[string]domain.Bug
+	attachments       map[string]domain.EntityAttachment
+	comments          map[string]domain.Comment
+	commentFollowUps  map[string]domain.CommentFollowUp
+	workItems         map[string]domain.WorkItem
+	evidence          map[string]domain.EvidenceBundle
+	provenance        map[string]domain.Provenance
+	providerBindings  map[string]domain.ProviderBinding
+	impactReports     map[string][]domain.ImpactReport
+	idempotency       map[string]any
+	repositories      map[string]domain.Repository
+	teamWorkspaces    map[string]domain.TeamWorkspace
+	profiles          map[string]domain.DeveloperProfile
+	mcpServers        map[string]domain.MCPServer
+	skills            map[string]domain.Skill
+	automations       map[string]domain.Automation
+	approvals         map[string]domain.Approval
+	diffs             map[string]domain.DiffSnapshot
+	migrations        map[string]domain.ArtifactMigration
+	invocations       map[string]domain.MCPInvocation
+	bindings          map[string]domain.CapabilityBinding
+	automationRuns    map[string]domain.AutomationRun
+	contexts          map[string][]domain.ContextManifest
+	repairAttempts    map[string][]domain.RepairAttempt
+	pipelines         map[string]domain.PipelineRun
+	workflowTemplates map[string]domain.WorkflowTemplate
+	chatSessions      map[string]domain.ChatSession
+	chatMessages      map[string][]domain.ChatMessage
 }
 
 func NewMemory() *Memory {
@@ -70,37 +73,40 @@ func NewPersistentMemory(path string) (*Memory, error) {
 }
 
 func newMemory(path string) *Memory {
-	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, commentFollowUps: map[string]domain.CommentFollowUp{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, providerBindings: map[string]domain.ProviderBinding{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}}
+	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, commentFollowUps: map[string]domain.CommentFollowUp{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}, workflowTemplates: map[string]domain.WorkflowTemplate{}, chatSessions: map[string]domain.ChatSession{}, chatMessages: map[string][]domain.ChatMessage{}}
 }
 
 type persistedState struct {
-	Version          int                                 `json:"version"`
-	Requirements     map[string]domain.Requirement       `json:"requirements"`
-	Bugs             map[string]domain.Bug               `json:"bugs"`
-	Attachments      map[string]domain.EntityAttachment  `json:"attachments"`
-	Comments         map[string]domain.Comment           `json:"comments"`
-	CommentFollowUps map[string]domain.CommentFollowUp   `json:"comment_follow_ups,omitempty"`
-	WorkItems        map[string]domain.WorkItem          `json:"work_items"`
-	Evidence         map[string]domain.EvidenceBundle    `json:"evidence"`
-	Provenance       map[string]domain.Provenance        `json:"provenance"`
-	ProviderBindings map[string]domain.ProviderBinding   `json:"provider_bindings"`
-	ImpactReports    map[string][]domain.ImpactReport    `json:"impact_reports"`
-	Idempotency      map[string]json.RawMessage          `json:"idempotency"`
-	Repositories     map[string]domain.Repository        `json:"repositories"`
-	TeamWorkspaces   map[string]domain.TeamWorkspace     `json:"team_workspaces"`
-	Profiles         map[string]domain.DeveloperProfile  `json:"profiles"`
-	MCPServers       map[string]domain.MCPServer         `json:"mcp_servers"`
-	Skills           map[string]domain.Skill             `json:"skills"`
-	Automations      map[string]domain.Automation        `json:"automations"`
-	Approvals        map[string]domain.Approval          `json:"approvals"`
-	Diffs            map[string]domain.DiffSnapshot      `json:"diffs"`
-	Migrations       map[string]domain.ArtifactMigration `json:"migrations"`
-	Invocations      map[string]domain.MCPInvocation     `json:"invocations"`
-	Bindings         map[string]domain.CapabilityBinding `json:"bindings"`
-	AutomationRuns   map[string]domain.AutomationRun     `json:"automation_runs"`
-	Contexts         map[string][]domain.ContextManifest `json:"contexts"`
-	RepairAttempts   map[string][]domain.RepairAttempt   `json:"repair_attempts"`
-	Pipelines        map[string]domain.PipelineRun       `json:"pipelines"`
+	Version           int                                 `json:"version"`
+	Requirements      map[string]domain.Requirement       `json:"requirements"`
+	Bugs              map[string]domain.Bug               `json:"bugs"`
+	Attachments       map[string]domain.EntityAttachment  `json:"attachments"`
+	Comments          map[string]domain.Comment           `json:"comments"`
+	CommentFollowUps  map[string]domain.CommentFollowUp   `json:"comment_follow_ups,omitempty"`
+	WorkItems         map[string]domain.WorkItem          `json:"work_items"`
+	Evidence          map[string]domain.EvidenceBundle    `json:"evidence"`
+	Provenance        map[string]domain.Provenance        `json:"provenance"`
+	ProviderBindings  map[string]domain.ProviderBinding   `json:"provider_bindings"`
+	ImpactReports     map[string][]domain.ImpactReport    `json:"impact_reports"`
+	Idempotency       map[string]json.RawMessage          `json:"idempotency"`
+	Repositories      map[string]domain.Repository        `json:"repositories"`
+	TeamWorkspaces    map[string]domain.TeamWorkspace     `json:"team_workspaces"`
+	Profiles          map[string]domain.DeveloperProfile  `json:"profiles"`
+	MCPServers        map[string]domain.MCPServer         `json:"mcp_servers"`
+	Skills            map[string]domain.Skill             `json:"skills"`
+	Automations       map[string]domain.Automation        `json:"automations"`
+	Approvals         map[string]domain.Approval          `json:"approvals"`
+	Diffs             map[string]domain.DiffSnapshot      `json:"diffs"`
+	Migrations        map[string]domain.ArtifactMigration `json:"migrations"`
+	Invocations       map[string]domain.MCPInvocation     `json:"invocations"`
+	Bindings          map[string]domain.CapabilityBinding `json:"bindings"`
+	AutomationRuns    map[string]domain.AutomationRun     `json:"automation_runs"`
+	Contexts          map[string][]domain.ContextManifest `json:"contexts"`
+	RepairAttempts    map[string][]domain.RepairAttempt   `json:"repair_attempts"`
+	Pipelines         map[string]domain.PipelineRun       `json:"pipelines"`
+	WorkflowTemplates map[string]domain.WorkflowTemplate  `json:"workflow_templates,omitempty"`
+	ChatSessions      map[string]domain.ChatSession       `json:"chat_sessions,omitempty"`
+	ChatMessages      map[string][]domain.ChatMessage     `json:"chat_messages,omitempty"`
 }
 
 // Flush makes the latest in-memory state durable. It is safe to call after
@@ -131,6 +137,7 @@ func (m *Memory) load() error {
 		"skills": state.Skills, "automations": state.Automations, "approvals": state.Approvals,
 		"diffs": state.Diffs, "migrations": state.Migrations, "invocations": state.Invocations,
 		"bindings": state.Bindings, "automation_runs": state.AutomationRuns,
+		"workflow_templates": state.WorkflowTemplates, "chat_sessions": state.ChatSessions, "chat_messages": state.ChatMessages,
 	} {
 		if value == nil {
 			continue
@@ -178,6 +185,12 @@ func (m *Memory) load() error {
 			m.bindings = value.(map[string]domain.CapabilityBinding)
 		case "automation_runs":
 			m.automationRuns = value.(map[string]domain.AutomationRun)
+		case "workflow_templates":
+			m.workflowTemplates = value.(map[string]domain.WorkflowTemplate)
+		case "chat_sessions":
+			m.chatSessions = value.(map[string]domain.ChatSession)
+		case "chat_messages":
+			m.chatMessages = value.(map[string][]domain.ChatMessage)
 		}
 	}
 	if state.ImpactReports != nil {
@@ -202,7 +215,7 @@ func (m *Memory) persistLocked() error {
 	if strings.TrimSpace(m.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 2, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines}
+	state := persistedState{Version: 3, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines, WorkflowTemplates: m.workflowTemplates, ChatSessions: m.chatSessions, ChatMessages: m.chatMessages}
 	for key, value := range m.idempotency {
 		if raw, ok := value.(json.RawMessage); ok {
 			state.Idempotency[key] = raw
@@ -846,7 +859,7 @@ func (m *Memory) UpdateBug(b domain.Bug) error {
 }
 
 func (m *Memory) SaveAttachment(item domain.EntityAttachment) (domain.EntityAttachment, error) {
-	if strings.TrimSpace(item.OwnerID) == "" || (item.OwnerType != "requirement" && item.OwnerType != "bug") {
+	if strings.TrimSpace(item.OwnerID) == "" || (item.OwnerType != "requirement" && item.OwnerType != "bug" && item.OwnerType != "chat_session") {
 		return domain.EntityAttachment{}, errors.New("attachment owner_type and owner_id are required")
 	}
 	if strings.TrimSpace(item.ArtifactURI) == "" || strings.TrimSpace(item.Filename) == "" {
@@ -1099,6 +1112,9 @@ func (m *Memory) SaveProviderBinding(binding domain.ProviderBinding) (domain.Pro
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.providerBindings == nil {
+		m.providerBindings = make(map[string]domain.ProviderBinding)
+	}
 	if existing, ok := m.providerBindings[binding.ID]; ok {
 		return existing, nil
 	}
@@ -1966,6 +1982,9 @@ func (m *Memory) UpdateAutomationRun(id, status, takenOverBy string) (domain.Aut
 }
 
 func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, error) {
+	if len(run.Workflow) > 0 {
+		run.Workflow = domain.NormalizeWorkflow(run.Workflow)
+	}
 	if run.ID == "" {
 		run.ID = domain.NewID()
 	}
@@ -1974,6 +1993,9 @@ func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, err
 	}
 	if run.PipelineStage == 0 {
 		run.PipelineStage = domain.PipelineDesign
+		if len(run.Workflow) > 0 {
+			run.PipelineStage = run.Workflow[0].Stage
+		}
 	}
 	if run.Status == "" {
 		run.Status = domain.PipelineRunning
@@ -1989,7 +2011,7 @@ func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, err
 	}
 	now := time.Now().UTC()
 	run.CreatedAt, run.UpdatedAt, run.Version = now, now, 1
-	run.ActiveAgentID = run.Roles.AgentFor(run.PipelineStage)
+	run.ActiveAgentID = run.AgentFor(run.PipelineStage)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, existing := range m.pipelines {

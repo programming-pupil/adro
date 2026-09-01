@@ -364,6 +364,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.requirements(w, r)
 	case path == "/api/v1/pipelines" || strings.HasPrefix(path, "/api/v1/pipelines/"):
 		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
+	case path == "/api/v1/workflow-templates" || strings.HasPrefix(path, "/api/v1/workflow-templates/"):
+		s.workflowTemplateRoute(w, r, strings.TrimPrefix(path, "/api/v1/workflow-templates"))
+	case path == "/api/v1/chats" || strings.HasPrefix(path, "/api/v1/chats/"):
+		s.chatRoute(w, r, strings.TrimPrefix(path, "/api/v1/chats"))
 	case path == "/api/v1/sessions" || strings.HasPrefix(path, "/api/v1/sessions/"):
 		s.sessionRoute(w, r, strings.TrimPrefix(path, "/api/v1/sessions"))
 	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/follow-up"):
@@ -1357,6 +1361,9 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 	case "bug":
 		item, err := s.Store.GetBug(ownerID)
 		return item.WorkspaceID, err == nil
+	case "chat_session":
+		item, err := s.Store.GetChatSession(ownerID)
+		return item.WorkspaceID, err == nil
 	default:
 		return "", false
 	}
@@ -1364,12 +1371,12 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 
 func (s *Server) canUseAttachmentOwner(user adroauth.User, authenticated, machine bool, ownerType string) bool {
 	if machine || !authenticated && !authRequired() {
-		return ownerType == "requirement" || ownerType == "bug"
+		return ownerType == "requirement" || ownerType == "bug" || ownerType == "chat_session"
 	}
 	if !authenticated {
 		return false
 	}
-	return ownerType == "requirement" && user.Can("requirements") || ownerType == "bug" && user.Can("bugs")
+	return ownerType == "requirement" && user.Can("requirements") || ownerType == "bug" && user.Can("bugs") || ownerType == "chat_session" && user.Can("executions")
 }
 
 func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
@@ -3011,6 +3018,15 @@ func (s *Server) approvalRoute(w http.ResponseWriter, r *http.Request, path stri
 				return
 			}
 			s.recordAudit(r, saved.WorkspaceID, "approval.decided", saved.ID, map[string]any{"decision": saved.Decision})
+			if saved.Kind == "design" {
+				if resumed, resumeErr := s.resumePipelineAfterApproval(saved); resumeErr != nil {
+					s.problem(w, r, http.StatusConflict, "pipeline_resume_failed", resumeErr.Error(), map[string]any{"approval_id": saved.ID})
+					return
+				} else if resumed.ID != "" {
+					s.writeJSON(w, http.StatusOK, map[string]any{"approval": saved, "pipeline": resumed})
+					return
+				}
+			}
 			s.writeJSON(w, 200, saved)
 			return
 		}
@@ -3645,7 +3661,7 @@ func menuForPath(path string) string {
 	}{
 		{"/api/v1/users", "admin"}, {"/api/v1/audit", "admin"}, {"/api/v1/plugins", "admin"},
 		{"/api/v1/requirements", "requirements"}, {"/api/v1/bugs", "bugs"},
-		{"/api/v1/pipelines", "executions"},
+		{"/api/v1/pipelines", "executions"}, {"/api/v1/workflow-templates", "executions"}, {"/api/v1/chats", "executions"},
 		{"/api/v1/repositories", "repositories"}, {"/api/v1/repository-graph", "repositories"},
 		{"/api/v1/agents", "agents"}, {"/api/v1/developer-profiles", "agents"},
 		{"/api/v1/mcp", "mcp"}, {"/api/v1/skills", "skills"},

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -66,10 +67,13 @@ func (s *Server) createPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		RequirementID     string                    `json:"requirement_id"`
-		Roles             domain.PipelineAgentRoles `json:"roles"`
-		MaxRetries        int                       `json:"max_retries"`
-		CoverageThreshold float64                   `json:"coverage_threshold"`
+		RequirementID      string                    `json:"requirement_id"`
+		Roles              domain.PipelineAgentRoles `json:"roles"`
+		WorkflowMode       domain.WorkflowMode       `json:"workflow_mode"`
+		WorkflowTemplateID string                    `json:"workflow_template_id"`
+		Workflow           []domain.WorkflowStep     `json:"workflow"`
+		MaxRetries         int                       `json:"max_retries"`
+		CoverageThreshold  float64                   `json:"coverage_threshold"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
 		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
@@ -84,13 +88,45 @@ func (s *Server) createPipeline(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusForbidden, "workspace_access_denied", "requirement is outside the requested workspace", nil)
 		return
 	}
+	workflowMode := input.WorkflowMode
+	if workflowMode == "" {
+		workflowMode = requirement.WorkflowMode
+	}
+	if strings.TrimSpace(input.WorkflowTemplateID) == "" {
+		input.WorkflowTemplateID = requirement.WorkflowTemplateID
+	}
+	var workflow []domain.WorkflowStep
+	if strings.TrimSpace(input.WorkflowTemplateID) != "" {
+		template, templateErr := s.Store.GetWorkflowTemplate(strings.TrimSpace(input.WorkflowTemplateID))
+		if templateErr != nil || template.WorkspaceID != requirement.WorkspaceID {
+			s.problem(w, r, http.StatusUnprocessableEntity, "workflow_template_not_found", "workflow template not found in the requirement workspace", nil)
+			return
+		}
+		workflowMode = template.Mode
+		workflow = template.StepsForRun()
+	} else if len(input.Workflow) > 0 {
+		workflow = domain.NormalizeWorkflow(input.Workflow)
+	}
+	if workflowMode == "" {
+		workflowMode = domain.WorkflowAutomatic
+	}
+	if len(workflow) > 0 {
+		candidate := domain.WorkflowTemplate{WorkspaceID: requirement.WorkspaceID, Name: "inline", Mode: workflowMode, Steps: workflow}
+		if err := candidate.Validate(); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "workflow_invalid", err.Error(), nil)
+			return
+		}
+	} else if err := input.Roles.Validate(); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "workflow_invalid", err.Error(), nil)
+		return
+	}
 	contextText := requirement.Title + "\n\n" + requirement.Description
 	if len(requirement.AcceptanceCriteria) > 0 {
 		contextText += "\n\nAcceptance criteria:\n- " + strings.Join(requirement.AcceptanceCriteria, "\n- ")
 	}
 	run, err := s.Store.CreatePipeline(domain.PipelineRun{
 		WorkspaceID: requirement.WorkspaceID, RequirementID: requirement.ID,
-		Roles: input.Roles, MaxRetries: input.MaxRetries, CoverageThreshold: input.CoverageThreshold,
+		Roles: input.Roles, WorkflowMode: workflowMode, Workflow: workflow, MaxRetries: input.MaxRetries, CoverageThreshold: input.CoverageThreshold,
 		Context: domain.PipelineContext{RequirementText: contextText},
 	})
 	if err != nil {
@@ -159,6 +195,16 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 	advanced.ActiveProviderIssueID, advanced.ActiveProviderTaskID = "", ""
 	if err := s.recordHarnessResult(run, result); err != nil {
 		return run, http.StatusServiceUnavailable, err
+	}
+	if advanced.Status == domain.PipelineWaitingApproval && advanced.DesignApprovalID == "" {
+		approval, approvalErr := s.Store.CreateApproval(domain.Approval{WorkspaceID: advanced.WorkspaceID, RequirementID: advanced.RequirementID, Kind: "design", Decision: "pending", Reason: "workflow requires human design approval"})
+		if approvalErr != nil {
+			return run, http.StatusServiceUnavailable, fmt.Errorf("create design approval: %w", approvalErr)
+		}
+		advanced.DesignApprovalID = approval.ID
+		advanced.DesignApprovalStatus = "pending"
+		advanced.Version++
+		advanced.UpdatedAt = time.Now().UTC()
 	}
 	advanced, err = s.Store.UpdatePipeline(advanced, run.Version)
 	if err != nil {
@@ -239,7 +285,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 	if err := s.ensureHarnessSession(run); err != nil {
 		return run, err
 	}
-	agentID := run.Roles.AgentFor(run.PipelineStage)
+	agentID := run.AgentFor(run.PipelineStage)
 	if strings.TrimSpace(agentID) == "" {
 		return run, errors.New("pipeline stage has no assigned agent")
 	}
@@ -258,7 +304,12 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 	}
 	var dispatchEvent harness.OutboxEvent
 	dispatchClaimed := true
-	if run.PipelineStage == domain.PipelineDevelopment && run.RetryCount > 0 {
+	continuity := run.PipelineStage != domain.PipelineDevelopment && run.ParentSessionID != "" && run.ProviderWorkDir != "" && originalDevelopmentIssue(run) != ""
+	if continuity && run.PipelineWorkItemID != "" {
+		provenance, found := s.Store.FindProvenance(run.PipelineWorkItemID)
+		continuity = found && provenance.ProviderSessionID == run.ParentSessionID && filepath.Clean(provenance.ProviderWorkDir) == filepath.Clean(run.ProviderWorkDir)
+	}
+	if (run.PipelineStage == domain.PipelineDevelopment && run.RetryCount > 0) || continuity {
 		issueID := originalDevelopmentIssue(run)
 		continuity, ok := s.Provider.(provider.ContinuityProvider)
 		if !ok || issueID == "" {
@@ -1003,8 +1054,20 @@ Stage instruction: %s
 
 Do not inspect ADRO's state files or search for provider IDs. The adapter supplies authoritative provider_issue_id, provider_task_id, provider_session_id and provider_work_dir; those fields may be omitted from your marker. Do not call an ADRO callback yourself.
 
+Workflow mode: %s
+Selected workflow stages: %s
+
 Context:
 %s
 
-When the stage is finished, your final assistant message MUST contain exactly one line beginning with ADRO_RESULT_JSON= followed by a single JSON object. Emit that line even when a requested command fails, using outcome=fail and error_log. ADRO collects this marker from the real process output and validates it before advancing the pipeline; do not claim success without running the requested checks. Include stage=%d, agent_id=%q and outcome. Development also includes code_version; unit tests include coverage; failures include failed_tests and error_log; stage 7 includes the final report. An external plugin may instead POST the same PipelineStepResult JSON to %s/api/v1/pipelines/%s/results.`, run.PipelineStage.String(), run.ID, run.SessionID, run.ParentSessionID, run.PipelineStage, run.RetryCount, run.MaxRetries, stageInstructions, contextJSON, run.PipelineStage, run.Roles.AgentFor(run.PipelineStage), callback, run.ID), nil
+When the stage is finished, your final assistant message MUST contain exactly one line beginning with ADRO_RESULT_JSON= followed by a single JSON object. Emit that line even when a requested command fails, using outcome=fail and error_log. ADRO collects this marker from the real process output and validates it before advancing the pipeline; do not claim success without running the requested checks. Include stage=%d, agent_id=%q and outcome. Development also includes code_version; unit tests include coverage; failures include failed_tests and error_log; stage 7 includes the final report. An external plugin may instead POST the same PipelineStepResult JSON to %s/api/v1/pipelines/%s/results.`, run.PipelineStage.String(), run.ID, run.SessionID, run.ParentSessionID, run.PipelineStage, run.RetryCount, run.MaxRetries, stageInstructions, string(run.WorkflowMode), selectedWorkflowSummary(run), contextJSON, run.PipelineStage, run.AgentFor(run.PipelineStage), callback, run.ID), nil
+}
+
+func selectedWorkflowSummary(run domain.PipelineRun) string {
+	steps := run.Steps()
+	parts := make([]string, 0, len(steps))
+	for _, step := range steps {
+		parts = append(parts, fmt.Sprintf("%d:%s:%s", step.Stage, step.ID, step.AgentID))
+	}
+	return strings.Join(parts, ", ")
 }

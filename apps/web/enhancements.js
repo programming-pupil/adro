@@ -1,11 +1,12 @@
 (() => {
   const menuIDs = [
     'workbench', 'requirements', 'bugs', 'humanQA', 'designReview', 'executions',
-    'diffs', 'testing', 'repositories', 'agents', 'mcp', 'skills', 'automations',
+    'diffs', 'testing', 'chats', 'repositories', 'agents', 'mcp', 'skills', 'automations',
     'integrations', 'artifacts', 'runners', 'cost', 'admin'
   ];
 
   Object.assign(translations.zh, {
+    chats: '普通聊天', chatSubtitle: '绑定项目的持久化讨论空间', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '输入消息，讨论方案或上下文', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '开始一段新的讨论', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件',
     authSystemName: '智能研发交付控制系统', secureAccess: '安全访问 / 身份边界', loginTitle: '进入交付控制面',
     loginSubtitle: '使用你的 ADRO 工作空间账号登录。可见菜单、执行权限与审计身份均由管理员分配。',
     username: '用户名', password: '密码', signIn: '登录控制台', signOut: '退出登录',
@@ -27,6 +28,7 @@
     runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限'
   });
   Object.assign(translations.en, {
+    chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
     authSystemName: 'Agentic delivery control system', secureAccess: 'Secure access / identity boundary', loginTitle: 'Enter the delivery control plane',
     loginSubtitle: 'Sign in with your ADRO workspace account. Menu visibility, execution access, and audit identity are assigned by an administrator.',
     username: 'Username', password: 'Password', signIn: 'Sign in to console', signOut: 'Sign out',
@@ -107,7 +109,7 @@
   }
 
   function applyMenuAccess() {
-    document.querySelectorAll('.nav-item').forEach(item => {
+    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => {
       item.hidden = !availableMenus.includes(item.dataset.view);
     });
     document.querySelectorAll('.nav-section').forEach(section => {
@@ -122,7 +124,7 @@
     if (!availableMenus.includes(currentView)) {
       currentView = availableMenus[0] || 'workbench';
     }
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === currentView));
+    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => item.classList.toggle('active', item.dataset.view === currentView));
   }
 
   async function loadIdentityData() {
@@ -450,6 +452,65 @@
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
     return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   }
+
+  let activeChatID = '';
+  let activeChatData = null;
+
+  function renderChatPage() {
+    $('#pageTitle').textContent = t('chats');
+    $('#pageSubtitle').textContent = t('chatSubtitle');
+    $('#pageActions').innerHTML = `<button class="primary" id="chatNew"><span aria-hidden="true">＋</span>${escapeHTML(t('newChat'))}</button>`;
+    const list = chats.map(item => `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(item.project_id || t('project'))}</small></button>`).join('');
+    const messages = activeChatData?.messages || [];
+    const messageHTML = messages.length ? messages.map(item => `<article class="chat-message ${item.role === 'user' ? 'user' : 'assistant'}"><header><span>${escapeHTML(item.role)}</span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${item.attachment_ids?.length ? `<small>${escapeHTML(item.attachment_ids.length)} ${escapeHTML(t('attachments'))}</small>` : ''}</article>`).join('') : `<p class="chat-empty">${escapeHTML(t('noMessages'))}</p>`;
+    const projectOptions = repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('');
+    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><strong>${escapeHTML(t('chats'))}</strong><span>${escapeHTML(chats.length)} ${escapeHTML(t('items'))}</span></div><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer"><div class="chat-compose-meta"><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatProject'))}</option>${projectOptions}</select><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}">＋ <input id="chatFiles" type="file" multiple hidden></label></div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-actions"><span id="chatComposerStatus" role="status"></span><button class="primary" type="submit">${escapeHTML(t('sendMessage'))}</button></div></form></section></div>`;
+    if ($('#chatProject') && activeChatData?.chat?.project_id) $('#chatProject').value = activeChatData.chat.project_id;
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
+    $('#chatNew').onclick = createChatFromUI;
+    $('#chatComposer').onsubmit = sendChatFromUI;
+  }
+
+  async function loadChatDetail(id) {
+    try { activeChatData = await api(`/api/v1/chats/${encodeURIComponent(id)}`); renderChatPage(); } catch (_) { activeChatData = null; renderChatPage(); }
+  }
+
+  async function loadChatList() {
+    try {
+      const response = await api('/api/v1/chats');
+      chats = response.items || [];
+      if (!activeChatID && chats[0]) activeChatID = chats[0].id;
+      if (activeChatID) await loadChatDetail(activeChatID); else { activeChatData = null; renderChatPage(); }
+    } catch (_) { renderChatPage(); }
+  }
+
+  async function createChatFromUI() {
+    const title = window.prompt(t('chatTitle'), t('newChat'));
+    if (!title) return;
+    const projectID = $('#chatProject')?.value || '';
+    try {
+      const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, title: title.trim()})});
+      chats = [created, ...chats.filter(item => item.id !== created.id)]; activeChatID = created.id; await loadChatDetail(activeChatID);
+    } catch (_) { window.alert(t('chatCreateFailed')); }
+  }
+
+  async function sendChatFromUI(event) {
+    event.preventDefault();
+    if (!activeChatID) { await createChatFromUI(); if (!activeChatID) return; }
+    const form = event.currentTarget; const input = $('#chatInput'); const files = Array.from($('#chatFiles')?.files || []); const status = $('#chatComposerStatus');
+    const attachmentIDs = [];
+    try {
+      status.textContent = '';
+      for (const file of files) { const payload = new FormData(); payload.append('owner_type', 'chat_session'); payload.append('owner_id', activeChatID); payload.append('file', file); const attachment = await api('/api/v1/attachments', {method: 'POST', body: payload}); attachmentIDs.push(attachment.id); }
+      await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}/messages`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({content: input.value, attachment_ids: attachmentIDs})});
+      form.reset(); await loadChatDetail(activeChatID);
+    } catch (_) { status.textContent = t('chatSendFailed'); }
+  }
+
+  const baseRender = render;
+  render = function enhancedRender() { baseRender(); if (currentView === 'chats') renderChatPage(); };
+  const chatNav = document.querySelector('[data-view="chats"]');
+  if (chatNav) chatNav.addEventListener('click', () => { setTimeout(loadChatList, 0); });
 
   async function bootstrap() {
     applyTranslations();

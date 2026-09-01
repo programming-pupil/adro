@@ -4078,6 +4078,176 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+  "/api/v1/workflow-templates":
+    get:
+      summary: List workspace workflow templates
+      responses:
+        '200':
+          description: Workflow templates
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Create a validated custom workflow template
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/WorkflowTemplate"
+      responses:
+        '201':
+          description: Workflow template created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkflowTemplate"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workflow-templates/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read a workflow template
+      responses:
+        '200':
+          description: Workflow template
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkflowTemplate"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    delete:
+      summary: Delete a workflow template
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      responses:
+        '204':
+          description: Deleted
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/chats":
+    get:
+      summary: List ordinary project-bound chat sessions
+      parameters:
+      - name: project_id
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Chat sessions
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      summary: Create a durable ordinary chat session
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ChatSessionCreate"
+      responses:
+        '201':
+          description: Chat session created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ChatSession"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/chats/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Read chat messages and harness context status
+      responses:
+        '200':
+          description: Chat session
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/chats/{id}/messages":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Append a user turn to a durable chat
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ChatMessageCreate"
+      responses:
+        '201':
+          description: Message created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/sessions":
     post:
       summary: Create an ADRO-owned durable harness session
@@ -4658,6 +4828,63 @@ components:
         minLength: 1
         maxLength: 255
   schemas:
+    WorkflowStep:
+      type: object
+      required: [id, stage, agent_id]
+      properties:
+        id: {type: string}
+        stage: {type: integer, minimum: 1, maximum: 7}
+        name: {type: string}
+        role: {type: string}
+        agent_id: {type: string}
+        required: {type: boolean}
+        retry_limit: {type: integer, minimum: 0}
+        config: {type: object, additionalProperties: true}
+    WorkflowTemplate:
+      type: object
+      required: [workspace_id, name, mode, steps]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        mode: {type: string, enum: [automatic, design_approval]}
+        steps:
+          type: array
+          minItems: 1
+          items: {"$ref": "#/components/schemas/WorkflowStep"}
+        version: {type: integer, minimum: 1}
+    ChatSessionCreate:
+      type: object
+      required: [workspace_id, title]
+      properties:
+        workspace_id: {type: string}
+        project_id: {type: string}
+        title: {type: string}
+        budget_tokens: {type: integer, minimum: 0}
+        auto_compaction: {type: boolean}
+        compaction_threshold: {type: number, minimum: 0, maximum: 1}
+        compaction_retain_tail: {type: integer, minimum: 0}
+    ChatSession:
+      type: object
+      required: [id, workspace_id, title, harness_session_id, status]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        project_id: {type: string}
+        title: {type: string}
+        harness_session_id: {type: string}
+        status: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ChatMessageCreate:
+      type: object
+      required: [content]
+      properties:
+        content: {type: string}
+        attachment_ids:
+          type: array
+          items: {type: string}
     HarnessSessionCreate:
       type: object
       required: [workspace_id]
@@ -5097,6 +5324,11 @@ components:
           type: array
           items:
             type: string
+        workflow_template_id:
+          type: string
+        workflow_mode:
+          type: string
+          enum: [automatic, design_approval]
         priority:
           type: string
           default: normal
@@ -5110,11 +5342,16 @@ components:
         arbitrator_agent_id: {type: string}
     PipelineCreate:
       type: object
-      required: [requirement_id, roles]
+      required: [requirement_id]
       properties:
         requirement_id: {type: string}
         roles:
           "$ref": "#/components/schemas/PipelineAgentRoles"
+        workflow_template_id: {type: string}
+        workflow_mode: {type: string, enum: [automatic, design_approval]}
+        workflow:
+          type: array
+          items: {"$ref": "#/components/schemas/WorkflowStep"}
         max_retries:
           type: integer
           minimum: 1
@@ -5156,7 +5393,13 @@ components:
         bug_id: {type: string}
         parent_session_id: {type: string}
         pipeline_stage: {type: integer, minimum: 1, maximum: 7}
-        status: {type: string, enum: [running, waiting_provider, suspended, completed, failed]}
+        status: {type: string, enum: [running, waiting_provider, waiting_approval, suspended, completed, failed]}
+        workflow_mode: {type: string, enum: [automatic, design_approval]}
+        workflow:
+          type: array
+          items: {"$ref": "#/components/schemas/WorkflowStep"}
+        design_approval_id: {type: string}
+        design_approval_status: {type: string, enum: [pending, approved, rejected]}
         roles:
           "$ref": "#/components/schemas/PipelineAgentRoles"
         context: {type: object, additionalProperties: true}

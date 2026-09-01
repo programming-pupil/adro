@@ -41,6 +41,17 @@ test('opens every workbench menu and keeps the browser error-free', async ({ pag
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('opens the durable project chat and sends a harness-backed message', async ({ page }) => {
+  await page.locator('.nav-chat[data-view="chats"]').click();
+  await expect(page.locator('#pageTitle')).toHaveText('普通聊天');
+  page.once('dialog', dialog => dialog.accept('Browser chat'));
+  await page.locator('#chatNew').click();
+  await expect(page.locator('.chat-list-item')).toContainText('Browser chat');
+  await page.locator('#chatInput').fill('Keep this project context durable');
+  await page.locator('#chatComposer button[type="submit"]').click();
+  await expect(page.locator('#chatHistory')).toContainText('Keep this project context durable');
+});
+
 test('creates a requirement, opens details, switches locale, and reconnects by WebSocket', async ({ page }) => {
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();

@@ -36,11 +36,12 @@ func (s PipelineStage) String() string {
 type PipelineStatus string
 
 const (
-	PipelineRunning   PipelineStatus = "running"
-	PipelineWaiting   PipelineStatus = "waiting_provider"
-	PipelineSuspended PipelineStatus = "suspended"
-	PipelineCompleted PipelineStatus = "completed"
-	PipelineFailed    PipelineStatus = "failed"
+	PipelineRunning         PipelineStatus = "running"
+	PipelineWaiting         PipelineStatus = "waiting_provider"
+	PipelineWaitingApproval PipelineStatus = "waiting_approval"
+	PipelineSuspended       PipelineStatus = "suspended"
+	PipelineCompleted       PipelineStatus = "completed"
+	PipelineFailed          PipelineStatus = "failed"
 )
 
 type PipelineAgentRoles struct {
@@ -85,6 +86,15 @@ func (r PipelineAgentRoles) AgentFor(stage PipelineStage) string {
 	}
 }
 
+func (r PipelineAgentRoles) StepFor(stage PipelineStage) WorkflowStep {
+	for _, step := range DefaultWorkflow(r) {
+		if step.Stage == stage {
+			return step
+		}
+	}
+	return WorkflowStep{}
+}
+
 // PipelineContext is the authoritative handoff payload. It is append-oriented:
 // repairs add failure evidence and code versions instead of replacing the
 // baseline or the conversation history.
@@ -126,6 +136,10 @@ type PipelineRun struct {
 	PipelineStage         PipelineStage        `json:"pipeline_stage"`
 	Status                PipelineStatus       `json:"status"`
 	Roles                 PipelineAgentRoles   `json:"roles"`
+	WorkflowMode          WorkflowMode         `json:"workflow_mode,omitempty"`
+	Workflow              []WorkflowStep       `json:"workflow,omitempty"`
+	DesignApprovalID      string               `json:"design_approval_id,omitempty"`
+	DesignApprovalStatus  string               `json:"design_approval_status,omitempty"`
 	Context               PipelineContext      `json:"context"`
 	MaxRetries            int                  `json:"max_retries"`
 	RetryCount            int                  `json:"retry_count"`
@@ -152,8 +166,24 @@ func (r PipelineRun) Validate() error {
 	if !r.PipelineStage.Valid() {
 		return errors.New("pipeline_stage must be between 1 and 7")
 	}
-	if err := r.Roles.Validate(); err != nil {
-		return err
+	if len(r.Workflow) == 0 {
+		if err := r.Roles.Validate(); err != nil {
+			return err
+		}
+	} else {
+		seen := map[PipelineStage]bool{}
+		for _, step := range r.Workflow {
+			if err := step.Validate(); err != nil {
+				return err
+			}
+			if seen[step.Stage] {
+				return fmt.Errorf("workflow stage %d is duplicated", step.Stage)
+			}
+			seen[step.Stage] = true
+		}
+		if !seen[PipelineReport] {
+			return errors.New("workflow must include the report stage")
+		}
 	}
 	if r.MaxRetries < 1 {
 		return errors.New("max_retries must be at least 1")
@@ -162,6 +192,46 @@ func (r PipelineRun) Validate() error {
 		return errors.New("coverage_threshold must be in (0,100]")
 	}
 	return nil
+}
+
+func (r PipelineRun) Steps() []WorkflowStep {
+	if len(r.Workflow) > 0 {
+		return NormalizeWorkflow(r.Workflow)
+	}
+	return DefaultWorkflow(r.Roles)
+}
+
+func (r PipelineRun) StepFor(stage PipelineStage) WorkflowStep {
+	for _, step := range r.Steps() {
+		if step.Stage == stage {
+			return step
+		}
+	}
+	return WorkflowStep{}
+}
+
+func (r PipelineRun) AgentFor(stage PipelineStage) string {
+	step := r.StepFor(stage)
+	if step.AgentID != "" {
+		return step.AgentID
+	}
+	return r.Roles.AgentFor(stage)
+}
+
+func (r PipelineRun) HasStage(stage PipelineStage) bool { return r.StepFor(stage).Stage == stage }
+
+func (r PipelineRun) NextSelectedStage(stage PipelineStage) PipelineStage {
+	steps := r.Steps()
+	for i, step := range steps {
+		if step.Stage != stage {
+			continue
+		}
+		if i+1 < len(steps) {
+			return steps[i+1].Stage
+		}
+		return stage
+	}
+	return stage
 }
 
 // PipelineStepResult is accepted only for the current stage and active agent.
