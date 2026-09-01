@@ -152,9 +152,9 @@ bounded priority ordering; no vector index is required.
 - `internal/provider`: provider-neutral SPI and the local executable boundary.
 - `internal/store`: atomic JSON persistence for the single-node profile.
 - `internal/events`: replayable event bus and workspace streams.
-- `internal/harness`: append-only turns, hash-linked checkpoints, exact
-  compaction archives, memory citations, recoverable leases, and outbox
-  delivery.
+- `internal/harness`: append-only turns, hash-linked checkpoints (including
+  tool before/after pairing), exact compaction archives, memory citations,
+  recoverable leases, outbox delivery, and a fsynced crash-window journal.
 - `internal/plugins`: signed adapter installation registry with verified
   activation, health tracking, and automatic quarantine.
 - `internal/api`: authenticated REST transport and workbench routes.

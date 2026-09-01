@@ -12,17 +12,17 @@ const ProtocolVersion = "adro.harness.v1"
 
 type Session struct {
 	ID, TenantID, WorkspaceID, ProjectID string
-	BudgetTokens              int64
-	ContextVersion            int64
+	BudgetTokens                         int64
+	ContextVersion                       int64
 }
 
 type MemoryItem struct {
 	ID, SessionID, Scope, ProjectID, Kind, Content string
-	SourceIDs, Supersedes                     []string
-	Confidence, Importance                    float64
-	Pinned                                    bool
-	ExpiresAt                                 *time.Time
-	CreatedAt                                 time.Time
+	SourceIDs, Supersedes                          []string
+	Confidence, Importance                         float64
+	Pinned                                         bool
+	ExpiresAt                                      *time.Time
+	CreatedAt                                      time.Time
 }
 
 type Turn struct {
@@ -35,10 +35,10 @@ type Turn struct {
 }
 
 type Checkpoint struct {
-	ID, SessionID, Phase, EventHash string
-	TurnSequence, ContextVersion    int64
-	OutboxIDs, LeaseIDs             []string
-	CreatedAt                       time.Time
+	ID, SessionID, Phase, EventHash, PrevHash, ToolCallID string
+	TurnSequence, ContextVersion                          int64
+	OutboxIDs, LeaseIDs                                   []string
+	CreatedAt                                             time.Time
 }
 
 type ArchiveWindow struct {

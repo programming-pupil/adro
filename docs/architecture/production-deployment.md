@@ -30,7 +30,7 @@ the single-node profile.
 | Runner registry | atomic JSON; commands execute as local argv | rootless container or VM workers with quotas and egress policy | block production while `argv` is selected |
 | Secrets | process environment | workload identity and external SecretStore | block production while `environment` is selected |
 | Git and CI | interfaces only | authenticated adapters with webhook verification | block production while `none` is selected |
-| Harness transcript/checkpoints | atomic JSON snapshot | PostgreSQL `harness_sessions`/`session_turns`/`session_checkpoints` with hash verification | block production if the selected adapter cannot validate the chain |
+| Harness transcript/checkpoints | atomic JSON snapshot plus fsynced crash-window journal | PostgreSQL `harness_sessions`/`session_turns`/`session_checkpoints` with hash verification | block production if the selected adapter cannot validate the chain |
 | Lease/outbox recovery | durable local snapshot plus `Dispatcher` | transactional lease/outbox tables and a supervised publisher worker | expired claims must be requeued; never acknowledge before publish |
 
 The production target names are `postgres`, `nats`, `temporal`, `s3`,

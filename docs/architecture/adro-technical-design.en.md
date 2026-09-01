@@ -33,10 +33,11 @@ flowchart TB
   E --> B[(Artifacts / event stream)]
 ```
 
-The local profile stores state in atomic mode-0600 JSON snapshots and exposes
-the same versioned interfaces used by future database, queue, runner, and
-identity adapters. External adapters remain explicit deployment inputs and
-must pass the matching conformance suite before activation.
+The local profile stores state in atomic mode-0600 JSON snapshots and keeps a
+short-lived fsynced journal across the snapshot rename window. On startup, a
+valid journal record can recover a torn snapshot; external adapters expose the
+same versioned interfaces and remain explicit deployment inputs that must pass
+the matching conformance suite before activation.
 
 ## Harness contract
 
@@ -45,7 +46,8 @@ The harness is an append-only session ledger:
 1. A turn records role, prompt, response, tool events, usage, and source
    citations before it is acknowledged.
 2. Checkpoints include the session sequence, phase, provider binding, workspace
-   fingerprint, and a hash of the previous checkpoint.
+   fingerprint, a hash of the previous checkpoint, and (for tool events) a
+   tool-call ID whose before/after phases are validated as a pair.
 3. Compaction writes an exact archive window and a replacement summary; the
    archive remains addressable for replay and audit.
 4. Memory items cite transcript or artifact IDs. Replacement and supersession

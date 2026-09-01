@@ -4,7 +4,8 @@
 // turns, checkpoints, archives, leases, and outbox records are ADRO-owned
 // facts. The local profile persists an atomic JSON snapshot; production
 // adapters can implement the same contracts against PostgreSQL and a durable
-// queue without changing pipeline semantics.
+// queue without changing pipeline semantics. The local profile uses an atomic
+// JSON snapshot plus a short-lived fsynced journal for crash-window recovery.
 package harness
 
 import (
@@ -87,6 +88,8 @@ type Checkpoint struct {
 	TurnSequence   int64           `json:"turn_sequence"`
 	Phase          CheckpointPhase `json:"phase"`
 	EventHash      string          `json:"event_hash"`
+	PrevHash       string          `json:"prev_hash,omitempty"`
+	ToolCallID     string          `json:"tool_call_id,omitempty"`
 	ContextVersion int64           `json:"context_version"`
 	OutboxIDs      []string        `json:"outbox_ids,omitempty"`
 	LeaseIDs       []string        `json:"lease_ids,omitempty"`
@@ -215,6 +218,8 @@ type Store struct {
 	projectMemories map[string][]MemoryItem
 }
 
+const harnessStateVersion = 2
+
 // Durable reports whether this store is backed by an operator-owned snapshot
 // file. It intentionally does not expose the path in diagnostics.
 func (s *Store) Durable() bool {
@@ -231,18 +236,33 @@ func New(path string) (*Store, error) {
 	if s.path == "" {
 		return s, nil
 	}
+	var state persistedState
+	var snapshotErr error
 	data, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
-	}
-	if err != nil {
+	snapshotExists := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read harness state: %w", err)
 	}
-	var state persistedState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("decode harness state: %w", err)
+	if snapshotExists {
+		if err := json.Unmarshal(data, &state); err != nil {
+			snapshotErr = fmt.Errorf("decode harness state: %w", err)
+		}
 	}
-	if state.Version > 1 {
+	// The journal is written after the temporary snapshot is synced and before
+	// rename. If a process dies in that window, the last complete journal record
+	// is the durable intent and is safe to recover. A stale journal after a
+	// successful rename contains the same state and is harmless.
+	if journal, journalErr := readLastJournal(journalPath(s.path)); journalErr != nil {
+		return nil, fmt.Errorf("read harness journal: %w", journalErr)
+	} else if journal != nil {
+		state = *journal
+		snapshotErr = nil
+	} else if snapshotErr != nil {
+		return nil, snapshotErr
+	} else if !snapshotExists {
+		return s, nil
+	}
+	if state.Version > harnessStateVersion {
 		return nil, fmt.Errorf("unsupported harness state version %d", state.Version)
 	}
 	if state.Sessions != nil {
@@ -250,6 +270,12 @@ func New(path string) (*Store, error) {
 	}
 	if state.ProjectMemories != nil {
 		s.projectMemories = state.ProjectMemories
+	}
+	if state.Version < harnessStateVersion {
+		if err := migrateCheckpointChains(s.sessions); err != nil {
+			return nil, err
+		}
+		state.Version = harnessStateVersion
 	}
 	// Older snapshots predate memory scopes. Treat those records as session
 	// memory so upgrades preserve their visibility and ordering.
@@ -305,7 +331,12 @@ func (s *Store) persistLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(persistedState{Version: 1, Sessions: s.sessions, ProjectMemories: s.projectMemories}, "", "  ")
+	state := persistedState{Version: harnessStateVersion, Sessions: s.sessions, ProjectMemories: s.projectMemories}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	journalData, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
@@ -334,7 +365,15 @@ func (s *Store) persistLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	// Keep one complete, fsynced record while the snapshot is being swapped.
+	// This closes the crash window between writing the temporary file and the
+	// rename without turning the journal into a second source of truth.
+	journal := journalPath(s.path)
+	if err := appendJournal(journal, journalData); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpName, s.path); err != nil {
+		_ = os.Remove(journal)
 		return err
 	}
 	// Sync the directory entry as well as the file contents so a power loss
@@ -344,7 +383,61 @@ func (s *Store) persistLocked() error {
 		return err
 	}
 	defer dirFile.Close()
-	return dirFile.Sync()
+	if err := dirFile.Sync(); err != nil {
+		return err
+	}
+	// The snapshot is now authoritative. Removal is best effort: a stale record
+	// is byte-for-byte equivalent and will be replayed safely on the next boot.
+	_ = os.Remove(journal)
+	return nil
+}
+
+func journalPath(snapshotPath string) string {
+	return snapshotPath + ".journal"
+}
+
+func appendJournal(path string, data []byte) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("open harness journal: %w", err)
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write harness journal: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync harness journal: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close harness journal: %w", err)
+	}
+	return nil
+}
+
+func readLastJournal(path string) (*persistedState, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var latest *persistedState
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var candidate persistedState
+		if err := json.Unmarshal([]byte(line), &candidate); err != nil {
+			// A torn final line is ignored. Earlier complete records remain
+			// usable, which is the important property during crash recovery.
+			continue
+		}
+		latest = &candidate
+	}
+	return latest, nil
 }
 
 func (s *Store) CreateSession(session Session) (Session, error) {
@@ -558,6 +651,13 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 	if len(state.Checkpoints) > 0 && checkpoint.ContextVersion < state.Checkpoints[len(state.Checkpoints)-1].ContextVersion {
 		return Checkpoint{}, ErrConflict
 	}
+	previousHash := ""
+	if len(state.Checkpoints) > 0 {
+		previousHash = state.Checkpoints[len(state.Checkpoints)-1].Hash
+	}
+	if checkpoint.PrevHash != "" && checkpoint.PrevHash != previousHash {
+		return Checkpoint{}, fmt.Errorf("%w: checkpoint previous hash does not match the chain", ErrCorrupt)
+	}
 	// A provider dispatch may have committed its provenance before the process
 	// lost the response while writing the after-effect checkpoint. Replaying
 	// the durable intent must converge on the existing checkpoint instead of
@@ -566,6 +666,7 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 		if existing.TurnSequence == checkpoint.TurnSequence &&
 			existing.Phase == checkpoint.Phase &&
 			existing.EventHash == checkpoint.EventHash &&
+			existing.ToolCallID == checkpoint.ToolCallID &&
 			existing.ContextVersion == checkpoint.ContextVersion &&
 			existing.State == checkpoint.State &&
 			sameStrings(existing.OutboxIDs, checkpoint.OutboxIDs) &&
@@ -573,11 +674,32 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 			return cloneCheckpoint(existing), nil
 		}
 	}
+	if checkpoint.ToolCallID != "" {
+		pairedBefore, pairedAfter := false, false
+		for _, existing := range state.Checkpoints {
+			if existing.ToolCallID != checkpoint.ToolCallID {
+				continue
+			}
+			pairedBefore = pairedBefore || existing.Phase == CheckpointToolBefore
+			pairedAfter = pairedAfter || existing.Phase == CheckpointToolAfter
+		}
+		switch checkpoint.Phase {
+		case CheckpointToolBefore:
+			if pairedBefore {
+				return Checkpoint{}, fmt.Errorf("%w: tool checkpoint is already open", ErrConflict)
+			}
+		case CheckpointToolAfter:
+			if !pairedBefore || pairedAfter {
+				return Checkpoint{}, fmt.Errorf("%w: tool checkpoint has no unique before phase", ErrConflict)
+			}
+		}
+	}
 	checkpoint.ID = strings.TrimSpace(checkpoint.ID)
 	if checkpoint.ID == "" {
 		checkpoint.ID = domain.NewID()
 	}
 	checkpoint.SessionID = sessionID
+	checkpoint.PrevHash = previousHash
 	checkpoint.OutboxIDs = append([]string(nil), checkpoint.OutboxIDs...)
 	checkpoint.LeaseIDs = append([]string(nil), checkpoint.LeaseIDs...)
 	checkpoint.CreatedAt = time.Now().UTC()
@@ -901,7 +1023,7 @@ func (s *Store) ContextStatus(sessionID string) (ContextStatus, error) {
 	}
 	var tokens int64
 	for _, turn := range state.Turns {
-		if turn.Sequence > 0 {
+		if turn.Sequence > 0 && !turnArchived(state.Archives, turn.Sequence) {
 			tokens += int64(len([]rune(turn.Content))+3) / 4
 		}
 	}
@@ -1311,13 +1433,30 @@ func validateSessionState(state sessionState) error {
 		}
 		previous = turn.Hash
 	}
+	var previousCheckpointHash string
+	toolCheckpointPhases := map[string]CheckpointPhase{}
 	for i, checkpoint := range state.Checkpoints {
-		if checkpoint.SessionID != state.Session.ID || checkpoint.Hash == "" || hashCheckpoint(checkpoint) != checkpoint.Hash || checkpoint.TurnSequence > int64(len(state.Turns)) || (i > 0 && checkpoint.TurnSequence < state.Checkpoints[i-1].TurnSequence) {
+		if checkpoint.SessionID != state.Session.ID || checkpoint.Hash == "" || hashCheckpoint(checkpoint) != checkpoint.Hash || checkpoint.TurnSequence > int64(len(state.Turns)) || (i > 0 && checkpoint.TurnSequence < state.Checkpoints[i-1].TurnSequence) || checkpoint.PrevHash != previousCheckpointHash {
 			return fmt.Errorf("%w: checkpoint %s", ErrCorrupt, checkpoint.ID)
 		}
 		if checkpoint.EventHash != "" && !hasTurnHash(state.Turns, checkpoint.EventHash) {
 			return fmt.Errorf("%w: checkpoint event hash %s", ErrCorrupt, checkpoint.EventHash)
 		}
+		if checkpoint.ToolCallID != "" {
+			switch checkpoint.Phase {
+			case CheckpointToolBefore:
+				if _, exists := toolCheckpointPhases[checkpoint.ToolCallID]; exists {
+					return fmt.Errorf("%w: duplicate tool-before checkpoint %s", ErrCorrupt, checkpoint.ID)
+				}
+				toolCheckpointPhases[checkpoint.ToolCallID] = checkpoint.Phase
+			case CheckpointToolAfter:
+				if toolCheckpointPhases[checkpoint.ToolCallID] != CheckpointToolBefore {
+					return fmt.Errorf("%w: tool-after checkpoint %s has no before phase", ErrCorrupt, checkpoint.ID)
+				}
+				toolCheckpointPhases[checkpoint.ToolCallID] = checkpoint.Phase
+			}
+		}
+		previousCheckpointHash = checkpoint.Hash
 	}
 	for i, archive := range state.Archives {
 		if archive.SessionID != state.Session.ID || archive.StartSequence < 1 || archive.EndSequence < archive.StartSequence || archive.EndSequence > int64(len(state.Turns)) {
@@ -1353,6 +1492,25 @@ func validateSessionState(state sessionState) error {
 				return fmt.Errorf("%w: memory source %s", ErrCorrupt, sourceID)
 			}
 		}
+	}
+	return nil
+}
+
+func migrateCheckpointChains(sessions map[string]sessionState) error {
+	for sessionID, state := range sessions {
+		previous := ""
+		for i := range state.Checkpoints {
+			checkpoint := &state.Checkpoints[i]
+			if checkpoint.Hash == "" || hashCheckpoint(*checkpoint) != checkpoint.Hash {
+				return fmt.Errorf("%w: checkpoint %s", ErrCorrupt, checkpoint.ID)
+			}
+			if checkpoint.PrevHash == "" && i > 0 {
+				checkpoint.PrevHash = previous
+				checkpoint.Hash = hashCheckpoint(*checkpoint)
+			}
+			previous = checkpoint.Hash
+		}
+		sessions[sessionID] = state
 	}
 	return nil
 }

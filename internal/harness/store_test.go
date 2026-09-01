@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -75,6 +76,123 @@ func TestTranscriptTamperFailsClosed(t *testing.T) {
 	}
 	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("tampered transcript err=%v", err)
+	}
+}
+
+func TestJournalRecoversWhenSnapshotWasTorn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	first := newTestSession(t, path)
+	turn, err := first.AppendTurn("session-1", Turn{Role: RoleUser, Content: "journal recovery"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journalPath(path), append(journal, '\n', '{'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"torn":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, _, err := recovered.ListTurns("session-1", 0, 10)
+	if err != nil || len(turns) != 1 || turns[0].Hash != turn.Hash {
+		t.Fatalf("journal recovery turns=%+v err=%v", turns, err)
+	}
+}
+
+func TestCheckpointHashChainFailsClosedOnSplice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "checkpoint chain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, Phase: CheckpointTurnStarted, EventHash: turn.Hash, ContextVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, Phase: CheckpointEffectAfter, EventHash: turn.Hash, ContextVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PrevHash != first.Hash {
+		t.Fatalf("checkpoint chain not linked: first=%+v second=%+v", first, second)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	sessionState := state.Sessions["session-1"]
+	checkpoints := sessionState.Checkpoints
+	checkpoints[1].PrevHash = "sha256:spliced"
+	checkpoints[1].Hash = hashCheckpoint(checkpoints[1])
+	sessionState.Checkpoints = checkpoints
+	state.Sessions["session-1"] = sessionState
+	tampered, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("spliced checkpoint err=%v", err)
+	}
+}
+
+func TestToolCheckpointsRequireBeforeAndAfterPair(t *testing.T) {
+	store := newTestSession(t, "")
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: "tool result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Checkpoint{TurnSequence: 1, EventHash: turn.Hash, ContextVersion: 1, ToolCallID: "tool-1"}
+	if _, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, Phase: CheckpointToolAfter, EventHash: turn.Hash, ContextVersion: 1, ToolCallID: base.ToolCallID}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("tool-after without before err=%v", err)
+	}
+	base.Phase = CheckpointToolBefore
+	before, err := store.SaveCheckpoint("session-1", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, Phase: CheckpointToolAfter, EventHash: turn.Hash, ContextVersion: 1, ToolCallID: base.ToolCallID})
+	if err != nil || after.PrevHash != before.Hash {
+		t.Fatalf("tool checkpoint pair before=%+v after=%+v err=%v", before, after, err)
+	}
+	if _, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, Phase: CheckpointToolBefore, EventHash: turn.Hash, ContextVersion: 1, ToolCallID: base.ToolCallID, State: "retry"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("reused tool-call id err=%v", err)
+	}
+}
+
+func TestContextStatusExcludesArchivedTurnTokens(t *testing.T) {
+	store := newTestSession(t, "")
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: strings.Repeat("archived ", 20)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Compact("session-1", CompactRequest{StartSequence: 1, EndSequence: 1, Summary: "archived summary"}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.ContextStatus("session-1")
+	if err != nil || status.TokenEstimate != 0 {
+		t.Fatalf("archived tokens remained in status=%+v err=%v", status, err)
 	}
 }
 
