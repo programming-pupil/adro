@@ -6,6 +6,8 @@ import (
 	"net"
 )
 
+var ErrConflict = errors.New("provider state conflict")
+
 type ErrorCode string
 
 const (

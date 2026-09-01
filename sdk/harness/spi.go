@@ -21,6 +21,9 @@ type MemoryItem struct {
 	Fingerprint                                    string
 	SourceIDs, Supersedes                          []string
 	Confidence, Importance                         float64
+	Status                                         string
+	QualityScore                                   float64
+	EvidenceHash                                   string
 	Pinned                                         bool
 	ExpiresAt                                      *time.Time
 	CreatedAt                                      time.Time
@@ -41,6 +44,22 @@ type Checkpoint struct {
 	TurnSequence, ContextVersion                          int64
 	OutboxIDs, LeaseIDs                                   []string
 	CreatedAt                                             time.Time
+}
+
+type ContextBlock struct {
+	ID, Kind, Source, Content, Hash string
+	Policy, Trust, SelectionReason  string
+	TokenEstimate                   int64
+	Mandatory                       bool
+	Metadata                        map[string]string
+}
+
+type ContextManifest struct {
+	SessionID, Digest, ParentDigest string
+	Version, TokenBudget            int64
+	TokenEstimate                   int64
+	Blocks                          []ContextBlock
+	CreatedAt                       time.Time
 }
 
 type ArchiveWindow struct {
@@ -101,6 +120,12 @@ type IntegrityStore interface {
 	VerifyTranscript(context.Context, string) (TranscriptIntegrity, error)
 	VerifyCompaction(context.Context, string) (TranscriptIntegrity, error)
 	ReduceMemories(context.Context, string, []string, string) (MemoryReduction, error)
+}
+
+// ManifestCompiler is optional but recommended. The manifest is immutable for
+// a dispatch attempt and its digest is the lineage key used by retries.
+type ManifestCompiler interface {
+	CompileManifest(context.Context, string, int64) (ContextManifest, error)
 }
 
 // MemoryStore is optional for providers that want to persist structured

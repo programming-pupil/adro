@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/durable"
 )
 
 type Envelope struct {
@@ -57,10 +59,18 @@ type Bus struct {
 	seenProvider map[string]struct{}
 	subscribers  map[int]chan Envelope
 	nextSubID    int
+	revision     int64
+	acks         map[string]string
+}
+
+type persistedEvents struct {
+	Revision int64             `json:"revision"`
+	Events   []Envelope        `json:"events"`
+	Acks     map[string]string `json:"acks,omitempty"`
 }
 
 func NewBus() *Bus {
-	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope)}
+	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope), acks: make(map[string]string)}
 }
 
 func NewPersistentBus(path string) (*Bus, error) {
@@ -77,7 +87,15 @@ func NewPersistentBus(path string) (*Bus, error) {
 		return nil, fmt.Errorf("read event state: %w", err)
 	}
 	var stored []Envelope
-	if err := json.Unmarshal(data, &stored); err != nil {
+	var persisted persistedEvents
+	if err := json.Unmarshal(data, &persisted); err == nil && persisted.Events != nil {
+		stored = persisted.Events
+		b.revision = persisted.Revision
+		b.acks = persisted.Acks
+		if b.acks == nil {
+			b.acks = make(map[string]string)
+		}
+	} else if err := json.Unmarshal(data, &stored); err != nil {
 		return nil, fmt.Errorf("decode event state: %w", err)
 	}
 	for _, event := range stored {
@@ -100,46 +118,223 @@ func (b *Bus) persistLocked() error {
 	if b.statePath == "" {
 		return nil
 	}
-	data, err := json.Marshal(b.events)
+	return durable.WithExclusive(b.statePath, func() error {
+		// Merge an external writer's history while holding the lock. This makes a
+		// persistent local bus safe for multiple API processes without dropping
+		// events that were appended by a peer between publishes.
+		if disk, err := readPersistedEvents(b.statePath); err != nil {
+			return err
+		} else if disk != nil && disk.revision != b.revision {
+			b.events = mergeEvents(disk.events, b.events)
+			if b.acks == nil {
+				b.acks = make(map[string]string)
+			}
+			for consumer, cursor := range disk.acks {
+				b.acks[consumer] = cursor
+			}
+			rebuildSeen(b)
+			b.revision = disk.revision
+		}
+		eventsCopy := append([]Envelope(nil), b.events...)
+		if eventsCopy == nil {
+			eventsCopy = []Envelope{}
+		}
+		next := persistedEvents{Revision: b.revision + 1, Events: eventsCopy, Acks: b.acks}
+		data, err := json.Marshal(next)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(b.statePath)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, ".adro-events-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if err := tmp.Chmod(0o600); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := durable.Inject("events.snapshot.before_rename"); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpName, b.statePath); err != nil {
+			return err
+		}
+		if dirFile, openErr := os.Open(dir); openErr == nil {
+			if syncErr := dirFile.Sync(); syncErr != nil {
+				_ = dirFile.Close()
+				return syncErr
+			}
+			_ = dirFile.Close()
+		}
+		b.revision = next.Revision
+		return nil
+	})
+}
+
+// Reload refreshes a persistent bus from a peer process. Subscribers are not
+// replayed automatically; callers can use List with the last cursor to catch
+// up deterministically.
+func (b *Bus) Reload() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.reloadLocked()
+}
+
+func (b *Bus) reloadLocked() error {
+	if b.statePath == "" {
+		return nil
+	}
+	persisted, err := readPersistedEvents(b.statePath)
+	if err != nil || persisted == nil || persisted.revision <= b.revision {
+		return err
+	}
+	b.events = append([]Envelope(nil), persisted.events...)
+	b.acks = make(map[string]string, len(persisted.acks))
+	for consumer, cursor := range persisted.acks {
+		b.acks[consumer] = cursor
+	}
+	b.revision = persisted.revision
+	rebuildSeen(b)
+	return nil
+}
+
+func readPersistedEvents(path string) (*struct {
+	revision int64
+	events   []Envelope
+	acks     map[string]string
+}, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
+		return nil, fmt.Errorf("read event state: %w", err)
+	}
+	var persisted persistedEvents
+	if err := json.Unmarshal(data, &persisted); err == nil && persisted.Events != nil {
+		return &struct {
+			revision int64
+			events   []Envelope
+			acks     map[string]string
+		}{persisted.Revision, persisted.Events, persisted.Acks}, nil
+	}
+	var events []Envelope
+	if err := json.Unmarshal(data, &events); err != nil {
+		return nil, fmt.Errorf("decode event state: %w", err)
+	}
+	return &struct {
+		revision int64
+		events   []Envelope
+		acks     map[string]string
+	}{0, events, nil}, nil
+}
+
+func mergeEvents(primary, secondary []Envelope) []Envelope {
+	result := make([]Envelope, 0, len(primary)+len(secondary))
+	seen := make(map[string]struct{}, len(primary)+len(secondary))
+	for _, event := range append(append([]Envelope(nil), primary...), secondary...) {
+		if event.EventID == "" {
+			continue
+		}
+		if _, ok := seen[event.EventID]; ok {
+			continue
+		}
+		seen[event.EventID] = struct{}{}
+		result = append(result, cloneEnvelope(event))
+	}
+	return result
+}
+
+func rebuildSeen(b *Bus) {
+	b.seen = make(map[string]struct{}, len(b.events))
+	b.seenProvider = make(map[string]struct{})
+	for _, event := range b.events {
+		b.seen[event.EventID] = struct{}{}
+		if event.Provider != "" && event.ProviderEventID != "" {
+			b.seenProvider[event.Provider+"\x00"+event.ProviderEventID] = struct{}{}
+		}
+	}
+}
+
+// Ack durably records the last event consumed by consumerID. Acknowledging an
+// unknown event is rejected so a typo cannot advance a stream past retained
+// history. Acks are monotonic within the event history.
+func (b *Bus) Ack(consumerID, eventID string) error {
+	consumerID, eventID = strings.TrimSpace(consumerID), strings.TrimSpace(eventID)
+	if consumerID == "" || eventID == "" {
+		return errors.New("consumer_id and event_id are required")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.reloadLocked(); err != nil {
 		return err
 	}
-	dir := filepath.Dir(b.statePath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
+	index := -1
+	for i, event := range b.events {
+		if event.EventID == eventID {
+			index = i
+			break
+		}
 	}
-	tmp, err := os.CreateTemp(dir, ".adro-events-*")
-	if err != nil {
-		return err
+	if index < 0 {
+		return errors.New("event is not retained")
 	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
+	if previous := b.acks[consumerID]; previous != "" {
+		previousIndex := -1
+		for i, event := range b.events {
+			if event.EventID == previous {
+				previousIndex = i
+				break
+			}
+		}
+		if previousIndex >= 0 && index < previousIndex {
+			return errors.New("event acknowledgement would move backwards")
+		}
 	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
+	previous := b.acks[consumerID]
+	b.acks[consumerID] = eventID
+	if err := b.persistLocked(); err != nil {
+		if previous == "" {
+			delete(b.acks, consumerID)
+		} else {
+			b.acks[consumerID] = previous
+		}
+		return fmt.Errorf("persist event acknowledgement: %w", err)
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+	return nil
+}
+
+// Replay returns events after the consumer's durable acknowledgement. An
+// explicit cursor overrides the stored ack and is useful for stateless clients.
+func (b *Bus) Replay(consumerID, aggregateID, cursor string, limit int) ([]Envelope, string, error) {
+	if b.statePath != "" {
+		if err := b.Reload(); err != nil {
+			return nil, "", err
+		}
 	}
-	if err := tmp.Close(); err != nil {
-		return err
+	if strings.TrimSpace(cursor) == "" && strings.TrimSpace(consumerID) != "" {
+		b.mu.RLock()
+		cursor = b.acks[consumerID]
+		b.mu.RUnlock()
 	}
-	if err := os.Rename(tmpName, b.statePath); err != nil {
-		return err
-	}
-	// Persist the directory entry as well as file contents. Without this sync,
-	// a power loss immediately after rename can resurrect the prior snapshot.
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer dirFile.Close()
-	return dirFile.Sync()
+	items, next := b.List(aggregateID, cursor, limit)
+	return items, next, nil
 }
 
 func (b *Bus) Publish(_ context.Context, event Envelope) error {
@@ -187,6 +382,11 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 }
 
 func (b *Bus) List(aggregateID, cursor string, limit int) ([]Envelope, string) {
+	if b.statePath != "" {
+		b.mu.Lock()
+		_ = b.reloadLocked()
+		b.mu.Unlock()
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	if limit <= 0 || limit > 250 {

@@ -1772,13 +1772,25 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 	}
 	if len(parts) > 1 && parts[1] == "messages" && r.Method == http.MethodPost {
 		var input struct {
-			Input string `json:"input"`
+			Input          string `json:"input"`
+			IdempotencyKey string `json:"idempotency_key,omitempty"`
 		}
 		if err := decodeJSON(r, &input); err != nil {
 			s.problem(w, r, 400, "invalid_json", err.Error(), nil)
 			return
 		}
-		if err := s.Provider.AppendInput(r.Context(), id, input.Input); err != nil {
+		key := strings.TrimSpace(input.IdempotencyKey)
+		if key == "" {
+			key = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		}
+		var appendErr error
+		if keyed, ok := s.Provider.(provider.InputKeyProvider); ok && key != "" {
+			appendErr = keyed.AppendInputWithKey(r.Context(), id, input.Input, key)
+		} else {
+			appendErr = s.Provider.AppendInput(r.Context(), id, input.Input)
+		}
+		if appendErr != nil {
+			err := appendErr
 			status, code := http.StatusConflict, "run_input_failed"
 			if provider.ErrorCodeOf(err) == provider.ErrorCapability {
 				status, code = http.StatusNotImplemented, "capability_unavailable"

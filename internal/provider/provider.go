@@ -212,25 +212,29 @@ type ContinuationCommand struct {
 	IdempotencyKey    string `json:"idempotency_key,omitempty"`
 }
 type RunSnapshot struct {
-	ID               string      `json:"id"`
-	WorkItemID       string      `json:"work_item_id,omitempty"`
-	ProviderIssueID  string      `json:"provider_issue_id,omitempty"`
-	Status           string      `json:"status"`
-	LastEventID      string      `json:"last_event_id,omitempty"`
-	SessionID        string      `json:"session_id,omitempty"`
-	WorkDir          string      `json:"work_dir,omitempty"`
-	BaselineCommit   string      `json:"baseline_commit,omitempty"`
-	HeadCommit       string      `json:"head_commit,omitempty"`
-	SubmissionURL    string      `json:"submission_url,omitempty"`
-	ChecksConclusion string      `json:"checks_conclusion,omitempty"`
-	Output           string      `json:"output,omitempty"`
-	Error            string      `json:"error,omitempty"`
-	WorkspaceDirty   bool        `json:"workspace_dirty,omitempty"`
-	ChangedFiles     []string    `json:"changed_files,omitempty"`
-	StartedAt        *time.Time  `json:"started_at,omitempty"`
-	FinishedAt       *time.Time  `json:"finished_at,omitempty"`
-	Usage            Usage       `json:"usage"`
-	ToolEvents       []ToolEvent `json:"tool_events,omitempty"`
+	ID               string         `json:"id"`
+	WorkItemID       string         `json:"work_item_id,omitempty"`
+	ProviderIssueID  string         `json:"provider_issue_id,omitempty"`
+	InputHash        string         `json:"input_hash,omitempty"`
+	Status           string         `json:"status"`
+	LastEventID      string         `json:"last_event_id,omitempty"`
+	SessionID        string         `json:"session_id,omitempty"`
+	SessionContinuity string         `json:"session_continuity,omitempty"`
+	WorkDir          string         `json:"work_dir,omitempty"`
+	BaselineCommit   string         `json:"baseline_commit,omitempty"`
+	HeadCommit       string         `json:"head_commit,omitempty"`
+	SubmissionURL    string         `json:"submission_url,omitempty"`
+	ChecksConclusion string         `json:"checks_conclusion,omitempty"`
+	Output           string         `json:"output,omitempty"`
+	Error            string         `json:"error,omitempty"`
+	WorkspaceDirty   bool           `json:"workspace_dirty,omitempty"`
+	ChangedFiles     []string       `json:"changed_files,omitempty"`
+	StartedAt        *time.Time     `json:"started_at,omitempty"`
+	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
+	Usage            Usage          `json:"usage"`
+	ToolEvents       []ToolEvent    `json:"tool_events,omitempty"`
+	Interactions     []Interaction  `json:"interactions,omitempty"`
+	Ledger           []RuntimeEvent `json:"ledger,omitempty"`
 }
 
 // ToolEvent is provider-neutral evidence extracted from a structured executor
@@ -243,6 +247,34 @@ type ToolEvent struct {
 	Phase    string `json:"phase"`
 	Payload  string `json:"payload,omitempty"`
 	Sequence int    `json:"sequence"`
+}
+
+// Interaction is a durable user input accepted by a running provider. The
+// sequence and hash make retries/restarts idempotent and auditable even when
+// the underlying CLI does not support interactive stdin.
+type Interaction struct {
+	ID             string    `json:"id"`
+	RunID          string    `json:"run_id"`
+	Sequence       int64     `json:"sequence"`
+	Input          string    `json:"input"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	Hash           string    `json:"hash"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// RuntimeEvent is the provider runtime ledger. It is intentionally small and
+// provider-neutral: adapters can replay lifecycle, interaction and recovery
+// facts without trusting an ephemeral process or log stream.
+type RuntimeEvent struct {
+	ID        string         `json:"id"`
+	RunID     string         `json:"run_id"`
+	Sequence  int64          `json:"sequence"`
+	Type      string         `json:"type"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	PrevHash  string         `json:"prev_hash,omitempty"`
+	Hash      string         `json:"hash"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 type Usage struct {
 	InputTokens      int64   `json:"input_tokens"`
@@ -289,6 +321,12 @@ type AttachmentPublisher interface {
 // the originally pinned session ID.
 type ContinuityProvider interface {
 	ContinueWorkItem(context.Context, ContinuationCommand) (RunBinding, error)
+}
+
+// InputKeyProvider optionally exposes idempotent interaction delivery. The
+// base AppendInput method remains source-compatible with older adapters.
+type InputKeyProvider interface {
+	AppendInputWithKey(context.Context, string, string, string) error
 }
 type EventStream struct {
 	Events <-chan events.Envelope
@@ -364,13 +402,17 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
 		if existingID := p.runKeys[cmd.WorkItemID+"\x00"+key]; existingID != "" {
 			if existing := p.runs[existingID]; existing != nil {
+				if existing.snapshot.InputHash != "" && existing.snapshot.InputHash != sha256Hex(cmd.Input) {
+					p.mu.Unlock()
+					return RunBinding{}, fmt.Errorf("%w: idempotency key maps to different input", ErrConflict)
+				}
 				p.mu.Unlock()
 				return RunBinding{ID: existing.snapshot.ID, ProviderRunID: "mock-run-" + existing.snapshot.ID, SessionID: existing.snapshot.SessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", StartedAt: *existing.snapshot.StartedAt}, nil
 			}
 		}
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, SessionID: sessionID, Status: "running", StartedAt: &now}, cancel: cancel}
+	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, InputHash: sha256Hex(cmd.Input), SessionID: sessionID, Status: "running", StartedAt: &now}, cancel: cancel}
 	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
 		p.runKeys[cmd.WorkItemID+"\x00"+key] = id
 	}

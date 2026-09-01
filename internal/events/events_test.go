@@ -2,7 +2,11 @@ package events
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
+
+	"github.com/adro-project/adro/internal/durable"
 )
 
 func TestBusDeduplicatesAndCursors(t *testing.T) {
@@ -20,6 +24,83 @@ func TestBusDeduplicatesAndCursors(t *testing.T) {
 	}
 	if got[0].EventID != e.EventID {
 		t.Fatal("event changed")
+	}
+}
+
+func TestPersistentBusMergesPeerWritersAndReloads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	first, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New("a.v1", "run", "r1", "t", "w", 1, nil)
+	b := New("b.v1", "run", "r2", "t", "w", 1, nil)
+	if err := first.Publish(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Publish(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := first.List("", "", 10)
+	if len(items) != 2 {
+		t.Fatalf("peer event lost after merge: %+v", items)
+	}
+}
+
+func TestPersistentBusFaultBeforeRenameDoesNotExposeEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := durable.SetFaultInjector(func(point string) error {
+		if point == "events.snapshot.before_rename" {
+			return errors.New("injected crash")
+		}
+		return nil
+	})
+	defer restore()
+	if err := b.Publish(context.Background(), New("fault.v1", "run", "r1", "t", "w", 1, nil)); err == nil {
+		t.Fatal("expected injected persistence error")
+	}
+	items, _ := b.List("r1", "", 10)
+	if len(items) != 0 {
+		t.Fatalf("failed event remained in memory: %+v", items)
+	}
+}
+
+func TestPersistentBusAckAndReplaySurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := b.Publish(context.Background(), New("replay.v1", "run", "r1", "t", "w", int64(i+1), map[string]any{"i": i})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, _, err := b.Replay("consumer-1", "r1", "", 2)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("initial replay=%+v err=%v", items, err)
+	}
+	if err := b.Ack("consumer-1", items[1].EventID); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, _, err = restarted.Replay("consumer-1", "r1", "", 10)
+	if err != nil || len(items) != 1 || items[0].Payload["i"] != float64(2) {
+		t.Fatalf("ack was not durable: %+v err=%v", items, err)
 	}
 }
 

@@ -222,12 +222,16 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 	}
 	if len(parts) == 3 && parts[1] == "context" && parts[2] == "compile" && r.Method == http.MethodGet {
 		maxTokens, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("max_tokens")), 10, 64)
-		compiled, compileErr := s.Harness.Compile(session.ID, maxTokens)
+		manifest, compileErr := s.Harness.CompileManifest(session.ID, maxTokens)
 		if compileErr != nil {
 			s.problem(w, r, http.StatusInternalServerError, "context_compile_failed", compileErr.Error(), nil)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"session_id": session.ID, "context_version": session.ContextVersion, "compiled": compiled})
+		parts := make([]string, 0, len(manifest.Blocks))
+		for _, block := range manifest.Blocks {
+			parts = append(parts, block.Content)
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"session_id": session.ID, "context_version": session.ContextVersion, "compiled": strings.TrimSpace(strings.Join(parts, "")), "manifest": manifest, "manifest_digest": manifest.Digest})
 		return
 	}
 	if len(parts) == 3 && parts[1] == "context" && parts[2] == "integrity" && r.Method == http.MethodGet {

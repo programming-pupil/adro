@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
 )
 
@@ -31,6 +32,10 @@ type localRun struct {
 	snapshot RunSnapshot
 	cancel   context.CancelFunc
 	input    string
+	stdin    io.WriteCloser
+	pending  []Interaction
+	inputMu  sync.Mutex
+	started  chan struct{}
 }
 
 type localWorkItem struct {
@@ -40,6 +45,7 @@ type localWorkItem struct {
 }
 
 type localState struct {
+	Revision int64                    `json:"revision"`
 	Runs     map[string]RunSnapshot   `json:"runs"`
 	RunKeys  map[string]string        `json:"run_keys,omitempty"`
 	Workdirs map[string]string        `json:"workdirs"`
@@ -61,6 +67,7 @@ type LocalProvider struct {
 	issues   map[string]string
 	items    map[string]localWorkItem
 	runKeys  map[string]string
+	revision int64
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -133,7 +140,7 @@ func (p *LocalProvider) Capabilities(context.Context) (Capabilities, error) {
 	}
 	return Capabilities{
 		Provider: p.providerName(), AdapterVersion: "local-exec-v1", ServerVersion: "process",
-		Features: []string{"agent.v1", "project.resources.v1", "issue.child.v1", "run.snapshot.v1", "runtime.worktree.v1", "usage.tokens.v1", "attachment.v1", "run.repair.v1", "tool.checkpoint.v1"},
+		Features: []string{"agent.v1", "project.resources.v1", "issue.child.v1", "run.snapshot.v1", "run.messages.v1", "runtime.ledger.v1", "runtime.worktree.v1", "usage.tokens.v1", "attachment.v1", "run.repair.v1", "tool.checkpoint.v1", "context.manifest.v1"},
 	}, nil
 }
 
@@ -211,6 +218,9 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 		existing := p.runs[existingID]
 		p.mu.RUnlock()
 		if existing != nil {
+			if existing.snapshot.InputHash != "" && existing.snapshot.InputHash != sha256Hex(command.Input) {
+				return RunBinding{}, fmt.Errorf("%w: idempotency key maps to different input", ErrConflict)
+			}
 			return bindingFromSnapshot(existing.snapshot, command.ContextID, command.ContextVersion, command.SessionID != ""), nil
 		}
 	}
@@ -238,6 +248,14 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	if workDir == "" || filepath.Clean(workDir) != filepath.Clean(command.ExpectedWorkDir) {
 		return RunBinding{}, errors.New("continuation workdir does not match the original run")
 	}
+	if p.executorKind() == "codex" {
+		p.mu.RLock()
+		proven := p.hasProvenSessionLocked(workItemID, command.ExpectedSessionID)
+		p.mu.RUnlock()
+		if !proven {
+			return RunBinding{}, errors.New("codex continuation requires a proven thread.started session")
+		}
+	}
 	if err := p.prepareWorkDir(ctx, workDir, item); err != nil {
 		return RunBinding{}, err
 	}
@@ -256,6 +274,19 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	return p.start(ctx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true, command.IdempotencyKey)
 }
 
+func (p *LocalProvider) hasProvenSessionLocked(workItemID, sessionID string) bool {
+	for _, run := range p.runs {
+		if run == nil {
+			continue
+		}
+		snapshot := run.snapshot
+		if snapshot.WorkItemID == workItemID && snapshot.SessionID == sessionID && snapshot.SessionContinuity == "proven" {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, sessionID, workDir, contextID string, contextVersion int64, reused bool, idempotencyKey string) (RunBinding, error) {
 	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		return RunBinding{}, fmt.Errorf("create execution workdir: %w", err)
@@ -269,9 +300,11 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// retained in the run record and is exercised by CancelRun or the explicit
 	// executor deadline, whichever comes first.
 	runCtx, cancel := localExecutionContext()
-	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, Status: "running", SessionID: sessionID, WorkDir: workDir, StartedAt: &now}
+	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, StartedAt: &now}
 	p.mu.Lock()
-	p.runs[id] = &localRun{snapshot: snapshot, cancel: cancel, input: input}
+	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, started: make(chan struct{})}
+	p.runs[id] = run
+	appendRuntimeEventLocked(run, "run.started", map[string]any{"work_item_id": workItemID, "session_id": sessionID, "work_dir": workDir, "input_sha256": sha256Hex(input)})
 	runKey := strings.TrimSpace(idempotencyKey)
 	previousRunKey := ""
 	runKeyExisted := false
@@ -302,8 +335,7 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 		return RunBinding{}, fmt.Errorf("persist local run: %w", err)
 	}
 	p.mu.Unlock()
-	digest := sha256.Sum256([]byte(input))
-	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": hex.EncodeToString(digest[:]), "session_id": sessionID, "work_dir": workDir}))
+	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input), "session_id": sessionID, "work_dir": workDir}))
 	go p.execute(runCtx, id, input, workDir, sessionID, reused)
 	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}, nil
 }
@@ -338,9 +370,64 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if pathErr == nil {
 		cmd := exec.CommandContext(ctx, path, args...)
 		cmd.Dir = workDir
-		output, runErr = cmd.CombinedOutput()
+		stdin, stdinErr := cmd.StdinPipe()
+		if stdinErr != nil {
+			runErr = stdinErr
+		} else {
+			var outputBuffer bytes.Buffer
+			cmd.Stdout = &outputBuffer
+			cmd.Stderr = &outputBuffer
+			p.mu.Lock()
+			run := p.runs[runID]
+			var pending []Interaction
+			if run != nil {
+				run.stdin = stdin
+				pending = append(pending, run.pending...)
+				run.pending = nil
+			}
+			p.mu.Unlock()
+			startErr := cmd.Start()
+			if startErr != nil {
+				runErr = startErr
+			} else {
+				if run != nil {
+					close(run.started)
+					run.inputMu.Lock()
+					for _, interaction := range pending {
+						_, writeErr := io.WriteString(stdin, interaction.Input+"\n")
+						p.mu.Lock()
+						if current := p.runs[runID]; current != nil {
+							status, eventType := "sent", "interaction.sent"
+							if writeErr != nil {
+								status, eventType = "failed", "interaction.failed"
+							}
+							previous := current.snapshot
+							if updateInteractionLocked(current, interaction.ID, status) {
+								appendRuntimeEventLocked(current, eventType, map[string]any{"interaction_id": interaction.ID})
+								if err := p.persistLocked(); err != nil {
+									current.snapshot = previous
+								}
+							}
+						}
+						p.mu.Unlock()
+					}
+					run.inputMu.Unlock()
+				}
+				runErr = cmd.Wait()
+			}
+			if startErr != nil && run != nil {
+				close(run.started)
+			}
+			_ = stdin.Close()
+			output = outputBuffer.Bytes()
+		}
 	} else {
 		runErr = pathErr
+		p.mu.Lock()
+		if run := p.runs[runID]; run != nil {
+			close(run.started)
+		}
+		p.mu.Unlock()
 	}
 	status := "completed"
 	if runErr != nil {
@@ -359,8 +446,25 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	}
 	head := gitRevision(workDir)
 	dirty, changedFiles := gitChanges(workDir)
-	if discovered := providerSessionID(output, p.executorKind()); discovered != "" {
-		sessionID = discovered
+	continuity := "unproven"
+	discovered := providerSessionID(output, p.executorKind())
+	if discovered != "" {
+		if p.executorKind() == "codex" && resumed && discovered != sessionID {
+			// A resume that opens a different native thread is a new conversation,
+			// not a valid continuation. Keep the original session in the snapshot
+			// and fail closed so the pipeline cannot silently lose context.
+			runErr = fmt.Errorf("codex continuation opened thread %s, expected %s", discovered, sessionID)
+		} else {
+			sessionID = discovered
+			continuity = "proven"
+		}
+	} else if p.executorKind() == "codex" && resumed {
+		// Codex must emit a real thread.started record on every resumed process;
+		// without it there is no evidence that the native conversation continued.
+		runErr = errors.New("codex continuation did not prove thread.started session")
+	}
+	if runErr != nil && status == "completed" {
+		status = "failed"
 	}
 	done := time.Now().UTC()
 	usage := usageFromOutput(output)
@@ -373,6 +477,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		previous := run.snapshot
 		run.snapshot.Status = status
 		run.snapshot.SessionID = sessionID
+		run.snapshot.SessionContinuity = continuity
 		run.snapshot.BaselineCommit = baseline
 		run.snapshot.HeadCommit = head
 		run.snapshot.FinishedAt = &done
@@ -387,6 +492,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.WorkspaceDirty = dirty
 		run.snapshot.ChangedFiles = changedFiles
 		run.snapshot.LastEventID = domain.NewID()
+		appendRuntimeEventLocked(run, "run.finished", map[string]any{"status": status, "session_id": sessionID, "session_continuity": continuity, "error": run.snapshot.Error})
 		if err := p.persistLocked(); err != nil {
 			// The process result is not acknowledged as completed when its
 			// durable snapshot cannot be written. Preserve the evidence in the
@@ -395,6 +501,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			run.snapshot = previous
 			run.snapshot.Status = "failed"
 			run.snapshot.SessionID = sessionID
+			run.snapshot.SessionContinuity = continuity
 			run.snapshot.FinishedAt = &done
 			run.snapshot.Usage = usage
 			run.snapshot.Output = truncateOutput(output)
@@ -724,18 +831,167 @@ func (p *LocalProvider) executablePath() (string, error) {
 	return path, nil
 }
 
-func (p *LocalProvider) AppendInput(_ context.Context, runID, input string) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (p *LocalProvider) AppendInput(ctx context.Context, runID, input string) error {
+	return p.appendInput(ctx, runID, input, "")
+}
+
+func (p *LocalProvider) AppendInputWithKey(ctx context.Context, runID, input, key string) error {
+	return p.appendInput(ctx, runID, input, key)
+}
+
+func (p *LocalProvider) appendInput(ctx context.Context, runID, input, key string) error {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return errors.New("input is required")
+	}
+	p.mu.Lock()
 	run := p.runs[runID]
 	if run == nil {
+		p.mu.Unlock()
 		return errors.New("run not found")
 	}
 	if run.snapshot.Status != "running" {
+		p.mu.Unlock()
 		return errors.New("run is not running")
 	}
-	_ = input
-	return &CapabilityError{Capability: "run.messages.v1", AdapterVersion: "local-exec-v1"}
+	key = strings.TrimSpace(key)
+	var interaction Interaction
+	if key != "" {
+		for _, existing := range run.snapshot.Interactions {
+			if existing.IdempotencyKey != key {
+				continue
+			}
+			if existing.Input != input {
+				p.mu.Unlock()
+				return fmt.Errorf("%w: interaction idempotency key maps to different input", ErrConflict)
+			}
+			interaction = existing
+			if existing.Status == "sent" || run.stdin == nil {
+				p.mu.Unlock()
+				return nil
+			}
+			break
+		}
+	}
+	previousSnapshot := run.snapshot
+	previousPending := append([]Interaction(nil), run.pending...)
+	created := interaction.ID == ""
+	if interaction.ID == "" {
+		interaction = Interaction{ID: domain.NewID(), RunID: runID, Sequence: int64(len(run.snapshot.Interactions) + 1), Input: input, IdempotencyKey: key, Status: "accepted", CreatedAt: time.Now().UTC()}
+		interaction.Hash = hashInteraction(interaction)
+		run.snapshot.Interactions = append(run.snapshot.Interactions, interaction)
+		appendRuntimeEventLocked(run, "interaction.accepted", map[string]any{"interaction_id": interaction.ID, "sequence": interaction.Sequence, "input_sha256": sha256Hex(input)})
+		if run.stdin == nil {
+			run.pending = append(run.pending, interaction)
+		}
+	}
+	if created {
+		if err := p.persistLocked(); err != nil {
+			run.snapshot = previousSnapshot
+			run.pending = previousPending
+			returnErr := fmt.Errorf("persist interaction: %w", err)
+			p.mu.Unlock()
+			return returnErr
+		}
+	}
+	stdin := run.stdin
+	started := run.started
+	p.mu.Unlock()
+	if stdin == nil {
+		return nil
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	run.inputMu.Lock()
+	defer run.inputMu.Unlock()
+	// Re-check the durable interaction state after serializing writers. A
+	// concurrent retry may have delivered this idempotency key while we waited.
+	p.mu.RLock()
+	current := p.runs[runID]
+	status := ""
+	if current != nil {
+		for _, existing := range current.snapshot.Interactions {
+			if existing.ID == interaction.ID {
+				status = existing.Status
+				break
+			}
+		}
+	}
+	p.mu.RUnlock()
+	if status == "sent" {
+		return nil
+	}
+	if _, err := io.WriteString(stdin, input+"\n"); err != nil {
+		p.mu.Lock()
+		if current := p.runs[runID]; current != nil {
+			previous := current.snapshot
+			if updateInteractionLocked(current, interaction.ID, "failed") {
+				appendRuntimeEventLocked(current, "interaction.failed", map[string]any{"interaction_id": interaction.ID})
+				if persistErr := p.persistLocked(); persistErr != nil {
+					current.snapshot = previous
+				}
+			}
+		}
+		p.mu.Unlock()
+		return fmt.Errorf("write provider input: %w", err)
+	}
+	p.mu.Lock()
+	if current := p.runs[runID]; current != nil {
+		previousSnapshot := current.snapshot
+		if updateInteractionLocked(current, interaction.ID, "sent") {
+			appendRuntimeEventLocked(current, "interaction.sent", map[string]any{"interaction_id": interaction.ID})
+		}
+		if err := p.persistLocked(); err != nil {
+			current.snapshot = previousSnapshot
+			p.mu.Unlock()
+			return fmt.Errorf("persist interaction delivery: %w", err)
+		}
+	}
+	p.mu.Unlock()
+	return nil
+}
+
+func sha256Hex(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+func hashInteraction(interaction Interaction) string {
+	copy := interaction
+	copy.Hash = ""
+	data, _ := json.Marshal(copy)
+	return sha256Hex(string(data))
+}
+
+func updateInteractionLocked(run *localRun, interactionID, status string) bool {
+	if run == nil || interactionID == "" {
+		return false
+	}
+	for index := range run.snapshot.Interactions {
+		if run.snapshot.Interactions[index].ID == interactionID {
+			run.snapshot.Interactions[index].Status = status
+			run.snapshot.Interactions[index].Hash = hashInteraction(run.snapshot.Interactions[index])
+			return true
+		}
+	}
+	return false
+}
+
+func appendRuntimeEventLocked(run *localRun, typ string, payload map[string]any) RuntimeEvent {
+	prev := ""
+	if n := len(run.snapshot.Ledger); n > 0 {
+		prev = run.snapshot.Ledger[n-1].Hash
+	}
+	event := RuntimeEvent{ID: domain.NewID(), RunID: run.snapshot.ID, Sequence: int64(len(run.snapshot.Ledger) + 1), Type: typ, Payload: payload, PrevHash: prev, CreatedAt: time.Now().UTC()}
+	copy := event
+	copy.Hash = ""
+	data, _ := json.Marshal(copy)
+	event.Hash = sha256Hex(string(data))
+	run.snapshot.Ledger = append(run.snapshot.Ledger, event)
+	return event
 }
 
 func (p *LocalProvider) CancelRun(_ context.Context, runID string) error {
@@ -753,6 +1009,7 @@ func (p *LocalProvider) CancelRun(_ context.Context, runID string) error {
 	run.snapshot.Status = "cancelled"
 	now := time.Now().UTC()
 	run.snapshot.FinishedAt = &now
+	appendRuntimeEventLocked(run, "run.cancelled", map[string]any{"reason": "requested"})
 	if err := p.persistLocked(); err != nil {
 		run.snapshot = previous
 		return fmt.Errorf("persist cancelled local run: %w", err)
@@ -767,7 +1024,34 @@ func (p *LocalProvider) GetRun(_ context.Context, runID string) (RunSnapshot, er
 	if run == nil {
 		return RunSnapshot{}, errors.New("run not found")
 	}
-	return run.snapshot, nil
+	return cloneRunSnapshot(run.snapshot), nil
+}
+
+func cloneRunSnapshot(snapshot RunSnapshot) RunSnapshot {
+	snapshot.ChangedFiles = append([]string(nil), snapshot.ChangedFiles...)
+	snapshot.ToolEvents = append([]ToolEvent(nil), snapshot.ToolEvents...)
+	snapshot.Interactions = append([]Interaction(nil), snapshot.Interactions...)
+	snapshot.Ledger = make([]RuntimeEvent, len(snapshot.Ledger))
+	for i, event := range snapshot.Ledger {
+		event.Payload = clonePayload(event.Payload)
+		snapshot.Ledger[i] = event
+	}
+	return snapshot
+}
+
+func clonePayload(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	data, err := json.Marshal(input)
+	if err != nil {
+		return input
+	}
+	var output map[string]any
+	if json.Unmarshal(data, &output) != nil {
+		return input
+	}
+	return output
 }
 
 func (p *LocalProvider) StreamEvents(ctx context.Context, runID, cursor string) (EventStream, error) {
@@ -946,52 +1230,90 @@ func (p *LocalProvider) persistLocked() error {
 	if p.StatePath == "" {
 		return nil
 	}
-	state := localState{Runs: map[string]RunSnapshot{}, RunKeys: map[string]string{}, Workdirs: map[string]string{}, Issues: map[string]string{}, Items: map[string]localWorkItem{}}
-	for id, run := range p.runs {
-		state.Runs[id] = run.snapshot
+	return durable.WithExclusive(p.StatePath, func() error {
+		diskRevision, err := localPersistedRevision(p.StatePath)
+		if err != nil {
+			return err
+		}
+		if diskRevision != p.revision {
+			return fmt.Errorf("stale local provider state: expected revision %d, found %d", p.revision, diskRevision)
+		}
+		state := localState{Revision: p.revision + 1, Runs: map[string]RunSnapshot{}, RunKeys: map[string]string{}, Workdirs: map[string]string{}, Issues: map[string]string{}, Items: map[string]localWorkItem{}}
+		for id, run := range p.runs {
+			state.Runs[id] = run.snapshot
+		}
+		for key, id := range p.runKeys {
+			state.RunKeys[key] = id
+		}
+		for key, value := range p.workdirs {
+			state.Workdirs[key] = value
+		}
+		for key, value := range p.issues {
+			state.Issues[key] = value
+		}
+		for key, value := range p.items {
+			state.Items[key] = value
+		}
+		data, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(p.StatePath)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, ".adro-runs-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if err := tmp.Chmod(0o600); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := durable.Inject("provider.snapshot.before_rename"); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpName, p.StatePath); err != nil {
+			return err
+		}
+		if dirFile, openErr := os.Open(dir); openErr == nil {
+			if syncErr := dirFile.Sync(); syncErr != nil {
+				_ = dirFile.Close()
+				return syncErr
+			}
+			_ = dirFile.Close()
+		}
+		p.revision = state.Revision
+		return nil
+	})
+}
+
+func localPersistedRevision(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
 	}
-	for key, id := range p.runKeys {
-		state.RunKeys[key] = id
-	}
-	for key, value := range p.workdirs {
-		state.Workdirs[key] = value
-	}
-	for key, value := range p.issues {
-		state.Issues[key] = value
-	}
-	for key, value := range p.items {
-		state.Items[key] = value
-	}
-	data, err := json.Marshal(state)
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("read local provider revision: %w", err)
 	}
-	dir := filepath.Dir(p.StatePath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
+	var state localState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0, fmt.Errorf("decode local provider revision: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".adro-runs-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, p.StatePath)
+	return state.Revision, nil
 }
 
 func (p *LocalProvider) loadState() error {
@@ -1006,7 +1328,11 @@ func (p *LocalProvider) loadState() error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("decode local execution state: %w", err)
 	}
+	p.revision = state.Revision
 	for id, snapshot := range state.Runs {
+		if err := validateRuntimeSnapshot(snapshot); err != nil {
+			return err
+		}
 		if snapshot.Status == "running" {
 			snapshot.Status = "failed"
 			snapshot.Error = "local executor process was interrupted by an API restart"
@@ -1030,6 +1356,31 @@ func (p *LocalProvider) loadState() error {
 		p.items[key] = value
 	}
 	return p.persistLoadedState()
+}
+
+func validateRuntimeSnapshot(snapshot RunSnapshot) error {
+	if snapshot.ID == "" {
+		return errors.New("local execution state contains a run without id")
+	}
+	previous := ""
+	for index, event := range snapshot.Ledger {
+		if event.ID == "" || event.RunID != snapshot.ID || event.Sequence != int64(index+1) || event.PrevHash != previous || event.Hash == "" {
+			return fmt.Errorf("local execution ledger is corrupt for run %s", snapshot.ID)
+		}
+		copy := event
+		copy.Hash = ""
+		data, _ := json.Marshal(copy)
+		if got := sha256Hex(string(data)); got != event.Hash {
+			return fmt.Errorf("local execution ledger hash mismatch for run %s", snapshot.ID)
+		}
+		previous = event.Hash
+	}
+	for index, interaction := range snapshot.Interactions {
+		if interaction.ID == "" || interaction.RunID != snapshot.ID || interaction.Sequence != int64(index+1) || interaction.Hash == "" || hashInteraction(interaction) != interaction.Hash {
+			return fmt.Errorf("local interaction ledger is corrupt for run %s", snapshot.ID)
+		}
+	}
+	return nil
 }
 
 func (p *LocalProvider) persistLoadedState() error {

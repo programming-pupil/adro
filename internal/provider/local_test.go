@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
 )
 
@@ -54,10 +56,8 @@ func TestLocalProviderStartRunIsIdempotentByHarnessKey(t *testing.T) {
 	if first.ID != second.ID || first.ProviderRunID != second.ProviderRunID {
 		t.Fatalf("duplicate provider run first=%+v second=%+v", first, second)
 	}
-	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "different", IdempotencyKey: "pipeline:1:stage:1"}); err != nil {
-		// Providers cannot compare opaque prompt semantics after a lost response;
-		// the existing run is still the only safe result for this idempotency key.
-		t.Fatal(err)
+	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "different", IdempotencyKey: "pipeline:1:stage:1"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different input should fail closed, got %v", err)
 	}
 }
 
@@ -182,6 +182,127 @@ func TestLocalProviderPersistsRunSnapshotAndMarksInterruptedRun(t *testing.T) {
 	interrupted, err := restarted.GetRun(context.Background(), second.ID)
 	if err != nil || interrupted.Status != "failed" || !strings.Contains(interrupted.Error, "API restart") {
 		t.Fatalf("interrupted snapshot=%+v err=%v", interrupted, err)
+	}
+}
+
+func TestLocalProviderAppendInputUsesInteractiveStdinAndPersistsLedger(t *testing.T) {
+	root, statePath := t.TempDir(), filepath.Join(t.TempDir(), "runs.json")
+	p, err := NewPersistentLocalProvider("/bin/sh", []string{"-c", "read first; read second; printf '%s:%s' \"$first\" \"$second\""}, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "interactive-item", Title: "interactive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendInput(context.Background(), binding.ID, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendInput(context.Background(), binding.ID, "beta"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.Status != "completed" || !strings.Contains(snapshot.Output, "alpha:beta") {
+		t.Fatalf("interactive output=%q status=%q", snapshot.Output, snapshot.Status)
+	}
+	if len(snapshot.Interactions) != 2 || len(snapshot.Ledger) < 4 {
+		t.Fatalf("missing interaction/runtime evidence: %+v", snapshot)
+	}
+	restarted, err := NewPersistentLocalProvider("/bin/sh", nil, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restarted.GetRun(context.Background(), binding.ID)
+	if err != nil || len(restored.Interactions) != 2 {
+		t.Fatalf("restored interactions=%+v err=%v", restored.Interactions, err)
+	}
+}
+
+func TestLocalProviderAppendInputWithKeyIsIdempotent(t *testing.T) {
+	root, statePath := t.TempDir(), filepath.Join(t.TempDir(), "runs.json")
+	p, err := NewPersistentLocalProvider("/bin/sh", []string{"-c", "read first; read second; printf '%s:%s' \"$first\" \"$second\""}, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "interactive-keyed-item", Title: "interactive keyed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendInputWithKey(context.Background(), binding.ID, "alpha", "turn:1"); err != nil {
+		t.Fatal(err)
+	}
+	// Retrying the same request must reuse the accepted/sent interaction rather
+	// than writing a second line to the provider stdin.
+	if err := p.AppendInputWithKey(context.Background(), binding.ID, "alpha", "turn:1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendInputWithKey(context.Background(), binding.ID, "beta", "turn:2"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.Status != "completed" || !strings.Contains(snapshot.Output, "alpha:beta") {
+		t.Fatalf("keyed interactive output=%q status=%q", snapshot.Output, snapshot.Status)
+	}
+	if len(snapshot.Interactions) != 2 || snapshot.Interactions[0].Status != "sent" || snapshot.Interactions[1].Status != "sent" {
+		t.Fatalf("keyed interaction ledger=%+v", snapshot.Interactions)
+	}
+}
+
+func TestLocalProviderRejectsTamperedRuntimeLedger(t *testing.T) {
+	root, statePath := t.TempDir(), filepath.Join(t.TempDir(), "runs.json")
+	p, err := NewPersistentLocalProvider("/usr/bin/printf", []string{"{input}"}, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "ledger-item", Title: "ledger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSnapshot(t, p, binding.ID)
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "run.started", "run.tampered", 1))
+	if err := os.WriteFile(statePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPersistentLocalProvider("/usr/bin/printf", nil, root, statePath, newTestBus()); err == nil {
+		t.Fatal("expected tampered ledger to fail closed")
+	}
+}
+
+func TestLocalProviderFaultBeforeRenameLeavesPreviousSnapshot(t *testing.T) {
+	root, statePath := t.TempDir(), filepath.Join(t.TempDir(), "runs.json")
+	p, err := NewPersistentLocalProvider("/usr/bin/printf", []string{"{input}"}, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "fault-item", Title: "fault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore := durable.SetFaultInjector(func(point string) error {
+		if point == "provider.snapshot.before_rename" {
+			return errors.New("injected crash")
+		}
+		return nil
+	})
+	defer restore()
+	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "must-fail"}); err == nil {
+		t.Fatal("expected provider persistence fault")
 	}
 }
 
@@ -454,6 +575,41 @@ func TestLocalProviderStoresNativeCodexThreadID(t *testing.T) {
 	snapshot := waitSnapshot(t, p, binding.ID)
 	if snapshot.SessionID != want {
 		t.Fatalf("snapshot session=%q want=%q binding=%q", snapshot.SessionID, want, binding.SessionID)
+	}
+	if snapshot.SessionContinuity != "proven" {
+		t.Fatalf("snapshot continuity=%q want proven", snapshot.SessionContinuity)
+	}
+	continued, err := p.ContinueWorkItem(context.Background(), ContinuationCommand{IssueID: item.ProviderIssueID, AgentID: "agent", Input: "repair", ExpectedSessionID: want, ExpectedWorkDir: binding.WorkDir})
+	if err != nil {
+		t.Fatalf("proven codex continuation rejected: %v", err)
+	}
+	continuedSnapshot := waitSnapshot(t, p, continued.ID)
+	if continuedSnapshot.Status != "completed" || continuedSnapshot.SessionID != want || continuedSnapshot.SessionContinuity != "proven" {
+		t.Fatalf("continued snapshot=%+v", continuedSnapshot)
+	}
+}
+
+func TestLocalProviderRejectsCodexContinuationWithoutThreadProof(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf 'plain output\\n'\n"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-no-proof", Title: "codex no proof"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionContinuity != "unproven" {
+		t.Fatalf("initial snapshot=%+v", snapshot)
+	}
+	if _, err := p.ContinueWorkItem(context.Background(), ContinuationCommand{IssueID: item.ProviderIssueID, AgentID: "agent", Input: "repair", ExpectedSessionID: binding.SessionID, ExpectedWorkDir: binding.WorkDir}); err == nil || !strings.Contains(err.Error(), "proven thread.started") {
+		t.Fatalf("expected fail-closed continuation, got %v", err)
 	}
 }
 

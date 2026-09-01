@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/durable"
 )
 
 var (
@@ -123,15 +124,18 @@ type MemoryItem struct {
 	Kind      string `json:"kind"`
 	// Fingerprint is a deterministic claim key used by the reducer to detect
 	// duplicate and conflicting facts without a vector index.
-	Fingerprint string     `json:"fingerprint,omitempty"`
-	Content     string     `json:"content"`
-	SourceIDs   []string   `json:"source_ids"`
-	Confidence  float64    `json:"confidence"`
-	Importance  float64    `json:"importance,omitempty"`
-	Pinned      bool       `json:"pinned,omitempty"`
-	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Supersedes  []string   `json:"supersedes,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	Fingerprint  string     `json:"fingerprint,omitempty"`
+	Content      string     `json:"content"`
+	SourceIDs    []string   `json:"source_ids"`
+	Confidence   float64    `json:"confidence"`
+	Importance   float64    `json:"importance,omitempty"`
+	Status       string     `json:"status,omitempty"`
+	QualityScore float64    `json:"quality_score,omitempty"`
+	EvidenceHash string     `json:"evidence_hash,omitempty"`
+	Pinned       bool       `json:"pinned,omitempty"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	Supersedes   []string   `json:"supersedes,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 type Session struct {
@@ -199,6 +203,38 @@ type ContextStatus struct {
 	TranscriptDurable    bool    `json:"transcript_durable"`
 }
 
+// ContextBlock is an immutable, auditable unit selected for a provider turn.
+// The compiler records provenance and policy decisions next to the rendered
+// text so a retry can prove it used the same input, rather than rebuilding a
+// prompt from mutable in-memory state.
+type ContextBlock struct {
+	ID              string            `json:"id"`
+	Kind            string            `json:"kind"`
+	Source          string            `json:"source"`
+	Content         string            `json:"content"`
+	Hash            string            `json:"hash"`
+	Policy          string            `json:"policy"`
+	Trust           string            `json:"trust"`
+	SelectionReason string            `json:"selection_reason"`
+	TokenEstimate   int64             `json:"token_estimate"`
+	Mandatory       bool              `json:"mandatory"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+}
+
+// ContextManifest is the typed context contract exchanged with providers.
+// Digest excludes CreatedAt, making repeated compilation of unchanged state
+// deterministic while still exposing when this manifest was produced.
+type ContextManifest struct {
+	SessionID     string         `json:"session_id"`
+	Version       int64          `json:"version"`
+	TokenBudget   int64          `json:"token_budget"`
+	TokenEstimate int64          `json:"token_estimate"`
+	Blocks        []ContextBlock `json:"blocks"`
+	Digest        string         `json:"digest"`
+	ParentDigest  string         `json:"parent_digest,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+}
+
 // TranscriptIntegrity is a compact audit result for the append-only log and
 // archive replacement proofs. It is safe to expose through diagnostics.
 type TranscriptIntegrity struct {
@@ -230,6 +266,7 @@ type sessionState struct {
 
 type persistedState struct {
 	Version         int                     `json:"version"`
+	Revision        int64                   `json:"revision"`
 	Sessions        map[string]sessionState `json:"sessions"`
 	ProjectMemories map[string][]MemoryItem `json:"project_memories,omitempty"`
 }
@@ -240,6 +277,7 @@ type Store struct {
 	transcriptPath  string
 	sessions        map[string]sessionState
 	projectMemories map[string][]MemoryItem
+	revision        int64
 }
 
 const harnessStateVersion = 3
@@ -297,6 +335,7 @@ func New(path string) (*Store, error) {
 	if state.Version > harnessStateVersion {
 		return nil, fmt.Errorf("unsupported harness state version %d", state.Version)
 	}
+	s.revision = state.Revision
 	if state.Sessions != nil {
 		s.sessions = state.Sessions
 	}
@@ -339,13 +378,16 @@ func New(path string) (*Store, error) {
 		}
 		seen := map[string]struct{}{}
 		for _, memory := range memories {
-			if memory.ID == "" || memory.Scope != "project" || memory.ProjectID != projectID || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 || memory.Fingerprint != "" && memory.Fingerprint != memoryFingerprint(memory.Kind, memory.Content) {
+			if memory.ID == "" || memory.Scope != "project" || memory.ProjectID != projectID || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 || memory.QualityScore < 0 || memory.QualityScore > 1 || !validMemoryStatus(memory.Status) || memory.Fingerprint != "" && memory.Fingerprint != memoryFingerprint(memory.Kind, memory.Content) {
 				return nil, fmt.Errorf("%w: project memory %s", ErrCorrupt, memory.ID)
 			}
 			if _, duplicate := seen[memory.ID]; duplicate {
 				return nil, fmt.Errorf("%w: duplicate project memory %s", ErrCorrupt, memory.ID)
 			}
 			seen[memory.ID] = struct{}{}
+			if memory.EvidenceHash != "" && memory.EvidenceHash != digest([]byte(strings.Join(memory.SourceIDs, "\x00")+"\x00"+memory.Content)) {
+				return nil, fmt.Errorf("%w: project memory evidence %s", ErrCorrupt, memory.ID)
+			}
 		}
 	}
 	if s.transcriptPath != "" {
@@ -368,65 +410,85 @@ func (s *Store) persistLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	state := persistedState{Version: harnessStateVersion, Sessions: s.sessions, ProjectMemories: s.projectMemories}
-	data, err := json.MarshalIndent(state, "", "  ")
+	return durable.WithExclusive(s.path, func() error {
+		diskRevision, err := persistedRevision(s.path)
+		if err != nil {
+			return err
+		}
+		if diskRevision != s.revision {
+			return fmt.Errorf("%w: expected revision %d, found %d", ErrConflict, s.revision, diskRevision)
+		}
+		state := persistedState{Version: harnessStateVersion, Revision: s.revision + 1, Sessions: s.sessions, ProjectMemories: s.projectMemories}
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return err
+		}
+		journalData, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(s.path)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, ".adro-harness-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if err := tmp.Chmod(0o600); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := appendJournal(journalPath(s.path), journalData); err != nil {
+			return err
+		}
+		if err := durable.Inject("harness.snapshot.before_rename"); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpName, s.path); err != nil {
+			return err
+		}
+		dirFile, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		if err := dirFile.Sync(); err != nil {
+			_ = dirFile.Close()
+			return err
+		}
+		_ = dirFile.Close()
+		_ = os.Remove(journalPath(s.path))
+		s.revision = state.Revision
+		return nil
+	})
+}
+
+func persistedRevision(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("read harness revision: %w", err)
 	}
-	journalData, err := json.Marshal(state)
-	if err != nil {
-		return err
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0, fmt.Errorf("decode harness revision: %w", err)
 	}
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".adro-harness-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	// Keep one complete, fsynced record while the snapshot is being swapped.
-	// This closes the crash window between writing the temporary file and the
-	// rename without turning the journal into a second source of truth.
-	journal := journalPath(s.path)
-	if err := appendJournal(journal, journalData); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		_ = os.Remove(journal)
-		return err
-	}
-	// Sync the directory entry as well as the file contents so a power loss
-	// after rename cannot silently resurrect the previous snapshot.
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer dirFile.Close()
-	if err := dirFile.Sync(); err != nil {
-		return err
-	}
-	// The snapshot is now authoritative. Removal is best effort: a stale record
-	// is byte-for-byte equivalent and will be replayed safely on the next boot.
-	_ = os.Remove(journal)
-	return nil
+	return state.Revision, nil
 }
 
 func journalPath(snapshotPath string) string {
@@ -489,65 +551,77 @@ func appendTranscript(path string, turn Turn) error {
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
-	record, err := json.Marshal(transcriptRecord{Version: 1, SessionID: turn.SessionID, Turn: turn})
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open transcript: %w", err)
-	}
-	if _, err := file.Write(append(record, '\n')); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("write transcript: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("sync transcript: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close transcript: %w", err)
-	}
-	return nil
+	return durable.WithExclusive(path, func() error {
+		record, err := json.Marshal(transcriptRecord{Version: 1, SessionID: turn.SessionID, Turn: turn})
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return fmt.Errorf("open transcript: %w", err)
+		}
+		if _, err := file.Write(append(record, '\n')); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("write transcript: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("sync transcript: %w", err)
+		}
+		if err := durable.Inject("harness.transcript.after_sync"); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("close transcript: %w", err)
+		}
+		return nil
+	})
 }
 
 func appendTranscriptBatch(path string, turns []Turn) error {
 	if strings.TrimSpace(path) == "" || len(turns) == 0 {
 		return nil
 	}
-	var data []byte
-	for _, turn := range turns {
-		record, err := json.Marshal(transcriptRecord{Version: 1, SessionID: turn.SessionID, Turn: turn})
-		if err != nil {
+	return durable.WithExclusive(path, func() error {
+		var data []byte
+		for _, turn := range turns {
+			record, err := json.Marshal(transcriptRecord{Version: 1, SessionID: turn.SessionID, Turn: turn})
+			if err != nil {
+				return err
+			}
+			data = append(data, record...)
+			data = append(data, '\n')
+		}
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return err
 		}
-		data = append(data, record...)
-		data = append(data, '\n')
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open transcript: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("write transcript: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("sync transcript: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close transcript: %w", err)
-	}
-	return nil
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return fmt.Errorf("open transcript: %w", err)
+		}
+		if _, err := file.Write(data); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("write transcript: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("sync transcript: %w", err)
+		}
+		if err := durable.Inject("harness.transcript.after_sync"); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("close transcript: %w", err)
+		}
+		return nil
+	})
 }
 
 func readTranscript(path string) (map[string][]Turn, bool, error) {
@@ -637,6 +711,10 @@ func (s *Store) reconcileTranscript() error {
 					return err
 				}
 			}
+			// The newly appended records are now part of the verified log. Keep
+			// the in-memory comparison window in sync so a normal snapshot-ahead
+			// crash recovery is not mistaken for divergence.
+			logged = append(logged, state.Turns[len(logged):]...)
 		}
 		for index, turn := range state.Turns {
 			if index >= len(logged) || turnDigest(turn) != turnDigest(logged[index]) || turn.Hash != logged[index].Hash || turn.PrevHash != logged[index].PrevHash {
@@ -1317,8 +1395,18 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 	if item.Scope != "working" && item.Scope != "session" && item.Scope != "project" {
 		return MemoryItem{}, errors.New("memory scope must be working, session, or project")
 	}
-	if strings.TrimSpace(item.Kind) == "" || strings.TrimSpace(item.Content) == "" || len(item.SourceIDs) == 0 || item.Confidence < 0 || item.Confidence > 1 || item.Importance < 0 || item.Importance > 1 {
+	if strings.TrimSpace(item.Kind) == "" || strings.TrimSpace(item.Content) == "" || len(item.SourceIDs) == 0 || item.Confidence < 0 || item.Confidence > 1 || item.Importance < 0 || item.Importance > 1 || item.QualityScore < 0 || item.QualityScore > 1 {
 		return MemoryItem{}, errors.New("memory kind, content, source_ids and confidence are required")
+	}
+	item.Status = strings.ToLower(strings.TrimSpace(item.Status))
+	if item.Status == "" {
+		item.Status = "confirmed"
+	}
+	if !validMemoryStatus(item.Status) {
+		return MemoryItem{}, errors.New("memory status is invalid")
+	}
+	if item.QualityScore == 0 {
+		item.QualityScore = item.Confidence
 	}
 	if item.Fingerprint == "" {
 		item.Fingerprint = memoryFingerprint(item.Kind, item.Content)
@@ -1377,6 +1465,7 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 	}
 	item.SourceIDs = append([]string(nil), item.SourceIDs...)
 	item.Supersedes = append([]string(nil), item.Supersedes...)
+	item.EvidenceHash = digest([]byte(strings.Join(item.SourceIDs, "\x00") + "\x00" + item.Content))
 	item.CreatedAt = time.Now().UTC()
 	if item.Scope == "project" {
 		s.projectMemories[item.ProjectID] = append(s.projectMemories[item.ProjectID], item)
@@ -2158,13 +2247,16 @@ func validateSessionState(state sessionState) error {
 		}
 	}
 	for _, memory := range state.Memories {
-		if memory.ID == "" || memory.SessionID != state.Session.ID || memory.Scope == "project" || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 || memory.Fingerprint != "" && memory.Fingerprint != memoryFingerprint(memory.Kind, memory.Content) {
+		if memory.ID == "" || memory.SessionID != state.Session.ID || memory.Scope == "project" || strings.TrimSpace(memory.Content) == "" || memory.Confidence < 0 || memory.Confidence > 1 || memory.Importance < 0 || memory.Importance > 1 || memory.QualityScore < 0 || memory.QualityScore > 1 || !validMemoryStatus(memory.Status) || memory.Fingerprint != "" && memory.Fingerprint != memoryFingerprint(memory.Kind, memory.Content) {
 			return fmt.Errorf("%w: memory %s", ErrCorrupt, memory.ID)
 		}
 		for _, sourceID := range memory.SourceIDs {
 			if !hasTurnID(state.Turns, sourceID) {
 				return fmt.Errorf("%w: memory source %s", ErrCorrupt, sourceID)
 			}
+		}
+		if memory.EvidenceHash != "" && memory.EvidenceHash != digest([]byte(strings.Join(memory.SourceIDs, "\x00")+"\x00"+memory.Content)) {
+			return fmt.Errorf("%w: memory evidence %s", ErrCorrupt, memory.ID)
 		}
 	}
 	return nil
@@ -2295,7 +2387,22 @@ func cloneMemory(item MemoryItem) MemoryItem {
 }
 
 func memoryActive(item MemoryItem, now time.Time) bool {
+	if item.Status == "quarantined" || item.Status == "forgotten" || item.Status == "rejected" || item.Status == "superseded" {
+		return false
+	}
 	return item.ExpiresAt == nil || item.ExpiresAt.After(now)
+}
+
+func validMemoryStatus(status string) bool {
+	if status == "" {
+		return true
+	}
+	switch status {
+	case "candidate", "quarantined", "confirmed", "superseded", "forgotten", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func memoryScopeRank(scope string) int {
@@ -2368,15 +2475,31 @@ func cloneStringMap(input map[string]string) map[string]string {
 	return output
 }
 
-// Compile returns a bounded context view while retaining the complete
-// transcript and archive records for audit/replay. Archived windows are
-// replaced by their verified summaries; the newest retained tail remains raw.
+// Compile returns the rendered form of CompileManifest for backwards
+// compatibility. Providers should consume CompileManifest so provenance and
+// budget decisions remain inspectable.
 func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
+	manifest, err := s.CompileManifest(sessionID, maxTokens)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, 0, len(manifest.Blocks))
+	for _, block := range manifest.Blocks {
+		parts = append(parts, block.Content)
+	}
+	return strings.TrimSpace(strings.Join(parts, "")), nil
+}
+
+// CompileManifest deterministically selects typed context blocks under a hard
+// token budget. Archives and memories are selected in stable order; the newest
+// unarchived turns are selected backwards and emitted chronologically. Every
+// block carries source, trust, policy and content hash metadata.
+func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManifest, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	state, ok := s.sessions[sessionID]
 	if !ok {
-		return "", ErrNotFound
+		return ContextManifest{}, ErrNotFound
 	}
 	if maxTokens <= 0 {
 		maxTokens = state.Session.BudgetTokens
@@ -2399,34 +2522,44 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 		}
 	}
 	sortMemories(memoryItems)
-	prefixLines := make([]string, 0, len(state.Archives)+len(memoryItems))
-	appendLine := func(line string) (string, bool) {
+	blocks := make([]ContextBlock, 0, len(state.Archives)+len(memoryItems)+len(state.Turns))
+	used := int64(0)
+	appendBlock := func(kind, source, line, policy, trust, reason string, mandatory bool, metadata map[string]string) bool {
 		line = strings.TrimSuffix(line, "\n") + "\n"
-		remaining := maxTokens - estimateTokens(strings.Join(prefixLines, ""))
+		remaining := maxTokens - used
 		if remaining <= 0 {
-			return "", false
+			return false
 		}
 		if estimateTokens(line) > remaining {
-			// Keep a bounded prefix with an explicit marker when a single summary
-			// or memory item is larger than the remaining context budget.
-			maxRunes := int(remaining*4) - 4
+			maxRunes := int(remaining * 4)
 			if maxRunes <= 0 {
-				return "", false
+				return false
 			}
 			runes := []rune(strings.TrimSuffix(line, "\n"))
 			if len(runes) > maxRunes {
 				runes = runes[:maxRunes]
 			}
-			line = string(runes) + "...\n"
+			line = string(runes)
+			if line == "" {
+				return false
+			}
+			line += "\n"
+			for estimateTokens(line) > remaining && len([]rune(strings.TrimSuffix(line, "\n"))) > 1 {
+				runes := []rune(strings.TrimSuffix(line, "\n"))
+				line = string(runes[:len(runes)-1]) + "\n"
+			}
 			if estimateTokens(line) > remaining {
-				return "", false
+				return false
 			}
 		}
-		prefixLines = append(prefixLines, line)
-		return line, true
+		digest := sha256.Sum256([]byte(line))
+		blockID := fmt.Sprintf("%s:%d", kind, len(blocks)+1)
+		blocks = append(blocks, ContextBlock{ID: blockID, Kind: kind, Source: source, Content: line, Hash: hex.EncodeToString(digest[:]), Policy: policy, Trust: trust, SelectionReason: reason, TokenEstimate: estimateTokens(line), Mandatory: mandatory, Metadata: cloneStringMap(metadata)})
+		used += estimateTokens(line)
+		return true
 	}
 	for _, archive := range state.Archives {
-		if _, ok := appendLine(fmt.Sprintf("[archive %s] %s", archive.ID, archive.Summary)); !ok {
+		if !appendBlock("archive", archive.ID, fmt.Sprintf("[archive %s] %s", archive.ID, archive.Summary), "verified_summary", "verified", "archive_order", false, map[string]string{"start_sequence": fmt.Sprint(archive.StartSequence), "end_sequence": fmt.Sprint(archive.EndSequence)}) {
 			break
 		}
 	}
@@ -2443,7 +2576,7 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 		if _, hidden := superseded[memory.ID]; hidden {
 			continue
 		}
-		if _, ok := appendLine(fmt.Sprintf("[memory %s %s] %s", memory.Kind, memory.ID, memory.Content)); !ok {
+		if !appendBlock("memory", memory.ID, fmt.Sprintf("[memory %s %s] %s", memory.Kind, memory.ID, memory.Content), "active_frontier", "source_turn", "memory_priority", false, map[string]string{"scope": memory.Scope, "fingerprint": memory.Fingerprint}) {
 			break
 		}
 	}
@@ -2457,29 +2590,36 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 	}
 	// Preserve the newest raw turns when archive summaries consume the budget.
 	// Select backwards, then write the selected tail chronologically.
-	selected := make([]string, 0, len(state.Turns))
+	selected := make([]ContextBlock, 0, len(state.Turns))
 	for i := len(state.Turns) - 1; i >= 0; i-- {
 		turn := state.Turns[i]
 		if archived(turn.Sequence) {
 			continue
 		}
-		line := fmt.Sprintf("%s: %s", turn.Role, turn.Content)
-		actual, ok := appendLine(line)
-		if !ok {
+		if !appendBlock("turn", turn.ID, fmt.Sprintf("%s: %s", turn.Role, turn.Content), "transcript", "hash_chain", "latest_tail", i == len(state.Turns)-1, map[string]string{"sequence": fmt.Sprint(turn.Sequence), "turn_hash": turn.Hash}) {
 			break
 		}
-		selected = append(selected, actual)
+		selected = append(selected, blocks[len(blocks)-1])
 	}
 	if len(selected) > 0 {
 		// Remove the backwards-written turn tail and put it back in transcript
-		// order. The prefix is stable because archive/memory lines are unique in
-		// position even when their text happens to repeat.
-		prefixLines = prefixLines[:len(prefixLines)-len(selected)]
+		// order. Archive/memory blocks remain in their deterministic prefix.
+		blocks = blocks[:len(blocks)-len(selected)]
 		for i := len(selected) - 1; i >= 0; i-- {
-			prefixLines = append(prefixLines, selected[i])
+			blocks = append(blocks, selected[i])
 		}
 	}
-	return strings.TrimSpace(strings.Join(prefixLines, "")), nil
+	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CreatedAt: time.Now().UTC()}
+	canonical := manifest
+	canonical.CreatedAt = time.Time{}
+	canonical.Digest = ""
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return ContextManifest{}, err
+	}
+	digest := sha256.Sum256(data)
+	manifest.Digest = hex.EncodeToString(digest[:])
+	return manifest, nil
 }
 
 func estimateTokens(value string) int64 {

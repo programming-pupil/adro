@@ -49,6 +49,24 @@ func TestPersistentMemoryRoundTripsControlPlaneAndContext(t *testing.T) {
 	}
 }
 
+func TestPersistentMemoryRejectsStaleWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.json")
+	first, err := NewPersistentMemory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPersistentMemory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "winner", Description: "durable", AcceptanceCriteria: []string{"ok"}, AssigneeMemberIDs: []string{"dev"}, RepositoryIDs: []string{"repo"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "stale", Description: "must reject", AcceptanceCriteria: []string{"ok"}, AssigneeMemberIDs: []string{"dev"}, RepositoryIDs: []string{"repo"}}); err == nil {
+		t.Fatal("expected stale writer to be rejected")
+	}
+}
+
 func TestPersistentMutationRollsBackWhenStateCannotBeReplaced(t *testing.T) {
 	m := NewMemory()
 	// A directory is a valid parent for the temporary file, but cannot be the

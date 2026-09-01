@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/durable"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -23,6 +24,7 @@ var ErrConflict = errors.New("conflict")
 type Memory struct {
 	mu                sync.RWMutex
 	statePath         string
+	revision          int64
 	requirements      map[string]domain.Requirement
 	bugs              map[string]domain.Bug
 	attachments       map[string]domain.EntityAttachment
@@ -78,6 +80,7 @@ func newMemory(path string) *Memory {
 
 type persistedState struct {
 	Version           int                                 `json:"version"`
+	Revision          int64                               `json:"revision"`
 	Requirements      map[string]domain.Requirement       `json:"requirements"`
 	Bugs              map[string]domain.Bug               `json:"bugs"`
 	Attachments       map[string]domain.EntityAttachment  `json:"attachments"`
@@ -129,6 +132,7 @@ func (m *Memory) load() error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("decode control-plane state: %w", err)
 	}
+	m.revision = state.Revision
 	for name, value := range map[string]any{
 		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments, "comment_follow_ups": state.CommentFollowUps,
 		"work_items": state.WorkItems, "evidence": state.Evidence, "provenance": state.Provenance,
@@ -215,58 +219,89 @@ func (m *Memory) persistLocked() error {
 	if strings.TrimSpace(m.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 3, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines, WorkflowTemplates: m.workflowTemplates, ChatSessions: m.chatSessions, ChatMessages: m.chatMessages}
-	for key, value := range m.idempotency {
-		if raw, ok := value.(json.RawMessage); ok {
-			state.Idempotency[key] = raw
-			continue
-		}
-		data, err := json.Marshal(value)
+	return durable.WithExclusive(m.statePath, func() error {
+		diskRevision, err := controlPlaneRevision(m.statePath)
 		if err != nil {
 			return err
 		}
-		state.Idempotency[key] = data
+		if diskRevision != m.revision {
+			return fmt.Errorf("stale control-plane state: expected revision %d, found %d", m.revision, diskRevision)
+		}
+		state := persistedState{Version: 3, Revision: m.revision + 1, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines, WorkflowTemplates: m.workflowTemplates, ChatSessions: m.chatSessions, ChatMessages: m.chatMessages}
+		for key, value := range m.idempotency {
+			if raw, ok := value.(json.RawMessage); ok {
+				state.Idempotency[key] = raw
+				continue
+			}
+			data, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			state.Idempotency[key] = data
+		}
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(m.statePath)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, ".adro-state-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if err := tmp.Chmod(0o600); err != nil {
+			tmp.Close()
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := durable.Inject("store.snapshot.before_rename"); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpName, m.statePath); err != nil {
+			return err
+		}
+		// Sync the parent directory so a crash after rename cannot resurrect the
+		// previous control-plane snapshot.
+		dirFile, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		defer dirFile.Close()
+		if err := dirFile.Sync(); err != nil {
+			return err
+		}
+		m.revision = state.Revision
+		return nil
+	})
+}
+
+func controlPlaneRevision(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("read control-plane revision: %w", err)
 	}
-	dir := filepath.Dir(m.statePath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0, fmt.Errorf("decode control-plane revision: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".adro-state-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, m.statePath); err != nil {
-		return err
-	}
-	// Sync the parent directory so a crash after rename cannot resurrect the
-	// previous control-plane snapshot.
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer dirFile.Close()
-	return dirFile.Sync()
+	return state.Revision, nil
 }
 
 func (m *Memory) Idempotent(key string, value any) (any, bool) {

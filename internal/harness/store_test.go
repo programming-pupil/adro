@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/adro-project/adro/internal/durable"
 )
 
 func newTestSession(t *testing.T, path string) *Store {
@@ -21,6 +24,65 @@ func newTestSession(t *testing.T, path string) *Store {
 		t.Fatal(err)
 	}
 	return store
+}
+
+func TestCompileManifestIsTypedBoundedAndStable(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "first requirement"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleAssistant, Content: "implementation plan"}); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := store.CompileManifest("session-1", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Digest == "" || len(manifest.Blocks) == 0 || manifest.TokenEstimate > manifest.TokenBudget {
+		t.Fatalf("invalid manifest=%+v", manifest)
+	}
+	for _, block := range manifest.Blocks {
+		if block.Hash == "" || block.Source == "" || block.Policy == "" || block.Trust == "" || block.TokenEstimate <= 0 {
+			t.Fatalf("missing block lineage=%+v", block)
+		}
+	}
+	second, err := store.CompileManifest("session-1", 12)
+	if err != nil || second.Digest != manifest.Digest {
+		t.Fatalf("manifest is not stable: first=%s second=%s err=%v", manifest.Digest, second.Digest, err)
+	}
+}
+
+func TestPersistentStoreRejectsStaleWriterAndFaultsBeforeRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	first := newTestSession(t, path)
+	second, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.AppendTurn("session-1", Turn{Role: RoleUser, Content: "winner"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.AppendTurn("session-1", Turn{Role: RoleUser, Content: "stale"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale writer err=%v", err)
+	}
+	restore := durable.SetFaultInjector(func(point string) error {
+		if point == "harness.snapshot.before_rename" {
+			return fmt.Errorf("injected crash")
+		}
+		return nil
+	})
+	defer restore()
+	if _, err := first.AppendTurn("session-1", Turn{Role: RoleUser, Content: "crash window"}); err == nil {
+		t.Fatal("expected injected persistence failure")
+	}
+	recovered, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, _, err := recovered.ListTurns("session-1", 0, 10)
+	if err != nil || len(turns) != 2 || turns[0].Content != "winner" || turns[1].Content != "crash window" {
+		t.Fatalf("fault altered durable state turns=%+v err=%v", turns, err)
+	}
 }
 
 func TestTranscriptCheckpointAndRecoverySurviveRestart(t *testing.T) {
