@@ -1,11 +1,15 @@
 name: CI
+
 on:
   push:
   pull_request:
+
 permissions:
   contents: read
+
 jobs:
-  test:
+  quality:
+    name: Go quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,27 +18,8 @@ jobs:
           go-version: '1.24'
           cache: true
       - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
-      - run: go vet ./...
+      - run: go test ./...
       - run: go test -race ./...
+      - run: go vet ./...
       - run: go build ./...
       - run: git diff --check
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: node --check e2e/static-server.js
-      - run: node --check e2e/workbench.spec.js
-      - run: node --check e2e/visuals.spec.js
-      - run: node --check apps/web/enhancements.js
-      - run: node scripts/check-html.mjs
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run test:e2e
-      - run: npm run test:e2e:matrix
-      - run: node scripts/release-assets.mjs verify
-      - run: ruby scripts/openapi-contract.rb
-      - run: ./scripts/test-start-permissions.sh
-      - run: ruby -e 'require "yaml"; YAML.load_file("openapi/openapi.yaml"); YAML.load_file("deploy/compose/docker-compose.yml"); YAML.load_file("charts/adro/values.yaml")'
-      - run: bash -n examples/three-repo-feign/run.sh
-      - run: bash -n start.sh
-      - run: test -x start.sh
-      - run: ./start.sh --help

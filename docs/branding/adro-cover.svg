@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 460" role="img" aria-labelledby="title desc">
+  <title id="title">ADRO — audited agent delivery</title>
+  <desc id="desc">A dark technical cover image for ADRO with a luminous delivery graph.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset=".52" stop-color="#10263a"/><stop offset="1" stop-color="#18352e"/></linearGradient>
+    <radialGradient id="halo" cx="50%" cy="48%" r="60%"><stop stop-color="#1d6a7b" stop-opacity=".48"/><stop offset="1" stop-color="#07111f" stop-opacity="0"/></radialGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M42 0H0V42" fill="none" stroke="#9de7f1" stroke-opacity=".1"/><circle cx="1" cy="1" r="1" fill="#9de7f1" fill-opacity=".18"/></pattern>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#effdff"/><stop offset=".6" stop-color="#8cf1ff"/><stop offset="1" stop-color="#d3f76c"/></linearGradient>
+    <style>
+      .word{font:800 124px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:18px;fill:url(#word)}.tag{font:600 19px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:5px;fill:#c9e7ed}.meta{font:600 12px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:3px;fill:#6be5f9}.tiny{font:600 11px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:2px;fill:#c5e2e4}
+    </style>
+  </defs>
+  <rect width="1600" height="460" fill="url(#bg)"/><rect x="24" y="24" width="1552" height="412" rx="24" fill="url(#grid)" stroke="#2c6070" stroke-width="1.5"/><ellipse cx="1120" cy="236" rx="430" ry="260" fill="url(#halo)"/>
+  <path d="M78 96H1522" stroke="#77e9f8" stroke-opacity=".25"/><text x="80" y="74" class="meta">INDEPENDENT DELIVERY CONTROL PLANE / OPEN SOURCE</text><text x="1520" y="74" text-anchor="end" class="meta">ADRO / 01</text>
+  <text x="82" y="248" class="word">ADRO</text><text x="92" y="298" class="tag">AUDITABLE AGENTS. RECOVERABLE WORKFLOWS. PROVABLE RELEASES.</text>
+  <g fill="none" stroke-linecap="round"><path d="M930 154C1020 112 1082 112 1162 154S1300 198 1452 138" stroke="#68e9fb" stroke-width="2.2"/><path d="M932 320C1040 366 1090 362 1172 308S1318 236 1474 304" stroke="#d3f76c" stroke-width="2.2"/><path d="M1004 118C1024 178 1058 230 1110 278S1212 356 1282 370" stroke="#d7a5ff" stroke-opacity=".78" stroke-width="1.6"/><path d="M1132 104C1160 158 1204 205 1262 242S1380 310 1498 330" stroke="#77e9f8" stroke-opacity=".65" stroke-width="1.4"/></g>
+  <g fill="#6be5f9" filter="url(#glow)"><circle cx="930" cy="154" r="6"/><circle cx="1162" cy="154" r="5"/><circle cx="1452" cy="138" r="7"/><circle cx="1110" cy="278" r="5"/></g><g fill="#d3f76c" filter="url(#glow)"><circle cx="932" cy="320" r="5"/><circle cx="1172" cy="308" r="6"/><circle cx="1474" cy="304" r="5"/></g>
+  <rect x="82" y="364" width="1390" height="36" rx="18" fill="#0b2130" stroke="#376577"/><circle cx="104" cy="382" r="5" fill="#d3f76c" filter="url(#glow)"/><text x="124" y="387" class="tiny">INTENT  →  CONTEXT  →  EXECUTION  →  EVIDENCE  →  RECOVERY</text><text x="1450" y="387" text-anchor="end" class="tiny">GO / REST / OPENAPI / SPI</text>
+</svg>
