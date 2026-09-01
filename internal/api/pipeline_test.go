@@ -384,6 +384,18 @@ func TestPipelineResultFromSnapshotParsesCodexJSONLMarker(t *testing.T) {
 	}
 }
 
+func TestPipelineResultFromSnapshotBindsMarkerToActiveRole(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineIntegration,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester-role"},
+	}
+	output := `{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"stage\":4,\"agent_id\":\"stale-role\",\"outcome\":\"success\"}"}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.AgentID != "tester-role" || result.Outcome != "pass" {
+		t.Fatalf("marker role was trusted over active role: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotParsesCurrentCodexAgentMessageEnvelope(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineReport,

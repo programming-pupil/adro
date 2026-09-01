@@ -660,9 +660,11 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 			if marker.Stage == 0 {
 				marker.Stage = result.Stage
 			}
-			if marker.AgentID == "" {
-				marker.AgentID = result.AgentID
-			}
+			// The active pipeline role is authoritative. A model-generated
+			// agent_id is descriptive text and must not be able to route a
+			// completed provider run into another role (especially after a
+			// native session resume that includes earlier messages).
+			marker.AgentID = result.AgentID
 			if marker.CodeVersion == "" && snapshot.HeadCommit != "" {
 				marker.CodeVersion = snapshot.HeadCommit
 			}

@@ -388,15 +388,6 @@ func (s *Server) sessionCompact(w http.ResponseWriter, r *http.Request, session 
 		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 		return
 	}
-	status, statusErr := s.Harness.ContextStatus(session.ID)
-	if statusErr != nil {
-		s.problem(w, r, http.StatusInternalServerError, "session_status_failed", statusErr.Error(), nil)
-		return
-	}
-	if err := s.saveHarnessCheckpoint(session.ID, harness.CheckpointCompactionBegin, status.LastTurnHash, session.ContextVersion, nil, nil, "compaction pending"); err != nil {
-		s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", err.Error(), nil)
-		return
-	}
 	archive, err := s.Harness.Compact(session.ID, request)
 	if err != nil {
 		status := http.StatusUnprocessableEntity
@@ -404,10 +395,6 @@ func (s *Server) sessionCompact(w http.ResponseWriter, r *http.Request, session 
 			status = http.StatusConflict
 		}
 		s.problem(w, r, status, "context_compaction_failed", err.Error(), nil)
-		return
-	}
-	if err := s.saveHarnessCheckpoint(session.ID, harness.CheckpointCompactionDone, status.LastTurnHash, session.ContextVersion+1, nil, nil, "compaction committed"); err != nil {
-		s.problem(w, r, http.StatusServiceUnavailable, "checkpoint_save_failed", err.Error(), nil)
 		return
 	}
 	s.writeJSON(w, http.StatusCreated, archive)

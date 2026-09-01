@@ -176,6 +176,74 @@ func TestJournalRecoversWhenSnapshotWasTorn(t *testing.T) {
 	}
 }
 
+func TestJournalMiddleCorruptionFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "journal source"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := append([]byte(`{"broken":`+"\n"), snapshot...)
+	journal = append(journal, '\n')
+	if err := os.WriteFile(journalPath(path), journal, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("middle journal corruption err=%v", err)
+	}
+}
+
+func TestTranscriptTornTailWithTrailingWhitespaceIsRecoverable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "transcript tail"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := os.ReadFile(transcriptPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript = append(transcript, []byte(`{"torn":`+"\n   \t")...)
+	if err := os.WriteFile(transcriptPath(path), transcript, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, _, err := recovered.ListTurns("session-1", 0, 10)
+	if err != nil || len(turns) != 1 || turns[0].Hash != turn.Hash {
+		t.Fatalf("recovered transcript turns=%+v err=%v", turns, err)
+	}
+}
+
+func TestTranscriptMiddleCorruptionFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleAssistant, Content: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := os.ReadFile(transcriptPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := nonEmptyLines(string(transcript))
+	corrupt := []byte(lines[0] + "\n{" + "broken" + "\n" + lines[1] + "\n")
+	if err := os.WriteFile(transcriptPath(path), corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("middle transcript corruption err=%v", err)
+	}
+}
+
 func TestCheckpointHashChainFailsClosedOnSplice(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	store := newTestSession(t, path)
@@ -301,6 +369,10 @@ func TestAutomaticCompactionUsesBudgetGuardAndKeepsTail(t *testing.T) {
 	archives, err := store.ListArchives("auto-session")
 	if err != nil || len(archives) == 0 {
 		t.Fatalf("automatic archives=%+v err=%v", archives, err)
+	}
+	checkpoints, err := store.ListCheckpoints("auto-session")
+	if err != nil || len(checkpoints) < 2 || checkpoints[0].Phase != CheckpointCompactionBegin || checkpoints[1].Phase != CheckpointCompactionDone {
+		t.Fatalf("automatic compaction checkpoints=%+v err=%v", checkpoints, err)
 	}
 	if archives[0].Reason != "automatic budget guard" || archives[0].StartSequence != 1 {
 		t.Fatalf("automatic archive=%+v", archives[0])
@@ -508,6 +580,79 @@ func TestRecordToolCallPersistsPairedCheckpoints(t *testing.T) {
 	turns, _, err := store.ListTurns("session-1", 0, 10)
 	if err != nil || len(turns) != 2 || turns[0].ToolCallID != "tool-42" || turns[1].ToolStatus != "after" {
 		t.Fatalf("tool turns=%+v err=%v", turns, err)
+	}
+}
+
+func TestRecordToolCallUsesCurrentContextVersionWhenOmitted(t *testing.T) {
+	store := newTestSession(t, "")
+	checkpoints, err := store.RecordToolCall("session-1", "tool-context", "shell", "input", "output", 0)
+	if err != nil || len(checkpoints) != 2 || checkpoints[0].ContextVersion != 1 || checkpoints[1].ContextVersion != 1 {
+		t.Fatalf("context-normalized checkpoints=%+v err=%v", checkpoints, err)
+	}
+}
+
+func TestCompactionPersistsPairedCheckpointsAndNoPartialBegin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "archive me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Compact("session-1", CompactRequest{StartSequence: 1, EndSequence: 1, Summary: "archived"}); err != nil {
+		t.Fatal(err)
+	}
+	checkpoints, err := store.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 2 || checkpoints[0].Phase != CheckpointCompactionBegin || checkpoints[1].Phase != CheckpointCompactionDone || checkpoints[1].PrevHash != checkpoints[0].Hash {
+		t.Fatalf("compaction checkpoints=%+v err=%v", checkpoints, err)
+	}
+	restarted, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := restarted.Recover("session-1", time.Now().UTC())
+	if err != nil || recovery.LatestCheckpoint == nil || recovery.LatestCheckpoint.Phase != CheckpointCompactionDone {
+		t.Fatalf("compaction recovery=%+v err=%v", recovery, err)
+	}
+	if _, err := restarted.Compact("session-1", CompactRequest{StartSequence: 0, EndSequence: 1, Summary: "invalid"}); err == nil {
+		t.Fatal("invalid compaction unexpectedly succeeded")
+	}
+	checkpoints, err = restarted.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 2 {
+		t.Fatalf("failed compaction left checkpoint state=%+v err=%v", checkpoints, err)
+	}
+}
+
+func TestPersistedCheckpointWithInvalidPhaseFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "harness.json")
+	store := newTestSession(t, path)
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "checkpoint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: 1, EventHash: turn.Hash, Phase: CheckpointTurnStarted, ContextVersion: 1}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	sessionState := state.Sessions["session-1"]
+	checkpoint := &sessionState.Checkpoints[0]
+	checkpoint.Phase = CheckpointPhase("unknown")
+	checkpoint.Hash = hashCheckpoint(*checkpoint)
+	state.Sessions["session-1"] = sessionState
+	tampered, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(path); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("invalid checkpoint phase err=%v", err)
 	}
 }
 

@@ -461,16 +461,16 @@ func readLastJournal(path string) (*persistedState, error) {
 		return nil, err
 	}
 	var latest *persistedState
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	lines := nonEmptyLines(string(data))
+	for index, line := range lines {
 		var candidate persistedState
 		if err := json.Unmarshal([]byte(line), &candidate); err != nil {
-			// A torn final line is ignored. Earlier complete records remain
-			// usable, which is the important property during crash recovery.
-			continue
+			// Only the final non-empty record may be torn. An invalid earlier
+			// record would make the journal ambiguous and must fail closed.
+			if index == len(lines)-1 {
+				continue
+			}
+			return nil, fmt.Errorf("%w: journal record %d: %v", ErrCorrupt, index+1, err)
 		}
 		latest = &candidate
 	}
@@ -515,6 +515,41 @@ func appendTranscript(path string, turn Turn) error {
 	return nil
 }
 
+func appendTranscriptBatch(path string, turns []Turn) error {
+	if strings.TrimSpace(path) == "" || len(turns) == 0 {
+		return nil
+	}
+	var data []byte
+	for _, turn := range turns {
+		record, err := json.Marshal(transcriptRecord{Version: 1, SessionID: turn.SessionID, Turn: turn})
+		if err != nil {
+			return err
+		}
+		data = append(data, record...)
+		data = append(data, '\n')
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("open transcript: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write transcript: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync transcript: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close transcript: %w", err)
+	}
+	return nil
+}
+
 func readTranscript(path string) (map[string][]Turn, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -524,12 +559,8 @@ func readTranscript(path string) (map[string][]Turn, bool, error) {
 		return nil, false, err
 	}
 	records := map[string][]Turn{}
-	lines := strings.Split(string(data), "\n")
+	lines := nonEmptyLines(string(data))
 	for index, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
 		var record transcriptRecord
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			// A torn final append is recoverable. Corruption in an earlier line
@@ -556,6 +587,21 @@ func readTranscript(path string) (map[string][]Turn, bool, error) {
 		records[record.SessionID] = append(items, cloneTurn(turn))
 	}
 	return records, true, nil
+}
+
+// nonEmptyLines normalizes trailing whitespace before deciding whether the
+// final append is the only potentially torn record. This keeps a valid log
+// with a torn tail recoverable while refusing a hole in the middle.
+func nonEmptyLines(value string) []string {
+	lines := strings.Split(value, "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
 }
 
 func (s *Store) reconcileTranscript() error {
@@ -734,6 +780,7 @@ func (s *Store) AppendTurn(sessionID string, turn Turn) (Turn, error) {
 	if !ok {
 		return Turn{}, ErrNotFound
 	}
+	original := cloneSessionState(state)
 	if turn.Role == "" || !validRole(turn.Role) || strings.TrimSpace(turn.Content) == "" {
 		return Turn{}, errors.New("role and content are required")
 	}
@@ -769,15 +816,14 @@ func (s *Store) AppendTurn(sessionID string, turn Turn) (Turn, error) {
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
-	_, autoCompacted := autoCompactLocked(&state)
+	_, _, autoCompactErr := autoCompactLocked(&state)
+	if autoCompactErr != nil {
+		s.sessions[sessionID] = original
+		return Turn{}, fmt.Errorf("auto compact turn: %w", autoCompactErr)
+	}
 	s.sessions[sessionID] = state
 	if err := s.persistLocked(); err != nil {
-		state.Turns = state.Turns[:len(state.Turns)-1]
-		if autoCompacted {
-			state.Archives = state.Archives[:len(state.Archives)-1]
-			state.Session.ContextVersion--
-		}
-		s.sessions[sessionID] = state
+		s.sessions[sessionID] = original
 		return Turn{}, fmt.Errorf("persist turn: %w", err)
 	}
 	if err := appendTranscript(s.transcriptPath, turn); err != nil {
@@ -796,13 +842,6 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if callID == "" {
 		return nil, errors.New("tool call id is required")
 	}
-	if contextVersion <= 0 {
-		if session, err := s.GetSession(sessionID); err != nil {
-			return nil, err
-		} else {
-			contextVersion = session.ContextVersion
-		}
-	}
 	beforeContent := strings.TrimSpace(input)
 	if beforeContent == "" {
 		beforeContent = "tool call"
@@ -811,23 +850,107 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if afterContent == "" {
 		afterContent = "tool completed"
 	}
-	before, err := s.AppendTurn(sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"})
+
+	// A tool call is one durable transaction. The previous implementation used
+	// four independent snapshot writes, so a crash between any two writes could
+	// leave a before turn without its checkpoint or an after turn without its
+	// paired evidence. Work on a private state copy and publish it once.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	original, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	candidate := cloneSessionState(original)
+	if contextVersion <= 0 {
+		contextVersion = candidate.Session.ContextVersion
+	}
+	if contextVersion <= 0 {
+		return nil, errors.New("context version must be positive")
+	}
+	before, beforeAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"})
 	if err != nil {
 		return nil, err
 	}
-	beforeCheckpoint, err := s.SaveCheckpoint(sessionID, Checkpoint{TurnSequence: before.Sequence, Phase: CheckpointToolBefore, EventHash: before.Hash, ToolCallID: callID, ContextVersion: contextVersion, State: "tool started"})
+	beforeCheckpoint, err := saveCheckpointLocked(&candidate, Checkpoint{TurnSequence: before.Sequence, Phase: CheckpointToolBefore, EventHash: before.Hash, ToolCallID: callID, ContextVersion: contextVersion, State: "tool started"})
 	if err != nil {
 		return nil, err
 	}
-	after, err := s.AppendTurn(sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"})
+	after, afterAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"})
 	if err != nil {
 		return nil, err
 	}
-	afterCheckpoint, err := s.SaveCheckpoint(sessionID, Checkpoint{TurnSequence: after.Sequence, Phase: CheckpointToolAfter, EventHash: after.Hash, ToolCallID: callID, ContextVersion: contextVersion, State: "tool completed"})
+	afterCheckpoint, err := saveCheckpointLocked(&candidate, Checkpoint{TurnSequence: after.Sequence, Phase: CheckpointToolAfter, EventHash: after.Hash, ToolCallID: callID, ContextVersion: contextVersion, State: "tool completed"})
 	if err != nil {
 		return nil, err
+	}
+	changed := beforeAdded || afterAdded || len(candidate.Checkpoints) != len(original.Checkpoints)
+	if changed {
+		s.sessions[sessionID] = candidate
+		if err := s.persistLocked(); err != nil {
+			s.sessions[sessionID] = original
+			return nil, fmt.Errorf("persist tool call: %w", err)
+		}
+		newTurns := make([]Turn, 0, 2)
+		if beforeAdded {
+			newTurns = append(newTurns, before)
+		}
+		if afterAdded {
+			newTurns = append(newTurns, after)
+		}
+		if err := appendTranscriptBatch(s.transcriptPath, newTurns); err != nil {
+			// The snapshot is durable. Returning an error keeps callers fail-closed;
+			// boot-time transcript reconciliation will append the missing records.
+			return nil, fmt.Errorf("persist tool transcript: %w", err)
+		}
 	}
 	return []Checkpoint{beforeCheckpoint, afterCheckpoint}, nil
+}
+
+func appendTurnLocked(state *sessionState, sessionID string, turn Turn) (Turn, bool, error) {
+	if state == nil || state.Session.ID != sessionID {
+		return Turn{}, false, ErrNotFound
+	}
+	if turn.Role == "" || !validRole(turn.Role) || strings.TrimSpace(turn.Content) == "" {
+		return Turn{}, false, errors.New("role and content are required")
+	}
+	if turn.SessionID == "" {
+		turn.SessionID = sessionID
+	}
+	if turn.SessionID != sessionID {
+		return Turn{}, false, ErrConflict
+	}
+	if turn.IdempotencyKey != "" {
+		for _, existing := range state.Turns {
+			if existing.IdempotencyKey != turn.IdempotencyKey {
+				continue
+			}
+			if turnDigest(existing) != turnDigest(turn) {
+				return Turn{}, false, ErrConflict
+			}
+			return cloneTurn(existing), false, nil
+		}
+	}
+	turn.ID = strings.TrimSpace(turn.ID)
+	if turn.ID == "" {
+		turn.ID = domain.NewID()
+	}
+	if turn.Sequence != 0 && turn.Sequence != int64(len(state.Turns)+1) {
+		return Turn{}, false, ErrConflict
+	}
+	turn.Sequence = int64(len(state.Turns) + 1)
+	turn.PrevHash = ""
+	if len(state.Turns) > 0 {
+		turn.PrevHash = state.Turns[len(state.Turns)-1].Hash
+	}
+	turn.CreatedAt = time.Now().UTC()
+	turn.Hash = hashTurn(turn)
+	state.Turns = append(state.Turns, cloneTurn(turn))
+	state.Session.UpdatedAt = turn.CreatedAt
+	if _, _, err := autoCompactLocked(state); err != nil {
+		return Turn{}, false, fmt.Errorf("auto compact turn: %w", err)
+	}
+	return cloneTurn(turn), true, nil
 }
 
 func (s *Store) ListTurns(sessionID string, after int64, limit int) ([]Turn, int64, error) {
@@ -864,8 +987,31 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 	if !ok {
 		return Checkpoint{}, ErrNotFound
 	}
-	if !checkpoint.Phase.valid() || checkpoint.TurnSequence < 0 {
-		return Checkpoint{}, errors.New("invalid checkpoint phase or turn sequence")
+	original := cloneSessionState(state)
+	saved, err := saveCheckpointLocked(&state, checkpoint)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	s.sessions[sessionID] = state
+	if err := s.persistLocked(); err != nil {
+		s.sessions[sessionID] = original
+		return Checkpoint{}, fmt.Errorf("persist checkpoint: %w", err)
+	}
+	return saved, nil
+}
+
+func saveCheckpointLocked(state *sessionState, checkpoint Checkpoint) (Checkpoint, error) {
+	if state == nil {
+		return Checkpoint{}, ErrNotFound
+	}
+	if !checkpoint.Phase.valid() || checkpoint.TurnSequence < 0 || checkpoint.ContextVersion < 0 {
+		return Checkpoint{}, errors.New("invalid checkpoint phase, turn sequence, or context version")
+	}
+	if checkpoint.ContextVersion == 0 {
+		checkpoint.ContextVersion = state.Session.ContextVersion
+	}
+	if checkpoint.ContextVersion <= 0 {
+		return Checkpoint{}, errors.New("invalid checkpoint context version")
 	}
 	if checkpoint.TurnSequence > int64(len(state.Turns)) {
 		return Checkpoint{}, ErrConflict
@@ -886,10 +1032,8 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 	if checkpoint.PrevHash != "" && checkpoint.PrevHash != previousHash {
 		return Checkpoint{}, fmt.Errorf("%w: checkpoint previous hash does not match the chain", ErrCorrupt)
 	}
-	// A provider dispatch may have committed its provenance before the process
-	// lost the response while writing the after-effect checkpoint. Replaying
-	// the durable intent must converge on the existing checkpoint instead of
-	// growing an unbounded duplicate trail.
+	// Replaying a request after a lost response converges on the existing
+	// checkpoint instead of growing an unbounded duplicate trail.
 	for _, existing := range state.Checkpoints {
 		if existing.TurnSequence == checkpoint.TurnSequence &&
 			existing.Phase == checkpoint.Phase &&
@@ -922,11 +1066,30 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 			}
 		}
 	}
+	compactionOpen := false
+	for _, existing := range state.Checkpoints {
+		switch existing.Phase {
+		case CheckpointCompactionBegin:
+			compactionOpen = true
+		case CheckpointCompactionDone:
+			compactionOpen = false
+		}
+	}
+	switch checkpoint.Phase {
+	case CheckpointCompactionBegin:
+		if compactionOpen {
+			return Checkpoint{}, fmt.Errorf("%w: compaction checkpoint is already open", ErrConflict)
+		}
+	case CheckpointCompactionDone:
+		if !compactionOpen {
+			return Checkpoint{}, fmt.Errorf("%w: compaction checkpoint has no begin phase", ErrConflict)
+		}
+	}
 	checkpoint.ID = strings.TrimSpace(checkpoint.ID)
 	if checkpoint.ID == "" {
 		checkpoint.ID = domain.NewID()
 	}
-	checkpoint.SessionID = sessionID
+	checkpoint.SessionID = state.Session.ID
 	checkpoint.PrevHash = previousHash
 	checkpoint.OutboxIDs = append([]string(nil), checkpoint.OutboxIDs...)
 	checkpoint.LeaseIDs = append([]string(nil), checkpoint.LeaseIDs...)
@@ -934,12 +1097,6 @@ func (s *Store) SaveCheckpoint(sessionID string, checkpoint Checkpoint) (Checkpo
 	checkpoint.Hash = hashCheckpoint(checkpoint)
 	state.Checkpoints = append(state.Checkpoints, checkpoint)
 	state.Session.UpdatedAt = checkpoint.CreatedAt
-	s.sessions[sessionID] = state
-	if err := s.persistLocked(); err != nil {
-		state.Checkpoints = state.Checkpoints[:len(state.Checkpoints)-1]
-		s.sessions[sessionID] = state
-		return Checkpoint{}, fmt.Errorf("persist checkpoint: %w", err)
-	}
 	return cloneCheckpoint(checkpoint), nil
 }
 
@@ -972,15 +1129,25 @@ func (s *Store) Compact(sessionID string, request CompactRequest) (ArchiveWindow
 	if !ok {
 		return ArchiveWindow{}, ErrNotFound
 	}
+	original := cloneSessionState(state)
+	turnSequence := int64(len(state.Turns))
+	var eventHash string
+	if turnSequence > 0 {
+		eventHash = state.Turns[turnSequence-1].Hash
+	}
+	if _, err := saveCheckpointLocked(&state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionBegin, EventHash: eventHash, ContextVersion: state.Session.ContextVersion, State: "compaction pending"}); err != nil {
+		return ArchiveWindow{}, err
+	}
 	archive, err := compactLocked(&state, request)
 	if err != nil {
 		return ArchiveWindow{}, err
 	}
+	if _, err := saveCheckpointLocked(&state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionDone, EventHash: eventHash, ContextVersion: state.Session.ContextVersion, State: "compaction committed"}); err != nil {
+		return ArchiveWindow{}, err
+	}
 	s.sessions[sessionID] = state
 	if err := s.persistLocked(); err != nil {
-		state.Archives = state.Archives[:len(state.Archives)-1]
-		state.Session.ContextVersion--
-		s.sessions[sessionID] = state
+		s.sessions[sessionID] = original
 		return ArchiveWindow{}, fmt.Errorf("persist compaction: %w", err)
 	}
 	return archive, nil
@@ -1026,9 +1193,9 @@ func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, 
 // deterministic and provenance-preserving; callers can still replace it with
 // a higher-quality model summary through Compact because the full transcript
 // remains intact for audit and replay.
-func autoCompactLocked(state *sessionState) (ArchiveWindow, bool) {
+func autoCompactLocked(state *sessionState) (ArchiveWindow, bool, error) {
 	if state == nil || !state.Session.AutoCompaction || state.Session.BudgetTokens <= 0 || len(state.Turns) == 0 {
-		return ArchiveWindow{}, false
+		return ArchiveWindow{}, false, nil
 	}
 	threshold := state.Session.CompactionThreshold
 	if threshold <= 0 || threshold > 1 {
@@ -1042,7 +1209,7 @@ func autoCompactLocked(state *sessionState) (ArchiveWindow, bool) {
 		}
 	}
 	if float64(total) <= float64(budget)*threshold {
-		return ArchiveWindow{}, false
+		return ArchiveWindow{}, false, nil
 	}
 	retain := state.Session.CompactionRetainTail
 	if retain < 1 {
@@ -1061,7 +1228,7 @@ func autoCompactLocked(state *sessionState) (ArchiveWindow, bool) {
 		active = append(active, turn)
 	}
 	if len(active) <= retain {
-		return ArchiveWindow{}, false
+		return ArchiveWindow{}, false, nil
 	}
 	end := active[len(active)-retain-1].Sequence
 	start := active[0].Sequence
@@ -1073,14 +1240,23 @@ func autoCompactLocked(state *sessionState) (ArchiveWindow, bool) {
 	// A tiny window is cheaper and more faithful when left as-is. The bounded
 	// compiler will truncate it if the caller chose an unusually small budget.
 	if selectedTokens < 16 {
-		return ArchiveWindow{}, false
+		return ArchiveWindow{}, false, nil
 	}
 	summary := automaticSummary(selected, budget)
+	eventHash := state.Turns[len(state.Turns)-1].Hash
+	turnSequence := int64(len(state.Turns))
+	contextVersion := state.Session.ContextVersion
+	if _, err := saveCheckpointLocked(state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionBegin, EventHash: eventHash, ContextVersion: contextVersion, State: "automatic compaction pending"}); err != nil {
+		return ArchiveWindow{}, false, err
+	}
 	archive, err := compactLocked(state, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary, RetainedTail: retain, Reason: "automatic budget guard"})
 	if err != nil {
-		return ArchiveWindow{}, false
+		return ArchiveWindow{}, false, err
 	}
-	return archive, true
+	if _, err := saveCheckpointLocked(state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionDone, EventHash: eventHash, ContextVersion: state.Session.ContextVersion, State: "automatic compaction committed"}); err != nil {
+		return ArchiveWindow{}, false, err
+	}
+	return archive, true, nil
 }
 
 func turnArchived(archives []ArchiveWindow, sequence int64) bool {
@@ -1908,20 +2084,21 @@ func (s *Store) NackOutbox(sessionID, eventID, owner string, retryAt time.Time) 
 }
 
 func validateSessionState(state sessionState) error {
-	if state.Session.ID == "" || state.Session.TenantID == "" || state.Session.WorkspaceID == "" {
+	if state.Session.ID == "" || state.Session.TenantID == "" || state.Session.WorkspaceID == "" || state.Session.ContextVersion <= 0 {
 		return ErrCorrupt
 	}
 	var previous string
 	for i, turn := range state.Turns {
-		if turn.SessionID != state.Session.ID || turn.Sequence != int64(i+1) || turn.Hash == "" || turn.PrevHash != previous || hashTurn(turn) != turn.Hash {
+		if turn.ID == "" || turn.SessionID != state.Session.ID || turn.Sequence != int64(i+1) || !validRole(turn.Role) || strings.TrimSpace(turn.Content) == "" || turn.Hash == "" || turn.PrevHash != previous || hashTurn(turn) != turn.Hash {
 			return fmt.Errorf("%w: transcript chain at sequence %d", ErrCorrupt, i+1)
 		}
 		previous = turn.Hash
 	}
 	var previousCheckpointHash string
 	toolCheckpointPhases := map[string]CheckpointPhase{}
+	compactionOpen := false
 	for i, checkpoint := range state.Checkpoints {
-		if checkpoint.SessionID != state.Session.ID || checkpoint.Hash == "" || hashCheckpoint(checkpoint) != checkpoint.Hash || checkpoint.TurnSequence > int64(len(state.Turns)) || (i > 0 && checkpoint.TurnSequence < state.Checkpoints[i-1].TurnSequence) || checkpoint.PrevHash != previousCheckpointHash {
+		if checkpoint.ID == "" || checkpoint.SessionID != state.Session.ID || !checkpoint.Phase.valid() || checkpoint.TurnSequence < 0 || checkpoint.ContextVersion <= 0 || checkpoint.Hash == "" || hashCheckpoint(checkpoint) != checkpoint.Hash || checkpoint.TurnSequence > int64(len(state.Turns)) || (i > 0 && checkpoint.TurnSequence < state.Checkpoints[i-1].TurnSequence) || (i > 0 && checkpoint.ContextVersion < state.Checkpoints[i-1].ContextVersion) || checkpoint.PrevHash != previousCheckpointHash {
 			return fmt.Errorf("%w: checkpoint %s", ErrCorrupt, checkpoint.ID)
 		}
 		if checkpoint.EventHash != "" && !hasTurnHash(state.Turns, checkpoint.EventHash) {
@@ -1940,6 +2117,18 @@ func validateSessionState(state sessionState) error {
 				}
 				toolCheckpointPhases[checkpoint.ToolCallID] = checkpoint.Phase
 			}
+		}
+		switch checkpoint.Phase {
+		case CheckpointCompactionBegin:
+			if compactionOpen {
+				return fmt.Errorf("%w: duplicate compaction begin %s", ErrCorrupt, checkpoint.ID)
+			}
+			compactionOpen = true
+		case CheckpointCompactionDone:
+			if !compactionOpen {
+				return fmt.Errorf("%w: compaction done %s has no begin", ErrCorrupt, checkpoint.ID)
+			}
+			compactionOpen = false
 		}
 		previousCheckpointHash = checkpoint.Hash
 	}
@@ -2068,6 +2257,29 @@ func sameStrings(left, right []string) bool {
 func cloneTurn(turn Turn) Turn {
 	turn.Metadata = cloneStringMap(turn.Metadata)
 	return turn
+}
+
+func cloneSessionState(state sessionState) sessionState {
+	clone := state
+	clone.Turns = make([]Turn, len(state.Turns))
+	for i, turn := range state.Turns {
+		clone.Turns[i] = cloneTurn(turn)
+	}
+	clone.Checkpoints = make([]Checkpoint, len(state.Checkpoints))
+	for i, checkpoint := range state.Checkpoints {
+		clone.Checkpoints[i] = cloneCheckpoint(checkpoint)
+	}
+	clone.Archives = append([]ArchiveWindow(nil), state.Archives...)
+	clone.Memories = make([]MemoryItem, len(state.Memories))
+	for i, memory := range state.Memories {
+		clone.Memories[i] = cloneMemory(memory)
+	}
+	clone.Leases = append([]Lease(nil), state.Leases...)
+	clone.Outbox = make([]OutboxEvent, len(state.Outbox))
+	for i, event := range state.Outbox {
+		clone.Outbox[i] = cloneOutbox(event)
+	}
+	return clone
 }
 
 func cloneCheckpoint(checkpoint Checkpoint) Checkpoint {
