@@ -85,6 +85,30 @@ func TestCoverageRetriesInStageThreeAndSuspends(t *testing.T) {
 	}
 }
 
+func TestCustomWorkflowIntegrationFailureWithoutArbitrationHonorsRetryLimit(t *testing.T) {
+	run := pipelineFixture()
+	run.Workflow = []domain.WorkflowStep{
+		{ID: "development", Stage: domain.PipelineDevelopment, AgentID: "dev", Required: true, RetryLimit: 2},
+		{ID: "integration", Stage: domain.PipelineIntegration, AgentID: "test", Required: true},
+		{ID: "report", Stage: domain.PipelineReport, AgentID: "test", Required: true},
+	}
+	run.PipelineStage = domain.PipelineIntegration
+	run.ActiveAgentID = "test"
+	run.RetryCount = 0
+	first := applyOK(t, run, domain.PipelineStepResult{Stage: domain.PipelineIntegration, AgentID: "test", Outcome: "fail"})
+	if first.PipelineStage != domain.PipelineDevelopment || first.RetryCount != 1 || first.Status != domain.PipelineRunning {
+		t.Fatalf("first integration failure=%+v", first)
+	}
+	second := applyOK(t, first, domain.PipelineStepResult{Stage: domain.PipelineDevelopment, AgentID: "dev", Outcome: "pass", CodeVersion: "v2", ProviderSessionID: "native", ProviderWorkDir: "/repo"})
+	if second.PipelineStage != domain.PipelineIntegration {
+		t.Fatalf("development did not return to integration=%+v", second)
+	}
+	third := applyOK(t, second, domain.PipelineStepResult{Stage: domain.PipelineIntegration, AgentID: "test", Outcome: "fail"})
+	if third.Status != domain.PipelineSuspended || third.RetryCount != 2 {
+		t.Fatalf("retry limit was not enforced=%+v", third)
+	}
+}
+
 func TestWrongRoleAndStaleStageAreRejected(t *testing.T) {
 	run := pipelineFixture()
 	if _, err := NewEngine().Apply(run, domain.PipelineStepResult{Stage: 2, AgentID: "dev", Outcome: "pass"}); !errors.Is(err, ErrStaleStage) {

@@ -626,7 +626,7 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 	}
 	result := domain.PipelineStepResult{
 		Stage:             run.PipelineStage,
-		AgentID:           run.Roles.AgentFor(run.PipelineStage),
+		AgentID:           run.AgentFor(run.PipelineStage),
 		Outcome:           "pass",
 		Summary:           "local executor completed the stage",
 		ProviderIssueID:   snapshot.ProviderIssueID,

@@ -261,6 +261,18 @@ func TestPipelineResultFromSnapshotTreatsMissingMarkerAsFailure(t *testing.T) {
 	}
 }
 
+func TestPipelineResultFromSnapshotUsesCustomWorkflowAgent(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineReport,
+		Roles:         domain.PipelineAgentRoles{Tester: "legacy-tester"},
+		Workflow:      []domain.WorkflowStep{{ID: "custom-report", Stage: domain.PipelineReport, AgentID: "custom-reporter", Required: true}},
+	}
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: `{"type":"result","is_error":true,"result":"provider omitted marker"}`})
+	if !ok || result.AgentID != "custom-reporter" {
+		t.Fatalf("custom workflow agent was not selected: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotCannotOverrideProcessFailure(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineUnitTest,

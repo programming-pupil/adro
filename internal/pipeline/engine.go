@@ -90,6 +90,12 @@ func (Engine) Apply(run domain.PipelineRun, result domain.PipelineStepResult) (d
 	if from == domain.PipelineArbitration && result.Outcome == "pass" {
 		run.RetryCount++
 	}
+	// A custom workflow may intentionally omit arbitration. Count an
+	// integration failure before routing directly back to development so its
+	// stage retry limit remains bounded.
+	if from == domain.PipelineIntegration && result.Outcome == "fail" && len(run.Workflow) > 0 && !run.HasStage(domain.PipelineArbitration) {
+		run.RetryCount++
+	}
 
 	next, status, reason, err := nextStage(run, result)
 	if err != nil {
