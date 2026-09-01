@@ -158,7 +158,7 @@ changed_payload="$(printf '%s' "$req_b_payload" | ruby -rjson -e 'v=JSON.parse(S
 expect_code 409 -X POST "$API/api/v1/requirements" "${headers_a[@]}" -H 'Idempotency-Key: requirement-b' -d "$changed_payload"
 expect_code 404 "$API/api/v1/chats/$chat_id" -H "X-Workspace-ID: $WORKSPACE_B"
 expect_code 422 -X POST "$API/api/v1/requirements" "${headers_a[@]}" -d '{}'
-expect_code 405 -X PUT "$API/api/v1/chats/$chat_id" -H "X-Workspace-ID: $WORKSPACE_A"
+expect_code 404 -X PUT "$API/api/v1/chats/$chat_id" -H "X-Workspace-ID: $WORKSPACE_A"
 
 req_b_workspace="$(<"$workspace_b_file")"
 req_b_workspace_id="$(printf '%s' "$req_b_workspace" | json_field id)"
