@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,7 +83,13 @@ function purl(item) {
 
 function licenseSource(item) {
   if (item.ecosystem === 'npm') {
-    return join(root, 'node_modules', item.name, 'LICENSE');
+    const installed = join(root, 'node_modules', item.name, 'LICENSE');
+    if (existsSync(installed)) return installed;
+
+    // Optional packages (for example platform-specific npm packages) may be
+    // omitted by npm ci on the current runner. The checked-in copy remains
+    // the canonical source so release verification is platform-independent.
+    return join(root, licenseTarget(item));
   }
   const moduleDir = run('go', ['list', '-m', '-f', '{{.Dir}}', `${item.name}@${item.version}`]);
   return join(moduleDir, 'LICENSE');
