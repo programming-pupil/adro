@@ -4281,6 +4281,28 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/agents/{id}/capabilities":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: Report required and provider-observed capabilities for an agent
+      responses:
+        '200':
+          description: Capability report
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/agents/{id}/skill-bindings":
     parameters:
     - name: id
