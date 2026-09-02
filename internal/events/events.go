@@ -5,6 +5,7 @@ package events
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,9 @@ import (
 )
 
 type Envelope struct {
-	EventID          string         `json:"event_id"`
+	EventID string `json:"event_id"`
+	// Sequence is the durable append position assigned by the event bus.
+	Sequence         int64          `json:"sequence"`
 	EventType        string         `json:"event_type"`
 	AggregateType    string         `json:"aggregate_type"`
 	AggregateID      string         `json:"aggregate_id"`
@@ -32,6 +35,7 @@ type Envelope struct {
 	ProviderEventID  string         `json:"provider_event_id,omitempty"`
 	OccurredAt       time.Time      `json:"occurred_at"`
 	Classification   string         `json:"classification"`
+	PayloadHash      string         `json:"payload_hash"`
 	Payload          map[string]any `json:"payload"`
 }
 
@@ -40,7 +44,7 @@ func New(eventType, aggregateType, aggregateID, tenantID, workspaceID string, ve
 		EventID: domain.NewID(), EventType: eventType, AggregateType: aggregateType,
 		AggregateID: aggregateID, AggregateVersion: version, TenantID: tenantID,
 		WorkspaceID: workspaceID, CorrelationID: aggregateID, OccurredAt: time.Now().UTC(),
-		Classification: "internal", Payload: payload,
+		Classification: "internal", PayloadHash: payloadHash(payload), Payload: payload,
 	}
 }
 
@@ -58,9 +62,16 @@ type Bus struct {
 	seen         map[string]struct{}
 	seenProvider map[string]struct{}
 	subscribers  map[int]chan Envelope
+	dropped      map[int]streamGap
 	nextSubID    int
 	revision     int64
 	acks         map[string]string
+}
+
+type streamGap struct {
+	count int64
+	from  int64
+	to    int64
 }
 
 type persistedEvents struct {
@@ -70,7 +81,7 @@ type persistedEvents struct {
 }
 
 func NewBus() *Bus {
-	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope), acks: make(map[string]string)}
+	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope), dropped: make(map[int]streamGap), acks: make(map[string]string)}
 }
 
 func NewPersistentBus(path string) (*Bus, error) {
@@ -99,12 +110,18 @@ func NewPersistentBus(path string) (*Bus, error) {
 		return nil, fmt.Errorf("decode event state: %w", err)
 	}
 	for _, event := range stored {
+		computed := payloadHash(event.Payload)
+		if event.PayloadHash != "" && event.PayloadHash != computed {
+			return nil, fmt.Errorf("event %s payload hash mismatch", event.EventID)
+		}
+		event.PayloadHash = computed
 		b.events = append(b.events, event)
 		b.seen[event.EventID] = struct{}{}
 		if event.Provider != "" && event.ProviderEventID != "" {
 			b.seenProvider[event.Provider+"\x00"+event.ProviderEventID] = struct{}{}
 		}
 	}
+	normalizeSequences(b.events)
 	return b, nil
 }
 
@@ -135,6 +152,7 @@ func (b *Bus) persistLocked() error {
 			rebuildSeen(b)
 			b.revision = disk.revision
 		}
+		normalizeSequences(b.events)
 		eventsCopy := append([]Envelope(nil), b.events...)
 		if eventsCopy == nil {
 			eventsCopy = []Envelope{}
@@ -210,6 +228,7 @@ func (b *Bus) reloadLocked() error {
 		b.acks[consumer] = cursor
 	}
 	b.revision = persisted.revision
+	normalizeSequences(b.events)
 	rebuildSeen(b)
 	return nil
 }
@@ -243,6 +262,47 @@ func readPersistedEvents(path string) (*struct {
 		events   []Envelope
 		acks     map[string]string
 	}{0, events, nil}, nil
+}
+
+func payloadHash(payload map[string]any) string {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", sum[:])
+}
+
+func maxSequence(items []Envelope) int64 {
+	var max int64
+	for _, event := range items {
+		if event.Sequence > max {
+			max = event.Sequence
+		}
+	}
+	return max
+}
+
+// normalizeSequences migrates legacy snapshots and ensures merged local
+// writers never expose duplicate durable cursor positions.
+func normalizeSequences(items []Envelope) {
+	used := make(map[int64]struct{}, len(items))
+	var previous int64
+	for i := range items {
+		sequence := items[i].Sequence
+		if sequence <= 0 || sequence <= previous {
+			sequence = previous + 1
+		}
+		if _, exists := used[sequence]; exists {
+			sequence = previous + 1
+		}
+		if sequence <= 0 {
+			sequence = int64(i + 1)
+		}
+		items[i].Sequence = sequence
+		used[sequence] = struct{}{}
+		previous = sequence
+	}
 }
 
 func mergeEvents(primary, secondary []Envelope) []Envelope {
@@ -347,6 +407,14 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	// delivering an envelope so a caller or subscriber cannot rewrite the
 	// replay history after publication.
 	event = cloneEnvelope(event)
+	computedPayloadHash := payloadHash(event.Payload)
+	if computedPayloadHash == "" {
+		return errors.New("event payload is not JSON encodable")
+	}
+	if event.PayloadHash != "" && event.PayloadHash != computedPayloadHash {
+		return errors.New("event payload hash does not match payload")
+	}
+	event.PayloadHash = computedPayloadHash
 	if _, ok := b.seen[event.EventID]; ok {
 		return nil
 	}
@@ -359,6 +427,7 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 		b.seenProvider[providerKey] = struct{}{}
 	}
 	b.seen[event.EventID] = struct{}{}
+	event.Sequence = maxSequence(b.events) + 1
 	b.events = append(b.events, event)
 	if err := b.persistLocked(); err != nil {
 		b.events = b.events[:len(b.events)-1]
@@ -368,14 +437,46 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 		}
 		return fmt.Errorf("persist event: %w", err)
 	}
-	channels := make([]chan Envelope, 0, len(b.subscribers))
-	for _, ch := range b.subscribers {
-		channels = append(channels, ch)
+	// A peer writer may have occupied the sequence we tentatively assigned.
+	// Publish the canonical post-merge envelope to live subscribers.
+	for _, retained := range b.events {
+		if retained.EventID == event.EventID {
+			event = cloneEnvelope(retained)
+			break
+		}
 	}
-	for _, ch := range channels {
+	for id, ch := range b.subscribers {
+		gap := b.dropped[id]
+		if gap.count > 0 {
+			// A bounded live subscriber must never lose an event silently. Emit a
+			// history replay hint as soon as the queue has room; consumers can
+			// replay from their last acknowledged cursor to recover the exact range.
+			gapEvent := Envelope{
+				EventID: domain.NewID(), Sequence: gap.from, EventType: "stream.gap.v1",
+				AggregateType: "stream", CorrelationID: "stream", OccurredAt: time.Now().UTC(),
+				Classification: "system", Payload: map[string]any{"dropped_count": gap.count, "from_sequence": gap.from, "to_sequence": gap.to},
+			}
+			gapEvent.PayloadHash = payloadHash(gapEvent.Payload)
+			select {
+			case ch <- gapEvent:
+				delete(b.dropped, id)
+			default:
+				gap.count++
+				gap.to = event.Sequence
+				b.dropped[id] = gap
+				continue
+			}
+		}
 		select {
 		case ch <- cloneEnvelope(event):
 		default:
+			gap := b.dropped[id]
+			gap.count++
+			if gap.from == 0 {
+				gap.from = event.Sequence
+			}
+			gap.to = event.Sequence
+			b.dropped[id] = gap
 		}
 	}
 	return nil
@@ -444,6 +545,7 @@ func (b *Bus) Subscribe(buffer int) (<-chan Envelope, func()) {
 	id := b.nextSubID
 	b.nextSubID++
 	b.subscribers[id] = ch
+	b.dropped[id] = streamGap{}
 	b.mu.Unlock()
 	return ch, func() {
 		b.mu.Lock()
@@ -451,6 +553,7 @@ func (b *Bus) Subscribe(buffer int) (<-chan Envelope, func()) {
 		// cancellation. Removing it is enough to stop future delivery and avoids
 		// a send-on-closed-channel race.
 		delete(b.subscribers, id)
+		delete(b.dropped, id)
 		b.mu.Unlock()
 	}
 }

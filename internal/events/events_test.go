@@ -2,7 +2,9 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -24,6 +26,86 @@ func TestBusDeduplicatesAndCursors(t *testing.T) {
 	}
 	if got[0].EventID != e.EventID {
 		t.Fatal("event changed")
+	}
+	if got[0].Sequence != 1 || got[0].PayloadHash == "" {
+		t.Fatalf("missing event integrity metadata: %+v", got[0])
+	}
+}
+
+func TestPersistentBusSequencesRemainUniqueAcrossPeerWriters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	first, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Publish(context.Background(), New("peer.one.v1", "run", "r1", "t", "w", 1, map[string]any{"source": "first"})); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Publish(context.Background(), New("peer.two.v1", "run", "r2", "t", "w", 1, map[string]any{"source": "second"})); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := second.List("", "", 10)
+	if len(items) != 2 || items[0].Sequence != 1 || items[1].Sequence != 2 || items[0].PayloadHash == "" || items[1].PayloadHash == "" {
+		t.Fatalf("peer sequence/hash metadata is not canonical: %+v", items)
+	}
+}
+
+func TestPersistentBusRejectsPayloadTamper(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Publish(context.Background(), New("tamper.v1", "run", "r1", "t", "w", 1, map[string]any{"state": "original"})); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedEvents
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	state.Events[0].Payload["state"] = "tampered"
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPersistentBus(path); err == nil {
+		t.Fatal("tampered event payload was accepted")
+	}
+}
+
+func TestSlowSubscriberReceivesGapBeforeLiveStreamResumes(t *testing.T) {
+	b := NewBus()
+	updates, cancel := b.Subscribe(1)
+	defer cancel()
+	for i := 0; i < 3; i++ {
+		if err := b.Publish(context.Background(), New("overflow.v1", "run", "r1", "t", "w", int64(i+1), map[string]any{"i": i})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first := <-updates; first.Sequence != 1 {
+		t.Fatalf("first event=%+v", first)
+	}
+	if err := b.Publish(context.Background(), New("overflow.v1", "run", "r1", "t", "w", 4, map[string]any{"i": 3})); err != nil {
+		t.Fatal(err)
+	}
+	gap := <-updates
+	if gap.EventType != "stream.gap.v1" || gap.Payload["dropped_count"] != float64(2) && gap.Payload["dropped_count"] != int64(2) || gap.Payload["from_sequence"] == nil || gap.Payload["to_sequence"] == nil {
+		t.Fatalf("overflow was not surfaced as a replayable gap: %+v", gap)
+	}
+	items, _ := b.List("r1", "", 10)
+	if len(items) != 4 {
+		t.Fatalf("durable history lost events after overflow: %+v", items)
 	}
 }
 
