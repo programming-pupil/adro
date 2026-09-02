@@ -331,6 +331,11 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if s.Status == SquadPublished {
+		if err := r.validatePublishedSquadLocked(s); err != nil {
+			return err
+		}
+	}
 	for _, x := range r.squads {
 		if x.ID == s.ID && x.WorkspaceID == s.WorkspaceID && x.Revision == s.Revision {
 			return errors.New("squad revision already exists")
@@ -362,6 +367,80 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 		return err
 	}
 	return nil
+}
+
+func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error {
+	for i, member := range s.Members {
+		if member.AgentID != "" {
+			agent, ok := r.latestAgentLocked(s.WorkspaceID, member.AgentID)
+			if !ok {
+				return fmt.Errorf("members[%d].agent_id.unavailable", i)
+			}
+			if agent.Status != AgentActive {
+				return fmt.Errorf("members[%d].agent_id.inactive", i)
+			}
+		}
+		if member.SquadID != "" {
+			if member.SquadID == s.ID {
+				return fmt.Errorf("members[%d].squad_id.self_reference", i)
+			}
+			nested, ok := r.latestSquadLocked(s.WorkspaceID, member.SquadID)
+			if !ok || nested.Status != SquadPublished {
+				return fmt.Errorf("members[%d].squad_id.unavailable", i)
+			}
+			if s.Policy.MaxNestingDepth > 0 && nested.Policy.MaxNestingDepth >= s.Policy.MaxNestingDepth {
+				return fmt.Errorf("members[%d].squad_id.nesting_depth_exceeded", i)
+			}
+		}
+	}
+	for i, node := range s.Graph.Nodes {
+		if node.AgentRef != nil {
+			agent, ok := r.agentLocked(s.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
+			if !ok || agent.Status != AgentActive {
+				return fmt.Errorf("graph.nodes[%d].agent_ref.unavailable", i)
+			}
+		}
+		if node.SquadRef != nil {
+			nested, ok := r.squadLocked(s.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)
+			if !ok || nested.Status != SquadPublished {
+				return fmt.Errorf("graph.nodes[%d].squad_ref.unavailable", i)
+			}
+		}
+	}
+	return nil
+}
+
+func (r *MemoryRepository) agentLocked(ws, id string, rev int64) (AgentDefinition, bool) {
+	if rev > 0 {
+		a, ok := r.agents[key3(ws, id, rev)]
+		return a, ok
+	}
+	return r.latestAgentLocked(ws, id)
+}
+func (r *MemoryRepository) latestAgentLocked(ws, id string) (AgentDefinition, bool) {
+	var out AgentDefinition
+	for _, a := range r.agents {
+		if a.WorkspaceID == ws && a.ID == id && a.Revision > out.Revision {
+			out = a
+		}
+	}
+	return out, out.ID != ""
+}
+func (r *MemoryRepository) squadLocked(ws, id string, rev int64) (SquadDefinition, bool) {
+	if rev > 0 {
+		s, ok := r.squads[key3(ws, id, rev)]
+		return s, ok
+	}
+	return r.latestSquadLocked(ws, id)
+}
+func (r *MemoryRepository) latestSquadLocked(ws, id string) (SquadDefinition, bool) {
+	var out SquadDefinition
+	for _, s := range r.squads {
+		if s.WorkspaceID == ws && s.ID == id && s.Revision > out.Revision {
+			out = s
+		}
+	}
+	return out, out.ID != ""
 }
 func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, error) {
 	r.mu.RLock()
