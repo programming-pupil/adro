@@ -52,6 +52,27 @@ func TestCompileManifestIsTypedBoundedAndStable(t *testing.T) {
 	}
 }
 
+func TestCompileEnvelopeCarriesReplaySelection(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "preserve exact context"}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := store.CompileEnvelope("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SelectionDigest == "" || envelope.ReplayKey == "" || envelope.Manifest.Digest == "" {
+		t.Fatalf("incomplete context envelope: %+v", envelope)
+	}
+	if envelope.Manifest.TokenEstimate > envelope.Manifest.TokenBudget {
+		t.Fatalf("envelope exceeded hard budget: %+v", envelope.Manifest)
+	}
+	second, err := store.CompileEnvelope("session-1", 64)
+	if err != nil || second.ReplayKey != envelope.ReplayKey || second.SelectionDigest != envelope.SelectionDigest {
+		t.Fatalf("context replay key is unstable first=%+v second=%+v err=%v", envelope, second, err)
+	}
+}
+
 func TestPersistentStoreRejectsStaleWriterAndFaultsBeforeRename(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	first := newTestSession(t, path)
@@ -633,6 +654,31 @@ func TestMemoryReducerExtractsAndSupersedesClaims(t *testing.T) {
 	memories, err := store.ListMemories("session-1")
 	if err != nil || len(memories) != 1 || memories[0].Content != "all writes are serialized" {
 		t.Fatalf("active memory frontier=%+v err=%v", memories, err)
+	}
+}
+
+func TestMemoryLifecycleTransitionsFailClosed(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "candidate evidence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.AddMemory(MemoryItem{SessionID: "session-1", Kind: "fact", Content: "candidate fact", SourceIDs: []string{turn.ID}, Confidence: 0.7, Status: "candidate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TransitionMemory("session-1", item.ID, "confirmed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TransitionMemory("session-1", item.ID, "candidate"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected monotonic lifecycle rejection, got %v", err)
+	}
+	if _, err := store.TransitionMemory("session-1", item.ID, "forgotten"); err != nil {
+		t.Fatal(err)
+	}
+	memories, err := store.ListMemories("session-1")
+	if err != nil || len(memories) != 0 {
+		t.Fatalf("forgotten memory remained active: %+v err=%v", memories, err)
 	}
 }
 

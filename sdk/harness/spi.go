@@ -62,6 +62,14 @@ type ContextManifest struct {
 	CreatedAt                       time.Time
 }
 
+// ContextEnvelope is the immutable provider packet. SelectionDigest and
+// ReplayKey make the exact block selection independently verifiable on retry.
+type ContextEnvelope struct {
+	Manifest        ContextManifest `json:"manifest"`
+	SelectionDigest string          `json:"selection_digest"`
+	ReplayKey       string          `json:"replay_key"`
+}
+
 type ArchiveWindow struct {
 	ID, SessionID, SourceHash, ReplacementHash string
 	StartSequence, EndSequence                 int64
@@ -126,6 +134,13 @@ type IntegrityStore interface {
 // a dispatch attempt and its digest is the lineage key used by retries.
 type ManifestCompiler interface {
 	CompileManifest(context.Context, string, int64) (ContextManifest, error)
+}
+
+// EnvelopeCompiler is the strict variant used by providers that consume typed
+// context packets. It is optional to preserve compatibility with older
+// adapters while making the stronger contract discoverable.
+type EnvelopeCompiler interface {
+	CompileEnvelope(context.Context, string, int64) (ContextEnvelope, error)
 }
 
 // MemoryStore is optional for providers that want to persist structured

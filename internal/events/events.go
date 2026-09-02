@@ -157,6 +157,7 @@ func (b *Bus) persistLocked() error {
 		// Merge an external writer's history while holding the lock. This makes a
 		// persistent local bus safe for multiple API processes without dropping
 		// events that were appended by a peer between publishes.
+		localEvents := append([]Envelope(nil), b.events...)
 		if disk, err := readPersistedEvents(b.statePath); err != nil {
 			return err
 		} else if disk != nil && disk.revision != b.revision {
@@ -164,6 +165,13 @@ func (b *Bus) persistLocked() error {
 				return err
 			}
 			b.events = mergeEvents(disk.events, b.events)
+			// Events created by this process may have been assigned a tentative
+			// sequence before a peer committed. Rebase only those uncommitted
+			// records onto the peer tail; never rewrite an event already present on
+			// disk, because that would conceal persisted corruption.
+			if err := rebasePeerEvents(b.events, disk.events, localEvents); err != nil {
+				return err
+			}
 			if b.acks == nil {
 				b.acks = make(map[string]string)
 			}
@@ -173,10 +181,12 @@ func (b *Bus) persistLocked() error {
 			rebuildSeen(b)
 			b.revision = disk.revision
 		}
-		normalizeSequences(b.events)
 		for i := range b.events {
 			b.events[i].PayloadHash = payloadHash(b.events[i].Payload)
 			b.events[i].EnvelopeHash = envelopeHash(b.events[i])
+		}
+		if err := validatePersistedEvents(b.events); err != nil {
+			return err
 		}
 		eventsCopy := append([]Envelope(nil), b.events...)
 		if eventsCopy == nil {
@@ -228,6 +238,25 @@ func (b *Bus) persistLocked() error {
 		b.revision = next.Revision
 		return nil
 	})
+}
+
+func rebasePeerEvents(merged, disk, local []Envelope) error {
+	if len(disk) == 0 || len(local) == 0 {
+		return nil
+	}
+	diskIDs := make(map[string]struct{}, len(disk))
+	for _, event := range disk {
+		diskIDs[event.EventID] = struct{}{}
+	}
+	max := maxSequence(disk)
+	for i := range merged {
+		if _, onDisk := diskIDs[merged[i].EventID]; onDisk {
+			continue
+		}
+		max++
+		merged[i].Sequence = max
+	}
+	return nil
 }
 
 // Reload refreshes a persistent bus from a peer process. Subscribers are not
@@ -325,8 +354,8 @@ func validatePersistedEvents(items []Envelope) error {
 		for i := range items {
 			items[i].Sequence = int64(i + 1)
 		}
-		return nil
 	}
+	seen := make(map[string]struct{}, len(items))
 	for i := range items {
 		expected := int64(i + 1)
 		if items[i].Sequence != expected {
@@ -335,6 +364,10 @@ func validatePersistedEvents(items []Envelope) error {
 		if strings.TrimSpace(items[i].EventID) == "" {
 			return fmt.Errorf("event at sequence %d has empty event_id", expected)
 		}
+		if _, duplicate := seen[items[i].EventID]; duplicate {
+			return fmt.Errorf("duplicate event id %s", items[i].EventID)
+		}
+		seen[items[i].EventID] = struct{}{}
 		if items[i].SchemaVersion == 0 {
 			items[i].SchemaVersion = 1
 		}
@@ -346,6 +379,9 @@ func validatePersistedEvents(items []Envelope) error {
 		}
 		if items[i].EnvelopeHash != "" && items[i].EnvelopeHash != envelopeHash(items[i]) {
 			return fmt.Errorf("event %s envelope hash mismatch", items[i].EventID)
+		}
+		if items[i].EnvelopeHash == "" {
+			items[i].EnvelopeHash = envelopeHash(items[i])
 		}
 	}
 	return nil
@@ -359,28 +395,6 @@ func maxSequence(items []Envelope) int64 {
 		}
 	}
 	return max
-}
-
-// normalizeSequences migrates legacy snapshots and ensures merged local
-// writers never expose duplicate durable cursor positions.
-func normalizeSequences(items []Envelope) {
-	used := make(map[int64]struct{}, len(items))
-	var previous int64
-	for i := range items {
-		sequence := items[i].Sequence
-		if sequence <= 0 || sequence <= previous {
-			sequence = previous + 1
-		}
-		if _, exists := used[sequence]; exists {
-			sequence = previous + 1
-		}
-		if sequence <= 0 {
-			sequence = int64(i + 1)
-		}
-		items[i].Sequence = sequence
-		used[sequence] = struct{}{}
-		previous = sequence
-	}
 }
 
 func mergeEvents(primary, secondary []Envelope) []Envelope {
@@ -495,6 +509,18 @@ func (b *Bus) Replay(consumerID, aggregateID, cursor string, limit int) ([]Envel
 // AckScoped records a cursor under an explicit stream scope. The legacy Ack
 // API remains available for callers that already namespace consumer IDs.
 func (b *Bus) AckScoped(consumerID, tenantID, workspaceID, aggregateID, eventID string) error {
+	b.mu.RLock()
+	var matched bool
+	for _, event := range b.events {
+		if event.EventID == eventID {
+			matched = event.TenantID == tenantID && event.WorkspaceID == workspaceID && event.AggregateID == aggregateID
+			break
+		}
+	}
+	b.mu.RUnlock()
+	if !matched {
+		return fmt.Errorf("%w: event does not belong to scoped stream", ErrInvalidCursor)
+	}
 	consumerID = scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID)
 	return b.Ack(consumerID, eventID)
 }
@@ -502,8 +528,31 @@ func (b *Bus) AckScoped(consumerID, tenantID, workspaceID, aggregateID, eventID 
 // ReplayScoped prevents a cursor acknowledged for one tenant/workspace/
 // aggregate from being reused on another stream.
 func (b *Bus) ReplayScoped(consumerID, tenantID, workspaceID, aggregateID, cursor string, limit int) ([]Envelope, string, error) {
+	if strings.TrimSpace(cursor) != "" {
+		b.mu.RLock()
+		matched := false
+		for _, event := range b.events {
+			if event.EventID == cursor {
+				matched = event.TenantID == tenantID && event.WorkspaceID == workspaceID && event.AggregateID == aggregateID
+				break
+			}
+		}
+		b.mu.RUnlock()
+		if !matched {
+			return nil, "", fmt.Errorf("%w: cursor does not belong to scoped stream", ErrInvalidCursor)
+		}
+	}
 	consumerID = scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID)
-	return b.Replay(consumerID, aggregateID, cursor, limit)
+	items, next, err := b.Replay(consumerID, aggregateID, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, event := range items {
+		if event.TenantID != tenantID || event.WorkspaceID != workspaceID {
+			return nil, "", fmt.Errorf("%w: replay crossed tenant/workspace scope", ErrInvalidCursor)
+		}
+	}
+	return items, next, nil
 }
 
 func scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID string) string {

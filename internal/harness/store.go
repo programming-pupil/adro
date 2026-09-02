@@ -235,6 +235,36 @@ type ContextManifest struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
+// ContextEnvelope is the provider-facing immutable packet for one dispatch
+// attempt. Manifest remains the backwards-compatible name used by older API
+// clients; Envelope adds an explicit selection manifest and replay key so a
+// provider can prove it consumed the exact blocks ADRO selected.
+type ContextEnvelope struct {
+	Manifest        ContextManifest `json:"manifest"`
+	SelectionDigest string          `json:"selection_digest"`
+	ReplayKey       string          `json:"replay_key"`
+}
+
+func (m ContextManifest) Envelope() (ContextEnvelope, error) {
+	if strings.TrimSpace(m.SessionID) == "" || strings.TrimSpace(m.Digest) == "" || m.TokenBudget <= 0 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
+		return ContextEnvelope{}, errors.New("invalid context manifest")
+	}
+	for _, block := range m.Blocks {
+		if strings.TrimSpace(block.ID) == "" || strings.TrimSpace(block.Source) == "" || strings.TrimSpace(block.Hash) == "" || strings.TrimSpace(block.Policy) == "" || strings.TrimSpace(block.Trust) == "" || strings.TrimSpace(block.SelectionReason) == "" || block.TokenEstimate <= 0 {
+			return ContextEnvelope{}, errors.New("context block is missing lineage metadata")
+		}
+	}
+	data, err := json.Marshal(struct {
+		Digest string         `json:"digest"`
+		Blocks []ContextBlock `json:"blocks"`
+	}{m.Digest, m.Blocks})
+	if err != nil {
+		return ContextEnvelope{}, err
+	}
+	selection := digest([]byte(string(data)))
+	return ContextEnvelope{Manifest: cloneContextManifest(m), SelectionDigest: selection, ReplayKey: m.SessionID + ":" + fmt.Sprint(m.Version) + ":" + selection}, nil
+}
+
 // TranscriptIntegrity is a compact audit result for the append-only log and
 // archive replacement proofs. It is safe to expose through diagnostics.
 type TranscriptIntegrity struct {
@@ -1501,6 +1531,69 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 	return cloneMemory(item), nil
 }
 
+// TransitionMemory advances one evidence-backed fact through its lifecycle.
+// Candidate and quarantined memories are retained for audit but excluded from
+// compiled context until explicitly confirmed. Status transitions are
+// monotonic and scoped to the owning tenant/session/project.
+func (s *Store) TransitionMemory(sessionID, memoryID, status string) (MemoryItem, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if !validMemoryStatus(status) || status == "" {
+		return MemoryItem{}, errors.New("memory status is invalid")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.sessions[sessionID]
+	if !ok {
+		return MemoryItem{}, ErrNotFound
+	}
+	var target *MemoryItem
+	var projectID string
+	for i := range state.Memories {
+		if state.Memories[i].ID == memoryID {
+			target = &state.Memories[i]
+			break
+		}
+	}
+	if target == nil {
+		for pid := range s.projectMemories {
+			for i := range s.projectMemories[pid] {
+				if s.projectMemories[pid][i].ID == memoryID && pid == state.Session.ProjectID {
+					target = &s.projectMemories[pid][i]
+					projectID = pid
+					break
+				}
+			}
+		}
+	}
+	if target == nil {
+		return MemoryItem{}, ErrNotFound
+	}
+	if !memoryTransitionAllowed(target.Status, status) {
+		return MemoryItem{}, fmt.Errorf("%w: invalid memory transition %s -> %s", ErrConflict, target.Status, status)
+	}
+	previous := cloneSessionState(state)
+	oldStatus := target.Status
+	target.Status = status
+	if status == "superseded" || status == "forgotten" || status == "rejected" {
+		target.ExpiresAt = nil
+	}
+	target.CreatedAt = target.CreatedAt.UTC()
+	state.Session.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = state
+	if err := s.persistLocked(); err != nil {
+		s.sessions[sessionID] = previous
+		if projectID != "" {
+			for i := range s.projectMemories[projectID] {
+				if s.projectMemories[projectID][i].ID == memoryID {
+					s.projectMemories[projectID][i].Status = oldStatus
+				}
+			}
+		}
+		return MemoryItem{}, fmt.Errorf("persist memory transition: %w", err)
+	}
+	return cloneMemory(*target), nil
+}
+
 // ReduceMemories extracts deterministic claims from a transcript turn. It is
 // deliberately lexical and explainable: operators can inspect the source
 // turn IDs, fingerprint, and supersession chain without a vector database.
@@ -2394,6 +2487,14 @@ func cloneCheckpoint(checkpoint Checkpoint) Checkpoint {
 	return checkpoint
 }
 
+func cloneContextManifest(manifest ContextManifest) ContextManifest {
+	manifest.Blocks = append([]ContextBlock(nil), manifest.Blocks...)
+	for i := range manifest.Blocks {
+		manifest.Blocks[i].Metadata = cloneStringMap(manifest.Blocks[i].Metadata)
+	}
+	return manifest
+}
+
 func cloneMemory(item MemoryItem) MemoryItem {
 	item.SourceIDs = append([]string(nil), item.SourceIDs...)
 	item.Supersedes = append([]string(nil), item.Supersedes...)
@@ -2414,6 +2515,25 @@ func validMemoryStatus(status string) bool {
 	switch status {
 	case "candidate", "quarantined", "confirmed", "superseded", "forgotten", "rejected":
 		return true
+	default:
+		return false
+	}
+}
+
+func memoryTransitionAllowed(from, to string) bool {
+	if from == "" {
+		from = "confirmed"
+	}
+	if from == to {
+		return true
+	}
+	switch from {
+	case "candidate":
+		return to == "quarantined" || to == "confirmed" || to == "rejected"
+	case "quarantined":
+		return to == "candidate" || to == "confirmed" || to == "rejected"
+	case "confirmed":
+		return to == "superseded" || to == "forgotten"
 	default:
 		return false
 	}
@@ -2634,6 +2754,24 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 	digest := sha256.Sum256(data)
 	manifest.Digest = hex.EncodeToString(digest[:])
 	return manifest, nil
+}
+
+// CompileEnvelope is the strict provider contract. Unlike Compile, it fails
+// closed when a manifest cannot satisfy its hard budget or when block lineage
+// is incomplete; callers must pass the returned ReplayKey to the provider.
+func (s *Store) CompileEnvelope(sessionID string, maxTokens int64) (ContextEnvelope, error) {
+	manifest, err := s.CompileManifest(sessionID, maxTokens)
+	if err != nil {
+		return ContextEnvelope{}, err
+	}
+	if manifest.TokenBudget <= 0 || manifest.TokenEstimate > manifest.TokenBudget {
+		return ContextEnvelope{}, errors.New("context envelope exceeds hard token budget")
+	}
+	envelope, err := manifest.Envelope()
+	if err != nil {
+		return ContextEnvelope{}, err
+	}
+	return envelope, nil
 }
 
 func estimateTokens(value string) int64 {

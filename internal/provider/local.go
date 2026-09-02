@@ -26,16 +26,18 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
+	runtimekernel "github.com/adro-project/adro/internal/runtime"
 )
 
 type localRun struct {
-	snapshot RunSnapshot
-	cancel   context.CancelFunc
-	input    string
-	stdin    io.WriteCloser
-	pending  []Interaction
-	inputMu  sync.Mutex
-	started  chan struct{}
+	snapshot     RunSnapshot
+	cancel       context.CancelFunc
+	input        string
+	stdin        io.WriteCloser
+	pending      []Interaction
+	inputMu      sync.Mutex
+	started      chan struct{}
+	fencingToken int64
 }
 
 type localWorkItem struct {
@@ -68,6 +70,7 @@ type LocalProvider struct {
 	items    map[string]localWorkItem
 	runKeys  map[string]string
 	revision int64
+	runtime  *runtimekernel.Journal
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -90,6 +93,17 @@ func NewLocalProvider(executable string, args []string, workRoot string, bus *ev
 func NewPersistentLocalProvider(executable string, args []string, workRoot, statePath string, bus *events.Bus) (*LocalProvider, error) {
 	p := NewLocalProvider(executable, args, workRoot, bus)
 	p.StatePath = strings.TrimSpace(statePath)
+	if p.StatePath != "" && strings.TrimSpace(os.Getenv("ADRO_RUNTIME_JOURNAL")) != "" {
+		journalPath := strings.TrimSpace(os.Getenv("ADRO_RUNTIME_JOURNAL"))
+		if journalPath == "true" {
+			journalPath = p.StatePath + ".runtime.json"
+		}
+		journal, err := runtimekernel.NewJournal(journalPath)
+		if err != nil {
+			return nil, fmt.Errorf("load runtime journal: %w", err)
+		}
+		p.runtime = journal
+	}
 	if p.StatePath == "" {
 		return p, nil
 	}
@@ -301,8 +315,19 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// executor deadline, whichever comes first.
 	runCtx, cancel := localExecutionContext()
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, StartedAt: &now}
+	fencingToken := int64(0)
+	var runtimeScope runtimekernel.Scope
+	if p.runtime != nil {
+		runtimeScope = runtimekernel.Scope{TenantID: "local", WorkspaceID: "local", SessionID: sessionID, RunID: id}
+		lease, leaseErr := p.runtime.AcquireLease(runtimeScope, "local", 24*time.Hour, now)
+		if leaseErr != nil {
+			cancel()
+			return RunBinding{}, fmt.Errorf("acquire runtime lease: %w", leaseErr)
+		}
+		fencingToken = lease.FencingToken
+	}
 	p.mu.Lock()
-	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, started: make(chan struct{})}
+	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, started: make(chan struct{}), fencingToken: fencingToken}
 	p.runs[id] = run
 	appendRuntimeEventLocked(run, "run.started", map[string]any{"work_item_id": workItemID, "session_id": sessionID, "work_dir": workDir, "input_sha256": sha256Hex(input)})
 	runKey := strings.TrimSpace(idempotencyKey)
@@ -335,6 +360,9 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 		return RunBinding{}, fmt.Errorf("persist local run: %w", err)
 	}
 	p.mu.Unlock()
+	if p.runtime != nil {
+		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventTurnStarted, AggregateType: "run", AggregateID: id, Scope: runtimeScope, CorrelationID: id, IdempotencyKey: "run:" + id + ":start", WriterID: "local", FencingToken: fencingToken, Payload: map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input)}})
+	}
 	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input), "session_id": sessionID, "work_dir": workDir}))
 	go p.execute(runCtx, id, input, workDir, sessionID, reused)
 	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}, nil
@@ -513,6 +541,17 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		}
 	}
 	p.mu.Unlock()
+	if p.runtime != nil {
+		scope := runtimekernel.Scope{TenantID: "local", WorkspaceID: "local", SessionID: sessionID, RunID: runID}
+		fencingToken := int64(0)
+		p.mu.RLock()
+		if current := p.runs[runID]; current != nil {
+			fencingToken = current.fencingToken
+		}
+		p.mu.RUnlock()
+		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventUsage, AggregateType: "run", AggregateID: runID, Scope: scope, CorrelationID: runID, IdempotencyKey: "run:" + runID + ":usage", WriterID: "local", FencingToken: fencingToken, Payload: usage})
+		_, _ = p.runtime.FinishTurn(scope, map[string]any{"status": status, "output_sha256": sha256Hex(truncateOutput(output))}, map[string]any{"context_version": 0, "recovery_state": runErr == nil}, "run:"+runID, "local", fencingToken)
+	}
 	payload := map[string]any{"run_id": runID, "status": status, "output": truncateOutput(output), "duration_ms": time.Since(started).Milliseconds()}
 	if runErr != nil {
 		payload["error"] = runErr.Error()
