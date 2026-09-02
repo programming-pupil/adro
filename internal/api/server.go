@@ -401,6 +401,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			tail = parts[2]
 		}
 		s.orchestrationWorkspaceRoute(w, r, parts[0], parts[1], tail)
+	case (path == "/api/v1/agents" || strings.HasPrefix(path, "/api/v1/agents/")) && !strings.Contains(path, "/mcp-bindings"):
+		rest := strings.TrimPrefix(path, "/api/v1/agents")
+		rest = strings.TrimPrefix(rest, "/")
+		workspaceID := requestWorkspace(r, r.URL.Query().Get("workspace_id"))
+		if workspaceID == "" {
+			workspaceID = "local"
+		}
+		if rest == "" {
+			if r.Method == http.MethodGet && s.Orchestration != nil {
+				s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))})
+				return
+			}
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+			return
+		}
+		s.orchestrationAgentResource(w, r, rest, workspaceID)
 	case path == "/api/v1/squads" || strings.HasPrefix(path, "/api/v1/squads/"):
 		rest := strings.TrimPrefix(path, "/api/v1/squads")
 		rest = strings.TrimPrefix(rest, "/")
