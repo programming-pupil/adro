@@ -445,12 +445,42 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	}
 	now := time.Now().UTC()
 	comment.CreatedAt, comment.UpdatedAt = now, now
+	comment.Revision = 1
 	m.comments[comment.ID] = cloneComment(comment)
 	if err := m.persistLocked(); err != nil {
 		delete(m.comments, comment.ID)
 		return domain.Comment{}, fmt.Errorf("persist comment: %w", err)
 	}
 	return cloneComment(comment), nil
+}
+
+// UpdateComment applies an optimistic-concurrency edit while retaining the
+// original author and thread lineage. Trigger calculation is performed by the
+// API after this immutable revision boundary succeeds.
+func (m *Memory) UpdateComment(id string, expectedRevision int64, content string, mentions []string) (domain.Comment, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return domain.Comment{}, errors.New("comment content is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old, ok := m.comments[strings.TrimSpace(id)]
+	if !ok {
+		return domain.Comment{}, ErrNotFound
+	}
+	if expectedRevision <= 0 || old.Revision != expectedRevision {
+		return domain.Comment{}, ErrConflict
+	}
+	updated := cloneComment(old)
+	updated.Content, updated.Mentions = content, normalizeCommentMentions(mentions)
+	updated.Revision++
+	updated.UpdatedAt = time.Now().UTC()
+	m.comments[id] = updated
+	if err := m.persistLocked(); err != nil {
+		m.comments[id] = old
+		return domain.Comment{}, fmt.Errorf("persist comment edit: %w", err)
+	}
+	return cloneComment(updated), nil
 }
 
 func (m *Memory) GetComment(id string) (domain.Comment, error) {

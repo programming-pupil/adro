@@ -17,13 +17,92 @@ import (
 )
 
 type commentMutation struct {
-	Content        string   `json:"content"`
-	ParentID       string   `json:"parent_id,omitempty"`
-	AuthorID       string   `json:"author_id,omitempty"`
-	AuthorType     string   `json:"author_type,omitempty"`
-	Mentions       []string `json:"mentions,omitempty"`
-	Dispatch       *bool    `json:"dispatch,omitempty"`
-	AgentBindingID string   `json:"agent_binding_id,omitempty"`
+	Content          string   `json:"content"`
+	ExpectedRevision int64    `json:"expected_revision,omitempty"`
+	ParentID         string   `json:"parent_id,omitempty"`
+	AuthorID         string   `json:"author_id,omitempty"`
+	AuthorType       string   `json:"author_type,omitempty"`
+	Mentions         []string `json:"mentions,omitempty"`
+	Dispatch         *bool    `json:"dispatch,omitempty"`
+	AgentBindingID   string   `json:"agent_binding_id,omitempty"`
+}
+
+func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commentID string) {
+	if r.Method != http.MethodPatch {
+		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "PATCH is required", nil)
+		return
+	}
+	var in commentMutation
+	if err := decodeJSON(r, &in); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+		return
+	}
+	old, err := s.Store.GetComment(commentID)
+	if err != nil {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
+		return
+	}
+	if ws := requestWorkspace(r, ""); ws != "" && ws != old.WorkspaceID {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
+		return
+	}
+	mentionsList := append([]string(nil), in.Mentions...)
+	if parsed, parseErr := mentions.Parse(in.Content); parseErr == nil {
+		for _, target := range parsed.Targets() {
+			mentionsList = appendUniqueString(mentionsList, target.TargetID)
+		}
+	}
+	updated, err := s.Store.UpdateComment(commentID, in.ExpectedRevision, in.Content, mentionsList)
+	if err != nil {
+		status := http.StatusConflict
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		s.problem(w, r, status, "comment_edit_failed", err.Error(), nil)
+		return
+	}
+	if plan, calcErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: updated.WorkspaceID, CommentID: updated.ID, CommentRevision: updated.Revision, Content: updated.Content, RuntimeHealthy: false, UserCanInvoke: true}); calcErr == nil {
+		s.triggerMu.Lock()
+		s.triggerOutcomes[updated.ID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
+		s.triggerMu.Unlock()
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"comment": updated, "previous_revision": old.Revision})
+}
+
+func (s *Server) commentTriggerOutcomesRoute(w http.ResponseWriter, r *http.Request, commentID string) {
+	if r.Method != http.MethodGet {
+		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
+		return
+	}
+	if _, err := s.Store.GetComment(commentID); err != nil {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
+		return
+	}
+	s.triggerMu.RLock()
+	items := append([]mentions.TriggerOutcome(nil), s.triggerOutcomes[commentID]...)
+	s.triggerMu.RUnlock()
+	s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": commentID, "trigger_outcomes": items})
+}
+
+func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request, commentID string) {
+	if r.Method != http.MethodPost {
+		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required", nil)
+		return
+	}
+	comment, err := s.Store.GetComment(commentID)
+	if err != nil {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
+		return
+	}
+	plan, calcErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, RuntimeHealthy: true, UserCanInvoke: true})
+	if calcErr != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "trigger_retry_failed", calcErr.Error(), nil)
+		return
+	}
+	s.triggerMu.Lock()
+	s.triggerOutcomes[commentID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
+	s.triggerMu.Unlock()
+	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": commentID, "trigger_outcomes": plan.Outcomes})
 }
 
 // commentRoute implements the provider-neutral discussion contract for a
@@ -102,6 +181,9 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 			Content: input.Content, RuntimeHealthy: false, UserCanInvoke: true,
 		}); triggerErr == nil {
 			triggerOutcomes = plan.Outcomes
+			s.triggerMu.Lock()
+			s.triggerOutcomes[comment.ID] = append([]mentions.TriggerOutcome(nil), triggerOutcomes...)
+			s.triggerMu.Unlock()
 		}
 	}
 	if dispatch && structuredMentionCount == 0 {

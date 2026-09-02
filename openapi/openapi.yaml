@@ -13,6 +13,228 @@ security:
 - bearerAuth: []
 - cookieAuth: []
 paths:
+  "/api/v1/execution-plans":
+    get:
+      summary: List immutable execution plans in a workspace
+      responses:
+        '200':
+          description: Execution plans
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/execution-plans/{plan_id}":
+    get:
+      summary: Get a frozen execution plan
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Execution plan
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/execution-plans/{plan_id}/timeline":
+    get:
+      summary: Read immutable plan events for replay and diagnostics
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: after
+        in: query
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        '200':
+          description: Plan timeline
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/workspaces/{workspace_id}/agents":
+    get:
+      summary: List revisioned orchestration agents
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Agent definitions
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create an agent definition draft
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/squads":
+    get:
+      summary: List revisioned squads
+      responses:
+        '200':
+          description: Squad definitions
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+    post:
+      summary: Create a squad draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '201':
+          description: Squad created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/execution-plans/validate":
     post:
       summary: Validate a graph execution plan without executing it
@@ -31,18 +253,32 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         '422':
           description: Graph validation failure
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/requirements/{id}/comments/trigger-preview":
     post:
       summary: Preview structured Agent/Squad comment triggers
@@ -66,18 +302,32 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         '422':
           description: Invalid structured mention
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/auth/login":
     post:
       security: []
@@ -702,6 +952,104 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/comments/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    patch:
+      summary: Edit a comment with optimistic revision checking
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Edited comment
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/comments/{id}/trigger-outcomes":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      summary: List per-target structured mention outcomes
+      responses:
+        '200':
+          description: Trigger outcomes
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/comments/{id}/trigger-retry":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Recompute structured mention trigger outcomes
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      responses:
+        '202':
+          description: Trigger retry accepted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/comments/{id}/follow-up":
     parameters:
     - name: id
@@ -718,12 +1066,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Retry or dispatch a comment follow-up
       parameters:
@@ -742,12 +1099,23 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/requirements/{id}/comments":
     parameters:
     - name: id
@@ -784,6 +1152,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Add a requirement comment or reply and optionally dispatch a follow-up
       parameters:
@@ -813,6 +1187,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/requirements/{id}/start":
     parameters:
     - name: id
@@ -1364,6 +1744,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Add a bug comment or reply and optionally dispatch a follow-up
       parameters:
@@ -1393,6 +1779,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/bugs/{id}/triage":
     parameters:
     - name: id
@@ -2338,6 +2730,9 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/runs/{id}/usage":
@@ -4038,12 +4433,21 @@ paths:
                     type: array
                     items:
                       "$ref": "#/components/schemas/PipelineRun"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Start an automated delivery pipeline with the local executor
       parameters:
@@ -4073,12 +4477,21 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/pipelines/{id}":
     parameters:
     - name: id
@@ -4095,12 +4508,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/PipelineRun"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/pipelines/{id}/results":
     parameters:
     - name: id
@@ -4132,17 +4554,27 @@ paths:
             Idempotency-Replayed:
               "$ref": "#/components/headers/IdempotencyReplayed"
         '409':
-          description: Stale stage, wrong role, issue mismatch, or broken session continuity
+          description: Stale stage, wrong role, issue mismatch, or broken session
+            continuity
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/workflow-templates":
     get:
       summary: List workspace workflow templates
@@ -4153,12 +4585,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Create a validated custom workflow template
       parameters:
@@ -4176,12 +4617,23 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/WorkflowTemplate"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/workflow-templates/{id}":
     parameters:
     - name: id
@@ -4198,12 +4650,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/WorkflowTemplate"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     delete:
       summary: Delete a workflow template
       parameters:
@@ -4217,6 +4678,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/chats":
     get:
       summary: List ordinary project-bound chat sessions
@@ -4232,12 +4699,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Create a durable ordinary chat session
       parameters:
@@ -4255,12 +4731,23 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ChatSession"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/chats/{id}":
     parameters:
     - name: id
@@ -4277,12 +4764,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/chats/{id}/messages":
     parameters:
     - name: id
@@ -4307,12 +4803,23 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions":
     post:
       summary: Create an ADRO-owned durable harness session
@@ -4343,6 +4850,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}":
     parameters:
     - name: id
@@ -4359,12 +4872,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/turns":
     parameters:
     - name: id
@@ -4381,12 +4903,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Append an immutable transcript turn
       parameters:
@@ -4416,6 +4947,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/checkpoints":
     parameters:
     - name: id
@@ -4432,12 +4969,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Persist a checkpoint around a tool or side effect
       parameters:
@@ -4467,6 +5013,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/context/status":
     parameters:
     - name: id
@@ -4483,12 +5035,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/context/archives":
     parameters:
     - name: id
@@ -4505,12 +5066,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/context/compile":
     parameters:
     - name: id
@@ -4527,12 +5097,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/context/integrity":
     parameters:
     - name: id
@@ -4549,12 +5128,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/memory":
     parameters:
     - name: id
@@ -4571,12 +5159,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/memory/reduce":
     parameters:
     - name: id
@@ -4585,28 +5182,8 @@ paths:
       schema:
         type: string
     post:
-      summary: Extract cited deterministic claims and record supersession
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "#/components/schemas/JsonObject"
-      responses:
-        '201':
-          description: Memory reduction result
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/JsonObject"
-        default:
-          description: Problem Details response
-          content:
-            application/problem+json:
-              schema:
-                "$ref": "#/components/schemas/Problem"
-    post:
-      summary: Add a scoped memory item with source turn citations (deterministic, non-semantic)
+      summary: Add a scoped memory item with source turn citations (deterministic,
+        non-semantic)
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
       - "$ref": "#/components/parameters/RequestID"
@@ -4634,6 +5211,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/compact":
     parameters:
     - name: id
@@ -4670,6 +5253,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/recover":
     parameters:
     - name: id
@@ -4686,12 +5275,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins":
     get:
       summary: List signed adapter installations
@@ -4702,12 +5300,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
     post:
       summary: Install a verified signed adapter manifest
       parameters:
@@ -4737,6 +5344,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins/{id}":
     parameters:
     - name: id
@@ -4753,12 +5366,21 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
         default:
           description: Problem Details response
           content:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins/{id}/activate":
     parameters:
     - name: id
@@ -4789,6 +5411,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins/{id}/health":
     parameters:
     - name: id
@@ -4825,6 +5453,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins/{id}/quarantine":
     parameters:
     - name: id
@@ -4861,6 +5495,12 @@ paths:
             application/problem+json:
               schema:
                 "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
 components:
   securitySchemes:
     bearerAuth:
@@ -4895,64 +5535,126 @@ components:
   schemas:
     WorkflowStep:
       type: object
-      required: [id, stage, agent_id]
+      required:
+      - id
+      - stage
+      - agent_id
       properties:
-        id: {type: string}
-        stage: {type: integer, minimum: 1, maximum: 7}
-        name: {type: string}
-        role: {type: string}
-        agent_id: {type: string}
-        required: {type: boolean}
-        retry_limit: {type: integer, minimum: 0}
-        config: {type: object, additionalProperties: true}
+        id:
+          type: string
+        stage:
+          type: integer
+          minimum: 1
+          maximum: 7
+        name:
+          type: string
+        role:
+          type: string
+        agent_id:
+          type: string
+        required:
+          type: boolean
+        retry_limit:
+          type: integer
+          minimum: 0
+        config:
+          type: object
+          additionalProperties: true
     WorkflowTemplate:
       type: object
-      required: [workspace_id, name, mode, steps]
+      required:
+      - workspace_id
+      - name
+      - mode
+      - steps
       properties:
-        id: {type: string}
-        workspace_id: {type: string}
-        name: {type: string}
-        description: {type: string}
-        mode: {type: string, enum: [automatic, design_approval]}
+        id:
+          type: string
+        workspace_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        mode:
+          type: string
+          enum:
+          - automatic
+          - design_approval
         steps:
           type: array
           minItems: 1
-          items: {"$ref": "#/components/schemas/WorkflowStep"}
-        version: {type: integer, minimum: 1}
+          items:
+            "$ref": "#/components/schemas/WorkflowStep"
+        version:
+          type: integer
+          minimum: 1
     ChatSessionCreate:
       type: object
-      required: [workspace_id, title]
+      required:
+      - workspace_id
+      - title
       properties:
-        workspace_id: {type: string}
-        project_id: {type: string}
-        title: {type: string}
-        budget_tokens: {type: integer, minimum: 0}
-        auto_compaction: {type: boolean}
-        compaction_threshold: {type: number, minimum: 0, maximum: 1}
-        compaction_retain_tail: {type: integer, minimum: 0}
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        title:
+          type: string
+        budget_tokens:
+          type: integer
+          minimum: 0
+        auto_compaction:
+          type: boolean
+        compaction_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        compaction_retain_tail:
+          type: integer
+          minimum: 0
     ChatSession:
       type: object
-      required: [id, workspace_id, title, harness_session_id, status]
+      required:
+      - id
+      - workspace_id
+      - title
+      - harness_session_id
+      - status
       properties:
-        id: {type: string}
-        workspace_id: {type: string}
-        project_id: {type: string}
-        title: {type: string}
-        harness_session_id: {type: string}
-        status: {type: string}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
+        id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        title:
+          type: string
+        harness_session_id:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     ChatMessageCreate:
       type: object
-      required: [content]
+      required:
+      - content
       properties:
-        content: {type: string}
+        content:
+          type: string
         attachment_ids:
           type: array
-          items: {type: string}
+          items:
+            type: string
     HarnessSessionCreate:
       type: object
-      required: [workspace_id]
+      required:
+      - workspace_id
       properties:
         id:
           type: string
@@ -4975,11 +5677,18 @@ components:
           minimum: 0
     HarnessMemoryItem:
       type: object
-      required: [kind, content, source_ids, confidence]
+      required:
+      - kind
+      - content
+      - source_ids
+      - confidence
       properties:
         scope:
           type: string
-          enum: [working, session, project]
+          enum:
+          - working
+          - session
+          - project
           default: session
         project_id:
           type: string
@@ -5166,7 +5875,9 @@ components:
           type: string
         target_type:
           type: string
-          enum: [requirement, bug]
+          enum:
+          - requirement
+          - bug
         target_id:
           type: string
         parent_id:
@@ -5177,7 +5888,10 @@ components:
           type: string
         author_type:
           type: string
-          enum: [member, agent, system]
+          enum:
+          - member
+          - agent
+          - system
         content:
           type: string
           minLength: 1
@@ -5194,7 +5908,8 @@ components:
           format: date-time
     CommentCreate:
       type: object
-      required: [content]
+      required:
+      - content
       properties:
         content:
           type: string
@@ -5205,7 +5920,10 @@ components:
           type: string
         author_type:
           type: string
-          enum: [member, agent, system]
+          enum:
+          - member
+          - agent
+          - system
         mentions:
           type: array
           maxItems: 32
@@ -5214,12 +5932,15 @@ components:
         dispatch:
           type: boolean
           default: false
-          description: Dispatch a follow-up to the target work item; omitted defaults to true when mentions are present.
+          description: Dispatch a follow-up to the target work item; omitted defaults
+            to true when mentions are present.
         agent_binding_id:
           type: string
     CommentPage:
       type: object
-      required: [items, next_cursor]
+      required:
+      - items
+      - next_cursor
       properties:
         items:
           type: array
@@ -5324,19 +6045,38 @@ components:
           format: date-time
     SystemDiagnostics:
       type: object
-      required: [profile, provider_state, backends, durability, recovery_worker, production_ready, checked_at]
+      required:
+      - profile
+      - provider_state
+      - backends
+      - durability
+      - recovery_worker
+      - production_ready
+      - checked_at
       properties:
-        profile: {type: string}
-        provider_state: {type: string, enum: [healthy, unhealthy, unavailable]}
+        profile:
+          type: string
+        provider_state:
+          type: string
+          enum:
+          - healthy
+          - unhealthy
+          - unavailable
         backends:
           type: object
-          additionalProperties: {type: string}
+          additionalProperties:
+            type: string
         durability:
           type: object
-          additionalProperties: {type: boolean}
-        recovery_worker: {type: boolean}
-        production_ready: {type: boolean}
-        checked_at: {type: string, format: date-time}
+          additionalProperties:
+            type: boolean
+        recovery_worker:
+          type: boolean
+        production_ready:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
     RunnerExecuteRequest:
       type: object
       required:
@@ -5393,30 +6133,48 @@ components:
           type: string
         workflow_mode:
           type: string
-          enum: [automatic, design_approval]
+          enum:
+          - automatic
+          - design_approval
         priority:
           type: string
           default: normal
     PipelineAgentRoles:
       type: object
-      required: [designer_agent_id, developer_agent_id, tester_agent_id, arbitrator_agent_id]
+      required:
+      - designer_agent_id
+      - developer_agent_id
+      - tester_agent_id
+      - arbitrator_agent_id
       properties:
-        designer_agent_id: {type: string}
-        developer_agent_id: {type: string}
-        tester_agent_id: {type: string}
-        arbitrator_agent_id: {type: string}
+        designer_agent_id:
+          type: string
+        developer_agent_id:
+          type: string
+        tester_agent_id:
+          type: string
+        arbitrator_agent_id:
+          type: string
     PipelineCreate:
       type: object
-      required: [requirement_id]
+      required:
+      - requirement_id
       properties:
-        requirement_id: {type: string}
+        requirement_id:
+          type: string
         roles:
           "$ref": "#/components/schemas/PipelineAgentRoles"
-        workflow_template_id: {type: string}
-        workflow_mode: {type: string, enum: [automatic, design_approval]}
+        workflow_template_id:
+          type: string
+        workflow_mode:
+          type: string
+          enum:
+          - automatic
+          - design_approval
         workflow:
           type: array
-          items: {"$ref": "#/components/schemas/WorkflowStep"}
+          items:
+            "$ref": "#/components/schemas/WorkflowStep"
         max_retries:
           type: integer
           minimum: 1
@@ -5429,58 +6187,152 @@ components:
           default: 80
     PipelineStepResult:
       type: object
-      required: [stage, agent_id, outcome]
+      required:
+      - stage
+      - agent_id
+      - outcome
       properties:
-        stage: {type: integer, minimum: 1, maximum: 7}
-        agent_id: {type: string}
-        outcome: {type: string, enum: [pass, fail]}
-        summary: {type: string}
-        design_doc: {type: string}
-        code_version: {type: string}
-        coverage: {type: number, minimum: 0, maximum: 100}
-        passed_tests: {type: array, items: {type: string}}
-        failed_tests: {type: array, items: {type: string}}
-        error_log: {type: string}
-        repair_note: {type: string}
-        report: {type: string}
-        provider_issue_id: {type: string}
-        provider_task_id: {type: string}
-        provider_session_id: {type: string}
+        stage:
+          type: integer
+          minimum: 1
+          maximum: 7
+        agent_id:
+          type: string
+        outcome:
+          type: string
+          enum:
+          - pass
+          - fail
+        summary:
+          type: string
+        design_doc:
+          type: string
+        code_version:
+          type: string
+        coverage:
+          type: number
+          minimum: 0
+          maximum: 100
+        passed_tests:
+          type: array
+          items:
+            type: string
+        failed_tests:
+          type: array
+          items:
+            type: string
+        error_log:
+          type: string
+        repair_note:
+          type: string
+        report:
+          type: string
+        provider_issue_id:
+          type: string
+        provider_task_id:
+          type: string
+        provider_session_id:
+          type: string
     PipelineRun:
       type: object
-      required: [id, workspace_id, requirement_id, session_id, pipeline_stage, status, roles, context, max_retries, retry_count, coverage_threshold, version, history, created_at, updated_at]
+      required:
+      - id
+      - workspace_id
+      - requirement_id
+      - session_id
+      - pipeline_stage
+      - status
+      - roles
+      - context
+      - max_retries
+      - retry_count
+      - coverage_threshold
+      - version
+      - history
+      - created_at
+      - updated_at
       properties:
-        id: {type: string}
-        workspace_id: {type: string}
-        requirement_id: {type: string}
-        session_id: {type: string}
-        work_item_id: {type: string}
-        bug_id: {type: string}
-        parent_session_id: {type: string}
-        pipeline_stage: {type: integer, minimum: 1, maximum: 7}
-        status: {type: string, enum: [running, waiting_provider, waiting_approval, suspended, completed, failed]}
-        workflow_mode: {type: string, enum: [automatic, design_approval]}
+        id:
+          type: string
+        workspace_id:
+          type: string
+        requirement_id:
+          type: string
+        session_id:
+          type: string
+        work_item_id:
+          type: string
+        bug_id:
+          type: string
+        parent_session_id:
+          type: string
+        pipeline_stage:
+          type: integer
+          minimum: 1
+          maximum: 7
+        status:
+          type: string
+          enum:
+          - running
+          - waiting_provider
+          - waiting_approval
+          - suspended
+          - completed
+          - failed
+        workflow_mode:
+          type: string
+          enum:
+          - automatic
+          - design_approval
         workflow:
           type: array
-          items: {"$ref": "#/components/schemas/WorkflowStep"}
-        design_approval_id: {type: string}
-        design_approval_status: {type: string, enum: [pending, approved, rejected]}
+          items:
+            "$ref": "#/components/schemas/WorkflowStep"
+        design_approval_id:
+          type: string
+        design_approval_status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
         roles:
           "$ref": "#/components/schemas/PipelineAgentRoles"
-        context: {type: object, additionalProperties: true}
-        max_retries: {type: integer}
-        retry_count: {type: integer}
-        unit_retry_count: {type: integer}
-        coverage_threshold: {type: number}
-        active_provider_issue_id: {type: string}
-        active_provider_task_id: {type: string}
-        active_agent_id: {type: string}
-        final_report: {type: string}
-        suspend_reason: {type: string}
-        version: {type: integer, format: int64}
-        history: {type: array, items: {type: object, additionalProperties: true}}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
+        context:
+          type: object
+          additionalProperties: true
+        max_retries:
+          type: integer
+        retry_count:
+          type: integer
+        unit_retry_count:
+          type: integer
+        coverage_threshold:
+          type: number
+        active_provider_issue_id:
+          type: string
+        active_provider_task_id:
+          type: string
+        active_agent_id:
+          type: string
+        final_report:
+          type: string
+        suspend_reason:
+          type: string
+        version:
+          type: integer
+          format: int64
+        history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     JsonObject:
       type: object
       description: Versioned JSON resource or page. Resource-specific fields remain

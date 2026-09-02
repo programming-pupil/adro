@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
@@ -12,6 +13,46 @@ import (
 // deliberate local profile; production wiring can replace it via Server's
 // repository seam later.
 func (s *Server) orchestrationRoute(w http.ResponseWriter, r *http.Request, path string) {
+	if path == "/execution-plans" {
+		if s.Orchestration == nil {
+			s.problem(w, r, http.StatusServiceUnavailable, "orchestration_unavailable", "orchestration repository is unavailable", nil)
+			return
+		}
+		if r.Method != http.MethodGet {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Orchestration.ListPlans(requestWorkspace(r, r.URL.Query().Get("workspace_id")))})
+		return
+	}
+	if strings.HasPrefix(path, "/execution-plans/") && path != "/execution-plans/validate" {
+		id := strings.TrimPrefix(path, "/execution-plans/")
+		if s.Orchestration == nil {
+			s.problem(w, r, http.StatusServiceUnavailable, "orchestration_unavailable", "orchestration repository is unavailable", nil)
+			return
+		}
+		if strings.HasSuffix(id, "/timeline") {
+			realID := strings.TrimSuffix(id, "/timeline")
+			plan, err := s.Orchestration.GetPlan(requestWorkspace(r, "local"), realID)
+			if err != nil {
+				s.problem(w, r, http.StatusNotFound, "plan_not_found", err.Error(), nil)
+				return
+			}
+			s.writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "events": s.Orchestration.ListEvents(realID, int64(queryInt(r, "after", 0)))})
+			return
+		}
+		plan, err := s.Orchestration.GetPlan(requestWorkspace(r, "local"), id)
+		if err != nil {
+			s.problem(w, r, http.StatusNotFound, "plan_not_found", err.Error(), nil)
+			return
+		}
+		if r.Method != http.MethodGet {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, plan)
+		return
+	}
 	if r.Method != http.MethodPost || path != "/execution-plans/validate" {
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "only POST /execution-plans/validate is supported", nil)
 		return

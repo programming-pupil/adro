@@ -3,6 +3,7 @@ package orchestration
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -14,12 +15,17 @@ var ErrNotFound = errors.New("orchestration record not found")
 type Repository interface {
 	SaveAgent(AgentDefinition, int64) error
 	GetAgent(workspaceID, id string, revision int64) (AgentDefinition, error)
+	ListAgents(workspaceID string, status AgentStatus) []AgentDefinition
 	SaveSquad(SquadDefinition, int64) error
 	GetSquad(workspaceID, id string, revision int64) (SquadDefinition, error)
+	ListSquads(workspaceID string, status SquadStatus) []SquadDefinition
 	CreatePlan(RequirementExecutionPlan) error
 	GetPlan(workspaceID, id string) (RequirementExecutionPlan, error)
+	ListPlans(workspaceID string) []RequirementExecutionPlan
 	SaveProjection(PlanProjection) error
 	GetProjection(planID string) (PlanProjection, error)
+	AppendEvent(Event) error
+	ListEvents(planID string, after int64) []Event
 }
 
 type MemoryRepository struct {
@@ -29,10 +35,11 @@ type MemoryRepository struct {
 	plans       map[string]RequirementExecutionPlan
 	projections map[string]PlanProjection
 	keys        map[string]string
+	events      map[string][]Event
 }
 
 func NewMemoryRepository() *MemoryRepository {
-	return &MemoryRepository{agents: map[string]AgentDefinition{}, squads: map[string]SquadDefinition{}, plans: map[string]RequirementExecutionPlan{}, projections: map[string]PlanProjection{}, keys: map[string]string{}}
+	return &MemoryRepository{agents: map[string]AgentDefinition{}, squads: map[string]SquadDefinition{}, plans: map[string]RequirementExecutionPlan{}, projections: map[string]PlanProjection{}, keys: map[string]string{}, events: map[string][]Event{}}
 }
 func key3(ws, id string, rev int64) string { return fmt.Sprintf("%s:%s:%d", ws, id, rev) }
 func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
@@ -81,6 +88,34 @@ func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, 
 	}
 	return out, nil
 }
+func (r *MemoryRepository) ListAgents(ws string, status AgentStatus) []AgentDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]AgentDefinition, 0)
+	latest := map[string]AgentDefinition{}
+	for _, a := range r.agents {
+		if ws != "" && a.WorkspaceID != ws {
+			continue
+		}
+		if status != "" && a.Status != status {
+			continue
+		}
+		key := a.WorkspaceID + ":" + a.ID
+		if old, ok := latest[key]; !ok || a.Revision > old.Revision {
+			latest[key] = a
+		}
+	}
+	for _, a := range latest {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
 func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 	if err := s.Validate(); err != nil {
 		return err
@@ -127,6 +162,34 @@ func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, 
 	}
 	return out, nil
 }
+func (r *MemoryRepository) ListSquads(ws string, status SquadStatus) []SquadDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]SquadDefinition, 0)
+	latest := map[string]SquadDefinition{}
+	for _, s := range r.squads {
+		if ws != "" && s.WorkspaceID != ws {
+			continue
+		}
+		if status != "" && s.Status != status {
+			continue
+		}
+		key := s.WorkspaceID + ":" + s.ID
+		if old, ok := latest[key]; !ok || s.Revision > old.Revision {
+			latest[key] = s
+		}
+	}
+	for _, s := range latest {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
 func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
 	if p.ID == "" || p.WorkspaceID == "" || p.RequirementID == "" || p.PlanHash == "" {
 		return errors.New("plan id, workspace, requirement and hash are required")
@@ -164,6 +227,24 @@ func (r *MemoryRepository) GetPlan(ws, id string) (RequirementExecutionPlan, err
 		return RequirementExecutionPlan{}, ErrNotFound
 	}
 	return p, nil
+}
+
+func (r *MemoryRepository) ListPlans(ws string) []RequirementExecutionPlan {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]RequirementExecutionPlan, 0)
+	for _, p := range r.plans {
+		if ws == "" || p.WorkspaceID == ws {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out
 }
 func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	if p.PlanID == "" {
@@ -208,4 +289,44 @@ func (r *MemoryRepository) GetProjection(id string) (PlanProjection, error) {
 		return PlanProjection{}, ErrNotFound
 	}
 	return p, nil
+}
+
+// AppendEvent is the local-profile transaction boundary: sequence, chain hash,
+// idempotency and fencing are checked before the event becomes visible.
+func (r *MemoryRepository) AppendEvent(e Event) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	events := r.events[e.PlanID]
+	for _, old := range events {
+		if e.IdempotencyKey != "" && old.IdempotencyKey == e.IdempotencyKey {
+			if old.PayloadHash == e.PayloadHash {
+				return nil
+			}
+			return ErrIdempotencyConflict
+		}
+	}
+	if e.Sequence != int64(len(events)+1) {
+		return fmt.Errorf("event sequence conflict: got %d", e.Sequence)
+	}
+	if len(events) > 0 && e.PreviousHash != events[len(events)-1].EnvelopeHash {
+		return errors.New("event previous hash conflict")
+	}
+	if err := ValidateEventChain(append(append([]Event(nil), events...), e), e.PlanID, e.WorkspaceID); err != nil {
+		return err
+	}
+	r.events[e.PlanID] = append(events, e)
+	return nil
+}
+
+func (r *MemoryRepository) ListEvents(planID string, after int64) []Event {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := r.events[planID]
+	out := make([]Event, 0, len(items))
+	for _, e := range items {
+		if e.Sequence > after {
+			out = append(out, e)
+		}
+	}
+	return out
 }

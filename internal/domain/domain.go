@@ -125,6 +125,7 @@ type Comment struct {
 	AuthorType  string    `json:"author_type"`
 	Content     string    `json:"content"`
 	Mentions    []string  `json:"mentions,omitempty"`
+	Revision    int64     `json:"revision"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

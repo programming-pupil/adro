@@ -100,7 +100,9 @@ type CapabilityConstraint struct {
 type SquadMember struct {
 	ID                    string                 `json:"id"`
 	AgentID               string                 `json:"agent_id"`
+	SquadID               string                 `json:"squad_id,omitempty"`
 	Role                  string                 `json:"role"`
+	Leader                bool                   `json:"leader,omitempty"`
 	InputSchema           SchemaRef              `json:"input_schema"`
 	OutputSchema          SchemaRef              `json:"output_schema"`
 	CapabilityConstraints []CapabilityConstraint `json:"capability_constraints,omitempty"`
@@ -362,8 +364,11 @@ func (a AgentDefinition) Validate() error {
 	return nil
 }
 func (m SquadMember) Validate() error {
-	if strings.TrimSpace(m.ID) == "" || strings.TrimSpace(m.AgentID) == "" || strings.TrimSpace(m.Role) == "" {
-		return errors.New("squad member id, agent_id and role are required")
+	if strings.TrimSpace(m.ID) == "" || (strings.TrimSpace(m.AgentID) == "" && strings.TrimSpace(m.SquadID) == "") || strings.TrimSpace(m.Role) == "" {
+		return errors.New("squad member id, exactly one agent_id/squad_id, and role are required")
+	}
+	if m.AgentID != "" && m.SquadID != "" {
+		return errors.New("squad member cannot reference agent and squad together")
 	}
 	if m.MaxAttempts < 0 {
 		return errors.New("max_attempts cannot be negative")
@@ -375,6 +380,7 @@ func (s SquadDefinition) Validate() error {
 		return errors.New("squad id, workspace_id and name are required")
 	}
 	seen := map[string]bool{}
+	leaders := 0
 	for i, m := range s.Members {
 		if err := m.Validate(); err != nil {
 			return fmt.Errorf("members[%d]: %w", i, err)
@@ -383,6 +389,15 @@ func (s SquadDefinition) Validate() error {
 			return fmt.Errorf("members[%d].id.duplicate", i)
 		}
 		seen[m.ID] = true
+		if m.Leader {
+			leaders++
+		}
+	}
+	if s.Status == SquadPublished && leaders != 1 {
+		return errors.New("published squad requires exactly one leader")
+	}
+	if s.Policy.MaxNestingDepth < 0 || s.Policy.MaxNestingDepth > 8 {
+		return errors.New("squad max_nesting_depth must be between 0 and 8")
 	}
 	return ValidateGraph(s.Graph)
 }

@@ -27,6 +27,8 @@ import (
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
 	mcpclient "github.com/adro-project/adro/internal/mcp"
+	"github.com/adro-project/adro/internal/mentions"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
@@ -47,14 +49,17 @@ type Server struct {
 	Logger          *slog.Logger
 	Router          *provider.AgentRouteResolver
 	Auth            *adroauth.Service
+	Orchestration   *orchestration.MemoryRepository
 	uploadMu        sync.Mutex
 	materializeMu   sync.Mutex
 	idempotencyMu   sync.Mutex
 	watchMu         sync.Mutex
+	triggerMu       sync.RWMutex
 	recoveryMu      sync.Mutex
 	recoveryStarted bool
 	uploads         map[string]*upload
 	watchedRuns     map[string]struct{}
+	triggerOutcomes map[string][]mentions.TriggerOutcome
 }
 
 // authenticatedWorkspaceKey marks the workspace selected by the interactive
@@ -156,7 +161,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		logger.Error("initialize plugin registry", "error", pluginErr)
 		pluginRegistry, _ = plugins.New("")
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestration.NewMemoryRepository(), uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
@@ -364,8 +369,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.requirements(w, r)
 	case path == "/api/v1/pipelines" || strings.HasPrefix(path, "/api/v1/pipelines/"):
 		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
-	case path == "/api/v1/execution-plans/validate":
-		s.orchestrationRoute(w, r, "/execution-plans/validate")
+	case path == "/api/v1/execution-plans" || path == "/api/v1/execution-plans/validate":
+		s.orchestrationRoute(w, r, strings.TrimPrefix(path, "/api/v1"))
+	case strings.HasPrefix(path, "/api/v1/execution-plans/"):
+		s.orchestrationRoute(w, r, strings.TrimPrefix(path, "/api/v1"))
+	case strings.HasPrefix(path, "/api/v1/workspaces/") && (strings.Contains(path, "/agents") || strings.Contains(path, "/squads")):
+		rest := strings.TrimPrefix(path, "/api/v1/workspaces/")
+		parts := strings.SplitN(rest, "/", 3)
+		if len(parts) < 2 || (parts[1] != "agents" && parts[1] != "squads") {
+			s.problem(w, r, http.StatusNotFound, "not_found", "route not found", nil)
+			return
+		}
+		tail := ""
+		if len(parts) == 3 {
+			tail = parts[2]
+		}
+		s.orchestrationWorkspaceRoute(w, r, parts[0], parts[1], tail)
+	case path == "/api/v1/squads" || strings.HasPrefix(path, "/api/v1/squads/"):
+		rest := strings.TrimPrefix(path, "/api/v1/squads")
+		rest = strings.TrimPrefix(rest, "/")
+		workspaceID := requestWorkspace(r, r.URL.Query().Get("workspace_id"))
+		if workspaceID == "" {
+			workspaceID = "local"
+		}
+		s.orchestrationWorkspaceRoute(w, r, workspaceID, "squads", rest)
+	case strings.HasPrefix(path, "/api/v1/requirements/") && strings.Contains(path, "/execution-plan"):
+		rest := strings.TrimPrefix(path, "/api/v1/requirements/")
+		parts := strings.SplitN(rest, "/execution-plan", 2)
+		tail := strings.TrimPrefix(parts[1], "/")
+		s.executionPlanRequirementRoute(w, r, parts[0], tail)
 	case strings.HasPrefix(path, "/api/v1/requirements/") && strings.HasSuffix(path, "/comments/trigger-preview"):
 		s.mentionPreviewRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/requirements/"), "/comments/trigger-preview"))
 	case path == "/api/v1/workflow-templates" || strings.HasPrefix(path, "/api/v1/workflow-templates/"):
@@ -376,6 +408,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sessionRoute(w, r, strings.TrimPrefix(path, "/api/v1/sessions"))
 	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/follow-up"):
 		s.commentFollowUpRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/follow-up"))
+	case strings.HasPrefix(path, "/api/v1/comments/") && r.Method == http.MethodPatch:
+		s.commentEditRoute(w, r, strings.TrimPrefix(path, "/api/v1/comments/"))
+	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/trigger-outcomes"):
+		s.commentTriggerOutcomesRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/trigger-outcomes"))
+	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/trigger-retry"):
+		s.commentTriggerRetryRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/trigger-retry"))
 	case path == "/api/v1/plugins" || strings.HasPrefix(path, "/api/v1/plugins/"):
 		s.pluginRoute(w, r, strings.TrimPrefix(path, "/api/v1/plugins"))
 	case strings.HasPrefix(path, "/api/v1/requirements/"):
