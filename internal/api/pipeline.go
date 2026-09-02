@@ -527,6 +527,9 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 			if snapshotErr != nil || snapshot.Status == "running" {
 				continue
 			}
+			if provenanceErr := s.refreshLocalProviderProvenance(current.PipelineWorkItemID, snapshot); provenanceErr != nil && s.Logger != nil {
+				s.Logger.Error("refresh local provider provenance", "pipeline_id", pipelineID, "error", provenanceErr)
+			}
 			if checkpointErr := s.recordProviderToolEvents(current, snapshot); checkpointErr != nil && s.Logger != nil {
 				s.Logger.Error("record provider tool checkpoints", "pipeline_id", pipelineID, "error", checkpointErr)
 			}
@@ -553,6 +556,34 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 			taskID = advanced.ActiveProviderTaskID
 		}
 	}(run.ID, run.ActiveProviderTaskID)
+}
+
+// refreshLocalProviderProvenance records provider-native continuity discovered
+// after a local process starts. Codex emits its real thread id asynchronously,
+// so the initial RunBinding may contain only ADRO's provisional session id. The
+// durable snapshot is authoritative once the process exits and must be reflected
+// in provenance before a later repair validates session continuity.
+func (s *Server) refreshLocalProviderProvenance(workItemID string, snapshot provider.RunSnapshot) error {
+	if s == nil || s.Store == nil || strings.TrimSpace(workItemID) == "" {
+		return nil
+	}
+	provenance, found := s.Store.FindProvenance(workItemID)
+	if !found {
+		return nil
+	}
+	changed := false
+	if sessionID := strings.TrimSpace(snapshot.SessionID); sessionID != "" && provenance.ProviderSessionID != sessionID {
+		provenance.ProviderSessionID = sessionID
+		changed = true
+	}
+	if workDir := strings.TrimSpace(snapshot.WorkDir); workDir != "" && filepath.Clean(provenance.ProviderWorkDir) != filepath.Clean(workDir) {
+		provenance.ProviderWorkDir = workDir
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return s.Store.SaveProvenance(provenance)
 }
 
 // pipelineWatchTimeout bounds how long a local process may leave its pipeline

@@ -615,7 +615,11 @@ func TestLocalProviderRejectsCodexContinuationWithoutThreadProof(t *testing.T) {
 
 func waitSnapshot(t *testing.T, p *LocalProvider, id string) RunSnapshot {
 	t.Helper()
-	for i := 0; i < 1000; i++ {
+	// Race/coverage builds can legitimately take several seconds to schedule a
+	// short-lived child process. Keep the assertion bounded without turning the
+	// test suite into a timing lottery under CI load.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
 		snapshot, err := p.GetRun(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
@@ -625,7 +629,7 @@ func waitSnapshot(t *testing.T, p *LocalProvider, id string) RunSnapshot {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("local process did not finish")
+	t.Fatalf("local process did not finish within 30s: %s", id)
 	return RunSnapshot{}
 }
 

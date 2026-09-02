@@ -199,7 +199,10 @@ func TestPipelineLocalCollectorCompletesRealProcessRepairLoop(t *testing.T) {
 	if err := json.Unmarshal(create.Body.Bytes(), &initial); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
+	// The test launches a real child process for every pipeline stage. A fixed
+	// 15s window flakes under race/coverage instrumentation even when the
+	// pipeline is healthy, so use a bounded but CI-friendly deadline.
+	deadline := time.Now().Add(60 * time.Second)
 	var final domain.PipelineRun
 	for time.Now().Before(deadline) {
 		var getErr error
@@ -369,6 +372,43 @@ func TestPipelineWatchDeadlineCancelsProviderAndSuspends(t *testing.T) {
 	snapshot, err := local.GetRun(context.Background(), initial.ActiveProviderTaskID)
 	if err != nil || snapshot.Status != "cancelled" {
 		t.Fatalf("provider was not cancelled: snapshot=%+v err=%v", snapshot, err)
+	}
+}
+
+func TestRefreshLocalProviderProvenanceUsesNativeSessionFromSnapshot(t *testing.T) {
+	control := store.NewMemory()
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(control, provider.NewMockProvider(bus), fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := control.SaveProvenance(domain.Provenance{
+		WorkItemID:             "pipeline-work-item",
+		Provider:               "local",
+		ProviderTaskID:         "run-1",
+		ProviderSessionID:      "adro-provisional-session",
+		ProviderWorkDir:        "/var/lib/adro/workspaces/item/session",
+		ProviderIdempotencyKey: "pipeline:run:stage:2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.refreshLocalProviderProvenance("pipeline-work-item", provider.RunSnapshot{
+		ID:        "run-1",
+		SessionID: "33333333-3333-4333-8333-333333333333",
+		WorkDir:   "/var/lib/adro/workspaces/item/new-session",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provenance, ok := control.FindProvenance("pipeline-work-item")
+	if !ok {
+		t.Fatal("provenance disappeared")
+	}
+	if provenance.ProviderSessionID != "33333333-3333-4333-8333-333333333333" || provenance.ProviderWorkDir != "/var/lib/adro/workspaces/item/new-session" {
+		t.Fatalf("native continuity was not persisted: %+v", provenance)
+	}
+	if provenance.ProviderTaskID != "run-1" || provenance.ProviderIdempotencyKey != "pipeline:run:stage:2" {
+		t.Fatalf("provenance fields were overwritten: %+v", provenance)
 	}
 }
 
