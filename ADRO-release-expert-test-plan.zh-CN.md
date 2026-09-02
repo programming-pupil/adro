@@ -1,8 +1,9 @@
 # ADRO 发布前专家级测试用例规范
 
-版本：`v0.1.0`（以测试执行时检出的提交为准）
+版本：`v0.2.0`（新增双向反馈/回退编排验收；以测试执行时检出的提交为准）
 编写日期：2026-09-02
-适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及待接入的真实 Codex 执行链路
+源码复核基线：最新 `origin/main`（`b77b05661764988f35a770b957cde92f75087d1d`）；文档提交目标：`master`
+适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
 
 ## 1. 目的与执行边界
 
@@ -10,16 +11,16 @@
 
 本规范以 ADRO 源码为准，当前源码事实包括：
 
-- Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，共 18 个视图。
-- API 契约在 `openapi/openapi.yaml` 中定义；下文的 API 矩阵覆盖其中全部 112 个 operation。
-- Go 单元/集成测试位于 `internal/**`；浏览器测试位于 `e2e/**`；当前仓库提供的真实上游链路脚本是 `scripts/multica-conformance.mjs`，其余真实链路需要按本规范补齐。
-- `make verify` 组合 Go、契约、构建、依赖和浏览器检查；当前 Makefile 没有 `real-e2e` 目标，真实 Provider/Codex 门禁必须显式调用脚本并在 CI 中单独接入。
+- Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，最新 main 共 19 个视图（含 `chats`）。
+- API 契约在 `openapi/openapi.yaml` 中定义；按 YAML 解析后的唯一 operation 计数，最新 main 共 152 个，旧文档基线列出 112 项但漏了已声明的 HEAD operation，修正后 `master` 为 113 项，最新 main 再新增 39 项。源码与契约仍有两个明确漂移：MCP 按 ID 的 GET/PATCH/DELETE/POST 入口没有对应 item path，且 `POST /api/v1/sessions/{id}/memory` 未声明；同时 `/api/v1/sessions/{id}/memory/reduce` 下重复声明了两个 `post` 键，解析器只保留后者。上述漂移必须作为 S1 契约问题单独验收，不能把原始文本行数 153 当成 153 个可调用 operation。
+- Go 单元/集成测试位于 `internal/**`；浏览器测试位于 `e2e/**`；最新 main 已提供 `scripts/release-system-e2e.sh`、`scripts/real-pipeline-e2e.sh` 和 `make real-e2e`，但真实执行仍必须在受控 Codex runner 产生证据。
+- `make verify` 组合 Go、契约、构建、依赖和浏览器检查；`.github/workflows/real-e2e.yml` 仅在带 `adro-codex` 标签的 self-hosted runner 上执行真实 Codex，不能把普通 CI 的静态/Mock 结果写成真实链路通过。
 
 明确不纳入本次单机发布门禁的能力：PostgreSQL/Redis/NATS 等生产 adapter、多副本跨节点 conformance。它们必须作为后续发布档案中的 `out of scope / blocked` 记录，不得被单机测试结果替代。
 
 ### 1.1 当前自动化基线的诚实结论
 
-从当前源码配置可以确认：`package.json` 只有 `test:e2e` 和 `test:e2e:matrix` 两个 Playwright 入口；现有 `e2e/workbench.spec.js`、`platform-matrix.spec.js`、`visuals.spec.js` 仍是有限的冒烟/视觉用例，并未覆盖本文件的全部控件、Agent 拓扑、并发和故障组合。`.github/workflows/ci.yml` 也没有真实 Codex 专用 job。故当前代码库不能被描述为“企业级全量自动化已完成”；本文件定义的是必须补齐并接入门禁的目标测试集。
+从最新 main 源码配置可以确认：`package.json` 仍只有 `test:e2e` 和 `test:e2e:matrix` 两个 Playwright 入口；现有浏览器 spec 仍是有限的冒烟/视觉用例，并未覆盖本文件的全部控件、双向 Agent 回路、并发和故障组合。虽然已经有 `real-e2e` Make 目标和专用 workflow，但它依赖真实 Codex self-hosted runner，缺凭据或缺二进制时必须失败/阻塞，不能把本地 Mock 或静态 fixture 算作通过。
 
 ## 2. 结果、严重性和证据规则
 
@@ -44,7 +45,7 @@
 2. 使用独立临时 `ADRO_STATE_FILE`、`ADRO_ARTIFACT_ROOT`、`ADRO_RUNTIME_JOURNAL`，目录权限为仅执行用户可读写；验证重启后文件仍可读取。
 3. 通过 `./start.sh` 或 `go run ./cmd/adro-api` 启动单进程服务；记录 `/healthz`、`/readyz` 返回和监听地址。
 4. 浏览器执行前运行 `npm ci`、`npx playwright install --with-deps chromium firefox webkit`，静态服务器和 API base URL 写入报告。
-5. 当前源码没有 `ADRO_REQUIRE_CODEX`、`ADRO_CODEX_BIN` 或直接启动本地 Codex 的实现。现有真实 conformance 使用 `ADRO_PROVIDER=multica`、`ADRO_MULTICA_URL`、`ADRO_MULTICA_TOKEN` 和 `ADRO_CONFORMANCE_*`；若目标是本地 Codex，必须先实现并测试真实 Provider adapter，再确认 `codex --version`、PID、工作目录、权限和网络策略。任何阶段都禁止以 mock、stub 或“伪造事件”代替。
+5. 最新 main 通过 `ADRO_REQUIRE_CODEX=1`、`ADRO_EXECUTOR=codex` 和 `ADRO_EXECUTOR_COMMAND` 选择真实本地 Codex；`scripts/release-system-e2e.sh`/`scripts/real-pipeline-e2e.sh` 会检查 `codex --version`、PID、工作目录、权限、marker 和真实输出。缺少二进制、凭据或 self-hosted runner 时必须 `BLOCKED/FAIL`，任何阶段都禁止以 mock、stub 或“伪造事件”代替。
 
 ### 3.2 固定测试数据
 
@@ -61,7 +62,7 @@
 
 ## 4. 菜单/UI 覆盖矩阵
 
-以下每行至少执行 `UI-001`（可见性/加载/刷新/空态/错误态）和对应的操作用例；管理员可见全部菜单，成员只看到授予的菜单，查看者不能出现写操作。
+以下每行至少执行 `UI-001`（可见性/加载/刷新/空态/错误态）和对应的操作用例；管理员可见全部 19 个菜单，成员只看到授予的菜单，查看者不能出现写操作。
 
 | Case ID | 菜单/视图 | 必测行为 | 主要入口 |
 |---|---|---|---|
@@ -85,8 +86,9 @@
 | UI-018 | `cost` 成本中心 | metrics/usage 与 Run 对账；无数据、负值、超大值不能破坏渲染 | `/metrics`、`/api/v1/runs/{id}/usage` |
 | UI-019 | `admin` 系统管理 | 用户 CRUD、角色/菜单权限、禁用会话回收、审计查询；最后管理员保护 | users/directory/audit |
 | UI-020 | 移动与跨浏览器 | Chromium/Firefox/WebKit 桌面，移动 viewport；横向滚动、键盘焦点、上传和 dialog 可用 | `e2e/platform-matrix.spec.js`、`visuals.spec.js` |
+| UI-021 | `chats` 普通聊天 | 创建项目绑定会话、发送/重放消息、关联附件、上下文压缩/状态查看；空态、越权和重复消息均有证据 | `/api/v1/chats*`、`/api/v1/sessions*` |
 
-上一版自检结论：UI-001..020 只能证明“页面大致能打开”，不能证明每个菜单的按钮、表单分支、空态、错误态和状态驱动动作都被执行；也没有把每个需求的 Agent 组合定义成独立验收项。下面的控件级和编排级用例用于补足这一差距。
+上一版自检结论：UI-001..021 只能证明“页面大致能打开”，不能证明每个菜单的按钮、表单分支、空态、错误态和状态驱动动作都被执行；也没有把每个需求的 Agent 组合定义成独立验收项。下面的控件级和编排级用例用于补足这一差距。
 
 ### 4.1 控件和交互级用例
 
@@ -101,7 +103,7 @@
 | SHELL-003 | 点击登录页语言切换，再登录后切换应用语言 | `lang`、按钮、表头、错误提示完整切换；不丢当前视图和表单数据 |
 | SHELL-004 | 登录后点击刷新、全局搜索输入/清空、浏览器前进后退 | 仅触发预期请求；列表、计数和当前视图最终一致 |
 | SHELL-005 | 检查用户头像、显示名、角色、退出登录 | 身份来自 `/auth/me`；退出关闭 WebSocket 并使旧 Cookie 失效 |
-| SHELL-006 | member/viewer 登录，逐项检查 18 个导航节点和直接深链 | 未授权菜单隐藏，直接请求仍被后端拒绝；不能通过改 DOM 绕过 |
+| SHELL-006 | member/viewer 登录，逐项检查 19 个导航节点和直接深链 | 未授权菜单隐藏，直接请求仍被后端拒绝；不能通过改 DOM 绕过 |
 | SHELL-007 | 断开 API、断开 WebSocket、恢复网络 | 连接点、重试和错误态可见；恢复后 cursor 续接，不重复追加行 |
 | SHELL-008 | 所有菜单运行键盘 Tab/Enter/Escape、屏幕阅读器属性和窄 viewport 检查 | 焦点顺序稳定；dialog 可关闭；无横向溢出、遮挡或不可访问控件 |
 
@@ -197,7 +199,7 @@
 | OPS-UI-004 | artifacts | 上传会话、分片乱序/重复/缺片、complete、range 下载 | hash/size/version 校验；重复分片幂等；未完成对象不可读取 |
 | OPS-UI-005 | runners | 注册、heartbeat、execute、drain、quarantine，健康/排空/隔离状态 | 非健康 Runner 不能执行；命令 argv、工作目录、环境和超时边界有效 |
 | OPS-UI-006 | cost | 无 Run、正常 usage、超大 token、Provider 不支持 usage | 成本为可解释数值或明确 unavailable；不出现 NaN/负成本；能与 Run 对账 |
-| OPS-UI-007 | admin | 创建/编辑 member/viewer/admin/disabled，勾选每个菜单，保存后重新登录 | 18 菜单权限和后端权限逐项一致；禁用即时回收会话 |
+| OPS-UI-007 | admin | 创建/编辑 member/viewer/admin/disabled，勾选每个菜单，保存后重新登录 | 19 菜单权限和后端权限逐项一致；禁用即时回收会话 |
 | OPS-UI-008 | admin | 编辑自己、删除/禁用最后管理员、两个管理员并发编辑 | 最后管理员保护；冲突可见；审计包含操作者、目标和结果 |
 | OPS-UI-009 | admin | 审计空态、连续事件、篡改快照/链校验失败 | 只显示当前 workspace；chain_valid 真实；检测异常而非静默清空 |
 
@@ -230,7 +232,7 @@
 
 ### 4.2 Agent 自由组合与编排拓扑用例
 
-源码事实：`POST /api/v1/agents` 创建的是 Provider agent/profile；`developer-profiles` 为 member 保存一个 `default_agent_binding_id`；`ADRO_MULTICA_AGENT_MAP` 解析 member、role、workspace default 等路由优先级；`WorkItem` 目前只有一个 `developer_agent_binding_id`。OpenAPI 中没有按 requirement 保存“阶段 -> Agent -> 前置/后置关系”的 workflow graph operation。因此必须把“现有路由可用性”和“目标能力缺失检测”分开记录。
+源码事实：`POST /api/v1/agents` 创建的是 Provider agent/profile；`developer-profiles` 为 member 保存一个 `default_agent_binding_id`；`ADRO_MULTICA_AGENT_MAP` 解析 member、role、workspace default 等路由优先级；`WorkItem` 目前只有一个 `developer_agent_binding_id`。最新 main 虽有 `/api/v1/workflow-templates` 和 `/api/v1/pipelines`，但只保存按 stage 排序的步骤，没有按 requirement 持久化任意“阶段 -> Agent -> 前置/后置/反馈边”的 workflow graph。因此必须把“现有有序 pipeline 可用性”和“目标双向图能力缺失检测”分开记录。
 
 每个组合都要创建全新的 requirement/work item，记录期望拓扑、实际拓扑、每个节点的 agent binding/session/workdir/attempt，并在 API、事件、审计和最终报告四处核对；不能只看最终状态。
 
@@ -280,16 +282,63 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 | SQUAD-016 | 导出小队模板、审计成员/版本/决策、删除/保留策略、跨环境导入 | 导出不含 secret；审计可重放；引用中的版本按保留策略处理；导入校验签名和能力 |
 | SQUAD-017 | 从当前仅有 default agent 的旧需求升级到小队模型，再回滚版本 | 旧数据可读且语义不变；迁移可重入；回滚不丢旧 binding、事件和证据 |
 
-### 4.2.2 当前支持结论和前瞻缺口
+### 4.2.2 双向反馈、打回与有界回路用例
+
+用户要求的“小队”不是只能向前的流水线：开发 Agent 完成后交给单测 Agent，单测失败可以按配置打回开发；单测通过后进入测试 Agent，测试发现 Bug 也可以打回开发，并且修复后必须重新经过单测和测试。以下用例把这种双向编排拆成可执行的契约、状态、并发和故障验收。每个用例都要保存 plan version、节点/边 ID、attempt、session、workdir、ContextManifest、事件 cursor、evidence/artifact ID 和 trace ID。
+
+反馈边不得依赖自然语言约定或默认路由，至少应持久化以下字段，并在事件、审计和最终报告中保持一致：`source_node_id`、`target_node_id`、`condition`、`decision`、`reason`、`evidence_ids`、`context_manifest_id/version`、`required_changes`、`attempt`、`idempotency_key`、`plan_version`、`trace_id`。`decision=return` 必须指向已配置的目标节点；`decision=pass` 只能触发已配置的后继节点。
+
+双向编排核心不变量（任一违反均为 S1，涉及越权/重复不可逆副作用时为 S0）：
+
+- 只能沿当前 immutable plan 中已配置的边调度，禁止隐式回退、跳过必经检查或以默认 Agent 代替指定节点。
+- 被打回的节点不能同时保持 `succeeded` 和 `returned`；修复完成后必须创建新的 attempt，并重新执行触发打回的检查节点。
+- 每轮反馈保留同一 requirement/run 的 lineage，但拥有独立 attempt、输入快照、输出证据和事件序列；旧 attempt 的迟到结果不能覆盖新 attempt。
+- 反馈、重试、取消、人工接管和超时都必须幂等；循环必须有最大次数、预算、deadline 和人工出口，不能无限调度。
+- 事件发布、状态快照、outbox、lease/fencing 和重放后，观察者看到的拓扑、状态和证据必须一致；重复或乱序消息不得产生第二次工具副作用。
+
+| Case ID | 场景与步骤 | 通过标准 / 当前判定 |
+|---|---|---|
+| BIDI-001 | 配置 `开发 -> 单测` 正向边；开发完成后提交结果并启动单测 | 最新 main 可用 `POST /api/v1/pipelines` 的有序 `WorkflowStep` 表达开发后单测；仍无显式 edge/manifest 字段，须以真实 API 证据验证，未执行不计 PASS |
+| BIDI-002 | 单测失败，反馈边 `单测 -> 开发` 条件为 `unit_failed`，附失败日志和必改项 | 生成 `decision=return` 反馈与唯一 idempotency key；开发进入新 attempt，不能标记原单测为通过；当前 `BLOCKED/S1` |
+| BIDI-003 | 开发按反馈修复后再次提交 | 修复 attempt 必须重新进入同一单测节点，不能跳到测试或直接释放；旧失败 evidence 保留且新 diff 可关联；当前 `BLOCKED/S1` |
+| BIDI-004 | 单测通过，后继边 `单测 -> 测试` 条件为 `unit_passed` | 有序 workflow 可把单测后的下一阶段交给指定 Agent；仍没有条件 edge/evidence gate，未执行不计 PASS |
+| BIDI-005 | 测试发现 Bug，配置 `测试 -> 开发` 回退边并提交复现证据 | 最新 main 仅在集成阶段失败时固定走仲裁 -> 开发；没有可配置的测试节点反馈边，用户目标 `BLOCKED/S1` |
+| BIDI-006 | 测试 Bug 回退后开发修复 | 固定集成回路可验证原 session/workdir 修复后复测；无法证明“任意测试节点 -> 开发”及单测/测试双回归，目标 `PARTIAL/BLOCKED-S1` |
+| BIDI-007 | 同一小队配置两个反馈目标：单测失败回开发，测试严重 Bug 回方案设计 | 条件和目标按节点/严重级别精确选择；普通测试 Bug 不得误回方案；决策原因和 evidence 可审计；当前 `BLOCKED/S1` |
+| BIDI-008 | 配置条件边：`severity=critical` 回开发，`severity=low` 进入人工复核 | 条件求值基于结构化结果而非可注入文本；每条边至多触发一次；未匹配条件进入明确人工出口；当前 `BLOCKED/S1` |
+| BIDI-009 | 单测连续失败达到最大 repair 次数 | 达到 `max_attempts` 后停止自动回路，需求为 `HUMAN_TRIAGE_REQUIRED`/blocked，保留每轮证据；不得继续调用 Provider；当前 `BLOCKED/S1` |
+| BIDI-010 | 修复后单测通过但测试再次发现同一 fingerprint | fingerprint 去重不应吞掉新 attempt；应记录重复缺陷、循环次数和最终人工策略；不能假装是首次 Bug；当前 `BLOCKED/S1` |
+| BIDI-011 | 配置合法的有界回路 `D -> U -> D`，以及非法无界环/自环/悬空目标 | 静态校验接受有界且有出口的反馈图，拒绝无上限循环、自环、未知节点和跨 workspace 目标；当前无 graph validator，`BLOCKED/S1` |
+| BIDI-012 | 对同一反馈请求重复 POST、客户端超时后重试、消息重复投递 | 以 `run_id + source + target + attempt + idempotency_key` 去重；只创建一个 repair attempt、一个工具副作用和一组事件；当前 `BLOCKED/S1` |
+| BIDI-013 | 先到达“修复完成”事件，后到达“单测失败”事件；再发送旧 attempt 的测试结果 | 事件按 sequence/version 拒绝过期迁移；当前 attempt 状态不被旧结果覆盖，迟到事件进入 dead-letter/审计；当前 `BLOCKED/S1` |
+| BIDI-014 | 两个单测 worker 同时反馈同一个失败；两个测试 worker 同时报告同一 Bug | lease/fencing 只允许一个 owner 提交反馈；另一方得到可重试冲突且无第二次 repair；聚合 evidence 幂等；当前 `BLOCKED/S1` |
+| BIDI-015 | 开发节点输出 diff、单测输出报告、测试上传截图/附件后回退 | 每轮 workdir、diff、报告、截图与节点/attempt 一一关联；修复不可覆盖历史 artifact；当前 `BLOCKED/S1` |
+| BIDI-016 | 回退时生成新的 ContextManifest，限制只带失败相关上下文 | manifest 版本、selection digest、token budget、block lineage 和 replay key 校验一致；禁止把其他需求或旧敏感上下文带入；当前 `BLOCKED/S1` |
+| BIDI-017 | 单测失败后检查 memory 写入，再由开发修复并由单测重跑 | 失败经验写入指定 namespace，质量/来源/TTL 可追溯；重跑读取允许的记忆版本，不污染其他 Agent/需求；当前 `BLOCKED/S1` |
+| BIDI-018 | 开发修复期间修改小队模板、反馈条件或 Agent binding | 已开始 run 使用原 immutable plan；新 run 才使用新版本；反馈事件记录版本差异，不能中途混用节点定义；当前 `BLOCKED/S1` |
+| BIDI-019 | 单测 Agent 不可用、Provider 超时或被禁用时触发回退 | 按节点策略进入重试/替换/人工接管；禁止静默换成 workspace default；未完成检查不得向测试放行；当前 `BLOCKED/S1` |
+| BIDI-020 | 回退目标 Agent 被删除、权限撤销、跨 workspace 或 Skill/MCP 版本不兼容 | 反馈在调度前 fail-closed，需求阻塞并给出可操作原因；无跨租户读取、无 Provider 副作用；当前 `BLOCKED/S1` |
+| BIDI-021 | 回路中插入人工暂停、批准、接管和取消；批准后继续回归 | 暂停阻止新节点和工具调用；批准只恢复指定 attempt；取消使所有 lease 失效且迟到结果不可写回；当前 `BLOCKED/S1` |
+| BIDI-022 | 同一用户并发运行两个不同回路；两个用户共享同一开发 Agent | run/session/workdir、ContextManifest、memory、event cursor、usage 和反馈决策完全隔离；Agent 能力可复用但状态不可串线；当前 `BLOCKED/S1` |
+| BIDI-023 | 服务在反馈写入前后、outbox 发布前后、开发修复完成前崩溃并重启 | 恢复只补偿未确认步骤；反馈和 repair attempt 至多一次；重放后状态、事件 hash、审计链和 artifact 一致；当前 `BLOCKED/S1` |
+| BIDI-024 | 回路触发预算、节点超时、全局 deadline、并发配额和背压 | 预算/次数/时间任一耗尽即进入明确终止状态；不再启动子节点；报告包含消耗、拒绝原因和人工出口；当前 `BLOCKED/S1` |
+| BIDI-025 | 运行结束后重放完整链路并导出解释报告 | 报告能重建每次 `pass/return` 的条件、决策、责任 Agent、上下文版本、证据、耗时和最终原因；stream replay 与快照终态一致；当前 `BLOCKED/S1` |
+
+上述 BIDI 用例必须与 AGC/SQUAD 用例交叉执行，不得把“单测失败后手工重新发一个需求”算作回退通过。最新 main 已有“有序自定义步骤”和“集成失败 -> 仲裁 -> 原开发 session -> 复测”的有限实现，但没有通用 feedback edge、条件决策、节点 attempt 和 Squad 模型：BIDI-001/004 为可调用但未执行的部分能力，BIDI-005/006 为固定路径的部分能力，其余需要任意双向配置的用例仍为 `BLOCKED/S1`。研发实现后必须先补齐 API/UI/事件契约，再由 QA 按原 Case ID 回归，不能通过修改判定文字消除阻塞。
+
+### 4.2.3 当前支持结论和前瞻缺口
 
 基于当前 `internal/domain/domain.go`、`internal/provider/routing.go`、`internal/api/server.go`、`openapi/openapi.yaml` 和 `apps/web` 的源码复核：
 
 - 当前支持的是单个 Agent/profile 创建、Provider binding、MCP/Skill binding、开发者默认 Agent，以及 member/role/workspace-default 路由优先级。
+- 最新 main 还支持 `WorkflowTemplate` 的 GET/POST/DELETE、按 `stage` 排序的自定义 `WorkflowStep`、每步 Agent 与 retry limit，以及 `automatic`/`design_approval` 两种 pipeline mode；这些能力必须纳入 API-MAIN-OP-009..016 验收。
+- `internal/pipeline/engine.go` 的实际回退语义是：单测失败留在单测阶段重试；集成失败进入仲裁，仲裁通过后回到原开发 session/workdir，再进入复测。它不是任意节点之间的双向图，也没有按 severity/表达式选择反馈目标。
 - `TeamWorkspace` 只是 workspace 资源，字段是 `repository_ids`、`policy`、`status` 等，没有 Agent 成员、节点、边或执行顺序；不能当作 Squad 实现。
-- Web UI 只有“创建 Agent”入口，没有“创建小队/编辑小队拓扑/在需求发布时选择小队或子图”的入口。
-- Requirement/WorkItem 没有需求级 workflow graph 或节点级 Agent 列表；WorkItem 当前只有一个 `developer_agent_binding_id`。
+- Web UI 有“开始 1→7 流水线”和 Agent 创建入口，但没有“创建小队/编辑反馈拓扑/在需求发布时选择小队或子图”的入口；pipeline dialog 也只收四个角色 Agent UUID 和重试/覆盖率参数。
+- Requirement 目前只保存可选的 `workflow_template_id`/`workflow_mode`；WorkItem 仍只有一个 `developer_agent_binding_id`。最新 main 的 workflow template 是按 `stage` 排序的有序步骤，不是可任意连边的图。
+- Requirement 状态机虽有 `TEST_FAILED`、`AUTO_REPAIRING` 等线性状态，但没有“由哪个节点按什么条件打回哪个节点”的 feedback edge、attempt lineage 或回路调度契约；最新 main 的 `pipeline.Engine` 只对集成失败走固定的仲裁 -> 开发 -> 复测路径，不能证明 BIDI-002/003/005/006 的任意双向配置已实现。
 
-因此，用户描述的 Squad/小队和自由流水线能力当前**不支持**，不是“隐藏支持”或“只差 UI”。SQUAD-001..017 在现状下应记录为 `BLOCKED/S1`，不能用 Agent 默认路由跑通来替代。要达到“AI agent 团队”产品目标，至少需要新增可版本化的 `Squad`、`SquadMember`、`WorkflowTemplate`、`WorkflowNode`、`WorkflowEdge`、`RequirementExecutionPlan` 和 `WorkflowRun` 契约，并提供 API、UI 快捷入口、权限、校验、调度、lease、事件、审计和回放。
+因此，用户描述的 Squad/小队和自由双向流水线能力当前**不完整支持**：最新 main 的有序 `WorkflowTemplate`/`PipelineRun` 不是“隐藏的 Squad”，也不能用默认七阶段路由冒充任意小队。SQUAD-001..017 仍应记录为 `BLOCKED/S1`；BIDI 中只有固定集成回路可部分验证，其余任意 feedback edge 必须阻断。要达到“AI agent 团队”产品目标，至少需要在现有 `WorkflowTemplate` 之上新增可版本化的 `Squad`/`SquadMember`、`WorkflowNode`/`WorkflowEdge`、`RequirementExecutionPlan`、节点 attempt 和反馈决策契约，并提供 API、UI 快捷入口、权限、校验、调度、lease、事件、审计和回放。
 
 建议一并纳入开发验收的超前能力：
 
@@ -358,8 +407,8 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 | FLOW-001 | 创建需求，绑定 `repo-a`/`repo-b`、验收标准、责任人；查询详情和 work-items | 201；字段规范化；关联集合完整；重复 `Idempotency-Key` 只创建一个 |
 | FLOW-002 | 需求 start，confirm-assignees，begin-design，gates，approve，transition 至 testing/ready/released | 仅允许 domain 合法状态迁移；非法跳转 409/422 且状态不变；每步有审计和事件 |
 | FLOW-003 | pause/resume；暂停期间重复 start/run；恢复后继续同一上下文 | 只有一个活动执行；恢复不丢 session/context/lease；事件顺序可解释 |
-| FLOW-004 | 为四个 Agent 建立不同角色、MCP/Skill 绑定；配置串行、并行、条件和失败转移关系 | 编排图无环（若契约要求）；无权限 Agent 被拒绝；每个节点输入输出和负责人可追踪 |
-| FLOW-005 | 指定 Agent A 方案 -> B 开发 -> C 测试 -> D 修复；执行真实 Provider/Codex | 每节点实际调用真实执行进程；session/workdir/commit/check/submit/attachment 均有证据；当前无本地 Codex adapter 时必须 BLOCKED |
+| FLOW-004 | 为四个 Agent 建立不同角色、MCP/Skill 绑定；提交有序自定义 `WorkflowTemplate`，再尝试并行、条件和任意失败转移 | 有序步骤、每步 Agent、报告必选和 retry limit 可验证；并行/条件/任意 feedback edge 必须明确返回不支持，不能静默降级 |
+| FLOW-005 | 指定 Agent A 方案 -> B 开发 -> C 单测/集成 -> D 仲裁；执行 `make real-e2e` 的真实 Provider/Codex | 每阶段实际调用真实执行进程；session/workdir/commit/check/submit/attachment 均有证据；集成失败只能按源码固定路径仲裁 -> 原开发 session -> 复测；不把它当成任意 D -> C -> D 图 |
 | FLOW-006 | 一个问答输入同时绑定项目、上传附件和截图，再发 follow-up | 上下文包含项目基线、附件 hash、截图 artifact、会话历史；响应引用正确资源 |
 | FLOW-007 | Work item run，追加 message，查询 snapshot/events/usage，完成后读取 diff | snapshot 与事件最终一致；message 幂等；usage 可对账；diff 与提交一致 |
 | FLOW-008 | Provider 需要审批；先拒绝再重试；批准后只执行一次 | 拒绝不会执行工具；批准绑定精确 run/tool/call；重复决定幂等或 409；审计完整 |
@@ -423,7 +472,7 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 
 `API-BASE-001` 的统一步骤：用 admin 建立合法资源并保存 ID；以合法 JSON 调用 operation；重复请求和修改请求体；分别去掉 Cookie、替换为 viewer、换 workspace；使用未知 ID、空字符串、负数、超长字符串、错误 enum、错误 Content-Type；检查状态码、problem type、响应 schema、审计、事件和持久化快照。对上传接口追加 0/1MB/超限、分片重复/乱序/缺片、hash 不匹配和断点续传。
 
-为避免分组表中的缩写造成漏测，下面是从当前 OpenAPI 文件逐项展开的 112 个 operation。按出现顺序编号为 `API-OP-001` 至 `API-OP-112`；QA 应为每一项建立独立结果行（可复用 `API-BASE-001`，但不能用一个接口的结果代表同组其它接口）：
+为避免分组表中的缩写造成漏测，下面保留旧文档 `master` 基线逐项展开的 112 个 operation，并补上源码已声明但旧文档漏列的 HEAD，因此修正后的 `master` 基线为 113 项（`API-OP-001..113`）。最新 `origin/main` 在此修正基线之上新增 39 个 operation（`API-MAIN-OP-001..039`，见下表），合计 152；QA 应为每一项建立独立结果行（可复用 `API-BASE-001`，但不能用一个接口的结果代表同组其它接口）。源码中的 `POST /api/v1/sessions/{id}/memory` 是独立的“写入记忆项”入口，但最新 OpenAPI 未声明；`POST /api/v1/sessions/{id}/memory/reduce` 是独立的“提取确定性声明”入口，原始 YAML 却重复写了两个 `post` 键，解析器只保留后者。两条代码路径都必须测试并作为契约漂移留档，不能把重复 YAML 键当成两个 operation：
 
 ```text
 POST /api/v1/auth/login
@@ -472,6 +521,7 @@ POST /api/v1/artifact-migrations/{id}/pause
 POST /api/v1/artifact-migrations/{id}/resume
 POST /api/v1/artifact-migrations/{id}/rollback
 GET /api/v1/artifacts/{id}/versions/{version}/content
+HEAD /api/v1/artifacts/{id}/versions/{version}/content
 GET /api/v1/work-items/{id}/diff
 POST /api/v1/work-items/{id}/diff
 GET /api/v1/work-items
@@ -540,6 +590,52 @@ GET /api/v1/audit
 GET /api/v1/streams/workspaces/{workspace_id}
 ```
 
+最新 `origin/main` 相对修正后的旧 `master` 基线新增的 39 个 operation 必须单独登记，不得因为旧文档编号曾是 112 就漏测：
+
+```text
+API-MAIN-OP-001  GET  /api/v1/system/diagnostics
+API-MAIN-OP-002  GET  /api/v1/comments/{id}/follow-up
+API-MAIN-OP-003  POST /api/v1/comments/{id}/follow-up
+API-MAIN-OP-004  GET  /api/v1/requirements/{id}/comments
+API-MAIN-OP-005  POST /api/v1/requirements/{id}/comments
+API-MAIN-OP-006  GET  /api/v1/bugs/{id}/comments
+API-MAIN-OP-007  POST /api/v1/bugs/{id}/comments
+API-MAIN-OP-008  GET  /api/v1/pipelines
+API-MAIN-OP-009  POST /api/v1/pipelines
+API-MAIN-OP-010  GET  /api/v1/pipelines/{id}
+API-MAIN-OP-011  POST /api/v1/pipelines/{id}/results
+API-MAIN-OP-012  GET  /api/v1/workflow-templates
+API-MAIN-OP-013  POST /api/v1/workflow-templates
+API-MAIN-OP-014  GET  /api/v1/workflow-templates/{id}
+API-MAIN-OP-015  DELETE /api/v1/workflow-templates/{id}
+API-MAIN-OP-016  GET  /api/v1/chats
+API-MAIN-OP-017  POST /api/v1/chats
+API-MAIN-OP-018  GET  /api/v1/chats/{id}
+API-MAIN-OP-019  POST /api/v1/chats/{id}/messages
+API-MAIN-OP-020  POST /api/v1/sessions
+API-MAIN-OP-021  GET  /api/v1/sessions/{id}
+API-MAIN-OP-022  GET  /api/v1/sessions/{id}/turns
+API-MAIN-OP-023  POST /api/v1/sessions/{id}/turns
+API-MAIN-OP-024  GET  /api/v1/sessions/{id}/checkpoints
+API-MAIN-OP-025  POST /api/v1/sessions/{id}/checkpoints
+API-MAIN-OP-026  GET  /api/v1/sessions/{id}/context/status
+API-MAIN-OP-027  GET  /api/v1/sessions/{id}/context/archives
+API-MAIN-OP-028  GET  /api/v1/sessions/{id}/context/compile
+API-MAIN-OP-029  GET  /api/v1/sessions/{id}/context/integrity
+API-MAIN-OP-030  GET  /api/v1/sessions/{id}/memory
+API-MAIN-OP-031  POST /api/v1/sessions/{id}/memory/reduce
+API-MAIN-OP-032  POST /api/v1/sessions/{id}/compact
+API-MAIN-OP-033  GET  /api/v1/sessions/{id}/recover
+API-MAIN-OP-034  GET  /api/v1/plugins
+API-MAIN-OP-035  POST /api/v1/plugins
+API-MAIN-OP-036  GET  /api/v1/plugins/{id}
+API-MAIN-OP-037  POST /api/v1/plugins/{id}/activate
+API-MAIN-OP-038  POST /api/v1/plugins/{id}/health
+API-MAIN-OP-039  POST /api/v1/plugins/{id}/quarantine
+```
+
+这些新增 operation 的最低组合验收：评论 follow-up 要关联原 comment/root/session/turn；pipeline/template 要验证有序自定义步骤、每步 Agent、重试上限、仲裁回开发和同 session 复测；chat/session 要验证项目绑定、附件、压缩、memory、checkpoint、integrity 和恢复；plugin 要验证安装/激活/健康/隔离、能力权限和审计。它们与 BIDI 用例交叉执行，不能只测 2xx。
+
 ### 9.1 operation 级断言基线
 
 以下不是笼统的“返回 2xx”，而是每个 operation 必须在自动化断言中的最低字段和状态。实际状态码以 OpenAPI 和源码为准；若实现返回成功但缺少这些字段，应判 FAIL。
@@ -571,11 +667,12 @@ GET /api/v1/streams/workspaces/{workspace_id}
 
 | Case ID | 实际入口 | 处理要求 |
 |---|---|---|
-| API-GAP-001 | `POST /api/v1/mcp/servers/{id}`（Web UI 的 invoke 动作） | 当前服务器支持但 OpenAPI 未声明；先执行成功、secret、超时、未批准用例，再补契约或明确废弃，未决为 S1 |
-| API-GAP-002 | `HEAD /api/v1/artifacts/{id}/versions/{version}/content` | 服务器支持 HEAD；验证与 GET 相同的权限、长度、hash 和 Range 语义，并把 operation 加入 OpenAPI |
+| API-GAP-001 | `GET/PATCH/DELETE/POST /api/v1/mcp/servers/{id}`（POST 为 Web UI 的 invoke 动作） | `internal/api/server.go` 支持按 ID 读取、更新、删除和调用，但 OpenAPI 未声明 item path；分别验证资源读取、secret 拒绝、删除引用、工具不存在/超时/未批准和审计，再补完整契约或明确废弃，未决为 S1 |
+| API-GAP-002 | `HEAD /api/v1/artifacts/{id}/versions/{version}/content` | 最新 main 已在 OpenAPI 声明 HEAD；验证与 GET 一致的权限、长度、hash 和不应带 body 的响应语义，并防止回归 |
 | API-GAP-003 | `OPTIONS` 预检和根路径 `GET /` | 验证 CORS、缓存和 root capability 文档；未声明的行为不能成为客户端隐式依赖 |
 | API-GAP-004 | 所有 dispatch 路径的错误 method | 对每个资源发送 GET/POST/PUT/PATCH/DELETE/HEAD 组合，期望 405 + Allow（或明确 404），不得误触发副作用 |
-| API-GAP-005 | OpenAPI operation 的响应 schema/headers | 对 112 个 operation 校验 `X-Request-ID`、problem+json、幂等重放 header 和 body schema；代码与契约不一致即 FAIL |
+| API-GAP-005 | OpenAPI operation 的响应 schema/headers | 对修正后的 master 基线 113 项和最新 main 新增 39 项共 152 个 operation 校验 `X-Request-ID`、problem+json、幂等重放 header 和 body schema；代码与契约不一致即 FAIL |
+| API-GAP-006 | `POST /api/v1/sessions/{id}/memory`（`internal/api/session.go:336-366`） | 服务器提供独立记忆写入路由，但 OpenAPI 未声明；验证成功、字段错误、幂等/冲突、跨 workspace、重启后可读，并补契约或明确版本化废弃；未决为 S1 |
 
 ## 10. 能力与异常/故障注入矩阵
 
@@ -598,11 +695,11 @@ GET /api/v1/streams/workspaces/{workspace_id}
 
 1. 登录 `admin-a`，创建/选择 `ws-a`、`repo-a`，上传一个文本附件和一张截图。
 2. 创建需求并绑定仓库、附件、截图和四个 Agent；配置方案 -> 开发 -> 测试 -> 修复关系。
-3. 启动真实 Provider Run；若验收目标是本地 Codex，则保存实际二进制路径、版本、PID、命令行、run/session/workdir、commit、检查命令和 provider 原始响应摘要。当前仓库没有本地 Codex adapter，不能把 Multica adapter 或 MockProvider 误称为 Codex。
+3. 启动真实 Provider Run；保存实际 Codex 二进制路径、版本、PID、命令行、run/session/workdir、commit、检查命令和 provider 原始响应摘要。`ADRO_REQUIRE_CODEX=1` 时缺 `codex`、凭据或 marker 必须失败；不能把 MockProvider 或静态 marker 误称为 Codex。
 4. 通过 StreamEvents 订阅并故意断线；用 cursor 重连，保存原始事件、重放结果和 ACK。
 5. 让测试 Agent 产生一个可复现 Bug；调用 repair/rerun，确认同 session/context lineage、不同 attempt、无重复副作用。
 6. 完成后读取 diff、usage、attachment、evidence、audit 和最终需求状态；重启 ADRO，再次读取同一链路。
-7. 运行 `node scripts/multica-conformance.mjs`（或按 `docs/operations/release-runbook.md` 的命令组合执行），提供脚本要求的 `ADRO_CONFORMANCE_*` 和真实 Provider 凭据；报告必须包含所有链路 ID。当前脚本未覆盖的本地 Codex、浏览器/并发/故障场景仍需按 E2E-REAL-002..004 执行。任一环节缺真实证据则 `BLOCKED`，不能写 PASS。
+7. 运行 `make real-e2e`（内部执行 `scripts/release-system-e2e.sh` 与 `scripts/real-pipeline-e2e.sh`），提供真实 Codex self-hosted runner 和凭据；报告必须包含所有链路 ID。浏览器/并发/故障场景仍需按 E2E-REAL-002..004 执行。任一环节缺真实证据则 `BLOCKED`，不能写 PASS。
 
 并行验收 `E2E-REAL-002`：同一用户同时启动两条需求；`E2E-REAL-003`：两个用户在两个 workspace 同时启动；`E2E-REAL-004`：运行中杀掉 API/Runner 后恢复。每条都要验证 session、workdir、事件 cursor、lease、artifact、audit 的隔离和最终一致性。
 
@@ -614,19 +711,19 @@ GET /api/v1/streams/workspaces/{workspace_id}
 | L1 Go 单元 | domain 状态机、store 持久化/幂等、auth、events、artifact、MCP、runner、observer、provider 错误映射 | 每次 push/PR，带 `-race` |
 | L2 API 集成 | `internal/api/*_test.go` 覆盖 API 矩阵、错误码、快照重启、事件重放 | 每次 push/PR |
 | L3 浏览器 | `npm run test:e2e`、`npm run test:e2e:matrix`、visual trace；桌面 Chromium/Firefox/WebKit 和移动 viewport | 每次 push/PR |
-| L4 真实 Provider/Codex | `node scripts/multica-conformance.mjs` 加 E2E-REAL-001..004；本地 Codex 需先有真实 adapter；只在 self-hosted runner/受控凭据环境 | 受保护分支 push、发布候选；失败阻断 |
+| L4 真实 Provider/Codex | `make real-e2e` 加 E2E-REAL-001..004；只在带 `adro-codex` 标签的 self-hosted runner/受控凭据环境执行；缺 `codex` 二进制或 marker 立即失败 | 受保护分支 push、发布候选；失败阻断 |
 | L5 压力/故障 | FI-001..010、并发和磁盘/进程故障注入；保留趋势报告 | nightly、发布候选 |
 
 ### 12.1 自动化测试实现要求
 
 上一版文档虽然列出了 Case，但没有规定如何让它们在每次改代码时真的执行。以下是实现约束，缺一项就不能称为“自动化发布测试套件”：
 
-1. `API-OP-001..112` 从 `openapi/openapi.yaml` 生成参数化测试清单；测试启动时对照 OpenAPI operation 数量，发现新增 operation 未登记应直接失败。
+1. `API-OP-001..113` 与 `API-MAIN-OP-001..039` 从 `openapi/openapi.yaml` 生成参数化测试清单；测试启动时应断言解析后的唯一 operation 总数为 152，并对重复 mapping key 直接失败。再从 `internal/api/server.go`/`session.go` 生成 source-dispatch ledger，必须额外执行 `API-GAP-001` 与 `API-GAP-006`，发现代码入口未进入契约或测试登记应直接失败。
 2. API 集成测试使用真实启动的 ADRO HTTP server 和真实 filesystem state（可使用临时目录），不绕过路由直接调用 store；每个测试结束清理租户、文件和进程。
 3. Playwright 测试覆盖本文件所有 `SHELL-*`、`WB-*`、`REQ-UI-*`、`BUG-UI-*`、`WF-UI-*`、`REPO-UI-*`、`AGENT-UI-*`、`CAP-UI-*`、`OPS-UI-*`；每个按钮必须断言网络请求和数据变化，禁止只断言 locator 可见。
-4. L1/L2 可以使用明确标记的 deterministic MockProvider 来验证状态机和错误映射；L4 `E2E-REAL-*`、真实 Runner 和 Codex 禁止 mock/stub，必须检查实际 Provider、二进制（若为 Codex）、进程 PID、workdir、commit 和 provider evidence。
+4. 编排测试必须参数化执行 AGC、SQUAD 和 BIDI 清单；每次反馈至少断言 plan snapshot、edge condition、decision、attempt、lease、事件序列、ContextManifest 和 artifact lineage。L1/L2 可以使用明确标记的 deterministic MockProvider 来验证状态机和错误映射；编排层的 BIDI/AGC/SQUAD 只能在 mock 中验证纯状态机，不能据此宣称真实 Agent 已执行。L4 `E2E-REAL-*`、真实 Runner 和 Codex 禁止 mock/stub，必须检查实际 Provider、二进制（若为 Codex）、进程 PID、workdir、commit 和 provider evidence。
 5. 每个 test fixture 必须有 `tenant/workspace/user/repository/agent/requirement/work-item/run` 的创建和销毁钩子；测试失败时保留现场快照，成功时删除凭据和临时文件。
-6. 事件断言使用独立 collector，按 `event_id + sequence + aggregate_id` 去重并保存原文；不能通过等待固定时间或只看最终 UI 文案判断异步成功。
+6. 事件断言使用独立 collector，按 `event_id + sequence + aggregate_id` 去重并保存原文；不能通过等待固定时间或只看最终 UI 文案判断异步成功。BIDI 反馈额外断言 `source_node_id/target_node_id/attempt/plan_version/idempotency_key`，并验证 replay 后决策不变。
 7. 并发测试使用 barrier/latch 同时发起请求；至少重复 20 次并启用 Go race。随机数据必须由固定 seed 记录，重跑同 seed 能复现。
 8. 故障注入通过可替换 clock、Provider/Runner transport、文件系统 fault hook 和进程控制实现；每个注入点必须验证恢复后的快照、事件、审计和副作用计数。
 9. 禁止全局重试掩盖失败；网络重试只由被测客户端按契约执行，Playwright `retries` 在发布门禁中设为 0。失败必须输出 request-id、Case ID 和最小脱敏上下文。
@@ -638,7 +735,7 @@ GET /api/v1/streams/workspaces/{workspace_id}
 tests/
   api/            # 真实 HTTP server + API-OP 参数化/权限/幂等
   browser/        # Playwright 菜单、控件、组合和 accessibility
-  orchestration/  # AGC 图、路由快照、并发、lease、重放
+  orchestration/  # AGC/SQUAD/BIDI 图、反馈边、并发、lease、重放
   fault/          # Provider/Runner/fs/进程故障注入
   real/           # 仅真实 Provider/Codex，输出不可伪造 evidence.json
   fixtures/       # tenant/user/repo/agent/requirement 生命周期
@@ -650,15 +747,16 @@ tests/
 
 | 指标 | 门槛 | 计算方式 |
 |---|---:|---|
-| OpenAPI operation | 112/112 | 每个 `API-OP-*` 至少一次成功和一次失败 |
-| 菜单 | 18/18 | 每个菜单的加载、空态、错误态、全部可见动作 |
+| OpenAPI operation | 152/152 | `API-OP-001..113` + `API-MAIN-OP-001..039` 每项至少一次成功和一次失败 |
+| 菜单 | 19/19 | 每个菜单的加载、空态、错误态、全部可见动作 |
 | UI 控件 Case | 100% | 本文 `SHELL/WB/REQ-UI/BUG-UI/WF-UI/REPO-UI/AGENT-UI/CAP-UI/OPS-UI` |
 | 状态迁移 | 100% | `domain.transitions` 中允许和拒绝边各一条证据 |
 | Agent 拓扑 | 17/17 | AGC-001..017；不支持的拓扑必须 BLOCKED/S1 |
 | Squad/小队 | 17/17 | SQUAD-001..017；当前缺少实体/入口时必须 BLOCKED/S1 |
+| 双向反馈/回退 | 25/25 | BIDI-001..025；当前缺少反馈边模型/调度入口时全部 BLOCKED/S1 |
 | 故障注入 | 10/10 | FI-001..010，包含恢复后的数据一致性 |
 | 并发隔离 | 4 类 | 同用户双需求、跨用户、同资源竞争、事件重放 |
-| 真实链路 | 4/4 | E2E-REAL-001..004，真实 Provider/Codex evidence 完整；本地 Codex adapter 缺失时为 BLOCKED |
+| 真实链路 | 4/4 | E2E-REAL-001..004，真实 Provider/Codex evidence 完整；self-hosted runner/Codex 缺失时为 BLOCKED |
 | CLI/部署 | 16/16 | CLI-001..006、START-001..006、DEPLOY-001..003、CONFORM-CLI-001 |
 | S0/S1 缺陷 | 0 | 任一未关闭即阻断发布 |
 
@@ -703,27 +801,28 @@ tests/
 | DEPLOY-001 | Compose volume 删除/重建、容器重启、宿主机重启、artifact 权限改变 | 持久状态和权限符合设计；不可恢复时 readyz 阻断而非丢数据继续服务 |
 | DEPLOY-002 | Helm values/schema 非法、资源限制为 0/负数、secret 未配置、探针失败 | `values.schema.json` 拒绝非法配置；探针反映真实 readiness；不把单机 chart 当 HA |
 | DEPLOY-003 | 升级前备份 state/event/audit/artifact，升级中断后恢复，再运行 API/UI/real conformance | 备份可恢复、hash 一致、迁移可重入；升级失败可回滚且不重复副作用 |
-| CONFORM-CLI-001 | `cmd/adro-conformance` 缺 URL/run/token、WebSocket 断开、事件字段缺失/重复 | 非零退出和脱敏错误；成功只在真实 event schema、cursor 和 hash 满足时返回 passed |
+| CONFORM-CLI-001 | `make real-e2e` 缺 `codex`/凭据、脚本启动失败、事件字段缺失/重复 | 非零退出和脱敏错误；成功只在真实 Codex、session/workdir、pipeline history、cursor 和 artifact evidence 满足时返回 passed；最新 main 已移除旧 `cmd/adro-conformance`，不得继续把旧 CLI 当作门禁 |
 
 ## 13. GitHub push/PR 发布门禁
 
-当前源码仅有 `.github/workflows/ci.yml`，它在 `push` 和 `pull_request` 执行大部分 L0-L3 检查；发布前需要扩展为上传 Playwright report、JUnit/JSON、截图、trace 和 Go race 日志。任何测试失败都阻断合并；不得通过 `continue-on-error` 隐藏失败。
+最新 main 已有 `.github/workflows/ci.yml`、`browser.yml`、`contracts.yml`、`real-e2e.yml`、`release.yml` 和 `license.yml`；它们仍需检查是否上传 Playwright report、JUnit/JSON、截图、trace、Go race 和真实 Codex evidence。任何测试失败都阻断合并；不得通过 `continue-on-error` 隐藏失败。
 
-仓库当前没有真实 Provider/Codex 专用 workflow；下面的 workflow 是本测试规范要求补建的门禁，而不是已经存在的实现：
+现有 `real-e2e.yml` 已提供真实 Provider/Codex job；下面是对该 workflow 的发布门禁验收要求，不是声称所有要求已经满足：
 
 - 仅允许受信任 self-hosted runner，凭据使用 GitHub Actions secrets/environment，日志自动脱敏。
-- 校验 `ADRO_PROVIDER=multica`、`ADRO_MULTICA_URL`、`ADRO_MULTICA_TOKEN` 和实际 Provider 能力；如果后续接入本地 Codex，再校验真实二进制路径/版本。检测到 mock、stub、空 evidence 或无 workdir/commit 时立即失败。
-- 运行 E2E-REAL-001..004，上传 `report.json`、事件流、审计链、快照哈希、Provider/Runner 日志和失败现场；artifact 保留期按组织策略执行。
+- 校验 `ADRO_REQUIRE_CODEX=1`、`ADRO_EXECUTOR=codex`、实际二进制路径/版本和真实 Provider 能力。检测到 mock、stub、空 marker、空 evidence 或无 workdir/commit 时立即失败。
+- 运行 `make real-e2e`（`release-system-e2e.sh` + `real-pipeline-e2e.sh`），上传 `report.json`、事件流、审计链、快照哈希、Provider/Runner 日志和失败现场；artifact 保留期按组织策略执行。
 - `main` 分支 branch protection 要求 `ci`、`browser`、`real-e2e`（或等价 job）成功；并发 workflow 使用 cancel-in-progress 只取消同一 PR 的旧 run，不得取消已开始的发布候选证据。
 - 每次 push 记录提交 SHA、测试数据版本、配置 profile 和结果摘要；PR 必须包含新增/修改 Case ID 及风险说明。
 
 ## 14. 发布签字清单
 
-- [ ] 18 个菜单均完成 UI-001..020 适用项，桌面/移动/三浏览器证据齐全。
-- [ ] API 矩阵每个 OpenAPI operation 均有正常、鉴权、权限、输入边界、资源不存在和幂等结果。
+- [ ] 19 个菜单均完成 UI-001..021 适用项，桌面/移动/三浏览器证据齐全。
+- [ ] API 矩阵 152 个 OpenAPI operation 均有正常、鉴权、权限、输入边界、资源不存在和幂等结果。
 - [ ] FLOW-001..013 至少一次完整执行；同用户并发和多用户隔离有独立证据。
+- [ ] AGC-001..017、SQUAD-001..017、BIDI-001..025 均有逐 Case 结果；反馈回路的每轮 attempt、decision、条件、证据和终止原因可重放。
 - [ ] CTX、EVT、FI 全部执行；所有 S0/S1 为 0，S2 有关闭或书面豁免。
-- [ ] 真实 Provider/Codex E2E-REAL-001..004 PASS；当前没有本地 Codex adapter 时发布状态必须为 BLOCKED。
+- [ ] 真实 Provider/Codex E2E-REAL-001..004 PASS；缺少 `adro-codex` runner、`codex --version` 或真实 evidence 时发布状态必须为 BLOCKED。
 - [ ] 重启前后资源、事件、session/context lineage、audit、attachment 可复核且 hash 对得上。
 - [ ] GitHub push/PR 所有 required checks 通过，报告和 trace 可下载，未使用 mock 结果冒充真实执行。
 - [ ] QA、研发、发布负责人分别签名并记录测试提交 SHA；签字不等于跳过失败 Case。
