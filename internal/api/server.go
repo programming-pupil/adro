@@ -462,6 +462,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.repositoryGraph(w, r)
 	case path == "/api/v1/agents" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		s.agentRoute(w, r)
+	case strings.HasPrefix(path, "/api/v1/agents/") && !strings.Contains(path, "/mcp-bindings") && !strings.Contains(path, "/skill-bindings") && (r.Method == http.MethodGet || r.Method == http.MethodPatch || r.Method == http.MethodPost):
+		s.orchestrationAgentResource(w, r, strings.TrimPrefix(path, "/api/v1/agents/"), requestWorkspace(r, "local"))
 	case strings.HasPrefix(path, "/api/v1/agents/"):
 		s.agentBindingRoute(w, r, strings.TrimPrefix(path, "/api/v1/agents/"))
 	case path == "/api/v1/runners" || strings.HasPrefix(path, "/api/v1/runners/"):

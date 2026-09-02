@@ -483,6 +483,27 @@ func (m *Memory) UpdateComment(id string, expectedRevision int64, content string
 	return cloneComment(updated), nil
 }
 
+func (m *Memory) SetCommentTriggerOutcomes(id string, revision int64, outcomes []domain.CommentTriggerOutcome) (domain.Comment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old, ok := m.comments[strings.TrimSpace(id)]
+	if !ok {
+		return domain.Comment{}, ErrNotFound
+	}
+	if revision != old.Revision {
+		return domain.Comment{}, ErrConflict
+	}
+	updated := cloneComment(old)
+	updated.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), outcomes...)
+	updated.UpdatedAt = time.Now().UTC()
+	m.comments[id] = updated
+	if err := m.persistLocked(); err != nil {
+		m.comments[id] = old
+		return domain.Comment{}, fmt.Errorf("persist comment trigger outcomes: %w", err)
+	}
+	return cloneComment(updated), nil
+}
+
 func (m *Memory) GetComment(id string) (domain.Comment, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -673,6 +694,7 @@ func normalizeCommentMentions(mentions []string) []string {
 
 func cloneComment(comment domain.Comment) domain.Comment {
 	comment.Mentions = append([]string(nil), comment.Mentions...)
+	comment.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), comment.TriggerOutcomes...)
 	return comment
 }
 

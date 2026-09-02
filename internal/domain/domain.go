@@ -115,19 +115,31 @@ type Requirement struct {
 // requirement or bug. Replies point at ParentID and RootID makes it possible
 // to render a complete thread without depending on provider-native comments.
 type Comment struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	TargetType  string    `json:"target_type"`
-	TargetID    string    `json:"target_id"`
-	ParentID    string    `json:"parent_id,omitempty"`
-	RootID      string    `json:"root_id"`
-	AuthorID    string    `json:"author_id"`
-	AuthorType  string    `json:"author_type"`
-	Content     string    `json:"content"`
-	Mentions    []string  `json:"mentions,omitempty"`
-	Revision    int64     `json:"revision"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID              string                  `json:"id"`
+	WorkspaceID     string                  `json:"workspace_id"`
+	TargetType      string                  `json:"target_type"`
+	TargetID        string                  `json:"target_id"`
+	ParentID        string                  `json:"parent_id,omitempty"`
+	RootID          string                  `json:"root_id"`
+	AuthorID        string                  `json:"author_id"`
+	AuthorType      string                  `json:"author_type"`
+	Content         string                  `json:"content"`
+	Mentions        []string                `json:"mentions,omitempty"`
+	Revision        int64                   `json:"revision"`
+	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+}
+
+type CommentTriggerOutcome struct {
+	TargetType        string `json:"target_type"`
+	TargetID          string `json:"target_id"`
+	Status            string `json:"status"`
+	ReasonCode        string `json:"reason_code"`
+	Reason            string `json:"reason,omitempty"`
+	AuthoritySnapshot string `json:"authority_snapshot,omitempty"`
+	DedupeKey         string `json:"dedupe_key"`
+	SourceCommentID   string `json:"source_comment_id"`
 }
 
 // CommentFollowUp is the durable execution receipt for a discussion comment.

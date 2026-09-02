@@ -65,6 +65,13 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.triggerMu.Lock()
 		s.triggerOutcomes[updated.ID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
 		s.triggerMu.Unlock()
+		updated.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
+		for _, outcome := range plan.Outcomes {
+			updated.TriggerOutcomes = append(updated.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+		}
+		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(updated.ID, updated.Revision, updated.TriggerOutcomes); saveErr == nil {
+			updated = saved
+		}
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"comment": updated, "previous_revision": old.Revision})
 }
@@ -74,13 +81,19 @@ func (s *Server) commentTriggerOutcomesRoute(w http.ResponseWriter, r *http.Requ
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
 		return
 	}
-	if _, err := s.Store.GetComment(commentID); err != nil {
+	comment, err := s.Store.GetComment(commentID)
+	if err != nil {
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
 		return
 	}
 	s.triggerMu.RLock()
 	items := append([]mentions.TriggerOutcome(nil), s.triggerOutcomes[commentID]...)
 	s.triggerMu.RUnlock()
+	if len(items) == 0 {
+		for _, outcome := range comment.TriggerOutcomes {
+			items = append(items, mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+		}
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": commentID, "trigger_outcomes": items})
 }
 
@@ -102,6 +115,11 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 	s.triggerMu.Lock()
 	s.triggerOutcomes[commentID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
 	s.triggerMu.Unlock()
+	converted := make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
+	for _, outcome := range plan.Outcomes {
+		converted = append(converted, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+	}
+	_, _ = s.Store.SetCommentTriggerOutcomes(commentID, comment.Revision, converted)
 	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": commentID, "trigger_outcomes": plan.Outcomes})
 }
 
@@ -184,6 +202,13 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 			s.triggerMu.Lock()
 			s.triggerOutcomes[comment.ID] = append([]mentions.TriggerOutcome(nil), triggerOutcomes...)
 			s.triggerMu.Unlock()
+			comment.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(triggerOutcomes))
+			for _, outcome := range triggerOutcomes {
+				comment.TriggerOutcomes = append(comment.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+			}
+			if saved, saveErr := s.Store.SetCommentTriggerOutcomes(comment.ID, comment.Revision, comment.TriggerOutcomes); saveErr == nil {
+				comment = saved
+			}
 		}
 	}
 	if dispatch && structuredMentionCount == 0 {
