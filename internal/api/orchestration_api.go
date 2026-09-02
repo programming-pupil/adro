@@ -113,6 +113,29 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 		s.writeJSON(w, http.StatusOK, map[string]any{"valid": a.Validate() == nil, "agent": a, "error": validationError(a.Validate())})
 		return
 	}
+	if strings.HasSuffix(id, "/capabilities") {
+		if r.Method != http.MethodGet {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
+			return
+		}
+		caps := map[string]any{"agent": a, "required": a.ExecutorBinding.RequiredCaps, "available": map[string]any{}}
+		if s.Provider != nil {
+			if discovered, capErr := s.Provider.Capabilities(r.Context()); capErr == nil {
+				caps["available"] = discovered
+				missing := make([]string, 0)
+				for _, required := range a.ExecutorBinding.RequiredCaps {
+					if !discovered.Supports(required) {
+						missing = append(missing, required)
+					}
+				}
+				caps["missing"] = missing
+			} else {
+				caps["error"] = capErr.Error()
+			}
+		}
+		s.writeJSON(w, http.StatusOK, caps)
+		return
+	}
 	if r.Method == http.MethodGet {
 		s.writeJSON(w, http.StatusOK, a)
 		return

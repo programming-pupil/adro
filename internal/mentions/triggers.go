@@ -85,18 +85,25 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 	}
 	out := TriggerPlan{Parser: parsed, Outcomes: []TriggerOutcome{}}
 	seen := map[string]bool{}
-	hasAll := false
 	for _, m := range parsed.Targets() {
 		key := string(m.TargetType) + ":" + m.TargetID
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		if m.TargetType == TargetAll {
-			hasAll = true
-		}
 		t, ok := targets[key]
 		o := TriggerOutcome{TargetType: m.TargetType, TargetID: m.TargetID, ReasonCode: "explicit_mention", SourceCommentID: in.CommentID, DedupeKey: fmt.Sprintf("%s:%s:%s:%s:%d", in.CommentID, m.TargetType, m.TargetID, in.PlanVersion, in.CommentRevision)}
+		if m.TargetType == TargetAll {
+			if !in.UserCanInvoke {
+				o.Status, o.ReasonCode, o.Reason = StatusBlocked, "invoke_forbidden", "caller is not allowed to invoke @all"
+			} else if !in.RuntimeHealthy {
+				o.Status, o.ReasonCode, o.Reason = StatusDeferred, "runtime_unavailable", "runtime health check is unavailable"
+			} else {
+				o.Status, o.ReasonCode = StatusQueued, "explicit_all"
+			}
+			out.Outcomes = append(out.Outcomes, o)
+			continue
+		}
 		if !uuidPattern.MatchString(m.TargetID) && m.TargetType != TargetAll {
 			o.Status = StatusBlocked
 			o.ReasonCode = "invalid_target_id"
@@ -161,7 +168,6 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 		}
 		out.Outcomes = append(out.Outcomes, o)
 	}
-	_ = hasAll
 	return out, nil
 }
 

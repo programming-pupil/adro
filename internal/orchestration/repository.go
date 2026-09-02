@@ -1,10 +1,16 @@
 package orchestration
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
+
+	"github.com/adro-project/adro/internal/durable"
 )
 
 var ErrNotFound = errors.New("orchestration record not found")
@@ -30,6 +36,9 @@ type Repository interface {
 
 type MemoryRepository struct {
 	mu          sync.RWMutex
+	statePath   string
+	revision    int64
+	dirty       bool
 	agents      map[string]AgentDefinition
 	squads      map[string]SquadDefinition
 	plans       map[string]RequirementExecutionPlan
@@ -39,9 +48,179 @@ type MemoryRepository struct {
 }
 
 func NewMemoryRepository() *MemoryRepository {
-	return &MemoryRepository{agents: map[string]AgentDefinition{}, squads: map[string]SquadDefinition{}, plans: map[string]RequirementExecutionPlan{}, projections: map[string]PlanProjection{}, keys: map[string]string{}, events: map[string][]Event{}}
+	return newMemoryRepository("")
+}
+
+// NewPersistentRepository enables the durable single-node orchestration
+// profile. The snapshot contains immutable definitions, plans, projections
+// and the append-only event chains, so a process restart can resume and replay
+// a graph without silently losing orchestration state.
+func NewPersistentRepository(path string) (*MemoryRepository, error) {
+	r := newMemoryRepository(strings.TrimSpace(path))
+	if r.statePath == "" {
+		return r, nil
+	}
+	if err := r.load(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func newMemoryRepository(path string) *MemoryRepository {
+	return &MemoryRepository{statePath: path, agents: map[string]AgentDefinition{}, squads: map[string]SquadDefinition{}, plans: map[string]RequirementExecutionPlan{}, projections: map[string]PlanProjection{}, keys: map[string]string{}, events: map[string][]Event{}}
+}
+
+type persistedRepository struct {
+	Version     int                                 `json:"version"`
+	Revision    int64                               `json:"revision"`
+	Agents      map[string]AgentDefinition          `json:"agents"`
+	Squads      map[string]SquadDefinition          `json:"squads"`
+	Plans       map[string]RequirementExecutionPlan `json:"plans"`
+	Projections map[string]PlanProjection           `json:"projections"`
+	Keys        map[string]string                   `json:"keys"`
+	Events      map[string][]Event                  `json:"events"`
+}
+
+func (r *MemoryRepository) load() error {
+	data, err := os.ReadFile(r.statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read orchestration state: %w", err)
+	}
+	var state persistedRepository
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("decode orchestration state: %w", err)
+	}
+	r.revision = state.Revision
+	if state.Agents != nil {
+		r.agents = state.Agents
+	}
+	if state.Squads != nil {
+		r.squads = state.Squads
+	}
+	if state.Plans != nil {
+		r.plans = state.Plans
+	}
+	if state.Projections != nil {
+		r.projections = state.Projections
+	}
+	if state.Keys != nil {
+		r.keys = state.Keys
+	}
+	if state.Events != nil {
+		r.events = state.Events
+	}
+	for planID, events := range r.events {
+		if len(events) == 0 {
+			continue
+		}
+		if err := ValidateEventChain(events, planID, events[0].WorkspaceID); err != nil {
+			// Keep the persisted bytes available in the returned error; callers can
+			// distinguish corruption from a missing optional profile.
+			return fmt.Errorf("orchestration event chain %s: %w", planID, err)
+		}
+	}
+	return nil
+}
+
+// Flush atomically writes a dirty durable snapshot. It is safe to call after
+// every HTTP request; ephemeral repositories are a no-op.
+func (r *MemoryRepository) Flush() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.persistLocked()
+}
+
+func (r *MemoryRepository) persistLocked() error {
+	if r.statePath == "" || !r.dirty {
+		return nil
+	}
+	return durable.WithExclusive(r.statePath, func() error {
+		diskRevision, err := orchestrationRevision(r.statePath)
+		if err != nil {
+			return err
+		}
+		if diskRevision != r.revision {
+			return fmt.Errorf("stale orchestration state: expected revision %d, found %d", r.revision, diskRevision)
+		}
+		state := persistedRepository{Version: 1, Revision: r.revision + 1, Agents: r.agents, Squads: r.squads, Plans: r.plans, Projections: r.projections, Keys: r.keys, Events: r.events}
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return err
+		}
+		dir := filepath.Dir(r.statePath)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		tmp, err := os.CreateTemp(dir, ".adro-orchestration-*")
+		if err != nil {
+			return err
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if err := tmp.Chmod(0o600); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+		if err := durable.Inject("orchestration.snapshot.before_rename"); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpName, r.statePath); err != nil {
+			return err
+		}
+		if dirFile, err := os.Open(dir); err == nil {
+			syncErr := dirFile.Sync()
+			_ = dirFile.Close()
+			if syncErr != nil {
+				return syncErr
+			}
+		}
+		r.revision = state.Revision
+		r.dirty = false
+		return nil
+	})
+}
+
+func orchestrationRevision(path string) (int64, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var state persistedRepository
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0, err
+	}
+	return state.Revision, nil
 }
 func key3(ws, id string, rev int64) string { return fmt.Sprintf("%s:%s:%d", ws, id, rev) }
+
+func cloneValue[T any](in T) T {
+	data, err := json.Marshal(in)
+	if err != nil {
+		return in
+	}
+	var out T
+	if err := json.Unmarshal(data, &out); err != nil {
+		return in
+	}
+	return out
+}
 func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
 	if err := a.Validate(); err != nil {
 		return err
@@ -64,7 +243,20 @@ func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
 			return fmt.Errorf("agent revision conflict: expected %d, found %d", expected, latest)
 		}
 	}
-	r.agents[key3(a.WorkspaceID, a.ID, a.Revision)] = a
+	k := key3(a.WorkspaceID, a.ID, a.Revision)
+	old, existed := r.agents[k]
+	oldDirty, oldRevision := r.dirty, r.revision
+	r.agents[k] = a
+	r.dirty = true
+	if err := r.persistLocked(); err != nil {
+		if existed {
+			r.agents[k] = old
+		} else {
+			delete(r.agents, k)
+		}
+		r.dirty, r.revision = oldDirty, oldRevision
+		return err
+	}
 	return nil
 }
 func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, error) {
@@ -75,7 +267,7 @@ func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, 
 		if !ok {
 			return AgentDefinition{}, ErrNotFound
 		}
-		return a, nil
+		return cloneValue(a), nil
 	}
 	var out AgentDefinition
 	for _, a := range r.agents {
@@ -86,7 +278,7 @@ func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, 
 	if out.ID == "" {
 		return out, ErrNotFound
 	}
-	return out, nil
+	return cloneValue(out), nil
 }
 func (r *MemoryRepository) ListAgents(ws string, status AgentStatus) []AgentDefinition {
 	r.mu.RLock()
@@ -106,7 +298,7 @@ func (r *MemoryRepository) ListAgents(ws string, status AgentStatus) []AgentDefi
 		}
 	}
 	for _, a := range latest {
-		out = append(out, a)
+		out = append(out, cloneValue(a))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Name == out[j].Name {
@@ -138,7 +330,20 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 			return fmt.Errorf("squad revision conflict: expected %d, found %d", expected, latest)
 		}
 	}
-	r.squads[key3(s.WorkspaceID, s.ID, s.Revision)] = s
+	k := key3(s.WorkspaceID, s.ID, s.Revision)
+	old, existed := r.squads[k]
+	oldDirty, oldRevision := r.dirty, r.revision
+	r.squads[k] = s
+	r.dirty = true
+	if err := r.persistLocked(); err != nil {
+		if existed {
+			r.squads[k] = old
+		} else {
+			delete(r.squads, k)
+		}
+		r.dirty, r.revision = oldDirty, oldRevision
+		return err
+	}
 	return nil
 }
 func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, error) {
@@ -149,7 +354,7 @@ func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, 
 		if !ok {
 			return SquadDefinition{}, ErrNotFound
 		}
-		return s, nil
+		return cloneValue(s), nil
 	}
 	var out SquadDefinition
 	for _, s := range r.squads {
@@ -160,7 +365,7 @@ func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, 
 	if out.ID == "" {
 		return out, ErrNotFound
 	}
-	return out, nil
+	return cloneValue(out), nil
 }
 func (r *MemoryRepository) ListSquads(ws string, status SquadStatus) []SquadDefinition {
 	r.mu.RLock()
@@ -180,7 +385,7 @@ func (r *MemoryRepository) ListSquads(ws string, status SquadStatus) []SquadDefi
 		}
 	}
 	for _, s := range latest {
-		out = append(out, s)
+		out = append(out, cloneValue(s))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Name == out[j].Name {
@@ -203,8 +408,10 @@ func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	oldKey, hadKey := "", false
 	if p.IdempotencyKey != "" {
 		k := p.WorkspaceID + ":" + p.IdempotencyKey
+		oldKey, hadKey = r.keys[k]
 		if existing := r.keys[k]; existing != "" {
 			if existing != p.PlanHash {
 				return ErrIdempotencyConflict
@@ -214,9 +421,32 @@ func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
 		r.keys[k] = p.PlanHash
 	}
 	if _, ok := r.plans[p.ID]; ok {
+		if p.IdempotencyKey != "" {
+			k := p.WorkspaceID + ":" + p.IdempotencyKey
+			if hadKey {
+				r.keys[k] = oldKey
+			} else {
+				delete(r.keys, k)
+			}
+		}
 		return errors.New("plan already exists")
 	}
+	oldDirty, oldRevision := r.dirty, r.revision
 	r.plans[p.ID] = p
+	r.dirty = true
+	if err := r.persistLocked(); err != nil {
+		delete(r.plans, p.ID)
+		if p.IdempotencyKey != "" {
+			k := p.WorkspaceID + ":" + p.IdempotencyKey
+			if hadKey {
+				r.keys[k] = oldKey
+			} else {
+				delete(r.keys, k)
+			}
+		}
+		r.dirty, r.revision = oldDirty, oldRevision
+		return err
+	}
 	return nil
 }
 func (r *MemoryRepository) GetPlan(ws, id string) (RequirementExecutionPlan, error) {
@@ -226,7 +456,7 @@ func (r *MemoryRepository) GetPlan(ws, id string) (RequirementExecutionPlan, err
 	if !ok || p.WorkspaceID != ws {
 		return RequirementExecutionPlan{}, ErrNotFound
 	}
-	return p, nil
+	return cloneValue(p), nil
 }
 
 func (r *MemoryRepository) ListPlans(ws string) []RequirementExecutionPlan {
@@ -235,7 +465,7 @@ func (r *MemoryRepository) ListPlans(ws string) []RequirementExecutionPlan {
 	out := make([]RequirementExecutionPlan, 0)
 	for _, p := range r.plans {
 		if ws == "" || p.WorkspaceID == ws {
-			out = append(out, p)
+			out = append(out, cloneValue(p))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -258,16 +488,18 @@ func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	if old, ok := r.projections[p.PlanID]; ok && p.Revision < old.Revision {
 		return errors.New("projection revision regressed")
 	}
+	oldProjection, hadProjection := r.projections[p.PlanID]
+	oldDirty, oldRevision := r.dirty, r.revision
 	// Detach maps/slices from the caller so a projection cannot be mutated after
 	// a successful save without another repository operation.
 	cp := p
 	cp.Nodes = map[string]NodeProjection{}
 	for k, v := range p.Nodes {
-		cp.Nodes[k] = v
+		cp.Nodes[k] = cloneValue(v)
 	}
 	cp.Attempts = map[string]NodeAttempt{}
 	for k, v := range p.Attempts {
-		cp.Attempts[k] = v
+		cp.Attempts[k] = cloneValue(v)
 	}
 	cp.Traversals = map[string]int{}
 	for k, v := range p.Traversals {
@@ -277,8 +509,18 @@ func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	for k, v := range p.Idempotency {
 		cp.Idempotency[k] = v
 	}
-	cp.Decisions = append([]FeedbackDecision(nil), p.Decisions...)
+	cp.Decisions = cloneValue(append([]FeedbackDecision(nil), p.Decisions...))
 	r.projections[p.PlanID] = cp
+	r.dirty = true
+	if err := r.persistLocked(); err != nil {
+		if hadProjection {
+			r.projections[p.PlanID] = oldProjection
+		} else {
+			delete(r.projections, p.PlanID)
+		}
+		r.dirty, r.revision = oldDirty, oldRevision
+		return err
+	}
 	return nil
 }
 func (r *MemoryRepository) GetProjection(id string) (PlanProjection, error) {
@@ -288,7 +530,7 @@ func (r *MemoryRepository) GetProjection(id string) (PlanProjection, error) {
 	if !ok {
 		return PlanProjection{}, ErrNotFound
 	}
-	return p, nil
+	return cloneProjection(p), nil
 }
 
 // AppendEvent is the local-profile transaction boundary: sequence, chain hash,
@@ -296,6 +538,7 @@ func (r *MemoryRepository) GetProjection(id string) (PlanProjection, error) {
 func (r *MemoryRepository) AppendEvent(e Event) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	oldDirty, oldRevision := r.dirty, r.revision
 	events := r.events[e.PlanID]
 	for _, old := range events {
 		if e.IdempotencyKey != "" && old.IdempotencyKey == e.IdempotencyKey {
@@ -305,7 +548,18 @@ func (r *MemoryRepository) AppendEvent(e Event) error {
 			return ErrIdempotencyConflict
 		}
 	}
-	if e.Sequence != int64(len(events)+1) {
+	expected := int64(len(events) + 1)
+	// A zero sequence (or a freshly-created event with sequence one and no
+	// predecessor) means "append at the current tail". Assigning the sequence
+	// while holding the repository lock makes concurrent workers deterministic.
+	if e.Sequence == 0 || (e.Sequence == 1 && expected > 1 && e.PreviousHash == "") {
+		e.Sequence = expected
+		if len(events) > 0 {
+			e.PreviousHash = events[len(events)-1].EnvelopeHash
+		}
+		e.EnvelopeHash = eventDigest(e)
+	}
+	if e.Sequence != expected {
 		return fmt.Errorf("event sequence conflict: got %d", e.Sequence)
 	}
 	if len(events) > 0 && e.PreviousHash != events[len(events)-1].EnvelopeHash {
@@ -315,6 +569,12 @@ func (r *MemoryRepository) AppendEvent(e Event) error {
 		return err
 	}
 	r.events[e.PlanID] = append(events, e)
+	r.dirty = true
+	if err := r.persistLocked(); err != nil {
+		r.events[e.PlanID] = events
+		r.dirty, r.revision = oldDirty, oldRevision
+		return err
+	}
 	return nil
 }
 
@@ -325,7 +585,7 @@ func (r *MemoryRepository) ListEvents(planID string, after int64) []Event {
 	out := make([]Event, 0, len(items))
 	for _, e := range items {
 		if e.Sequence > after {
-			out = append(out, e)
+			out = append(out, cloneValue(e))
 		}
 	}
 	return out

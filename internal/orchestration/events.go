@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -36,8 +37,7 @@ func NewEvent(previous *Event, planID, workspaceID, typ, idempotency string, pay
 	if err != nil {
 		return Event{}, err
 	}
-	h := sha256.Sum256(b)
-	e := Event{ID: fmt.Sprintf("%s-%d", planID, time.Now().UnixNano()), PlanID: planID, WorkspaceID: workspaceID, Sequence: 1, Type: typ, Payload: b, PayloadHash: hex.EncodeToString(h[:]), IdempotencyKey: idempotency, CreatedAt: time.Now().UTC()}
+	e := Event{ID: fmt.Sprintf("%s-%d", planID, time.Now().UnixNano()), PlanID: planID, WorkspaceID: workspaceID, Sequence: 1, Type: typ, Payload: b, PayloadHash: payloadDigest(b), IdempotencyKey: idempotency, CreatedAt: time.Now().UTC()}
 	if previous != nil {
 		e.Sequence = previous.Sequence + 1
 		e.PreviousHash = previous.EnvelopeHash
@@ -48,6 +48,7 @@ func NewEvent(previous *Event, planID, workspaceID, typ, idempotency string, pay
 func eventDigest(e Event) string {
 	cp := e
 	cp.EnvelopeHash = ""
+	cp.Payload = canonicalPayload(cp.Payload)
 	b, _ := json.Marshal(cp)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -67,13 +68,28 @@ func ValidateEventChain(events []Event, planID, workspaceID string) error {
 		if eventDigest(e) != e.EnvelopeHash {
 			return fmt.Errorf("event envelope hash mismatch at %d", e.Sequence)
 		}
-		h := sha256.Sum256(e.Payload)
-		if hex.EncodeToString(h[:]) != e.PayloadHash {
+		if payloadDigest(e.Payload) != e.PayloadHash {
 			return fmt.Errorf("event payload hash mismatch at %d", e.Sequence)
 		}
 		prev = e.EnvelopeHash
 	}
 	return nil
+}
+
+func canonicalPayload(payload json.RawMessage) json.RawMessage {
+	var compact []byte
+	buffer := make([]byte, 0, len(payload))
+	out := bytes.NewBuffer(buffer)
+	if err := json.Compact(out, payload); err != nil {
+		return payload
+	}
+	compact = append(compact, out.Bytes()...)
+	return compact
+}
+
+func payloadDigest(payload json.RawMessage) string {
+	h := sha256.Sum256(canonicalPayload(payload))
+	return hex.EncodeToString(h[:])
 }
 
 func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjection, error) {
@@ -86,6 +102,11 @@ func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjec
 	}
 	for _, e := range events {
 		switch e.Type {
+		case "plan.created", "plan.published":
+			// Plan records are immutable snapshots persisted separately. These
+			// lifecycle events are part of the chain but do not mutate the node
+			// projection during replay.
+			continue
 		case "attempt.started":
 			var x struct {
 				NodeID, AttemptID string

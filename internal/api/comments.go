@@ -12,6 +12,7 @@ import (
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/mentions"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -25,6 +26,57 @@ type commentMutation struct {
 	Mentions         []string `json:"mentions,omitempty"`
 	Dispatch         *bool    `json:"dispatch,omitempty"`
 	AgentBindingID   string   `json:"agent_binding_id,omitempty"`
+}
+
+// computeCommentTriggers resolves the structured AST against the current
+// workspace roster before applying the pure trigger calculator. This keeps
+// preview/create/edit/retry on one authorization and routing path and avoids
+// treating an arbitrary UUID in comment text as an invokable agent.
+func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment) (mentions.TriggerPlan, error) {
+	parsed, err := mentions.Parse(comment.Content)
+	if err != nil {
+		return mentions.TriggerPlan{}, err
+	}
+	targets := make([]mentions.Target, 0, len(parsed.Targets()))
+	for _, m := range parsed.Targets() {
+		if m.TargetType == mentions.TargetAll {
+			continue
+		}
+		if s.Orchestration == nil {
+			targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: comment.WorkspaceID})
+			continue
+		}
+		switch m.TargetType {
+		case mentions.TargetAgent:
+			a, getErr := s.Orchestration.GetAgent(comment.WorkspaceID, m.TargetID, 0)
+			if getErr == nil {
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: a.WorkspaceID, Active: a.Status == orchestration.AgentActive, Version: a.Revision, CanInvoke: a.Status == orchestration.AgentActive})
+			} else {
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: comment.WorkspaceID})
+			}
+		case mentions.TargetSquad:
+			sq, getErr := s.Orchestration.GetSquad(comment.WorkspaceID, m.TargetID, 0)
+			if getErr == nil {
+				leader := ""
+				for _, member := range sq.Members {
+					if member.Leader {
+						leader = member.AgentID
+						break
+					}
+				}
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: sq.WorkspaceID, Active: sq.Status == orchestration.SquadPublished, Version: sq.PublishedVersion, LeaderID: leader, CanInvoke: sq.Status == orchestration.SquadPublished && leader != ""})
+			} else {
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: comment.WorkspaceID})
+			}
+		}
+	}
+	runtimeHealthy := false
+	if s.Provider != nil {
+		if health, healthErr := s.Provider.Health(r.Context()); healthErr == nil && health.Healthy {
+			runtimeHealthy = true
+		}
+	}
+	return mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, RequirementID: comment.TargetID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, Targets: targets, UserCanInvoke: true, RuntimeHealthy: runtimeHealthy})
 }
 
 func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commentID string) {
@@ -46,8 +98,9 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
 		return
 	}
+	parsed, parseErr := mentions.Parse(in.Content)
 	mentionsList := append([]string(nil), in.Mentions...)
-	if parsed, parseErr := mentions.Parse(in.Content); parseErr == nil {
+	if parseErr == nil {
 		for _, target := range parsed.Targets() {
 			mentionsList = appendUniqueString(mentionsList, target.TargetID)
 		}
@@ -61,7 +114,7 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.problem(w, r, status, "comment_edit_failed", err.Error(), nil)
 		return
 	}
-	if plan, calcErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: updated.WorkspaceID, CommentID: updated.ID, CommentRevision: updated.Revision, Content: updated.Content, RuntimeHealthy: false, UserCanInvoke: true}); calcErr == nil {
+	if plan, calcErr := s.computeCommentTriggers(r, updated); calcErr == nil {
 		s.triggerMu.Lock()
 		s.triggerOutcomes[updated.ID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
 		s.triggerMu.Unlock()
@@ -72,8 +125,17 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(updated.ID, updated.Revision, updated.TriggerOutcomes); saveErr == nil {
 			updated = saved
 		}
+	} else if parseErr != nil {
+		outcome := invalidMentionOutcome(updated, parseErr)
+		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(updated.ID, updated.Revision, []domain.CommentTriggerOutcome{outcome}); saveErr == nil {
+			updated = saved
+		}
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"comment": updated, "previous_revision": old.Revision})
+	response := map[string]any{"comment": updated, "previous_revision": old.Revision}
+	if parseErr != nil && len(updated.TriggerOutcomes) > 0 {
+		response["trigger_outcomes"] = []mentions.TriggerOutcome{toMentionOutcome(updated.TriggerOutcomes[0])}
+	}
+	s.writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) commentTriggerOutcomesRoute(w http.ResponseWriter, r *http.Request, commentID string) {
@@ -107,7 +169,7 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
 		return
 	}
-	plan, calcErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, RuntimeHealthy: true, UserCanInvoke: true})
+	plan, calcErr := s.computeCommentTriggers(r, comment)
 	if calcErr != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "trigger_retry_failed", calcErr.Error(), nil)
 		return
@@ -162,10 +224,11 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 	mentionValues := append([]string(nil), input.Mentions...)
 	mentionValues = append(mentionValues, commentMentions(input.Content)...)
 	structuredMentionCount := 0
+	parsed, parseErr := mentions.Parse(input.Content)
 	// Structured URI mentions are parsed independently of display names. Keep
 	// the stable target IDs in the legacy comment projection so old clients can
 	// render them, while trigger decisions use the mentions package AST.
-	if parsed, parseErr := mentions.Parse(input.Content); parseErr == nil {
+	if parseErr == nil {
 		structuredMentionCount = len(parsed.Targets())
 		for _, target := range parsed.Targets() {
 			mentionValues = appendUniqueString(mentionValues, target.TargetID)
@@ -193,11 +256,14 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 		dispatch = *input.Dispatch
 	}
 	var triggerOutcomes []mentions.TriggerOutcome
-	if structuredMentionCount > 0 {
-		if plan, triggerErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{
-			WorkspaceID: workspaceID, CommentID: comment.ID, CommentRevision: 1,
-			Content: input.Content, RuntimeHealthy: false, UserCanInvoke: true,
-		}); triggerErr == nil {
+	if parseErr != nil {
+		outcome := invalidMentionOutcome(comment, parseErr)
+		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(comment.ID, comment.Revision, []domain.CommentTriggerOutcome{outcome}); saveErr == nil {
+			comment = saved
+		}
+		triggerOutcomes = []mentions.TriggerOutcome{toMentionOutcome(outcome)}
+	} else if structuredMentionCount > 0 {
+		if plan, triggerErr := s.computeCommentTriggers(r, comment); triggerErr == nil {
 			triggerOutcomes = plan.Outcomes
 			s.triggerMu.Lock()
 			s.triggerOutcomes[comment.ID] = append([]mentions.TriggerOutcome(nil), triggerOutcomes...)
@@ -235,6 +301,14 @@ func appendUniqueString(values []string, additions ...string) []string {
 		}
 	}
 	return values
+}
+
+func invalidMentionOutcome(comment domain.Comment, err error) domain.CommentTriggerOutcome {
+	return domain.CommentTriggerOutcome{TargetType: "unknown", TargetID: "", Status: string(mentions.StatusBlocked), ReasonCode: "invalid_mention_syntax", Reason: err.Error(), DedupeKey: comment.ID + ":invalid:" + fmt.Sprint(comment.Revision), SourceCommentID: comment.ID}
+}
+
+func toMentionOutcome(outcome domain.CommentTriggerOutcome) mentions.TriggerOutcome {
+	return mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID}
 }
 
 // commentFollowUpRoute exposes status polling and an explicit retry/dispatch

@@ -161,7 +161,18 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		logger.Error("initialize plugin registry", "error", pluginErr)
 		pluginRegistry, _ = plugins.New("")
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestration.NewMemoryRepository(), uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
+	var orchestrationRepo *orchestration.MemoryRepository
+	if path := strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")); path != "" {
+		if loaded, loadErr := orchestration.NewPersistentRepository(path); loadErr == nil {
+			orchestrationRepo = loaded
+		} else {
+			logger.Error("load orchestration state", "error", loadErr, "path", path)
+		}
+	}
+	if orchestrationRepo == nil {
+		orchestrationRepo = orchestration.NewMemoryRepository()
+	}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
@@ -207,6 +218,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.Plugins != nil {
 			if err := s.Plugins.Flush(); err != nil && s.Logger != nil {
 				s.Logger.Error("persist plugin registry", "error", err)
+			}
+		}
+		if s.Orchestration != nil {
+			if err := s.Orchestration.Flush(); err != nil && s.Logger != nil {
+				s.Logger.Error("persist orchestration state", "error", err)
 			}
 		}
 	}()

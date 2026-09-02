@@ -3,7 +3,9 @@ package orchestration
 import (
 	"errors"
 	"github.com/adro-project/adro/internal/harness"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testEnvelope() harness.ContextEnvelope {
@@ -87,5 +89,66 @@ func TestFreezeIsImmutable(t *testing.T) {
 	plan, _ := (RequirementExecutionPlan{ID: "p", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: g, Status: PlanDraft}).Freeze()
 	if _, err := plan.Freeze(); err == nil {
 		t.Fatal("expected second freeze to fail")
+	}
+}
+
+func TestPersistentRepositoryRoundTripsPlanProjectionAndEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orchestration.json")
+	r, err := NewPersistentRepository(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := (RequirementExecutionPlan{ID: "persist-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.CreatePlan(plan); err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SaveProjection(p); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := NewEvent(nil, plan.ID, plan.WorkspaceID, "plan.created", "plan:key", plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AppendEvent(ev); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewPersistentRepository(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := restored.GetPlan("w", plan.ID); err != nil || got.PlanHash != plan.PlanHash {
+		t.Fatalf("plan=%+v err=%v", got, err)
+	}
+	if _, err := restored.GetProjection(plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.ListEvents(plan.ID, 0); len(got) != 1 || got[0].EnvelopeHash != ev.EnvelopeHash {
+		t.Fatalf("events=%+v", got)
+	}
+}
+
+func TestFinishAttemptRejectsExpiredLease(t *testing.T) {
+	plan, err := (RequirementExecutionPlan{ID: "lease-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	a, err := p.StartAttempt(plan, "dev", "lease-attempt", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Second)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Event: "success", Result: StructuredResult{Outcome: "pass"}, Now: now.Add(2 * time.Second)}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("want expired lease rejection, got %v", err)
 	}
 }

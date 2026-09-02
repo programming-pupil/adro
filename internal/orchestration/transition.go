@@ -170,6 +170,15 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 	if input.LeaseToken != 0 && lease.FencingToken != input.LeaseToken {
 		return NodeAttempt{}, ErrLeaseLost
 	}
+	if !lease.ExpiresAt.IsZero() {
+		now := input.Now
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		if !now.Before(lease.ExpiresAt) {
+			return NodeAttempt{}, ErrLeaseLost
+		}
+	}
 	if input.IdempotencyKey != "" {
 		p.Idempotency[input.IdempotencyKey] = input.PayloadHash
 	}
@@ -210,6 +219,12 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 	now := input.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
+	}
+	// A fencing token alone is insufficient: a worker that was paused past its
+	// lease must be rejected even when no newer attempt has claimed the node.
+	// This closes the late-result window during provider/network partitions.
+	if !a.Lease.ExpiresAt.IsZero() && !now.Before(a.Lease.ExpiresAt) {
+		return NodeAttempt{}, ErrLeaseLost
 	}
 	a.Result = input.Result
 	a.FailureReason = input.Failure

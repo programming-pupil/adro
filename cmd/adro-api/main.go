@@ -47,6 +47,7 @@ func main() {
 	setDefaultEnv("ADRO_RUN_STATE_FILE", filepath.Join(stateDir, "runs.json"))
 	setDefaultEnv("ADRO_HARNESS_STATE_FILE", filepath.Join(stateDir, "harness.json"))
 	setDefaultEnv("ADRO_PLUGIN_STATE_FILE", filepath.Join(stateDir, "plugins.json"))
+	setDefaultEnv("ADRO_ORCHESTRATION_STATE_FILE", filepath.Join(stateDir, "orchestration.json"))
 	root := *artifactRoot
 	if root == "" {
 		root = os.Getenv("ADRO_ARTIFACT_ROOT")
