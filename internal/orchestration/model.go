@@ -246,6 +246,7 @@ type RequirementExecutionPlan struct {
 	Status         PlanStatus     `json:"status"`
 	Revision       int64          `json:"revision"`
 	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	Deadline       time.Time      `json:"deadline,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`
 }
 
@@ -325,6 +326,9 @@ func (p RequirementExecutionPlan) Freeze() (RequirementExecutionPlan, error) {
 	}
 	if err := ValidateGraph(p.GraphSnapshot); err != nil {
 		return p, err
+	}
+	if !p.Deadline.IsZero() && !p.CreatedAt.IsZero() && !p.Deadline.After(p.CreatedAt) {
+		return p, errors.New("plan deadline must be after created_at")
 	}
 	if p.Status != PlanDraft && p.Status != PlanValidating {
 		return p, errors.New("execution plan is immutable")

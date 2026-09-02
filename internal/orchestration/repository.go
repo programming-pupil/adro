@@ -112,6 +112,23 @@ func (r *MemoryRepository) load() error {
 	if state.Events != nil {
 		r.events = state.Events
 	}
+	for id, plan := range r.plans {
+		if plan.ID != id {
+			return fmt.Errorf("orchestration plan key mismatch %s", id)
+		}
+		hash, hashErr := canonicalPlanHash(plan)
+		if hashErr != nil || hash != plan.PlanHash {
+			return fmt.Errorf("orchestration plan %s hash mismatch", id)
+		}
+	}
+	for id, projection := range r.projections {
+		if projection.PlanID != id {
+			return fmt.Errorf("orchestration projection key mismatch %s", id)
+		}
+		if err := projection.Validate(); err != nil {
+			return fmt.Errorf("orchestration projection %s: %w", id, err)
+		}
+	}
 	for planID, events := range r.events {
 		if len(events) == 0 {
 			continue

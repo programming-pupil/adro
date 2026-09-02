@@ -169,7 +169,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 			logger.Error("load orchestration state", "error", loadErr, "path", path)
 		}
 	}
-	if orchestrationRepo == nil {
+	if orchestrationRepo == nil && strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")) == "" {
 		orchestrationRepo = orchestration.NewMemoryRepository()
 	}
 	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
