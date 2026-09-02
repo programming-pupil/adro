@@ -364,6 +364,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.requirements(w, r)
 	case path == "/api/v1/pipelines" || strings.HasPrefix(path, "/api/v1/pipelines/"):
 		s.pipelineRoute(w, r, strings.TrimPrefix(path, "/api/v1/pipelines"))
+	case path == "/api/v1/execution-plans/validate":
+		s.orchestrationRoute(w, r, "/execution-plans/validate")
+	case strings.HasPrefix(path, "/api/v1/requirements/") && strings.HasSuffix(path, "/comments/trigger-preview"):
+		s.mentionPreviewRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/requirements/"), "/comments/trigger-preview"))
 	case path == "/api/v1/workflow-templates" || strings.HasPrefix(path, "/api/v1/workflow-templates/"):
 		s.workflowTemplateRoute(w, r, strings.TrimPrefix(path, "/api/v1/workflow-templates"))
 	case path == "/api/v1/chats" || strings.HasPrefix(path, "/api/v1/chats/"):

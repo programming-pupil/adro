@@ -16,6 +16,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/harness"
 )
 
 type Capabilities struct {
@@ -170,6 +171,11 @@ type ProviderWorkItem struct {
 	ProviderIssueID string `json:"provider_issue_id,omitempty"`
 }
 type StartRunCommand struct {
+	// PlanID/NodeID/AttemptID scope every provider dispatch. They are optional
+	// for legacy callers, but a graph execution must provide all three.
+	PlanID             string `json:"plan_id,omitempty"`
+	NodeID             string `json:"node_id,omitempty"`
+	AttemptID          string `json:"attempt_id,omitempty"`
 	WorkItemID         string `json:"work_item_id"`
 	AgentBindingID     string `json:"agent_binding_id,omitempty"`
 	ProviderAssigneeID string `json:"provider_assignee_id,omitempty"`
@@ -179,15 +185,38 @@ type StartRunCommand struct {
 	ProviderIssueID string `json:"provider_issue_id,omitempty"`
 	// SessionID and ContextID are supplied for repairs. They make continuity an
 	// explicit contract rather than relying on provider-side issue heuristics.
-	SessionID      string `json:"session_id,omitempty"`
-	ContextID      string `json:"context_id,omitempty"`
-	ContextVersion int64  `json:"context_version,omitempty"`
-	RepairAttempt  int    `json:"repair_attempt,omitempty"`
+	SessionID        string                  `json:"session_id,omitempty"`
+	ContextID        string                  `json:"context_id,omitempty"`
+	ContextVersion   int64                   `json:"context_version,omitempty"`
+	ContextEnvelope  harness.ContextEnvelope `json:"context_envelope"`
+	ExpectedRevision int64                   `json:"expected_revision,omitempty"`
+	RepairAttempt    int                     `json:"repair_attempt,omitempty"`
 	// IdempotencyKey is owned by ADRO's durable harness. Providers must return
 	// the original run for an identical key instead of creating a duplicate
 	// side effect after a lost response or API restart.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
+
+// ValidateGraphScope enforces the typed envelope at the graph boundary while
+// preserving source compatibility for legacy pipeline callers. New graph
+// dispatches are identified by PlanID/NodeID/AttemptID and must carry a valid
+// immutable ContextEnvelope.
+func (c StartRunCommand) ValidateGraphScope() error {
+	if c.PlanID == "" && c.NodeID == "" && c.AttemptID == "" {
+		return nil
+	}
+	if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
+		return errors.New("plan_id, node_id and attempt_id are required together")
+	}
+	if c.ContextEnvelope.SelectionDigest == "" || c.ContextEnvelope.ReplayKey == "" || c.ContextEnvelope.Manifest.Digest == "" {
+		return errors.New("graph dispatch requires a complete context envelope")
+	}
+	if c.ContextEnvelope.Manifest.SessionID == "" || c.ContextEnvelope.Manifest.TokenBudget <= 0 || c.ContextEnvelope.Manifest.TokenEstimate > c.ContextEnvelope.Manifest.TokenBudget {
+		return errors.New("graph dispatch context envelope has invalid budget or session")
+	}
+	return nil
+}
+
 type RunBinding struct {
 	ID             string    `json:"id,omitempty"`
 	ProviderRunID  string    `json:"provider_run_id,omitempty"`
@@ -204,13 +233,35 @@ type RunBinding struct {
 // ADRO's durable pipeline state; a provider must prove both values before the
 // continuation is considered started.
 type ContinuationCommand struct {
-	IssueID           string `json:"issue_id"`
-	AgentID           string `json:"agent_id"`
-	Input             string `json:"input"`
-	ExpectedSessionID string `json:"expected_session_id"`
-	ExpectedWorkDir   string `json:"expected_work_dir"`
-	IdempotencyKey    string `json:"idempotency_key,omitempty"`
+	PlanID            string                  `json:"plan_id,omitempty"`
+	NodeID            string                  `json:"node_id,omitempty"`
+	AttemptID         string                  `json:"attempt_id,omitempty"`
+	IssueID           string                  `json:"issue_id"`
+	AgentID           string                  `json:"agent_id"`
+	Input             string                  `json:"input"`
+	ExpectedSessionID string                  `json:"expected_session_id"`
+	ExpectedWorkDir   string                  `json:"expected_work_dir"`
+	ContextEnvelope   harness.ContextEnvelope `json:"context_envelope"`
+	ExpectedRevision  int64                   `json:"expected_revision,omitempty"`
+	IdempotencyKey    string                  `json:"idempotency_key,omitempty"`
 }
+
+func (c ContinuationCommand) ValidateGraphScope() error {
+	if c.PlanID == "" && c.NodeID == "" && c.AttemptID == "" {
+		return nil
+	}
+	if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
+		return errors.New("plan_id, node_id and attempt_id are required together")
+	}
+	if c.ContextEnvelope.SelectionDigest == "" || c.ContextEnvelope.ReplayKey == "" || c.ContextEnvelope.Manifest.Digest == "" {
+		return errors.New("graph continuation requires a complete context envelope")
+	}
+	if c.ContextEnvelope.Manifest.SessionID == "" || c.ContextEnvelope.Manifest.TokenBudget <= 0 || c.ContextEnvelope.Manifest.TokenEstimate > c.ContextEnvelope.Manifest.TokenBudget {
+		return errors.New("graph continuation context envelope has invalid budget or session")
+	}
+	return nil
+}
+
 type RunSnapshot struct {
 	ID                string `json:"id"`
 	WorkItemID        string `json:"work_item_id,omitempty"`
@@ -394,6 +445,9 @@ func (p *MockProvider) CreateWorkItem(_ context.Context, s WorkItemSpec) (Provid
 	return ProviderWorkItem{ID: s.ID, ProviderIssueID: "mock-issue-" + s.ID}, nil
 }
 func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBinding, error) {
+	if err := cmd.ValidateGraphScope(); err != nil {
+		return RunBinding{}, err
+	}
 	if cmd.WorkItemID == "" {
 		return RunBinding{}, errors.New("work item id is required")
 	}

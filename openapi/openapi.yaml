@@ -13,6 +13,71 @@ security:
 - bearerAuth: []
 - cookieAuth: []
 paths:
+  "/api/v1/execution-plans/validate":
+    post:
+      summary: Validate a graph execution plan without executing it
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Validated graph and deterministic digest
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        '422':
+          description: Graph validation failure
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/requirements/{id}/comments/trigger-preview":
+    post:
+      summary: Preview structured Agent/Squad comment triggers
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Per-target trigger outcomes
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        '422':
+          description: Invalid structured mention
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/auth/login":
     post:
       security: []

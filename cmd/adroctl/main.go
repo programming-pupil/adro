@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/adro-project/adro/internal/config"
+	"github.com/adro-project/adro/internal/orchestration"
 )
 
 func main() {
@@ -29,13 +31,45 @@ func main() {
 		fmt.Println("adroctl 0.1.0")
 	case "config-check":
 		configCheck(os.Args[2:])
+	case "graph-validate":
+		graphValidate(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
 	}
 }
 func usage() {
-	fmt.Println("Usage: adroctl <up|install --profile single-node|health|config-check|version>")
+	fmt.Println("Usage: adroctl <up|install --profile single-node|health|config-check|graph-validate --file graph.json|version>")
+}
+
+func graphValidate(args []string) {
+	fs := flag.NewFlagSet("graph-validate", flag.ExitOnError)
+	file := fs.String("file", "", "workflow graph JSON file")
+	fs.Parse(args)
+	if strings.TrimSpace(*file) == "" {
+		fmt.Fprintln(os.Stderr, "--file is required")
+		os.Exit(2)
+	}
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read graph: %v\n", err)
+		os.Exit(1)
+	}
+	var graph orchestration.WorkflowGraph
+	if err := json.Unmarshal(data, &graph); err != nil {
+		fmt.Fprintf(os.Stderr, "decode graph: %v\n", err)
+		os.Exit(1)
+	}
+	if err := orchestration.ValidateGraph(graph); err != nil {
+		fmt.Fprintf(os.Stderr, "graph invalid: %v\n", err)
+		os.Exit(1)
+	}
+	digest, err := graph.CanonicalHash()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hash graph: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("graph valid\nvalidation_digest=%s\n", digest)
 }
 
 func configCheck(_ []string) {

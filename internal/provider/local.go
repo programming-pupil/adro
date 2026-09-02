@@ -204,6 +204,9 @@ func (p *LocalProvider) CreateWorkItem(_ context.Context, s WorkItemSpec) (Provi
 }
 
 func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (RunBinding, error) {
+	if err := command.ValidateGraphScope(); err != nil {
+		return RunBinding{}, err
+	}
 	// Serialize the idempotency lookup and durable run reservation. Without this
 	// narrow gate two concurrent retries can both observe a missing key and
 	// launch duplicate child processes before either one records the key.
@@ -242,6 +245,9 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 }
 
 func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command ContinuationCommand) (RunBinding, error) {
+	if err := command.ValidateGraphScope(); err != nil {
+		return RunBinding{}, err
+	}
 	p.startMu.Lock()
 	defer p.startMu.Unlock()
 	if command.IssueID == "" || command.Input == "" || command.ExpectedSessionID == "" || command.ExpectedWorkDir == "" {

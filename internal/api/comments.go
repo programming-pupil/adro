@@ -11,6 +11,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -61,9 +62,19 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 	if authorType == "member" && strings.TrimSpace(input.AuthorType) != "" && r.Header.Get("X-Member-ID") == "" {
 		authorType = strings.TrimSpace(input.AuthorType)
 	}
-	mentions := append([]string(nil), input.Mentions...)
-	mentions = append(mentions, commentMentions(input.Content)...)
-	comment, err := s.Store.CreateComment(domain.Comment{WorkspaceID: workspaceID, TargetType: targetType, TargetID: targetID, ParentID: input.ParentID, AuthorID: authorID, AuthorType: authorType, Content: input.Content, Mentions: mentions})
+	mentionValues := append([]string(nil), input.Mentions...)
+	mentionValues = append(mentionValues, commentMentions(input.Content)...)
+	structuredMentionCount := 0
+	// Structured URI mentions are parsed independently of display names. Keep
+	// the stable target IDs in the legacy comment projection so old clients can
+	// render them, while trigger decisions use the mentions package AST.
+	if parsed, parseErr := mentions.Parse(input.Content); parseErr == nil {
+		structuredMentionCount = len(parsed.Targets())
+		for _, target := range parsed.Targets() {
+			mentionValues = appendUniqueString(mentionValues, target.TargetID)
+		}
+	}
+	comment, err := s.Store.CreateComment(domain.Comment{WorkspaceID: workspaceID, TargetType: targetType, TargetID: targetID, ParentID: input.ParentID, AuthorID: authorID, AuthorType: authorType, Content: input.Content, Mentions: mentionValues})
 	if err != nil {
 		status := http.StatusUnprocessableEntity
 		if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
@@ -77,14 +88,46 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 		_ = s.Events.Publish(r.Context(), events.New("comment.created.v1", "comment", comment.ID, tenant(r), workspaceID, 1, map[string]any{"target_type": targetType, "target_id": targetID, "parent_id": comment.ParentID, "root_id": comment.RootID, "content_sha256": hashBytes([]byte(comment.Content)), "content_bytes": len(comment.Content), "mentions": comment.Mentions}))
 	}
 	followUp := map[string]any{"requested": false, "status": "not_requested"}
-	dispatch := len(comment.Mentions) > 0
+	// Plain display-name tokens are render-only. Explicit structured URI
+	// mentions (or the legacy JSON mentions field) are the only implicit
+	// dispatch request; callers can still opt in explicitly via dispatch=true.
+	dispatch := structuredMentionCount > 0 || len(input.Mentions) > 0
 	if input.Dispatch != nil {
 		dispatch = *input.Dispatch
 	}
-	if dispatch {
+	var triggerOutcomes []mentions.TriggerOutcome
+	if structuredMentionCount > 0 {
+		if plan, triggerErr := mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{
+			WorkspaceID: workspaceID, CommentID: comment.ID, CommentRevision: 1,
+			Content: input.Content, RuntimeHealthy: false, UserCanInvoke: true,
+		}); triggerErr == nil {
+			triggerOutcomes = plan.Outcomes
+		}
+	}
+	if dispatch && structuredMentionCount == 0 {
 		followUp = s.queueCommentFollowUp(r, comment, input.AgentBindingID)
 	}
-	s.writeJSON(w, http.StatusCreated, map[string]any{"comment": comment, "follow_up": followUp})
+	response := map[string]any{"comment": comment, "follow_up": followUp}
+	if triggerOutcomes != nil {
+		response["trigger_outcomes"] = triggerOutcomes
+	}
+	s.writeJSON(w, http.StatusCreated, response)
+}
+
+func appendUniqueString(values []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(additions))
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, value := range additions {
+		if value != "" {
+			if _, ok := seen[value]; !ok {
+				values = append(values, value)
+				seen[value] = struct{}{}
+			}
+		}
+	}
+	return values
 }
 
 // commentFollowUpRoute exposes status polling and an explicit retry/dispatch
