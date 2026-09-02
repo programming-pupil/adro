@@ -255,6 +255,12 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 	if input.Dispatch != nil {
 		dispatch = *input.Dispatch
 	}
+	if parseErr != nil {
+		// An invalid structured URI is retained as a normal comment with a
+		// blocked outcome; it must never fall through to the legacy assignee
+		// dispatch path.
+		dispatch = false
+	}
 	var triggerOutcomes []mentions.TriggerOutcome
 	if parseErr != nil {
 		outcome := invalidMentionOutcome(comment, parseErr)

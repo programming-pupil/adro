@@ -17,6 +17,8 @@ var (
 	ErrLeaseLost           = errors.New("lease or fencing token is no longer valid")
 	ErrIdempotencyConflict = errors.New("idempotency key payload conflict")
 	ErrEvidenceRequired    = errors.New("terminal transition requires committed evidence")
+	ErrDeadlineExceeded    = errors.New("plan or node deadline exceeded")
+	ErrBudgetExceeded      = errors.New("execution budget exceeded")
 )
 
 type NodeProjection struct {
@@ -34,6 +36,9 @@ type PlanProjection struct {
 	Traversals  map[string]int            `json:"traversals,omitempty"`
 	Decisions   []FeedbackDecision        `json:"decisions,omitempty"`
 	Idempotency map[string]string         `json:"idempotency,omitempty"`
+	TokenUsage  int64                     `json:"token_usage,omitempty"`
+	ToolCalls   int                       `json:"tool_calls,omitempty"`
+	CostCents   int64                     `json:"cost_cents,omitempty"`
 }
 
 // Validate checks projection invariants before persistence or replay.
@@ -111,6 +116,27 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 	if plan.Status != PlanReady && plan.Status != PlanRunning {
 		return NodeAttempt{}, ErrInvalidTransition
 	}
+	now := input.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if !plan.Deadline.IsZero() && !now.Before(plan.Deadline) {
+		return NodeAttempt{}, ErrDeadlineExceeded
+	}
+	if plan.PolicySnapshot.Budget.Tokens > 0 && p.TokenUsage+in.Manifest.TokenEstimate > plan.PolicySnapshot.Budget.Tokens {
+		return NodeAttempt{}, ErrBudgetExceeded
+	}
+	if plan.PolicySnapshot.Budget.Concurrent > 0 {
+		running := 0
+		for _, existing := range p.Attempts {
+			if existing.Status == AttemptRunning {
+				running++
+			}
+		}
+		if running >= plan.PolicySnapshot.Budget.Concurrent {
+			return NodeAttempt{}, ErrBudgetExceeded
+		}
+	}
 	if strings.TrimSpace(in.Manifest.SessionID) == "" || strings.TrimSpace(in.Manifest.Digest) == "" || strings.TrimSpace(in.SelectionDigest) == "" || strings.TrimSpace(in.ReplayKey) == "" || in.Manifest.TokenBudget <= 0 || in.Manifest.TokenEstimate > in.Manifest.TokenBudget {
 		return NodeAttempt{}, errors.New("attempt requires a complete context envelope")
 	}
@@ -141,6 +167,24 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 	n, ok := p.Nodes[nodeID]
 	if !ok {
 		return NodeAttempt{}, fmt.Errorf("unknown node %q", nodeID)
+	}
+	var nodeDefinition WorkflowNode
+	for _, candidate := range plan.GraphSnapshot.Nodes {
+		if candidate.ID == nodeID {
+			nodeDefinition = candidate
+			break
+		}
+	}
+	if nodeDefinition.Budget.Tokens > 0 {
+		used := int64(0)
+		for _, existing := range p.Attempts {
+			if existing.NodeID == nodeID {
+				used += existing.InputManifest.Manifest.TokenEstimate
+			}
+		}
+		if used+in.Manifest.TokenEstimate > nodeDefinition.Budget.Tokens {
+			return NodeAttempt{}, ErrBudgetExceeded
+		}
 	}
 	if n.Status != AttemptReady && n.Status != AttemptFailed && n.Status != AttemptTimedOut {
 		return NodeAttempt{}, fmt.Errorf("node %s is not ready", nodeID)
@@ -182,10 +226,6 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 	if input.IdempotencyKey != "" {
 		p.Idempotency[input.IdempotencyKey] = input.PayloadHash
 	}
-	now := input.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
 	a := NodeAttempt{ID: attemptID, PlanID: plan.ID, NodeID: nodeID, AttemptNo: attemptNo, Lease: lease, IdempotencyKey: input.IdempotencyKey, InputManifest: in, Status: AttemptRunning, StartedAt: &now}
 	p.Attempts[a.ID] = a
 	n.Status = AttemptRunning
@@ -193,6 +233,7 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 	n.AttemptNo = attemptNo
 	p.Nodes[nodeID] = n
 	p.Status = PlanRunning
+	p.TokenUsage += in.Manifest.TokenEstimate
 	return a, nil
 }
 

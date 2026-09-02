@@ -152,3 +152,25 @@ func TestFinishAttemptRejectsExpiredLease(t *testing.T) {
 		t.Fatalf("want expired lease rejection, got %v", err)
 	}
 }
+
+func TestStartAttemptEnforcesPlanDeadlineAndConcurrentBudget(t *testing.T) {
+	now := time.Now().UTC()
+	plan, err := (RequirementExecutionPlan{ID: "budget-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), PolicySnapshot: PolicySnapshot{Budget: Budget{Tokens: 1, Concurrent: 1}}, Deadline: now.Add(time.Second), Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := testEnvelope()
+	envelope.Manifest.TokenBudget = 2
+	envelope.Manifest.TokenEstimate = 2
+	if _, err := p.StartAttempt(plan, "dev", "budget-attempt", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Minute)}, envelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now}); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("want budget rejection, got %v", err)
+	}
+	plan.Deadline = now.Add(-time.Second)
+	if _, err := p.StartAttempt(plan, "dev", "deadline-attempt", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Minute)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now}); !errors.Is(err, ErrDeadlineExceeded) {
+		t.Fatalf("want deadline rejection, got %v", err)
+	}
+}
