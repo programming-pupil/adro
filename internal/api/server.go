@@ -1815,7 +1815,15 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	if len(parts) > 1 && parts[1] == "events" && r.Method == http.MethodGet {
-		items, next := s.Events.List(id, r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
+		items, next, err := s.Events.ListChecked(id, r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
+		if errors.Is(err, events.ErrInvalidCursor) {
+			s.problem(w, r, http.StatusGone, "invalid_cursor", err.Error(), nil)
+			return
+		}
+		if err != nil {
+			s.problem(w, r, http.StatusInternalServerError, "event_stream_unavailable", providerSafeError(err), nil)
+			return
+		}
 		s.writeJSON(w, 200, map[string]any{"items": items, "next_cursor": next})
 		return
 	}
@@ -2042,7 +2050,15 @@ func (s *Server) streamRoute(w http.ResponseWriter, r *http.Request, workspaceID
 		s.problem(w, r, 405, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	items, next := s.Events.List("", r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
+	items, next, err := s.Events.ListChecked("", r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
+	if errors.Is(err, events.ErrInvalidCursor) {
+		s.problem(w, r, http.StatusGone, "invalid_cursor", err.Error(), nil)
+		return
+	}
+	if err != nil {
+		s.problem(w, r, http.StatusInternalServerError, "event_stream_unavailable", err.Error(), nil)
+		return
+	}
 	filtered := items[:0]
 	for _, e := range items {
 		if e.WorkspaceID == workspaceID {
@@ -2088,7 +2104,14 @@ func (s *Server) websocketStream(w http.ResponseWriter, r *http.Request, workspa
 	// retained in the buffered channel instead of racing the initial snapshot.
 	updates, cancel := s.Events.Subscribe(128)
 	defer cancel()
-	initial, _ := s.Events.List("", r.URL.Query().Get("cursor"), 250)
+	initial, _, err := s.Events.ListChecked("", r.URL.Query().Get("cursor"), 250)
+	if errors.Is(err, events.ErrInvalidCursor) {
+		_ = conn.WriteJSON(map[string]any{"type": "error", "code": "invalid_cursor", "message": err.Error()})
+		return
+	}
+	if err != nil {
+		return
+	}
 	for _, event := range initial {
 		if event.WorkspaceID == workspaceID {
 			if err := conn.WriteJSON(event); err != nil {

@@ -84,6 +84,98 @@ func TestPersistentBusRejectsPayloadTamper(t *testing.T) {
 	}
 }
 
+func TestPersistentBusRejectsEnvelopeMetadataTamper(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := New("tamper.metadata.v1", "run", "r1", "tenant-a", "workspace-a", 1, map[string]any{"state": "original"})
+	if err := b.Publish(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedEvents
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	state.Events[0].TenantID = "tenant-attacker"
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPersistentBus(path); err == nil {
+		t.Fatal("tampered envelope metadata was accepted")
+	}
+}
+
+func TestPersistentBusRejectsSequenceGap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := b.Publish(context.Background(), New("sequence.v1", "run", "r1", "tenant", "workspace", int64(i+1), map[string]any{"i": i})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedEvents
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	state.Events[1].Sequence = 4
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPersistentBus(path); err == nil {
+		t.Fatal("sequence gap was normalized instead of rejected")
+	}
+}
+
+func TestReplayRejectsUnknownCursor(t *testing.T) {
+	b := NewBus()
+	if err := b.Publish(context.Background(), New("cursor.v1", "run", "r1", "tenant", "workspace", 1, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := b.Replay("consumer", "r1", "missing-cursor", 10); !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("expected ErrInvalidCursor, got %v", err)
+	}
+}
+
+func TestReplayScopedDoesNotReuseCursorAcrossStreams(t *testing.T) {
+	b := NewBus()
+	first := New("scope.v1", "run", "r1", "tenant-a", "workspace-a", 1, nil)
+	second := New("scope.v1", "run", "r2", "tenant-a", "workspace-a", 1, nil)
+	if err := b.Publish(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Publish(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AckScoped("consumer", "tenant-a", "workspace-a", "r1", first.EventID); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := b.ReplayScoped("consumer", "tenant-a", "workspace-a", "r2", "", 10)
+	if err != nil || len(items) != 1 || items[0].EventID != second.EventID {
+		t.Fatalf("scoped replay=%+v err=%v", items, err)
+	}
+}
+
 func TestSlowSubscriberReceivesGapBeforeLiveStreamResumes(t *testing.T) {
 	b := NewBus()
 	updates, cancel := b.Subscribe(1)

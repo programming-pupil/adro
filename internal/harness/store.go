@@ -1220,6 +1220,20 @@ func (s *Store) Compact(sessionID string, request CompactRequest) (ArchiveWindow
 	if err != nil {
 		return ArchiveWindow{}, err
 	}
+	// Compaction is fail-closed: a summary must reduce the selected source
+	// window, otherwise replacing it would increase prompt cost while claiming
+	// recovery. The full transcript remains archived for exact replay.
+	var sourceTokens int64
+	for _, turn := range state.Turns {
+		if turn.Sequence >= request.StartSequence && turn.Sequence <= request.EndSequence {
+			sourceTokens += estimateTokens(turn.Content)
+		}
+	}
+	// Tiny windows (for example one-character test turns) have no meaningful
+	// token signal; preserve backwards compatibility for those exact archives.
+	if sourceTokens >= 16 && estimateTokens(archive.Summary) >= sourceTokens {
+		return ArchiveWindow{}, errors.New("compaction summary does not reduce token estimate")
+	}
 	if _, err := saveCheckpointLocked(&state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionDone, EventHash: eventHash, ContextVersion: state.Session.ContextVersion, State: "compaction committed"}); err != nil {
 		return ArchiveWindow{}, err
 	}

@@ -1089,7 +1089,10 @@ func (p *LocalProvider) StreamEvents(ctx context.Context, runID, cursor string) 
 		// envelope.
 		replayCursor := cursor
 		for {
-			page, next := p.Bus.List("", replayCursor, 250)
+			page, next, err := p.Bus.ListChecked("", replayCursor, 250)
+			if err != nil {
+				return
+			}
 			if len(page) == 0 {
 				break
 			}
@@ -1333,13 +1336,21 @@ func (p *LocalProvider) loadState() error {
 		if err := validateRuntimeSnapshot(snapshot); err != nil {
 			return err
 		}
+		run := &localRun{snapshot: snapshot}
 		if snapshot.Status == "running" {
-			snapshot.Status = "failed"
-			snapshot.Error = "local executor process was interrupted by an API restart"
+			run.snapshot.Status = "failed"
+			run.snapshot.Error = "local executor process was interrupted by an API restart"
+			run.snapshot.RecoveryState = "reconcile_required"
+			run.snapshot.RecoveryReason = "provider_process_lost_on_restart"
 			now := time.Now().UTC()
-			snapshot.FinishedAt = &now
+			run.snapshot.FinishedAt = &now
+			appendRuntimeEventLocked(run, "run.recovery_required", map[string]any{
+				"reason":     "provider_process_lost_on_restart",
+				"continuity": run.snapshot.SessionContinuity,
+				"session_id": run.snapshot.SessionID,
+			})
 		}
-		p.runs[id] = &localRun{snapshot: snapshot}
+		p.runs[id] = run
 	}
 	for key, id := range state.RunKeys {
 		if _, exists := p.runs[id]; exists {

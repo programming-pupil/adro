@@ -212,29 +212,34 @@ type ContinuationCommand struct {
 	IdempotencyKey    string `json:"idempotency_key,omitempty"`
 }
 type RunSnapshot struct {
-	ID               string         `json:"id"`
-	WorkItemID       string         `json:"work_item_id,omitempty"`
-	ProviderIssueID  string         `json:"provider_issue_id,omitempty"`
-	InputHash        string         `json:"input_hash,omitempty"`
-	Status           string         `json:"status"`
-	LastEventID      string         `json:"last_event_id,omitempty"`
-	SessionID        string         `json:"session_id,omitempty"`
-	SessionContinuity string         `json:"session_continuity,omitempty"`
-	WorkDir          string         `json:"work_dir,omitempty"`
-	BaselineCommit   string         `json:"baseline_commit,omitempty"`
-	HeadCommit       string         `json:"head_commit,omitempty"`
-	SubmissionURL    string         `json:"submission_url,omitempty"`
-	ChecksConclusion string         `json:"checks_conclusion,omitempty"`
-	Output           string         `json:"output,omitempty"`
-	Error            string         `json:"error,omitempty"`
-	WorkspaceDirty   bool           `json:"workspace_dirty,omitempty"`
-	ChangedFiles     []string       `json:"changed_files,omitempty"`
-	StartedAt        *time.Time     `json:"started_at,omitempty"`
-	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
-	Usage            Usage          `json:"usage"`
-	ToolEvents       []ToolEvent    `json:"tool_events,omitempty"`
-	Interactions     []Interaction  `json:"interactions,omitempty"`
-	Ledger           []RuntimeEvent `json:"ledger,omitempty"`
+	ID                string `json:"id"`
+	WorkItemID        string `json:"work_item_id,omitempty"`
+	ProviderIssueID   string `json:"provider_issue_id,omitempty"`
+	InputHash         string `json:"input_hash,omitempty"`
+	Status            string `json:"status"`
+	LastEventID       string `json:"last_event_id,omitempty"`
+	SessionID         string `json:"session_id,omitempty"`
+	SessionContinuity string `json:"session_continuity,omitempty"`
+	WorkDir           string `json:"work_dir,omitempty"`
+	BaselineCommit    string `json:"baseline_commit,omitempty"`
+	HeadCommit        string `json:"head_commit,omitempty"`
+	SubmissionURL     string `json:"submission_url,omitempty"`
+	ChecksConclusion  string `json:"checks_conclusion,omitempty"`
+	Output            string `json:"output,omitempty"`
+	Error             string `json:"error,omitempty"`
+	// RecoveryState distinguishes an interrupted child from a provider
+	// execution failure. Status remains failed for compatibility with existing
+	// clients, while repair/reconcile workers can act on this durable reason.
+	RecoveryState  string         `json:"recovery_state,omitempty"`
+	RecoveryReason string         `json:"recovery_reason,omitempty"`
+	WorkspaceDirty bool           `json:"workspace_dirty,omitempty"`
+	ChangedFiles   []string       `json:"changed_files,omitempty"`
+	StartedAt      *time.Time     `json:"started_at,omitempty"`
+	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
+	Usage          Usage          `json:"usage"`
+	ToolEvents     []ToolEvent    `json:"tool_events,omitempty"`
+	Interactions   []Interaction  `json:"interactions,omitempty"`
+	Ledger         []RuntimeEvent `json:"ledger,omitempty"`
 }
 
 // ToolEvent is provider-neutral evidence extracted from a structured executor

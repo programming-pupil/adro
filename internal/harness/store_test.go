@@ -415,6 +415,25 @@ func TestCompactionRequiresExactNonOverlappingWindowAndKeepsArchive(t *testing.T
 	}
 }
 
+func TestCompactionFailsClosedWhenSummaryDoesNotReduce(t *testing.T) {
+	store := newTestSession(t, "")
+	content := strings.Repeat("durable context ", 30)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: content}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Compact("session-1", CompactRequest{StartSequence: 1, EndSequence: 1, Summary: content}); err == nil {
+		t.Fatal("non-reducing compaction unexpectedly succeeded")
+	}
+	archives, err := store.ListArchives("session-1")
+	if err != nil || len(archives) != 0 {
+		t.Fatalf("failed compaction left archive state=%+v err=%v", archives, err)
+	}
+	checkpoints, err := store.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 0 {
+		t.Fatalf("failed compaction left checkpoint state=%+v err=%v", checkpoints, err)
+	}
+}
+
 func TestAutomaticCompactionUsesBudgetGuardAndKeepsTail(t *testing.T) {
 	store, err := New("")
 	if err != nil {
