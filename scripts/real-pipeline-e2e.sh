@@ -73,7 +73,12 @@ json_field() {
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v ruby >/dev/null 2>&1 || fail "ruby is required"
-command -v go >/dev/null 2>&1 || fail "go is required"
+command -v go >/dev/null 2>&1 || [ -x "${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}" ] || fail "go is required"
+# Keep the API build and the fixture's verification command on one Go
+# toolchain. The child Codex process inherits this explicit setting when the
+# executor allows environment propagation; the fixture still falls back to
+# PATH for portable CI images.
+export ADRO_GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
 
 executor="${ADRO_EXECUTOR:-}"
 if [ -z "$executor" ] && [ -n "${ADRO_EXECUTOR_COMMAND:-}" ]; then
@@ -143,7 +148,12 @@ if [ ! -f "$counter_path" ]; then
   printf '%s\n' 'intentional first integration failure' >&2
   exit 1
 fi
-go test ./...
+go_bin="${ADRO_GO_BIN:-}"
+if [ -x "$go_bin" ] || [ -f "$go_bin" ]; then
+  "$go_bin" test ./...
+else
+  go test ./...
+fi
 EOF
 chmod +x "$FIXTURE/integration-check.sh"
 git -C "$FIXTURE" init -q

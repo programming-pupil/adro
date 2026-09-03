@@ -125,10 +125,26 @@ type Comment struct {
 	AuthorType      string                  `json:"author_type"`
 	Content         string                  `json:"content"`
 	Mentions        []string                `json:"mentions,omitempty"`
+	AttachmentIDs   []string                `json:"attachment_ids,omitempty"`
 	Revision        int64                   `json:"revision"`
 	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
 	CreatedAt       time.Time               `json:"created_at"`
 	UpdatedAt       time.Time               `json:"updated_at"`
+}
+
+// CommentRevision is an immutable snapshot of one committed comment version.
+// Trigger outcomes may be attached after the content transaction commits, but
+// content, mention AST targets and attachment membership never change in place.
+type CommentRevision struct {
+	CommentID       string                  `json:"comment_id"`
+	Revision        int64                   `json:"revision"`
+	Content         string                  `json:"content"`
+	Mentions        []string                `json:"mentions,omitempty"`
+	AttachmentIDs   []string                `json:"attachment_ids,omitempty"`
+	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	EditorID        string                  `json:"editor_id"`
+	EditorType      string                  `json:"editor_type"`
+	CreatedAt       time.Time               `json:"created_at"`
 }
 
 type CommentTriggerOutcome struct {
@@ -140,32 +156,41 @@ type CommentTriggerOutcome struct {
 	AuthoritySnapshot string `json:"authority_snapshot,omitempty"`
 	DedupeKey         string `json:"dedupe_key"`
 	SourceCommentID   string `json:"source_comment_id"`
+	ParentTaskID      string `json:"parent_task_id,omitempty"`
 }
 
 // CommentFollowUp is the durable execution receipt for a discussion comment.
 // Keeping it separate preserves comment immutability while allowing retries,
 // provider continuation, and status polling to converge after a lost response.
 type CommentFollowUp struct {
-	ID                string    `json:"id"`
-	CommentID         string    `json:"comment_id"`
-	WorkspaceID       string    `json:"workspace_id"`
-	TargetType        string    `json:"target_type"`
-	TargetID          string    `json:"target_id"`
-	AgentBindingID    string    `json:"agent_binding_id"`
-	HarnessSessionID  string    `json:"session_id"`
-	ContextVersion    int64     `json:"context_version"`
-	TurnID            string    `json:"turn_id,omitempty"`
-	TurnHash          string    `json:"turn_hash,omitempty"`
-	OutboxID          string    `json:"outbox_id,omitempty"`
-	ProviderRunID     string    `json:"provider_run_id,omitempty"`
-	ProviderSessionID string    `json:"provider_session_id,omitempty"`
-	ProviderWorkDir   string    `json:"provider_work_dir,omitempty"`
-	Mode              string    `json:"mode,omitempty"`
-	Status            string    `json:"status"`
-	Reason            string    `json:"reason,omitempty"`
-	Attempts          int       `json:"attempts"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	CommentID   string `json:"comment_id"`
+	WorkspaceID string `json:"workspace_id"`
+	TargetType  string `json:"target_type"`
+	TargetID    string `json:"target_id"`
+	// DispatchTargetType/ID identify the concrete agent or squad that owns this
+	// receipt. They are separate from the requirement/bug comment target so one
+	// comment can fan out to multiple independent durable follow-ups.
+	DispatchTargetType string    `json:"dispatch_target_type,omitempty"`
+	DispatchTargetID   string    `json:"dispatch_target_id,omitempty"`
+	DedupeKey          string    `json:"dedupe_key,omitempty"`
+	CommentRevision    int64     `json:"comment_revision,omitempty"`
+	ParentTaskID       string    `json:"parent_task_id,omitempty"`
+	AgentBindingID     string    `json:"agent_binding_id"`
+	HarnessSessionID   string    `json:"session_id"`
+	ContextVersion     int64     `json:"context_version"`
+	TurnID             string    `json:"turn_id,omitempty"`
+	TurnHash           string    `json:"turn_hash,omitempty"`
+	OutboxID           string    `json:"outbox_id,omitempty"`
+	ProviderRunID      string    `json:"provider_run_id,omitempty"`
+	ProviderSessionID  string    `json:"provider_session_id,omitempty"`
+	ProviderWorkDir    string    `json:"provider_work_dir,omitempty"`
+	Mode               string    `json:"mode,omitempty"`
+	Status             string    `json:"status"`
+	Reason             string    `json:"reason,omitempty"`
+	Attempts           int       `json:"attempts"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 func (f CommentFollowUp) Validate() error {
@@ -177,6 +202,9 @@ func (f CommentFollowUp) Validate() error {
 	}
 	if strings.TrimSpace(f.Status) == "" {
 		return errors.New("follow-up status is required")
+	}
+	if f.DispatchTargetType != "" && f.DispatchTargetType != "agent" && f.DispatchTargetType != "squad" {
+		return errors.New("dispatch_target_type must be agent or squad")
 	}
 	return nil
 }

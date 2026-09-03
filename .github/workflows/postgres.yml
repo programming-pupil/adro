@@ -1,0 +1,48 @@
+name: PostgreSQL conformance
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres:
+    name: RLS, multi-replica, backup and restore
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: adro_app
+          POSTGRES_PASSWORD: adro_test
+          POSTGRES_DB: adro_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U adro_app -d adro_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ADRO_POSTGRES_TEST_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
+      ADRO_POSTGRES_BACKUP_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
+      ADRO_POSTGRES_ADMIN_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/postgres?sslmode=disable
+      ADRO_POSTGRES_RESTORE_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_restore?sslmode=disable
+      ADRO_POSTGRES_RESTORE_DB: adro_restore
+      ADRO_POSTGRES_EVIDENCE_DIR: var/test-report/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Install PostgreSQL client tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: make postgres-conformance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-conformance-evidence
+          path: var/test-report/postgres

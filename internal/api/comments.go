@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/internal/compat"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
@@ -18,14 +19,15 @@ import (
 )
 
 type commentMutation struct {
-	Content          string   `json:"content"`
-	ExpectedRevision int64    `json:"expected_revision,omitempty"`
-	ParentID         string   `json:"parent_id,omitempty"`
-	AuthorID         string   `json:"author_id,omitempty"`
-	AuthorType       string   `json:"author_type,omitempty"`
-	Mentions         []string `json:"mentions,omitempty"`
-	Dispatch         *bool    `json:"dispatch,omitempty"`
-	AgentBindingID   string   `json:"agent_binding_id,omitempty"`
+	Content          string    `json:"content"`
+	ExpectedRevision int64     `json:"expected_revision,omitempty"`
+	ParentID         string    `json:"parent_id,omitempty"`
+	AuthorID         string    `json:"author_id,omitempty"`
+	AuthorType       string    `json:"author_type,omitempty"`
+	Mentions         []string  `json:"mentions,omitempty"`
+	AttachmentIDs    *[]string `json:"attachment_ids,omitempty"`
+	Dispatch         *bool     `json:"dispatch,omitempty"`
+	AgentBindingID   string    `json:"agent_binding_id,omitempty"`
 }
 
 // computeCommentTriggers resolves the structured AST against the current
@@ -39,7 +41,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 	}
 	targets := make([]mentions.Target, 0, len(parsed.Targets()))
 	for _, m := range parsed.Targets() {
-		if m.TargetType == mentions.TargetAll {
+		if m.TargetType == mentions.TargetAll || m.TargetType == mentions.TargetMember || m.TargetType == mentions.TargetIssue {
 			continue
 		}
 		if s.Orchestration == nil {
@@ -76,7 +78,17 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 			runtimeHealthy = true
 		}
 	}
-	return mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, RequirementID: comment.TargetID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, Targets: targets, UserCanInvoke: true, RuntimeHealthy: runtimeHealthy})
+	userCanInvoke := !authRequired() || authorizedMachine(r)
+	if user, ok := s.authenticateUser(r); ok {
+		userCanInvoke = user.Can("agents") || user.Can("executions")
+	}
+	pending := make([]mentions.PendingTask, 0)
+	for _, followUp := range s.Store.ListCommentFollowUps(comment.ID) {
+		if followUp.Status == "queued" || followUp.Status == "running" || followUp.Status == "pending" {
+			pending = append(pending, mentions.PendingTask{DedupeKey: followUp.DedupeKey, TargetType: mentions.TargetType(followUp.DispatchTargetType), TargetID: followUp.DispatchTargetID})
+		}
+	}
+	return mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, RequirementID: comment.TargetID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, ParentThreadID: comment.RootID, EditingCommentID: comment.ID, Targets: targets, Pending: pending, UserCanInvoke: userCanInvoke, RuntimeHealthy: runtimeHealthy})
 }
 
 func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commentID string) {
@@ -98,6 +110,7 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
 		return
 	}
+	oldFollowUps := s.Store.ListCommentFollowUps(old.ID)
 	parsed, parseErr := mentions.Parse(in.Content)
 	mentionsList := append([]string(nil), in.Mentions...)
 	if parseErr == nil {
@@ -105,7 +118,8 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 			mentionsList = appendUniqueString(mentionsList, target.TargetID)
 		}
 	}
-	updated, err := s.Store.UpdateComment(commentID, in.ExpectedRevision, in.Content, mentionsList)
+	editorID, editorType := commentActor(r)
+	updated, err := s.Store.UpdateComment(commentID, in.ExpectedRevision, in.Content, mentionsList, in.AttachmentIDs, editorID, editorType)
 	if err != nil {
 		status := http.StatusConflict
 		if errors.Is(err, store.ErrNotFound) {
@@ -114,16 +128,41 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.problem(w, r, status, "comment_edit_failed", err.Error(), nil)
 		return
 	}
+	triggerMaterialChanged := old.Content != updated.Content || !equalStrings(old.AttachmentIDs, updated.AttachmentIDs)
+	if triggerMaterialChanged {
+		// Editing a comment invalidates all trigger receipts derived from the
+		// previous content. Cancel provider runs before recomputing the new AST;
+		// a provider that already reached a terminal state remains immutable and
+		// its receipt merge rules preserve that terminal result.
+		for _, followUp := range oldFollowUps {
+			cancelErr := error(nil)
+			if s.Provider != nil && strings.TrimSpace(followUp.ProviderRunID) != "" {
+				cancelErr = s.Provider.CancelRun(r.Context(), followUp.ProviderRunID)
+			}
+			if cancelErr == nil {
+				followUp.Status = "cancelled"
+				followUp.Reason = "comment content edited"
+			} else {
+				followUp.Status = "cancel_pending"
+				followUp.Reason = "comment content edited; provider cancellation pending: " + cancelErr.Error()
+			}
+			_, _ = s.Store.SaveCommentFollowUp(followUp)
+		}
+	}
+	var mentionFollowUps []map[string]any
 	if plan, calcErr := s.computeCommentTriggers(r, updated); calcErr == nil {
 		s.triggerMu.Lock()
 		s.triggerOutcomes[updated.ID] = append([]mentions.TriggerOutcome(nil), plan.Outcomes...)
 		s.triggerMu.Unlock()
 		updated.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
 		for _, outcome := range plan.Outcomes {
-			updated.TriggerOutcomes = append(updated.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+			updated.TriggerOutcomes = append(updated.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
 		}
 		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(updated.ID, updated.Revision, updated.TriggerOutcomes); saveErr == nil {
 			updated = saved
+		}
+		if triggerMaterialChanged {
+			mentionFollowUps = s.dispatchStructuredMentions(r, updated, plan.Outcomes)
 		}
 	} else if parseErr != nil {
 		outcome := invalidMentionOutcome(updated, parseErr)
@@ -131,11 +170,59 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 			updated = saved
 		}
 	}
-	response := map[string]any{"comment": updated, "previous_revision": old.Revision}
+	s.recordAudit(r, updated.WorkspaceID, "comment.edited", updated.ID, map[string]any{"previous_revision": old.Revision, "revision": updated.Revision, "attachment_ids": updated.AttachmentIDs})
+	if s.Events != nil {
+		_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "comment.edited.v1", "comment", updated.ID, tenant(r), updated.WorkspaceID, updated.Revision, map[string]any{
+			"previous_revision": old.Revision, "revision": updated.Revision,
+			"content_sha256": hashBytes([]byte(updated.Content)), "content_bytes": len(updated.Content),
+			"attachment_ids": updated.AttachmentIDs, "trigger_material_changed": triggerMaterialChanged,
+		}))
+	}
+	response := map[string]any{"comment": updated, "previous_revision": old.Revision, "mention_follow_ups": mentionFollowUps}
 	if parseErr != nil && len(updated.TriggerOutcomes) > 0 {
 		response["trigger_outcomes"] = []mentions.TriggerOutcome{toMentionOutcome(updated.TriggerOutcomes[0])}
 	}
 	s.writeJSON(w, http.StatusOK, response)
+}
+
+func commentActor(r *http.Request) (string, string) {
+	if id := strings.TrimSpace(r.Header.Get("X-Member-ID")); id != "" {
+		return id, "member"
+	}
+	if id := strings.TrimSpace(r.Header.Get("X-Agent-ID")); id != "" {
+		return id, "agent"
+	}
+	return "local-user", "system"
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) commentRevisionsRoute(w http.ResponseWriter, r *http.Request, commentID string) {
+	if r.Method != http.MethodGet {
+		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
+		return
+	}
+	comment, err := s.Store.GetComment(commentID)
+	if err != nil || requestWorkspace(r, comment.WorkspaceID) != comment.WorkspaceID {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
+		return
+	}
+	items, err := s.Store.ListCommentRevisions(commentID)
+	if err != nil {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": commentID, "items": items})
 }
 
 func (s *Server) commentTriggerOutcomesRoute(w http.ResponseWriter, r *http.Request, commentID string) {
@@ -148,12 +235,16 @@ func (s *Server) commentTriggerOutcomesRoute(w http.ResponseWriter, r *http.Requ
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
 		return
 	}
+	if ws := requestWorkspace(r, ""); ws != "" && ws != comment.WorkspaceID {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
+		return
+	}
 	s.triggerMu.RLock()
 	items := append([]mentions.TriggerOutcome(nil), s.triggerOutcomes[commentID]...)
 	s.triggerMu.RUnlock()
 	if len(items) == 0 {
 		for _, outcome := range comment.TriggerOutcomes {
-			items = append(items, mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+			items = append(items, mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
 		}
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": commentID, "trigger_outcomes": items})
@@ -169,6 +260,10 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 		s.problem(w, r, http.StatusNotFound, "comment_not_found", err.Error(), nil)
 		return
 	}
+	if ws := requestWorkspace(r, ""); ws != "" && ws != comment.WorkspaceID {
+		s.problem(w, r, http.StatusNotFound, "comment_not_found", "comment not found", nil)
+		return
+	}
 	plan, calcErr := s.computeCommentTriggers(r, comment)
 	if calcErr != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "trigger_retry_failed", calcErr.Error(), nil)
@@ -179,7 +274,7 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 	s.triggerMu.Unlock()
 	converted := make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
 	for _, outcome := range plan.Outcomes {
-		converted = append(converted, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+		converted = append(converted, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
 	}
 	_, _ = s.Store.SetCommentTriggerOutcomes(commentID, comment.Revision, converted)
 	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": commentID, "trigger_outcomes": plan.Outcomes})
@@ -212,29 +307,41 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 		}
 	}
 	if authorID == "" {
-		authorID = strings.TrimSpace(input.AuthorID)
+		// Body identity fields are display-only input. They are never trusted as
+		// the actor because a caller could otherwise impersonate an Agent/member
+		// and create an audited trigger under another identity. Prefer the
+		// authenticated principal when available; the optional local profile uses
+		// a stable system actor when no identity source is configured.
+		if user, authenticated := s.authenticateUser(r); authenticated {
+			authorID = strings.TrimSpace(user.ID)
+			if authorID == "" {
+				authorID = strings.TrimSpace(user.Username)
+			}
+		}
 	}
 	if authorID == "" {
 		authorID = "local-user"
 		authorType = "system"
 	}
-	if authorType == "member" && strings.TrimSpace(input.AuthorType) != "" && r.Header.Get("X-Member-ID") == "" {
-		authorType = strings.TrimSpace(input.AuthorType)
-	}
+	// AuthorType follows the trusted header/principal only. A body value is not
+	// allowed to turn a member comment into an Agent or system comment.
 	mentionValues := append([]string(nil), input.Mentions...)
-	mentionValues = append(mentionValues, commentMentions(input.Content)...)
 	structuredMentionCount := 0
 	parsed, parseErr := mentions.Parse(input.Content)
 	// Structured URI mentions are parsed independently of display names. Keep
 	// the stable target IDs in the legacy comment projection so old clients can
 	// render them, while trigger decisions use the mentions package AST.
 	if parseErr == nil {
-		structuredMentionCount = len(parsed.Targets())
+		structuredMentionCount = len(parsed.InvocationTargets())
 		for _, target := range parsed.Targets() {
 			mentionValues = appendUniqueString(mentionValues, target.TargetID)
 		}
 	}
-	comment, err := s.Store.CreateComment(domain.Comment{WorkspaceID: workspaceID, TargetType: targetType, TargetID: targetID, ParentID: input.ParentID, AuthorID: authorID, AuthorType: authorType, Content: input.Content, Mentions: mentionValues})
+	attachmentIDs := []string(nil)
+	if input.AttachmentIDs != nil {
+		attachmentIDs = append([]string(nil), (*input.AttachmentIDs)...)
+	}
+	comment, err := s.Store.CreateComment(domain.Comment{WorkspaceID: workspaceID, TargetType: targetType, TargetID: targetID, ParentID: input.ParentID, AuthorID: authorID, AuthorType: authorType, Content: input.Content, Mentions: mentionValues, AttachmentIDs: attachmentIDs})
 	if err != nil {
 		status := http.StatusUnprocessableEntity
 		if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
@@ -245,13 +352,14 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 	}
 	s.recordAudit(r, workspaceID, "comment.created", comment.ID, map[string]any{"target_type": targetType, "target_id": targetID, "parent_id": comment.ParentID, "root_id": comment.RootID, "mentions": comment.Mentions})
 	if s.Events != nil {
-		_ = s.Events.Publish(r.Context(), events.New("comment.created.v1", "comment", comment.ID, tenant(r), workspaceID, 1, map[string]any{"target_type": targetType, "target_id": targetID, "parent_id": comment.ParentID, "root_id": comment.RootID, "content_sha256": hashBytes([]byte(comment.Content)), "content_bytes": len(comment.Content), "mentions": comment.Mentions}))
+		_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "comment.created.v1", "comment", comment.ID, tenant(r), workspaceID, 1, map[string]any{"target_type": targetType, "target_id": targetID, "parent_id": comment.ParentID, "root_id": comment.RootID, "content_sha256": hashBytes([]byte(comment.Content)), "content_bytes": len(comment.Content), "mentions": comment.Mentions}))
 	}
 	followUp := map[string]any{"requested": false, "status": "not_requested"}
-	// Plain display-name tokens are render-only. Explicit structured URI
-	// mentions (or the legacy JSON mentions field) are the only implicit
-	// dispatch request; callers can still opt in explicitly via dispatch=true.
-	dispatch := structuredMentionCount > 0 || len(input.Mentions) > 0
+	// Plain display-name tokens and the legacy JSON mentions field are render-
+	// only. Only structured URI targets implicitly invoke work; callers may use
+	// dispatch=true with an explicit agent_binding_id or the target's existing
+	// work-item route, but no display name is ever resolved into a route.
+	dispatch := structuredMentionCount > 0
 	if input.Dispatch != nil {
 		dispatch = *input.Dispatch
 	}
@@ -276,10 +384,13 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 			s.triggerMu.Unlock()
 			comment.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(triggerOutcomes))
 			for _, outcome := range triggerOutcomes {
-				comment.TriggerOutcomes = append(comment.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID})
+				comment.TriggerOutcomes = append(comment.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
 			}
 			if saved, saveErr := s.Store.SetCommentTriggerOutcomes(comment.ID, comment.Revision, comment.TriggerOutcomes); saveErr == nil {
 				comment = saved
+			}
+			if dispatch {
+				followUp["mention_follow_ups"] = s.dispatchStructuredMentions(r, comment, triggerOutcomes)
 			}
 		}
 	}
@@ -291,6 +402,64 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 		response["trigger_outcomes"] = triggerOutcomes
 	}
 	s.writeJSON(w, http.StatusCreated, response)
+}
+
+// dispatchStructuredMentions turns queued roster outcomes into the same
+// durable follow-up receipt used by legacy comment dispatch. Squad targets are
+// routed through their published leader; @all expands to active workspace
+// agents. Blocked/deferred/coalesced outcomes remain auditable without a
+// provider side effect.
+func (s *Server) dispatchStructuredMentions(r *http.Request, comment domain.Comment, outcomes []mentions.TriggerOutcome) []map[string]any {
+	result := make([]map[string]any, 0)
+	for _, outcome := range outcomes {
+		if outcome.Status != mentions.StatusQueued {
+			continue
+		}
+		if outcome.TargetType == mentions.TargetAll {
+			// @all is an explicit fan-out. Resolve the current active roster at
+			// dispatch time and retain one receipt per expanded target in the
+			// response; the original @all outcome remains the audit anchor.
+			if s.Orchestration == nil {
+				continue
+			}
+			for _, agent := range s.Orchestration.ListAgents(comment.WorkspaceID, orchestration.AgentActive) {
+				followUp := s.queueCommentFollowUpForTarget(r, comment, "agent", agent.ID, outcome.DedupeKey+":"+agent.ID)
+				result = append(result, map[string]any{"target_type": string(mentions.TargetAgent), "target_id": agent.ID, "dedupe_key": outcome.DedupeKey + ":" + agent.ID, "follow_up": followUp})
+			}
+			continue
+		}
+		targetID := outcome.TargetID
+		dispatchType := string(outcome.TargetType)
+		bindingID := targetID
+		if outcome.TargetType == mentions.TargetSquad && s.Orchestration != nil {
+			if squad, err := s.Orchestration.GetSquad(comment.WorkspaceID, targetID, 0); err == nil {
+				for _, member := range squad.Members {
+					if member.Leader {
+						bindingID = member.AgentID
+						break
+					}
+				}
+			}
+		}
+		if outcome.TargetType == mentions.TargetAll && s.Orchestration != nil {
+			for _, agent := range s.Orchestration.ListAgents(comment.WorkspaceID, orchestration.AgentActive) {
+				result = append(result, s.queueMentionFollowUp(r, comment, agent.ID, outcome.DedupeKey)...)
+			}
+			continue
+		}
+		result = append(result, s.queueStructuredTargetFollowUp(r, comment, dispatchType, targetID, bindingID, outcome.DedupeKey)...)
+	}
+	return result
+}
+
+func (s *Server) queueMentionFollowUp(r *http.Request, comment domain.Comment, targetID, dedupeKey string) []map[string]any {
+	result := s.queueCommentFollowUpForTargetWithBinding(r, comment, string(mentions.TargetAgent), targetID, targetID, dedupeKey+":"+targetID)
+	return []map[string]any{{"target_id": targetID, "dedupe_key": dedupeKey, "follow_up": result}}
+}
+
+func (s *Server) queueStructuredTargetFollowUp(r *http.Request, comment domain.Comment, dispatchType, dispatchID, bindingID, dedupeKey string) []map[string]any {
+	result := s.queueCommentFollowUpForTargetWithBinding(r, comment, dispatchType, dispatchID, bindingID, dedupeKey+":"+dispatchID)
+	return []map[string]any{{"target_type": dispatchType, "target_id": dispatchID, "dedupe_key": dedupeKey, "follow_up": result}}
 }
 
 func appendUniqueString(values []string, additions ...string) []string {
@@ -314,7 +483,7 @@ func invalidMentionOutcome(comment domain.Comment, err error) domain.CommentTrig
 }
 
 func toMentionOutcome(outcome domain.CommentTriggerOutcome) mentions.TriggerOutcome {
-	return mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID}
+	return mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID}
 }
 
 // commentFollowUpRoute exposes status polling and an explicit retry/dispatch
@@ -331,9 +500,15 @@ func (s *Server) commentFollowUpRoute(w http.ResponseWriter, r *http.Request, co
 		return
 	}
 	if r.Method == http.MethodGet {
+		all := s.Store.ListCommentFollowUps(comment.ID)
+		if len(all) > 0 {
+			for i := range all {
+				all[i] = s.refreshCommentFollowUp(r, all[i])
+			}
+		}
 		followUp, getErr := s.Store.GetCommentFollowUp(comment.ID)
 		if errors.Is(getErr, store.ErrNotFound) {
-			s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": comment.ID, "status": "not_requested"})
+			s.writeJSON(w, http.StatusOK, map[string]any{"comment_id": comment.ID, "status": "not_requested", "follow_ups": all})
 			return
 		}
 		if getErr != nil {
@@ -341,7 +516,8 @@ func (s *Server) commentFollowUpRoute(w http.ResponseWriter, r *http.Request, co
 			return
 		}
 		followUp = s.refreshCommentFollowUp(r, followUp)
-		s.writeJSON(w, http.StatusOK, followUp)
+		response := map[string]any{"comment_id": comment.ID, "follow_up": followUp, "follow_ups": all}
+		s.writeJSON(w, http.StatusOK, response)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -359,40 +535,33 @@ func (s *Server) commentFollowUpRoute(w http.ResponseWriter, r *http.Request, co
 	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": comment.ID, "follow_up": result})
 }
 
-func commentMentions(content string) []string {
-	seen := map[string]struct{}{}
-	mentions := make([]string, 0)
-	for _, raw := range strings.Fields(content) {
-		if !strings.HasPrefix(raw, "@") {
-			continue
-		}
-		mention := strings.Trim(raw[1:], " ,.;:!?()[]{}")
-		if mention == "" {
-			continue
-		}
-		if _, exists := seen[mention]; exists {
-			continue
-		}
-		seen[mention] = struct{}{}
-		mentions = append(mentions, mention)
-		if len(mentions) == 32 {
-			break
-		}
-	}
-	return mentions
+func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, requestedBinding string) map[string]any {
+	return s.queueCommentFollowUpForTargetWithBinding(r, comment, "agent", requestedBinding, requestedBinding, fmt.Sprintf("%s:legacy:%d", comment.ID, comment.Revision))
 }
 
-func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, requestedBinding string) map[string]any {
+func (s *Server) queueCommentFollowUpForTarget(r *http.Request, comment domain.Comment, dispatchTargetType, dispatchTargetID, dedupeKey string) map[string]any {
+	return s.queueCommentFollowUpForTargetWithBinding(r, comment, dispatchTargetType, dispatchTargetID, dispatchTargetID, dedupeKey)
+}
+
+func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comment domain.Comment, dispatchTargetType, dispatchTargetID, requestedAgentBinding, dedupeKey string) map[string]any {
+	if strings.TrimSpace(dispatchTargetType) == "" {
+		dispatchTargetType = "agent"
+	}
+	requestedBinding := strings.TrimSpace(requestedAgentBinding)
 	result := map[string]any{"requested": true, "status": "unavailable"}
 	saveReceipt := func(receipt domain.CommentFollowUp) {
 		if s.Store == nil {
 			return
 		}
+		receipt.DispatchTargetType = dispatchTargetType
+		receipt.DispatchTargetID = dispatchTargetID
+		receipt.DedupeKey = dedupeKey
+		receipt.CommentRevision = comment.Revision
 		if _, err := s.Store.SaveCommentFollowUp(receipt); err != nil && s.Logger != nil {
 			s.Logger.Error("persist comment follow-up receipt", "error", err, "comment_id", comment.ID)
 		}
 	}
-	if existing, err := s.Store.GetCommentFollowUp(comment.ID); err == nil && (existing.Status == "started" || existing.Status == "running" || existing.Status == "completed") {
+	if existing, err := s.Store.GetCommentFollowUpForTarget(comment.ID, dispatchTargetType, dispatchTargetID); err == nil && (existing.Status == "started" || existing.Status == "running" || existing.Status == "completed" || existing.Status == "dispatching" || existing.Status == "queued") {
 		result["status"] = existing.Status
 		result["run_id"] = existing.ProviderRunID
 		result["session_id"] = existing.ProviderSessionID
@@ -405,17 +574,18 @@ func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, r
 		return result
 	}
 	workItem, run, agentID := s.commentExecutionTarget(comment)
+	explicitStructured := strings.Contains(comment.Content, "mention://")
 	if requestedBinding != "" {
 		agentID = strings.TrimSpace(requestedBinding)
-	} else if agentID == "" {
-		for _, mention := range comment.Mentions {
-			if binding, bindingErr := s.Store.GetProviderBinding(strings.TrimSpace(mention)); bindingErr == nil && binding.WorkspaceID == comment.WorkspaceID {
-				agentID = binding.ID
-				break
+		if s.Orchestration != nil {
+			if definition, definitionErr := s.Orchestration.GetAgent(comment.WorkspaceID, agentID, 0); definitionErr == nil {
+				if strings.TrimSpace(definition.ExecutorBinding.ProviderID) != "" {
+					agentID = definition.ExecutorBinding.ProviderID
+				}
 			}
 		}
 	}
-	if requestedBinding != "" && workItem.DeveloperAgentBindingID != "" && strings.TrimSpace(requestedBinding) != workItem.DeveloperAgentBindingID {
+	if requestedBinding != "" && !explicitStructured && workItem.DeveloperAgentBindingID != "" && strings.TrimSpace(requestedBinding) != workItem.DeveloperAgentBindingID {
 		result["reason"] = "agent binding does not match the target work item"
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: strings.TrimSpace(requestedBinding), Status: "rejected", Reason: result["reason"].(string)})
 		return result
@@ -424,6 +594,9 @@ func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, r
 		result["reason"] = "no agent binding is available for this target"
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, Status: "unavailable", Reason: result["reason"].(string)})
 		return result
+	}
+	if strings.TrimSpace(dispatchTargetID) == "" {
+		dispatchTargetID = agentID
 	}
 	sessionID := ""
 	if run.ID != "" {
@@ -456,7 +629,10 @@ func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, r
 	if contextVersion < 1 {
 		contextVersion = 1
 	}
-	key := "comment:" + comment.ID
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		key = fmt.Sprintf("comment:%s:revision:%d:%s:%s", comment.ID, comment.Revision, dispatchTargetType, dispatchTargetID)
+	}
 	prompt := s.commentFollowUpPrompt(comment)
 	turn, err := s.Harness.AppendTurn(sessionID, harness.Turn{Role: harness.RoleUser, Content: prompt, IdempotencyKey: key, Metadata: map[string]string{"comment_id": comment.ID, "target_type": comment.TargetType, "target_id": comment.TargetID}})
 	if err != nil {
@@ -473,6 +649,12 @@ func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, r
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "retrying", Reason: result["reason"].(string)})
 		return result
 	}
+	contextEnvelope, compileErr := s.compiledHarnessEnvelope(sessionID)
+	if compileErr != nil {
+		result["reason"] = compileErr.Error()
+		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "retrying", Reason: result["reason"].(string)})
+		return result
+	}
 	if err := s.saveHarnessCheckpoint(sessionID, harness.CheckpointEffectBefore, turn.Hash, contextVersion, nil, nil, "comment follow-up pending"); err != nil {
 		result["reason"] = err.Error()
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "retrying", Reason: result["reason"].(string)})
@@ -483,12 +665,26 @@ func (s *Server) queueCommentFollowUp(r *http.Request, comment domain.Comment, r
 		workItemID = "comment-" + comment.ID
 	}
 	issueID := workItem.ProviderIssueID
-	command := provider.StartRunCommand{WorkItemID: workItemID, ProviderIssueID: issueID, AgentBindingID: agentID, Input: dispatchPrompt, SessionID: sessionID, ContextID: "context-" + workItemID, ContextVersion: contextVersion, IdempotencyKey: key}
-	intent := providerDispatchIntent{Kind: "comment", CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, WorkItemID: workItem.ID, RequirementID: commentRequirementID(s.Store, comment), BugID: commentBugID(s.Store, comment), AgentID: agentID, ProviderIssueID: issueID, HarnessSessionID: sessionID, ContextID: command.ContextID, ContextVersion: contextVersion, TurnHash: turn.Hash, Command: command}
+	command := provider.StartRunCommand{WorkItemID: workItemID, ProviderIssueID: issueID, AgentBindingID: agentID, Input: dispatchPrompt, SessionID: sessionID, ContextID: "context-" + workItemID, ContextVersion: contextVersion, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: "comment-v1", IdempotencyKey: key}
+	graphScope, scopeErr := compat.CommentDispatchScope(comment.ID, dispatchTargetType+":"+dispatchTargetID, key)
+	if scopeErr != nil {
+		result["reason"] = scopeErr.Error()
+		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "rejected", Reason: result["reason"].(string)})
+		return result
+	}
+	command.PlanID, command.NodeID, command.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
+	command = command.WithTraceContext(r.Context())
+	intent := providerDispatchIntent{Kind: "comment", CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, DispatchTargetType: dispatchTargetType, DispatchTargetID: dispatchTargetID, DedupeKey: dedupeKey, WorkItemID: workItem.ID, RequirementID: commentRequirementID(s.Store, comment), BugID: commentBugID(s.Store, comment), AgentID: agentID, ProviderIssueID: issueID, HarnessSessionID: sessionID, ContextID: command.ContextID, ContextVersion: contextVersion, TurnHash: turn.Hash, ContextEnvelope: contextEnvelope, Command: command}
 	if workItem.ID != "" {
 		if provenance, found := s.Store.FindProvenance(workItem.ID); found && workItem.ProviderIssueID != "" && provenance.ProviderSessionID != "" && provenance.ProviderWorkDir != "" {
 			intent.ProviderIssueID = workItem.ProviderIssueID
-			intent.Continuation = &provider.ContinuationCommand{IssueID: workItem.ProviderIssueID, AgentID: agentID, Input: dispatchPrompt, ExpectedSessionID: provenance.ProviderSessionID, ExpectedWorkDir: provenance.ProviderWorkDir, IdempotencyKey: key}
+			continuation := &provider.ContinuationCommand{IssueID: workItem.ProviderIssueID, AgentID: agentID, Input: dispatchPrompt, ExpectedSessionID: provenance.ProviderSessionID, ExpectedWorkDir: provenance.ProviderWorkDir, IdempotencyKey: key, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: "comment-v1"}
+			continuation.ExpectedRevision = contextVersion
+			continuation.PlanID = command.PlanID
+			continuation.NodeID = command.NodeID
+			continuation.AttemptID = command.AttemptID
+			*continuation = continuation.WithTraceContext(r.Context())
+			intent.Continuation = continuation
 		}
 	}
 	event, claimed, err := s.Harness.EnqueueAndClaimOutbox(sessionID, key, intent, providerDispatchOwner, dispatchLeaseTTL(), time.Now().UTC())

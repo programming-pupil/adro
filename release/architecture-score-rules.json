@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "method": "Each dimension has five equally weighted, case-insensitive evidence checks. Source, test, and release/evidence matches are classified by path. Scores are computed as matched_checks / 5 * 10; no project-specific points or manual overrides exist.",
+  "dimensions": [
+    {
+      "id": "immutable_plans_attempts",
+      "name": "Immutable plans and attempt lineage",
+      "kernel": true,
+      "checks": [
+        {"id":"plan_model","category":"source","pattern":"execution[_ ]?plan|requirementexecutionplan|planprojection"},
+        {"id":"plan_hash","category":"source","pattern":"plan[_ ]?hash|immutable.{0,30}plan|freeze.{0,30}plan"},
+        {"id":"attempt_lineage","category":"source","pattern":"node[_ ]?attempt|attempt[_ ]?no|parent[_ ]?attempt"},
+        {"id":"stale_attempt","category":"source","pattern":"stale[_ ]?attempt|late.{0,30}attempt|fencing.{0,30}attempt"},
+        {"id":"plan_tests","category":"test","pattern":"plan.{0,50}(immutable|hash|attempt|replay)|attempt.{0,50}(lineage|stale|late)"}
+      ]
+    },
+    {
+      "id": "graph_scheduler",
+      "name": "Graph scheduling, predicates, fan-out and joins",
+      "kernel": true,
+      "checks": [
+        {"id":"graph_model","category":"source","pattern":"workflow[_ ]?graph|graphsnapshot|workflow[_ ]?node|workflow[_ ]?edge"},
+        {"id":"predicate","category":"source","pattern":"predicate.{0,40}(field|number|contains|exists|all|any|not)|field[_ ]?eq|number[_ ]?cmp"},
+        {"id":"fanout_join","category":"source","pattern":"fan[_ -]?out|fan[_ -]?in|join[_ ]?policy|first[_ ]?success|quorum"},
+        {"id":"bounded_cycles","category":"source","pattern":"max[_ ]?traversals|loop[_ ]?group|human[_ ]?exit|loop[_ ]?exhaust"},
+        {"id":"graph_tests","category":"test","pattern":"graph.{0,50}(valid|join|fan|predicate|ambiguous)|join.{0,50}(quorum|success|timeout)"}
+      ]
+    },
+    {
+      "id": "feedback_retry",
+      "name": "Explicit feedback, retry and revalidation",
+      "kernel": true,
+      "checks": [
+        {"id":"feedback_edges","category":"source","pattern":"feedback[_ ]?edge|feedback[_ ]?decision|edgeevent.{0,30}(failure|bug|timeout)"},
+        {"id":"bounded_retry","category":"source","pattern":"max[_ ]?retries|max[_ ]?attempts|retry[_ ]?policy|retry[_ ]?backoff"},
+        {"id":"bug_repair","category":"source","pattern":"bug.{0,40}repair|repair.{0,40}(attempt|rerun)|unit.{0,20}failure"},
+        {"id":"human_exit","category":"source","pattern":"human[_ ]?(takeover|review|gate|exit)|approval[_ ]?denied"},
+        {"id":"feedback_tests","category":"test","pattern":"feedback|repair.{0,40}(loop|session|rerun)|retry.{0,40}(lineage|backoff|limit)"}
+      ]
+    },
+    {
+      "id": "lease_idempotency",
+      "name": "Lease, fencing and idempotency",
+      "kernel": true,
+      "checks": [
+        {"id":"lease","category":"source","pattern":"lease[_ ]?(ttl|expires|owner)|acquire[_ ]?lease|claim[_ ]?lease"},
+        {"id":"fencing","category":"source","pattern":"fencing[_ ]?token|stale[_ ]?(writer|lease)|lease[_ ]?lost"},
+        {"id":"idempotency","category":"source","pattern":"idempotency[_ -]?key|idempotency[_ ]?conflict|dedupe[_ ]?key"},
+        {"id":"cas_lock","category":"source","pattern":"compare[_ -]?and[_ -]?swap|advisory[_ ]?lock|expected[_ ]?revision|revision[_ ]?conflict"},
+        {"id":"lease_tests","category":"test","pattern":"lease.{0,50}(takeover|expire|fenc|conflict)|idempoten.{0,50}(conflict|retry|duplicate)"}
+      ]
+    },
+    {
+      "id": "ledger_replay_outbox",
+      "name": "Tamper-evident ledger, replay and outbox",
+      "kernel": true,
+      "checks": [
+        {"id":"hash_chain","category":"source","pattern":"previous[_ ]?hash|envelope[_ ]?hash|payload[_ ]?hash|hash[_ ]?chain"},
+        {"id":"event_sequence","category":"source","pattern":"event[_ ]?sequence|sequence[_ ]?gap|committed[_ ]?at"},
+        {"id":"projection_replay","category":"source","pattern":"replay[_ ]?projection|projection[_ ]?rebuild|replay.{0,30}cursor"},
+        {"id":"outbox","category":"source","pattern":"outbox|transactional.{0,20}event|delivery[_ ]?lease"},
+        {"id":"ledger_tests","category":"test","pattern":"replay.{0,50}(projection|restart|cursor)|outbox.{0,50}(duplicate|lease|recover)|hash.{0,30}(tamper|chain)"}
+      ]
+    },
+    {
+      "id": "context_budget_compression",
+      "name": "Typed context, budget and compression lineage",
+      "kernel": true,
+      "checks": [
+        {"id":"typed_context","category":"source","pattern":"context[_ ]?(envelope|manifest|packet)|semantic[_ ]?snapshot"},
+        {"id":"selection_digest","category":"source","pattern":"selection[_ ]?digest|replay[_ ]?key|manifest[_ ]?digest"},
+        {"id":"hard_budget","category":"source","pattern":"token[_ ]?budget|hard[_ ]?budget|context[_ ]?overflow"},
+        {"id":"compression_lineage","category":"source","pattern":"summary[_ ]?compression|compression[_ ]?(lineage|version)|compaction[_ ]?(lineage|snapshot)"},
+        {"id":"context_tests","category":"test","pattern":"context.{0,50}(overflow|digest|budget|snapshot|tamper)|compression.{0,40}(replay|lineage|budget)"}
+      ]
+    },
+    {
+      "id": "session_recovery",
+      "name": "Session continuity, workdir provenance and recovery",
+      "kernel": true,
+      "checks": [
+        {"id":"session_workdir","category":"source","pattern":"session[_ ]?id.{0,80}workdir|workdir.{0,80}session[_ ]?id|work[_ ]?dir"},
+        {"id":"continuation","category":"source","pattern":"thread[.]started|session[_ ]?continuity|continuation|resume[_ ]?session"},
+        {"id":"restart_recovery","category":"source","pattern":"restart[_ ]?recovery|recover.{0,40}(run|session|attempt)|interrupted[_ ]?run"},
+        {"id":"cancel_timeout","category":"source","pattern":"cancel[_ ]?(run|tool|attempt)|provider[_ ]?timeout|deadline[_ ]?exceeded"},
+        {"id":"session_tests","category":"test","pattern":"session.{0,50}(continu|resume|restart|workdir)|recover.{0,50}(run|attempt|provider)|thread[.]started"}
+      ]
+    },
+    {
+      "id": "evidence_memory",
+      "name": "Evidence-backed memory lifecycle and isolation",
+      "kernel": true,
+      "checks": [
+        {"id":"memory_lifecycle","category":"source","pattern":"candidate.{0,80}quarantined.{0,80}confirmed|superseded|forgotten"},
+        {"id":"evidence_hash","category":"source","pattern":"evidence[_ ]?hash|source[_ ]?ids|memory.{0,30}evidence"},
+        {"id":"conflict_pollution","category":"source","pattern":"conflict[_ ]?package|pollution[_ ]?lineage|memory[_ ]?conflict"},
+        {"id":"review_ttl_scope","category":"source","pattern":"memory.{0,50}(reviewer|expires[_ ]?at|ttl|scope)|expires[_ ]?at.{0,40}memory"},
+        {"id":"memory_tests","category":"test","pattern":"memory.{0,50}(evidence|conflict|pollution|scope|forget|supersed|ttl)"}
+      ]
+    },
+    {
+      "id": "tool_effect_loop",
+      "name": "Typed tool loop and exactly-once effects",
+      "kernel": true,
+      "checks": [
+        {"id":"tool_lifecycle","category":"source","pattern":"authorize[_ ]?tool|tool[.]authorized|tool[.]started|tool[.]finished"},
+        {"id":"approval","category":"source","pattern":"approve[_ ]?tool|requires[_ ]?approval|approval[_ ]?denied"},
+        {"id":"effect_fence","category":"source","pattern":"fence[_ ]?effect|effect[_ ]?fence|exactly[_ -]?once"},
+        {"id":"tool_contract","category":"source","pattern":"tool[_ ]?contract|side[_ ]?effect[_ ]?class|secret[_ ]?scope|network[_ ]?policy"},
+        {"id":"tool_tests","category":"test","pattern":"tool.{0,50}(approval|denial|timeout|cancel|retry|fence|duplicate|unauthor)"}
+      ]
+    },
+    {
+      "id": "agent_squad_control",
+      "name": "Revisioned Agent and Squad control plane",
+      "kernel": false,
+      "checks": [
+        {"id":"agent_definition","category":"source","pattern":"agent[_ ]?definition|agentdefinition|executor[_ ]?binding"},
+        {"id":"squad_definition","category":"source","pattern":"squad[_ ]?definition|squaddefinition|agent[_ ]?team"},
+        {"id":"revision_publish","category":"source","pattern":"published[_ ]?version|expected[_ ]?revision|archive.{0,30}squad|disable.{0,30}agent"},
+        {"id":"capability","category":"source","pattern":"capability[_ ]?(constraint|unavailable|probe)|required[_ ]?caps|executor[_ ]?health"},
+        {"id":"control_tests","category":"test","pattern":"(agent|squad|team).{0,60}(publish|revision|archive|capabil|leader|nested)"}
+      ]
+    },
+    {
+      "id": "structured_mentions",
+      "name": "Structured comment mentions and trigger receipts",
+      "kernel": false,
+      "checks": [
+        {"id":"mention_uri","category":"source","pattern":"mention://(agent|squad|all)|target[_ ]?type.{0,30}target[_ ]?id"},
+        {"id":"shared_compute","category":"source","pattern":"compute[_ ]?triggers|trigger[_ ]?preview|editing[_ ]?comment"},
+        {"id":"outcomes","category":"source","pattern":"coalesced|deferred|trigger[_ ]?outcome|authority[_ ]?snapshot"},
+        {"id":"edit_retry","category":"source","pattern":"comment.{0,30}expected[_ ]?revision|trigger[_ -]?retry|comment[_ ]?revision"},
+        {"id":"mention_tests","category":"test","pattern":"mention.{0,50}(preview|squad|all|duplicate|permission|revision|outcome)|comment.{0,30}trigger"}
+      ]
+    },
+    {
+      "id": "stream_consistency",
+      "name": "Stream ACK, cursor, retention and gap handling",
+      "kernel": false,
+      "checks": [
+        {"id":"ack_cursor","category":"source","pattern":"ack[_ ]?scoped|replay[_ ]?scoped|consumer[_ ]?cursor|stream[_ ]?cursor"},
+        {"id":"gap_duplicate","category":"source","pattern":"stream[.]gap|event[_ ]?gap|duplicate.{0,20}event|out[_ -]?of[_ -]?order"},
+        {"id":"retention","category":"source","pattern":"stream[_ ]?retention|retention[_ ]?ttl|trim.{0,30}stream"},
+        {"id":"relay","category":"source","pattern":"redis[_ ]?relay|sharded[_ ]?stream|stream[_ ]?relay|websocket.{0,30}replay"},
+        {"id":"stream_tests","category":"test","pattern":"stream.{0,50}(gap|replay|ack|retention|relay)|cursor.{0,40}(scope|restart|unknown)"}
+      ]
+    },
+    {
+      "id": "production_persistence",
+      "name": "Production persistence, RLS and restore",
+      "kernel": false,
+      "checks": [
+        {"id":"sqlite_postgres","category":"source","pattern":"sqlite.{0,40}postgres|postgres.{0,40}sqlite|newpostgressqlrepository"},
+        {"id":"transaction","category":"source","pattern":"begin.{0,30}transaction|db[.]begin|transaction.{0,30}(commit|rollback)"},
+        {"id":"rls","category":"source","pattern":"row level security|enable row level security|tenant[_ ]?id.{0,50}workspace[_ ]?id"},
+        {"id":"backup_restore","category":"release","pattern":"pg_dump|pg_restore|backup.{0,30}restore|rto.{0,20}rpo"},
+        {"id":"persistence_tests","category":"test","pattern":"postgres.{0,60}(conformance|replica|restore|rls)|sqlite.{0,50}(conformance|transaction|backup)"}
+      ]
+    },
+    {
+      "id": "security_audit",
+      "name": "Tenant security, least privilege and audit",
+      "kernel": false,
+      "checks": [
+        {"id":"tenant_scope","category":"source","pattern":"tenant[_ ]?id.{0,80}workspace[_ ]?id|workspace[_ ]?isolation|scope[_ ]?mismatch"},
+        {"id":"permissions","category":"source","pattern":"manage[_ ]?permission|invoke[_ ]?permission|authorize|permission[_ ]?denied"},
+        {"id":"secret_redaction","category":"source","pattern":"secret.{0,40}(redact|reference|scope)|payload[_ ]?redacted|prompt[_ ]?redact"},
+        {"id":"audit","category":"source","pattern":"append[_ -]?only.{0,30}audit|audit[_ ]?event|authority[_ ]?snapshot"},
+        {"id":"security_tests","category":"test","pattern":"(tenant|workspace).{0,50}(isolation|spoof|foreign)|secret.{0,30}(free|redact)|permission.{0,30}(deny|fail)"}
+      ]
+    },
+    {
+      "id": "observability_release_evidence",
+      "name": "Diagnostics, supply chain and real evidence",
+      "kernel": false,
+      "checks": [
+        {"id":"trace_reason","category":"source","pattern":"traceparent|tracestate|reason[_ ]?code|correlation[_ ]?id"},
+        {"id":"diagnostics_metrics","category":"source","pattern":"run[_ ]?diagnostics|plan[_ ]?timeline|transition[_ ]?latency|metrics"},
+        {"id":"sbom_license","category":"release","pattern":"spdx|sbom|third[_ -]?party[_ ]?notices|license[_ ]?sha256"},
+        {"id":"signing_faults","category":"release","pattern":"sign[_ -]?manifest|ssh-keygen.{0,20}-Y|fault[_ -]?matrix|tamper[_ ]?rejection"},
+        {"id":"real_evidence","category":"evidence","pattern":"real codex|real browser|playwright|postgresql-operational|fault-injection|pipeline=.*requirement="}
+      ]
+    }
+  ]
+}

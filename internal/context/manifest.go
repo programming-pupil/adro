@@ -82,11 +82,11 @@ func NewManifest(session string, version, budget int64, blocks []Block) (Manifes
 	}
 	m := Manifest{SessionID: session, Version: version, SemanticSnapshotVersion: version, TokenBudget: budget, TokenEstimate: total, Blocks: cp, CreatedAt: time.Now().UTC()}
 	m.Digest = manifestDigest(m)
-	m.PromptManifestHash = m.Digest
+	m.PromptManifestHash = promptManifestHash(m)
 	return m, nil
 }
 func (m Manifest) Validate() error {
-	if m.SessionID == "" || m.Digest == "" || m.TokenBudget < 1 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
+	if m.SessionID == "" || m.Digest == "" || m.Version < 1 || m.SemanticSnapshotVersion < 1 || m.TokenBudget < 1 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
 		return errors.New("invalid context manifest")
 	}
 	for _, b := range m.Blocks {
@@ -96,6 +96,9 @@ func (m Manifest) Validate() error {
 	}
 	if manifestDigest(m) != m.Digest {
 		return errors.New("context manifest digest mismatch")
+	}
+	if m.PromptManifestHash == "" || m.PromptManifestHash != promptManifestHash(m) {
+		return errors.New("context prompt manifest hash mismatch")
 	}
 	return nil
 }
@@ -118,6 +121,24 @@ func manifestDigest(m Manifest) string {
 	cp.CreatedAt = time.Time{}
 	b, _ := json.Marshal(cp)
 	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+func promptManifestHash(m Manifest) string {
+	type promptBlock struct {
+		ID      string `json:"id"`
+		Hash    string `json:"hash"`
+		Content string `json:"content"`
+	}
+	blocks := make([]promptBlock, 0, len(m.Blocks))
+	for _, block := range m.Blocks {
+		blocks = append(blocks, promptBlock{ID: block.ID, Hash: block.Hash, Content: block.Content})
+	}
+	data, _ := json.Marshal(struct {
+		ManifestDigest string        `json:"manifest_digest"`
+		Blocks         []promptBlock `json:"blocks"`
+	}{m.Digest, blocks})
+	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
 

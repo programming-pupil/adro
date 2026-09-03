@@ -17,6 +17,48 @@ import (
 	"github.com/adro-project/adro/internal/orchestration"
 )
 
+// orchestrationPermission keeps control-plane mutations behind the same
+// workspace identity boundary as the rest of the API. Unauthenticated access
+// remains available only in the explicit local optional-auth profile.
+func (s *Server) orchestrationPermission(r *http.Request) bool {
+	if authorizedMachine(r) {
+		return true
+	}
+	if user, ok := s.authenticateUser(r); ok {
+		return user.Can("agents") || user.Can("executions")
+	}
+	return !authRequired()
+}
+
+// Management and invocation are intentionally separate capabilities. A member
+// allowed to run an existing plan must not be able to publish or mutate the
+// Agent/Squad definitions that shape future executions.
+func (s *Server) orchestrationManagePermission(r *http.Request) bool {
+	if authorizedMachine(r) {
+		return true
+	}
+	if user, ok := s.authenticateUser(r); ok {
+		return user.Can("agents") || user.Can("admin")
+	}
+	return !authRequired()
+}
+
+func (s *Server) requireOrchestrationManagePermission(w http.ResponseWriter, r *http.Request) bool {
+	if s.orchestrationManagePermission(r) {
+		return true
+	}
+	s.problem(w, r, http.StatusForbidden, "orchestration_manage_permission_denied", "agent or squad management permission is required", nil)
+	return false
+}
+
+func (s *Server) requireOrchestrationPermission(w http.ResponseWriter, r *http.Request) bool {
+	if s.orchestrationPermission(r) {
+		return true
+	}
+	s.problem(w, r, http.StatusForbidden, "orchestration_permission_denied", "orchestration management or invoke permission is required", nil)
+	return false
+}
+
 func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Request, workspaceID, kind, tail string) {
 	if s.Orchestration == nil {
 		s.problem(w, r, http.StatusServiceUnavailable, "orchestration_unavailable", "orchestration repository is unavailable", nil)
@@ -27,13 +69,20 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 		s.problem(w, r, http.StatusNotFound, "not_found", "workspace resource not found", nil)
 		return
 	}
+	if r.Method != http.MethodGet && !s.requireOrchestrationManagePermission(w, r) {
+		return
+	}
 	if kind == "agents" {
 		if tail != "" {
 			s.orchestrationAgentResource(w, r, tail, workspaceID)
 			return
 		}
 		if r.Method == http.MethodGet {
-			s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))})
+			agents := s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))
+			if capability := strings.TrimSpace(r.URL.Query().Get("capability")); capability != "" {
+				agents = filterAgentsByCapability(agents, capability)
+			}
+			s.writeJSON(w, http.StatusOK, map[string]any{"items": agents})
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -47,7 +96,7 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 		}
 		a.WorkspaceID, a.ID = workspaceID, strings.TrimSpace(a.ID)
 		if a.ID == "" {
-			a.ID = domain.NewID()
+			a.ID = orchestration.NewID()
 		}
 		if a.Revision == 0 {
 			a.Revision = 1
@@ -83,7 +132,7 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 	}
 	squad.WorkspaceID, squad.ID = workspaceID, strings.TrimSpace(squad.ID)
 	if squad.ID == "" {
-		squad.ID = domain.NewID()
+		squad.ID = orchestration.NewID()
 	}
 	if squad.Revision == 0 {
 		squad.Revision = 1
@@ -110,6 +159,9 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 			return
 		}
+		if !s.requireOrchestrationManagePermission(w, r) {
+			return
+		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"valid": a.Validate() == nil, "agent": a, "error": validationError(a.Validate())})
 		return
 	}
@@ -134,6 +186,9 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		s.writeJSON(w, http.StatusOK, caps)
+		return
+	}
+	if r.Method != http.MethodGet && !s.requireOrchestrationManagePermission(w, r) {
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -211,6 +266,9 @@ func (s *Server) orchestrationSquadResource(w http.ResponseWriter, r *http.Reque
 			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 			return
 		}
+		if !s.requireOrchestrationManagePermission(w, r) {
+			return
+		}
 		err := sq.Validate()
 		resp := map[string]any{"valid": err == nil, "squad": sq}
 		if err != nil {
@@ -231,6 +289,9 @@ func (s *Server) orchestrationSquadResource(w http.ResponseWriter, r *http.Reque
 			resp["ready_nodes"] = orchestration.ReadyNodes(orchestration.RequirementExecutionPlan{GraphSnapshot: sq.Graph}, orchestration.PlanProjection{Nodes: nodes})
 		}
 		s.writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	if r.Method != http.MethodGet && !s.requireOrchestrationManagePermission(w, r) {
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -302,6 +363,23 @@ func validationError(err error) any {
 	return err.Error()
 }
 
+func filterAgentsByCapability(agents []orchestration.AgentDefinition, capability string) []orchestration.AgentDefinition {
+	capability = strings.TrimSpace(capability)
+	if capability == "" {
+		return agents
+	}
+	filtered := make([]orchestration.AgentDefinition, 0, len(agents))
+	for _, agent := range agents {
+		for _, candidate := range agent.Capabilities {
+			if candidate.Name == capability {
+				filtered = append(filtered, agent)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 func (s *Server) executionPlanRequirementRoute(w http.ResponseWriter, r *http.Request, requirementID, tail string) {
 	if s.Orchestration == nil {
 		s.problem(w, r, http.StatusServiceUnavailable, "orchestration_unavailable", "orchestration repository is unavailable", nil)
@@ -317,14 +395,26 @@ func (s *Server) executionPlanRequirementRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if tail == "" && r.Method == http.MethodPost {
+		// Creating a plan from an already active Agent or published Squad is an
+		// invocation operation. Definition mutations (quick-squad and publish)
+		// remain management-only below.
+		if !s.requireOrchestrationPermission(w, r) {
+			return
+		}
 		s.createExecutionPlan(w, r, req)
 		return
 	}
 	if tail == "quick-squad" && r.Method == http.MethodPost {
+		if !s.requireOrchestrationManagePermission(w, r) {
+			return
+		}
 		s.quickSquadPlan(w, r, req)
 		return
 	}
 	if tail == "publish" && r.Method == http.MethodPost {
+		if !s.requireOrchestrationManagePermission(w, r) {
+			return
+		}
 		s.publishExecutionPlan(w, r, req)
 		return
 	}
@@ -348,8 +438,8 @@ func (s *Server) createExecutionPlan(w http.ResponseWriter, r *http.Request, req
 	graph := in.Graph
 	selected := orchestration.VersionedRef{}
 	if in.SquadID != "" {
-		sq, err := s.Orchestration.GetSquad(req.WorkspaceID, in.SquadID, in.SquadVersion)
-		if err != nil || sq.Status != orchestration.SquadPublished {
+		sq, err := s.getPublishedSquad(req.WorkspaceID, in.SquadID, in.SquadVersion)
+		if err != nil {
 			s.problem(w, r, http.StatusUnprocessableEntity, "squad_unavailable", "published squad revision is required", nil)
 			return
 		}
@@ -370,6 +460,22 @@ func (s *Server) createExecutionPlan(w http.ResponseWriter, r *http.Request, req
 		s.problem(w, r, http.StatusUnprocessableEntity, "graph_required", "graph or agent_id/squad_id is required", nil)
 		return
 	}
+	if err := s.validateExecutionGraphReferences(req.WorkspaceID, graph); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "graph_reference_unavailable", err.Error(), nil)
+		return
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if existing, lookupErr := s.Orchestration.GetPlanByIdempotency(req.WorkspaceID, key); lookupErr == nil {
+			existingGraphHash, _ := existing.GraphSnapshot.CanonicalHash()
+			requestedGraphHash, _ := graph.CanonicalHash()
+			if existing.RequirementID != req.ID || existing.SelectedRef != selected || existingGraphHash != requestedGraphHash {
+				s.problem(w, r, http.StatusConflict, "idempotency_key_conflict", "idempotency key was already used with a different execution plan", nil)
+				return
+			}
+			s.writeJSON(w, http.StatusOK, existing)
+			return
+		}
+	}
 	now := time.Now().UTC()
 	p := orchestration.RequirementExecutionPlan{ID: domain.NewID(), RequirementID: req.ID, WorkspaceID: req.WorkspaceID, GraphSnapshot: graph, SelectedRef: selected, PolicySnapshot: orchestration.PolicySnapshot{CapturedAt: now}, ContextRoot: orchestration.ContextRef{SessionID: "plan-" + req.ID, ManifestDigest: "pending"}, Status: orchestration.PlanDraft, IdempotencyKey: in.IdempotencyKey, CreatedAt: now}
 	frozen, err := p.Freeze()
@@ -377,7 +483,12 @@ func (s *Server) createExecutionPlan(w http.ResponseWriter, r *http.Request, req
 		s.problem(w, r, http.StatusUnprocessableEntity, "plan_validation_failed", err.Error(), nil)
 		return
 	}
-	if err := s.Orchestration.CreatePlan(frozen); err != nil {
+	event, eventErr := orchestration.NewEventWithContext(r.Context(), nil, frozen.ID, frozen.WorkspaceID, "plan.created", frozen.IdempotencyKey, frozen)
+	if eventErr != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "plan_event_build_failed", eventErr.Error(), nil)
+		return
+	}
+	if err := s.Orchestration.CreatePlanWithEvent(frozen, event); err != nil {
 		status := http.StatusConflict
 		if errors.Is(err, orchestration.ErrIdempotencyConflict) {
 			status = http.StatusConflict
@@ -385,13 +496,42 @@ func (s *Server) createExecutionPlan(w http.ResponseWriter, r *http.Request, req
 		s.problem(w, r, status, "plan_create_failed", err.Error(), nil)
 		return
 	}
-	if event, eventErr := orchestration.NewEvent(nil, frozen.ID, frozen.WorkspaceID, "plan.created", frozen.IdempotencyKey, frozen); eventErr == nil {
-		if appendErr := s.Orchestration.AppendEvent(event); appendErr != nil {
-			s.problem(w, r, http.StatusServiceUnavailable, "plan_event_commit_failed", appendErr.Error(), nil)
+	// A concurrent request may have won the same idempotency key between the
+	// preflight lookup and the atomic repository commit. Return that durable
+	// winner instead of exposing a locally generated duplicate response.
+	if key := strings.TrimSpace(frozen.IdempotencyKey); key != "" {
+		if persisted, lookupErr := s.Orchestration.GetPlanByIdempotency(req.WorkspaceID, key); lookupErr == nil && persisted.ID != frozen.ID {
+			s.writeJSON(w, http.StatusOK, persisted)
 			return
 		}
 	}
 	s.writeJSON(w, http.StatusCreated, frozen)
+}
+
+// getPublishedSquad accepts both the durable revision and the externally
+// visible published_version. Clients should normally send published_version,
+// while historical callers often sent revision; accepting either keeps the
+// frozen plan selection unambiguous across upgrades.
+func (s *Server) getPublishedSquad(workspaceID, squadID string, version int64) (orchestration.SquadDefinition, error) {
+	if s.Orchestration == nil {
+		return orchestration.SquadDefinition{}, orchestration.ErrNotFound
+	}
+	if version > 0 {
+		if squad, err := s.Orchestration.GetSquad(workspaceID, squadID, version); err == nil && squad.Status == orchestration.SquadPublished && (squad.PublishedVersion == version || squad.Revision == version) {
+			return squad, nil
+		}
+	}
+	squad, err := s.Orchestration.GetSquad(workspaceID, squadID, 0)
+	if err != nil || squad.Status != orchestration.SquadPublished {
+		if err != nil {
+			return orchestration.SquadDefinition{}, err
+		}
+		return orchestration.SquadDefinition{}, fmt.Errorf("squad %s is not published", squadID)
+	}
+	if version > 0 && squad.PublishedVersion != version && squad.Revision != version {
+		return orchestration.SquadDefinition{}, fmt.Errorf("squad %s published version %d is not available", squadID, version)
+	}
+	return squad, nil
 }
 
 func singleAgentGraph(a orchestration.AgentDefinition) orchestration.WorkflowGraph {
@@ -400,19 +540,38 @@ func singleAgentGraph(a orchestration.AgentDefinition) orchestration.WorkflowGra
 
 func (s *Server) quickSquadPlan(w http.ResponseWriter, r *http.Request, req domain.Requirement) {
 	var in struct {
-		SquadID string `json:"squad_id"`
+		SquadID     string                      `json:"squad_id"`
+		Name        string                      `json:"name"`
+		Description string                      `json:"description,omitempty"`
+		Members     []orchestration.SquadMember `json:"members,omitempty"`
+		Graph       orchestration.WorkflowGraph `json:"graph,omitempty"`
+		Policy      orchestration.SquadPolicy   `json:"policy,omitempty"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 		return
 	}
-	sq, err := s.Orchestration.GetSquad(req.WorkspaceID, in.SquadID, 0)
-	if err != nil {
-		s.problem(w, r, http.StatusNotFound, "squad_not_found", err.Error(), nil)
-		return
+	var sq orchestration.SquadDefinition
+	if strings.TrimSpace(in.SquadID) != "" {
+		var err error
+		sq, err = s.Orchestration.GetSquad(req.WorkspaceID, in.SquadID, 0)
+		if err != nil {
+			s.problem(w, r, http.StatusNotFound, "squad_not_found", err.Error(), nil)
+			return
+		}
+	} else {
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
+			name = "Requirement " + req.ID + " squad"
+		}
+		sq = orchestration.SquadDefinition{ID: orchestration.NewID(), WorkspaceID: req.WorkspaceID, Name: name, Description: in.Description, Revision: 1, Members: in.Members, Graph: in.Graph, Policy: in.Policy, Status: orchestration.SquadDraft}
+		if err := s.Orchestration.SaveSquad(sq, 0); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "squad_validation_failed", err.Error(), nil)
+			return
+		}
 	}
 	validErr := sq.Validate()
-	draft := map[string]any{"id": domain.NewID(), "requirement_id": req.ID, "squad": sq, "status": orchestration.PlanDraft, "valid": validErr == nil}
+	draft := map[string]any{"id": domain.NewID(), "requirement_id": req.ID, "squad": sq, "status": orchestration.PlanDraft, "valid": validErr == nil, "persisted": true}
 	if validErr != nil {
 		draft["validation_error"] = validErr.Error()
 	}
@@ -427,23 +586,53 @@ func (s *Server) publishExecutionPlan(w http.ResponseWriter, r *http.Request, re
 	}
 	p.RequirementID, p.WorkspaceID = req.ID, req.WorkspaceID
 	if p.ID == "" {
-		p.ID = domain.NewID()
+		p.ID = orchestration.NewID()
 	}
 	p.Status = orchestration.PlanDraft
+	if err := s.validateExecutionGraphReferences(req.WorkspaceID, p.GraphSnapshot); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "graph_reference_unavailable", err.Error(), nil)
+		return
+	}
 	frozen, err := p.Freeze()
 	if err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "plan_validation_failed", err.Error(), nil)
 		return
 	}
-	if err := s.Orchestration.CreatePlan(frozen); err != nil {
+	event, eventErr := orchestration.NewEventWithContext(r.Context(), nil, frozen.ID, frozen.WorkspaceID, "plan.published", frozen.IdempotencyKey, frozen)
+	if eventErr != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "plan_event_build_failed", eventErr.Error(), nil)
+		return
+	}
+	if err := s.Orchestration.CreatePlanWithEvent(frozen, event); err != nil {
 		s.problem(w, r, http.StatusConflict, "plan_publish_failed", fmt.Sprintf("%v", err), nil)
 		return
 	}
-	if event, eventErr := orchestration.NewEvent(nil, frozen.ID, frozen.WorkspaceID, "plan.published", frozen.IdempotencyKey, frozen); eventErr == nil {
-		if appendErr := s.Orchestration.AppendEvent(event); appendErr != nil {
-			s.problem(w, r, http.StatusServiceUnavailable, "plan_event_commit_failed", appendErr.Error(), nil)
-			return
+	s.writeJSON(w, http.StatusOK, frozen)
+}
+
+func (s *Server) validateExecutionGraphReferences(workspaceID string, graph orchestration.WorkflowGraph) error {
+	if s.Orchestration == nil {
+		return errors.New("orchestration repository is unavailable")
+	}
+	for i, node := range graph.Nodes {
+		if node.AgentRef != nil {
+			agent, err := s.Orchestration.GetAgent(workspaceID, node.AgentRef.ID, node.AgentRef.Revision)
+			if err != nil {
+				return fmt.Errorf("graph.nodes[%d].agent_ref.unavailable", i)
+			}
+			if agent.Status != orchestration.AgentActive {
+				return fmt.Errorf("graph.nodes[%d].agent_ref.inactive", i)
+			}
+		}
+		if node.SquadRef != nil {
+			version := node.SquadRef.Revision
+			if version == 0 {
+				version = node.SquadRef.Version
+			}
+			if _, err := s.getPublishedSquad(workspaceID, node.SquadRef.ID, version); err != nil {
+				return fmt.Errorf("graph.nodes[%d].squad_ref.unavailable", i)
+			}
 		}
 	}
-	s.writeJSON(w, http.StatusOK, frozen)
+	return nil
 }

@@ -20,8 +20,10 @@
 # ADRO
 
 ADRO is an open-source control plane for auditable software delivery. It
-connects goal intake, agent workflows, durable context, quality gates, repair,
-and release evidence in one recoverable graph.
+connects goal intake, freely composed Agent/Squad workflows, durable context,
+quality gates, repair, and release evidence in one recoverable graph. Agents can
+move forward or send work back through explicit feedback edges; the session
+harness keeps context, attempts, and evidence connected across that loop.
 
 The local profile is a real Go service with an owned browser workbench. It
 persists requirements, bugs, sessions, transcripts, checkpoints, memory,
@@ -29,7 +31,20 @@ leases, outbox records, artifacts, and audit facts. External Git, CI, deploy,
 identity, and notification systems are replaceable SPI adapters rather than
 hidden core dependencies.
 
-![ADRO architecture](docs/architecture/adro-architecture.svg)
+## How ADRO fits together
+
+The layered architecture separates the user-facing composition surface, the
+orchestration and session-harness runtime, and the durable storage/integration
+substrate. The harness belongs in the middle layer because it carries the
+recoverable execution context between graph decisions and side effects.
+
+![ADRO layered architecture](docs/architecture/adro-layered-architecture.svg)
+
+The architecture view is complemented by a delivery-flow view and a capability
+map. The flow is intentionally not the architecture: it shows how a run moves
+from intent to proof, including the bidirectional repair loop.
+
+![ADRO delivery flow](docs/architecture/adro-architecture.svg)
 
 ![ADRO capability map](docs/architecture/adro-capability-map.svg)
 
@@ -77,6 +92,10 @@ depend on a developer workstation; `make real-e2e` is the model-backed path.
 - `docs/`: product, architecture, operations, compatibility, and release docs.
 - `sdk/`: provider, harness, integration, and artifact extension contracts.
 - `migrations/`: versioned persistence schema boundaries.
+
+Core highlights: free-form graph composition, Agent/Squad routing, typed
+session-harness continuity, explicit bidirectional feedback, bounded retries,
+and evidence-backed completion.
 
 Release and security policy are in `RELEASE.md` and `SECURITY.md`. The full
 About-panel copy is in `ABOUT.md`; the Chinese project entry is

@@ -29,7 +29,8 @@ type Memory struct {
 	bugs              map[string]domain.Bug
 	attachments       map[string]domain.EntityAttachment
 	comments          map[string]domain.Comment
-	commentFollowUps  map[string]domain.CommentFollowUp
+	commentRevisions  map[string][]domain.CommentRevision
+	commentFollowUps  map[string]domain.CommentFollowUp // receipt key: comment + revision + dispatch target
 	workItems         map[string]domain.WorkItem
 	evidence          map[string]domain.EvidenceBundle
 	provenance        map[string]domain.Provenance
@@ -75,7 +76,7 @@ func NewPersistentMemory(path string) (*Memory, error) {
 }
 
 func newMemory(path string) *Memory {
-	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, commentFollowUps: map[string]domain.CommentFollowUp{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}, workflowTemplates: map[string]domain.WorkflowTemplate{}, chatSessions: map[string]domain.ChatSession{}, chatMessages: map[string][]domain.ChatMessage{}}
+	return &Memory{statePath: path, requirements: map[string]domain.Requirement{}, bugs: map[string]domain.Bug{}, attachments: map[string]domain.EntityAttachment{}, comments: map[string]domain.Comment{}, commentRevisions: map[string][]domain.CommentRevision{}, commentFollowUps: map[string]domain.CommentFollowUp{}, workItems: map[string]domain.WorkItem{}, evidence: map[string]domain.EvidenceBundle{}, provenance: map[string]domain.Provenance{}, impactReports: map[string][]domain.ImpactReport{}, idempotency: map[string]any{}, repositories: map[string]domain.Repository{}, teamWorkspaces: map[string]domain.TeamWorkspace{}, profiles: map[string]domain.DeveloperProfile{}, mcpServers: map[string]domain.MCPServer{}, skills: map[string]domain.Skill{}, automations: map[string]domain.Automation{}, approvals: map[string]domain.Approval{}, diffs: map[string]domain.DiffSnapshot{}, migrations: map[string]domain.ArtifactMigration{}, invocations: map[string]domain.MCPInvocation{}, bindings: map[string]domain.CapabilityBinding{}, automationRuns: map[string]domain.AutomationRun{}, contexts: map[string][]domain.ContextManifest{}, repairAttempts: map[string][]domain.RepairAttempt{}, pipelines: map[string]domain.PipelineRun{}, workflowTemplates: map[string]domain.WorkflowTemplate{}, chatSessions: map[string]domain.ChatSession{}, chatMessages: map[string][]domain.ChatMessage{}}
 }
 
 type persistedState struct {
@@ -85,6 +86,7 @@ type persistedState struct {
 	Bugs              map[string]domain.Bug               `json:"bugs"`
 	Attachments       map[string]domain.EntityAttachment  `json:"attachments"`
 	Comments          map[string]domain.Comment           `json:"comments"`
+	CommentRevisions  map[string][]domain.CommentRevision `json:"comment_revisions,omitempty"`
 	CommentFollowUps  map[string]domain.CommentFollowUp   `json:"comment_follow_ups,omitempty"`
 	WorkItems         map[string]domain.WorkItem          `json:"work_items"`
 	Evidence          map[string]domain.EvidenceBundle    `json:"evidence"`
@@ -134,7 +136,7 @@ func (m *Memory) load() error {
 	}
 	m.revision = state.Revision
 	for name, value := range map[string]any{
-		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments, "comment_follow_ups": state.CommentFollowUps,
+		"requirements": state.Requirements, "bugs": state.Bugs, "attachments": state.Attachments, "comments": state.Comments, "comment_revisions": state.CommentRevisions, "comment_follow_ups": state.CommentFollowUps,
 		"work_items": state.WorkItems, "evidence": state.Evidence, "provenance": state.Provenance,
 		"provider_bindings": state.ProviderBindings, "repositories": state.Repositories,
 		"team_workspaces": state.TeamWorkspaces, "profiles": state.Profiles, "mcp_servers": state.MCPServers,
@@ -155,6 +157,8 @@ func (m *Memory) load() error {
 			m.attachments = value.(map[string]domain.EntityAttachment)
 		case "comments":
 			m.comments = value.(map[string]domain.Comment)
+		case "comment_revisions":
+			m.commentRevisions = value.(map[string][]domain.CommentRevision)
 		case "comment_follow_ups":
 			m.commentFollowUps = value.(map[string]domain.CommentFollowUp)
 		case "work_items":
@@ -227,7 +231,7 @@ func (m *Memory) persistLocked() error {
 		if diskRevision != m.revision {
 			return fmt.Errorf("stale control-plane state: expected revision %d, found %d", m.revision, diskRevision)
 		}
-		state := persistedState{Version: 3, Revision: m.revision + 1, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines, WorkflowTemplates: m.workflowTemplates, ChatSessions: m.chatSessions, ChatMessages: m.chatMessages}
+		state := persistedState{Version: 4, Revision: m.revision + 1, Requirements: m.requirements, Bugs: m.bugs, Attachments: m.attachments, Comments: m.comments, CommentRevisions: m.commentRevisions, CommentFollowUps: m.commentFollowUps, WorkItems: m.workItems, Evidence: m.evidence, Provenance: m.provenance, ProviderBindings: m.providerBindings, ImpactReports: m.impactReports, Idempotency: map[string]json.RawMessage{}, Repositories: m.repositories, TeamWorkspaces: m.teamWorkspaces, Profiles: m.profiles, MCPServers: m.mcpServers, Skills: m.skills, Automations: m.automations, Approvals: m.approvals, Diffs: m.diffs, Migrations: m.migrations, Invocations: m.invocations, Bindings: m.bindings, AutomationRuns: m.automationRuns, Contexts: m.contexts, RepairAttempts: m.repairAttempts, Pipelines: m.pipelines, WorkflowTemplates: m.workflowTemplates, ChatSessions: m.chatSessions, ChatMessages: m.chatMessages}
 		for key, value := range m.idempotency {
 			if raw, ok := value.(json.RawMessage); ok {
 				state.Idempotency[key] = raw
@@ -396,6 +400,7 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	comment.TargetID = strings.TrimSpace(comment.TargetID)
 	comment.WorkspaceID = strings.TrimSpace(comment.WorkspaceID)
 	comment.Mentions = normalizeCommentMentions(comment.Mentions)
+	comment.AttachmentIDs = normalizeCommentMentions(comment.AttachmentIDs)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch comment.TargetType {
@@ -440,6 +445,12 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	if comment.RootID == "" {
 		comment.RootID = comment.ID
 	}
+	for _, attachmentID := range comment.AttachmentIDs {
+		attachment, exists := m.attachments[attachmentID]
+		if !exists || attachment.WorkspaceID != comment.WorkspaceID || attachment.OwnerType != "comment" || attachment.OwnerID != comment.ID {
+			return domain.Comment{}, ErrConflict
+		}
+	}
 	if _, exists := m.comments[comment.ID]; exists {
 		return domain.Comment{}, ErrConflict
 	}
@@ -447,8 +458,10 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	comment.CreatedAt, comment.UpdatedAt = now, now
 	comment.Revision = 1
 	m.comments[comment.ID] = cloneComment(comment)
+	m.commentRevisions[comment.ID] = []domain.CommentRevision{commentRevisionSnapshot(comment, comment.AuthorID, comment.AuthorType)}
 	if err := m.persistLocked(); err != nil {
 		delete(m.comments, comment.ID)
+		delete(m.commentRevisions, comment.ID)
 		return domain.Comment{}, fmt.Errorf("persist comment: %w", err)
 	}
 	return cloneComment(comment), nil
@@ -457,7 +470,7 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 // UpdateComment applies an optimistic-concurrency edit while retaining the
 // original author and thread lineage. Trigger calculation is performed by the
 // API after this immutable revision boundary succeeds.
-func (m *Memory) UpdateComment(id string, expectedRevision int64, content string, mentions []string) (domain.Comment, error) {
+func (m *Memory) UpdateComment(id string, expectedRevision int64, content string, mentions []string, attachmentIDs *[]string, editorID, editorType string) (domain.Comment, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return domain.Comment{}, errors.New("comment content is required")
@@ -473,11 +486,23 @@ func (m *Memory) UpdateComment(id string, expectedRevision int64, content string
 	}
 	updated := cloneComment(old)
 	updated.Content, updated.Mentions = content, normalizeCommentMentions(mentions)
+	if attachmentIDs != nil {
+		updated.AttachmentIDs = normalizeCommentMentions(*attachmentIDs)
+		for _, attachmentID := range updated.AttachmentIDs {
+			attachment, exists := m.attachments[attachmentID]
+			if !exists || attachment.WorkspaceID != old.WorkspaceID || attachment.OwnerType != "comment" || attachment.OwnerID != old.ID {
+				return domain.Comment{}, ErrConflict
+			}
+		}
+	}
 	updated.Revision++
 	updated.UpdatedAt = time.Now().UTC()
 	m.comments[id] = updated
+	previousRevisions := append([]domain.CommentRevision(nil), m.commentRevisions[id]...)
+	m.commentRevisions[id] = append(m.commentRevisions[id], commentRevisionSnapshot(updated, editorID, editorType))
 	if err := m.persistLocked(); err != nil {
 		m.comments[id] = old
+		m.commentRevisions[id] = previousRevisions
 		return domain.Comment{}, fmt.Errorf("persist comment edit: %w", err)
 	}
 	return cloneComment(updated), nil
@@ -497,8 +522,15 @@ func (m *Memory) SetCommentTriggerOutcomes(id string, revision int64, outcomes [
 	updated.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), outcomes...)
 	updated.UpdatedAt = time.Now().UTC()
 	m.comments[id] = updated
+	previousRevisions := append([]domain.CommentRevision(nil), m.commentRevisions[id]...)
+	for index := range m.commentRevisions[id] {
+		if m.commentRevisions[id][index].Revision == revision {
+			m.commentRevisions[id][index].TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), outcomes...)
+		}
+	}
 	if err := m.persistLocked(); err != nil {
 		m.comments[id] = old
+		m.commentRevisions[id] = previousRevisions
 		return domain.Comment{}, fmt.Errorf("persist comment trigger outcomes: %w", err)
 	}
 	return cloneComment(updated), nil
@@ -514,6 +546,24 @@ func (m *Memory) GetComment(id string) (domain.Comment, error) {
 	return cloneComment(comment), nil
 }
 
+func (m *Memory) ListCommentRevisions(id string) ([]domain.CommentRevision, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if _, ok := m.comments[strings.TrimSpace(id)]; !ok {
+		return nil, ErrNotFound
+	}
+	items := m.commentRevisions[strings.TrimSpace(id)]
+	if len(items) == 0 {
+		comment := m.comments[strings.TrimSpace(id)]
+		items = []domain.CommentRevision{commentRevisionSnapshot(comment, comment.AuthorID, comment.AuthorType)}
+	}
+	result := make([]domain.CommentRevision, len(items))
+	for index := range items {
+		result[index] = cloneCommentRevision(items[index])
+	}
+	return result, nil
+}
+
 // SaveCommentFollowUp records the execution receipt for an immutable comment.
 // The comment ID is the natural idempotency key: retries update the same
 // receipt instead of creating another provider dispatch record.
@@ -523,6 +573,13 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 	}
 	followUp.CommentID = strings.TrimSpace(followUp.CommentID)
 	followUp.WorkspaceID = strings.TrimSpace(followUp.WorkspaceID)
+	if followUp.DispatchTargetType == "" {
+		followUp.DispatchTargetType = "legacy"
+	}
+	if followUp.DispatchTargetID == "" {
+		followUp.DispatchTargetID = followUp.TargetID
+	}
+	key := followUpKey(followUp)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	comment, ok := m.comments[followUp.CommentID]
@@ -532,7 +589,7 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 	if comment.WorkspaceID != followUp.WorkspaceID || comment.TargetType != followUp.TargetType || comment.TargetID != followUp.TargetID {
 		return domain.CommentFollowUp{}, ErrConflict
 	}
-	if existing, exists := m.commentFollowUps[followUp.CommentID]; exists {
+	if existing, exists := m.commentFollowUps[key]; exists {
 		// Callers persist partial progress after every handoff. Merge omitted
 		// fields so a retry or recovery update cannot erase the provider
 		// provenance already recorded by an earlier phase.
@@ -589,13 +646,13 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 		followUp.CreatedAt = time.Now().UTC()
 	}
 	followUp.UpdatedAt = time.Now().UTC()
-	previous, existed := m.commentFollowUps[followUp.CommentID]
-	m.commentFollowUps[followUp.CommentID] = followUp
+	previous, existed := m.commentFollowUps[key]
+	m.commentFollowUps[key] = followUp
 	if err := m.persistLocked(); err != nil {
 		if existed {
-			m.commentFollowUps[followUp.CommentID] = previous
+			m.commentFollowUps[key] = previous
 		} else {
-			delete(m.commentFollowUps, followUp.CommentID)
+			delete(m.commentFollowUps, key)
 		}
 		return domain.CommentFollowUp{}, fmt.Errorf("persist comment follow-up: %w", err)
 	}
@@ -622,11 +679,76 @@ func followUpStatusRegresses(existing, incoming string) bool {
 func (m *Memory) GetCommentFollowUp(commentID string) (domain.CommentFollowUp, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	followUp, ok := m.commentFollowUps[strings.TrimSpace(commentID)]
+	var matches []domain.CommentFollowUp
+	for _, followUp := range m.commentFollowUps {
+		if followUp.CommentID == strings.TrimSpace(commentID) {
+			matches = append(matches, followUp)
+		}
+	}
+	if len(matches) == 0 {
+		return domain.CommentFollowUp{}, ErrNotFound
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].CommentRevision != matches[j].CommentRevision {
+			return matches[i].CommentRevision > matches[j].CommentRevision
+		}
+		if matches[i].DispatchTargetType == matches[j].DispatchTargetType {
+			return matches[i].DispatchTargetID < matches[j].DispatchTargetID
+		}
+		return matches[i].DispatchTargetType < matches[j].DispatchTargetType
+	})
+	return matches[0], nil
+}
+
+func (m *Memory) GetCommentFollowUpForTarget(commentID, dispatchType, dispatchID string) (domain.CommentFollowUp, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if dispatchType == "" {
+		dispatchType = "legacy"
+	}
+	var followUp domain.CommentFollowUp
+	ok := false
+	for _, candidate := range m.commentFollowUps {
+		if candidate.CommentID == strings.TrimSpace(commentID) && candidate.DispatchTargetType == dispatchType && candidate.DispatchTargetID == strings.TrimSpace(dispatchID) && (!ok || candidate.CommentRevision > followUp.CommentRevision) {
+			followUp, ok = candidate, true
+		}
+	}
+	if !ok {
+		// Backward-compatible snapshots used comment_id as their map key.
+		followUp, ok = m.commentFollowUps[strings.TrimSpace(commentID)]
+	}
 	if !ok {
 		return domain.CommentFollowUp{}, ErrNotFound
 	}
 	return followUp, nil
+}
+
+// ListCommentFollowUps returns every independent receipt for a comment. The
+// legacy singular getter remains for old clients, while structured mentions
+// use this list to avoid sharing one provider/session receipt across targets.
+func (m *Memory) ListCommentFollowUps(commentID string) []domain.CommentFollowUp {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]domain.CommentFollowUp, 0)
+	for _, followUp := range m.commentFollowUps {
+		if followUp.CommentID == strings.TrimSpace(commentID) {
+			items = append(items, followUp)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CommentRevision != items[j].CommentRevision {
+			return items[i].CommentRevision < items[j].CommentRevision
+		}
+		if items[i].DispatchTargetType == items[j].DispatchTargetType {
+			return items[i].DispatchTargetID < items[j].DispatchTargetID
+		}
+		return items[i].DispatchTargetType < items[j].DispatchTargetType
+	})
+	return items
+}
+
+func followUpKey(followUp domain.CommentFollowUp) string {
+	return strings.Join([]string{followUp.CommentID, fmt.Sprint(followUp.CommentRevision), followUp.DispatchTargetType, followUp.DispatchTargetID}, "\x00")
 }
 
 func (m *Memory) ListComments(workspaceID, targetType, targetID, cursor string, limit int) ([]domain.Comment, string) {
@@ -694,8 +816,25 @@ func normalizeCommentMentions(mentions []string) []string {
 
 func cloneComment(comment domain.Comment) domain.Comment {
 	comment.Mentions = append([]string(nil), comment.Mentions...)
+	comment.AttachmentIDs = append([]string(nil), comment.AttachmentIDs...)
 	comment.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), comment.TriggerOutcomes...)
 	return comment
+}
+
+func commentRevisionSnapshot(comment domain.Comment, editorID, editorType string) domain.CommentRevision {
+	return domain.CommentRevision{
+		CommentID: comment.ID, Revision: comment.Revision, Content: comment.Content,
+		Mentions: append([]string(nil), comment.Mentions...), AttachmentIDs: append([]string(nil), comment.AttachmentIDs...),
+		TriggerOutcomes: append([]domain.CommentTriggerOutcome(nil), comment.TriggerOutcomes...),
+		EditorID:        strings.TrimSpace(editorID), EditorType: strings.TrimSpace(editorType), CreatedAt: comment.UpdatedAt,
+	}
+}
+
+func cloneCommentRevision(revision domain.CommentRevision) domain.CommentRevision {
+	revision.Mentions = append([]string(nil), revision.Mentions...)
+	revision.AttachmentIDs = append([]string(nil), revision.AttachmentIDs...)
+	revision.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), revision.TriggerOutcomes...)
+	return revision
 }
 
 func (m *Memory) ListRequirements(workspaceID, status, cursor string, limit int) ([]domain.Requirement, string) {
@@ -946,7 +1085,7 @@ func (m *Memory) UpdateBug(b domain.Bug) error {
 }
 
 func (m *Memory) SaveAttachment(item domain.EntityAttachment) (domain.EntityAttachment, error) {
-	if strings.TrimSpace(item.OwnerID) == "" || (item.OwnerType != "requirement" && item.OwnerType != "bug" && item.OwnerType != "chat_session") {
+	if strings.TrimSpace(item.OwnerID) == "" || (item.OwnerType != "requirement" && item.OwnerType != "bug" && item.OwnerType != "chat_session" && item.OwnerType != "comment") {
 		return domain.EntityAttachment{}, errors.New("attachment owner_type and owner_id are required")
 	}
 	if strings.TrimSpace(item.ArtifactURI) == "" || strings.TrimSpace(item.Filename) == "" {
@@ -2092,6 +2231,9 @@ func (m *Memory) CreatePipeline(run domain.PipelineRun) (domain.PipelineRun, err
 	}
 	if run.CoverageThreshold == 0 {
 		run.CoverageThreshold = 80
+	}
+	if strings.TrimSpace(run.LegacyAdapterVersion) == "" {
+		run.LegacyAdapterVersion = "pipeline-stage-compat-v1"
 	}
 	if err := run.Validate(); err != nil {
 		return domain.PipelineRun{}, err

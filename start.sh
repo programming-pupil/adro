@@ -21,6 +21,21 @@ warn() { printf '[ADRO] WARNING: %s\n' "$*" >&2; }
 fail() { printf '[ADRO] ERROR: %s\n' "$*" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# Keep local startup on the same toolchain used by the repository's browser
+# and release checks. ADRO_GO_BIN may point at a specific Go binary; otherwise
+# use the checked-in resolver before falling back to PATH.
+go_cmd() {
+  if [ -n "${ADRO_GO_BIN:-}" ] && [ -x "$ADRO_GO_BIN" ]; then
+    printf '%s' "$ADRO_GO_BIN"
+    return 0
+  fi
+  if [ -x "$ROOT_DIR/scripts/e2e-go.sh" ]; then
+    printf '%s' "$ROOT_DIR/scripts/e2e-go.sh"
+    return 0
+  fi
+  command -v go
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./start.sh [options]
@@ -112,6 +127,21 @@ stop_all() {
   log "Local ADRO processes stopped"
 }
 
+start_background() {
+	local pid_file="$1" log_file="$2"
+	shift 2
+	# macOS's nohup can fail to detach from the task console. Explicitly
+	# redirecting all standard handles is sufficient for the local daemon and
+	# keeps the PID under the script's lifecycle control.
+	if [[ "$(uname -s)" != "Darwin" ]]; then
+		nohup "$@" >"$log_file" 2>&1 < /dev/null &
+		printf '%s\n' "$!" > "$pid_file"
+		return 0
+	fi
+	"$@" >"$log_file" 2>&1 < /dev/null &
+	printf '%s\n' "$!" > "$pid_file"
+}
+
 show_status() {
   if pid_running "$API_PID_FILE"; then log "API process is running"; else warn "API process is not running"; fi
   if pid_running "$WEB_PID_FILE"; then log "WebUI process is running"; else warn "WebUI process is not running"; fi
@@ -131,14 +161,15 @@ show_status() {
 if [ "$MODE" = "stop" ]; then stop_all; exit 0; fi
 if [ "$MODE" = "status" ]; then show_status; exit 0; fi
 
-has go || fail "Go is required to build ADRO locally"
+GO_CMD="$(go_cmd 2>/dev/null || true)"
+[ -n "$GO_CMD" ] || fail "Go is required to build ADRO locally"
 has curl || fail "curl is required to verify local readiness"
 executor="$(executor_path 2>/dev/null || true)"
 [ -n "$executor" ] || fail "No coding executor found; install claude/codex or set ADRO_EXECUTOR"
 
 mkdir -p "$BIN_DIR" "$ARTIFACT_ROOT" "$WORK_ROOT"
-go build -o "$BIN_DIR/adro-api" ./cmd/adro-api
-go build -o "$BIN_DIR/adro-web" ./cmd/adro-web
+"$GO_CMD" build -o "$BIN_DIR/adro-api" ./cmd/adro-api
+"$GO_CMD" build -o "$BIN_DIR/adro-web" ./cmd/adro-web
 stop_process "$API_PID_FILE"
 stop_process "$WEB_PID_FILE"
 
@@ -156,11 +187,9 @@ export ADRO_HARNESS_STATE_FILE="${ADRO_HARNESS_STATE_FILE:-$STATE_DIR/harness.js
 export ADRO_PLUGIN_STATE_FILE="${ADRO_PLUGIN_STATE_FILE:-$STATE_DIR/plugins.json}"
 
 log "Starting native ADRO API on :$API_PORT"
-nohup "$BIN_DIR/adro-api" -addr ":$API_PORT" -artifact-root "$ARTIFACT_ROOT" >"$API_LOG" 2>&1 < /dev/null &
-printf '%s\n' "$!" > "$API_PID_FILE"
+start_background "$API_PID_FILE" "$API_LOG" "$BIN_DIR/adro-api" -addr ":$API_PORT" -artifact-root "$ARTIFACT_ROOT"
 log "Starting ADRO WebUI on :$WEB_PORT"
-nohup "$BIN_DIR/adro-web" -addr ":$WEB_PORT" -root "$ROOT_DIR/apps/web" >"$WEB_LOG" 2>&1 < /dev/null &
-printf '%s\n' "$!" > "$WEB_PID_FILE"
+start_background "$WEB_PID_FILE" "$WEB_LOG" "$BIN_DIR/adro-web" -addr ":$WEB_PORT" -root "$ROOT_DIR/apps/web"
 
 ready=false
 for _ in $(seq 1 40); do

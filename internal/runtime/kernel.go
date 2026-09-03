@@ -34,6 +34,9 @@ const (
 	EventToolStarted      = "tool.started"
 	EventToolApproved     = "tool.approved"
 	EventToolFinished     = "tool.finished"
+	EventToolFailed       = "tool.failed"
+	EventToolCancelled    = "tool.cancelled"
+	EventToolRetried      = "tool.retried"
 	EventInteraction      = "interaction.accepted"
 	EventUsage            = "usage.recorded"
 	EventEffectFenced     = "effect.fenced"
@@ -46,6 +49,8 @@ var (
 	ErrLeaseBusy           = errors.New("runtime lease is held by another owner")
 	ErrLeaseLost           = errors.New("runtime lease is no longer owned")
 	ErrUnauthorized        = errors.New("runtime tool is not authorized")
+	ErrApprovalRequired    = errors.New("runtime tool approval is required")
+	ErrToolExecution       = errors.New("runtime tool execution failed")
 )
 
 // Scope is copied into every journal record.  It is deliberately explicit so
@@ -101,6 +106,40 @@ type Input struct {
 	FencingToken   int64
 	Status         string
 	Payload        any
+}
+
+// ToolContract is the provider-neutral policy checked at the tool boundary.
+// Contracts are data, so authorization decisions and retries can be replayed
+// without executing an external tool.
+type ToolContract struct {
+	Name             string        `json:"name"`
+	InputSchema      string        `json:"input_schema,omitempty"`
+	OutputSchema     string        `json:"output_schema,omitempty"`
+	SideEffectClass  string        `json:"side_effect_class,omitempty"`
+	Risk             string        `json:"risk,omitempty"`
+	Capability       string        `json:"capability,omitempty"`
+	SecretScopes     []string      `json:"secret_scopes,omitempty"`
+	Network          bool          `json:"network,omitempty"`
+	Filesystem       bool          `json:"filesystem,omitempty"`
+	Timeout          time.Duration `json:"timeout,omitempty"`
+	MaxRetries       int           `json:"max_retries,omitempty"`
+	RequiresApproval bool          `json:"requires_approval,omitempty"`
+	Compensation     string        `json:"compensation,omitempty"`
+	EvidenceRequired bool          `json:"evidence_required,omitempty"`
+}
+
+type ToolState struct {
+	Scope       Scope  `json:"scope"`
+	CallID      string `json:"call_id"`
+	Name        string `json:"name"`
+	Authorized  bool   `json:"authorized"`
+	Started     bool   `json:"started"`
+	Approved    *bool  `json:"approved,omitempty"`
+	Finished    bool   `json:"finished"`
+	Cancelled   bool   `json:"cancelled"`
+	Attempts    int    `json:"attempts"`
+	LastEventID string `json:"last_event_id,omitempty"`
+	ReasonCode  string `json:"reason_code,omitempty"`
 }
 
 type Lease struct {
@@ -358,6 +397,10 @@ func (j *Journal) FenceEffect(scope Scope, key, owner string, fencingToken int64
 	if id := j.effects[effectKey]; id != "" {
 		for _, event := range j.events {
 			if event.EventID == id {
+				payloadBytes, marshalErr := json.Marshal(payload)
+				if marshalErr != nil || payloadDigest(payloadBytes) != event.PayloadHash {
+					return Event{}, false, ErrIdempotencyConflict
+				}
 				return cloneEvent(event), false, nil
 			}
 		}
@@ -416,6 +459,62 @@ func (j *Journal) toolHas(scope Scope, callID, eventType string) bool {
 	return false
 }
 
+func (j *Journal) toolEvents(scope Scope, callID string) []Event {
+	items := make([]Event, 0)
+	for _, event := range j.events {
+		if event.Scope == scope && event.AggregateID == callID {
+			items = append(items, event)
+		}
+	}
+	return items
+}
+
+func (j *Journal) toolStateLocked(scope Scope, callID string) ToolState {
+	state := ToolState{Scope: scope, CallID: callID}
+	for _, event := range j.toolEvents(scope, callID) {
+		state.LastEventID = event.EventID
+		switch event.EventType {
+		case EventToolAuthorized:
+			state.Authorized = event.Status != StatusRejected
+			var payload struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			if payload.Name != "" {
+				state.Name = payload.Name
+			}
+		case EventToolStarted:
+			state.Started = true
+			state.Attempts++
+		case EventToolApproved:
+			var payload struct {
+				Decision string `json:"decision"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			approved := payload.Decision == "approved"
+			state.Approved = &approved
+		case EventToolFinished:
+			state.Finished = true
+		case EventToolFailed:
+			state.ReasonCode = "tool_execution_failed"
+		case EventToolCancelled:
+			state.Cancelled = true
+		case EventToolRetried:
+			state.Attempts++
+		}
+	}
+	return state
+}
+
+func (j *Journal) ToolState(scope Scope, callID string) (ToolState, error) {
+	if !scope.valid() || strings.TrimSpace(callID) == "" {
+		return ToolState{}, errors.New("scope and call_id are required")
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.toolStateLocked(scope, strings.TrimSpace(callID)), nil
+}
+
 // StartTool and FinishTool enforce the durable authorize → start → finish
 // sequence. Providers may execute between these calls, but cannot claim a
 // completed effect without the corresponding journal facts.
@@ -424,12 +523,49 @@ func (j *Journal) StartTool(scope Scope, callID, name, owner string, fencingToke
 		return Event{}, ErrLeaseLost
 	}
 	j.mu.RLock()
-	authorized := j.toolHas(scope, callID, EventToolAuthorized)
+	state := j.toolStateLocked(scope, callID)
 	j.mu.RUnlock()
-	if !authorized {
+	if !state.Authorized {
 		return Event{}, ErrUnauthorized
 	}
+	if state.Cancelled || state.Finished {
+		return Event{}, ErrConflict
+	}
+	if state.Approved != nil && !*state.Approved {
+		return Event{}, ErrUnauthorized
+	}
+	if state.Started {
+		for _, event := range j.List(scope) {
+			if event.AggregateID == callID && event.EventType == EventToolStarted {
+				return event, nil
+			}
+		}
+	}
 	return j.Append(Input{EventType: EventToolStarted, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":start", WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload})
+}
+
+func (j *Journal) StartToolWithContract(scope Scope, callID, owner string, fencingToken int64, contract ToolContract, payload any, allowed []string) (Event, error) {
+	if strings.TrimSpace(contract.Name) == "" {
+		return Event{}, errors.New("tool contract name is required")
+	}
+	if contract.Timeout < 0 || contract.MaxRetries < 0 {
+		return Event{}, errors.New("tool timeout and max_retries cannot be negative")
+	}
+	if _, err := j.AuthorizeTool(scope, callID, contract.Name, owner, fencingToken, allowed); err != nil {
+		return Event{}, err
+	}
+	if contract.RequiresApproval {
+		j.mu.RLock()
+		state := j.toolStateLocked(scope, callID)
+		j.mu.RUnlock()
+		if state.Approved == nil {
+			return Event{}, ErrApprovalRequired
+		}
+		if !*state.Approved {
+			return Event{}, ErrUnauthorized
+		}
+	}
+	return j.StartTool(scope, callID, contract.Name, owner, fencingToken, payload)
 }
 
 func (j *Journal) ApproveTool(scope Scope, callID, owner string, fencingToken int64, decision string) (Event, error) {
@@ -448,7 +584,7 @@ func (j *Journal) FinishTool(scope Scope, callID, owner string, fencingToken int
 		return Event{}, ErrLeaseLost
 	}
 	j.mu.RLock()
-	started := j.toolHas(scope, callID, EventToolStarted)
+	state := j.toolStateLocked(scope, callID)
 	denied := false
 	for _, event := range j.events {
 		if event.Scope == scope && event.AggregateID == callID && event.EventType == EventToolApproved && event.Status == StatusRejected {
@@ -456,13 +592,44 @@ func (j *Journal) FinishTool(scope Scope, callID, owner string, fencingToken int
 		}
 	}
 	j.mu.RUnlock()
-	if !started {
+	if !state.Started {
 		return Event{}, ErrConflict
 	}
-	if denied {
+	if denied || state.Cancelled {
 		return Event{}, ErrUnauthorized
 	}
+	if state.Finished {
+		return Event{}, ErrConflict
+	}
 	return j.Append(Input{EventType: EventToolFinished, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":finish", WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: output})
+}
+
+func (j *Journal) CancelTool(scope Scope, callID, owner string, fencingToken int64, reason string) (Event, error) {
+	if strings.TrimSpace(reason) == "" {
+		reason = "cancelled"
+	}
+	state, err := j.ToolState(scope, callID)
+	if err != nil {
+		return Event{}, err
+	}
+	if !state.Started || state.Finished {
+		return Event{}, ErrConflict
+	}
+	return j.Append(Input{EventType: EventToolCancelled, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":cancel", WriterID: owner, FencingToken: fencingToken, Status: StatusRejected, Payload: map[string]any{"reason": reason}})
+}
+
+// RetryTool creates a new call lineage. The original call remains immutable;
+// retrying with the same lineage and attempt number is idempotent.
+func (j *Journal) RetryTool(scope Scope, callID, owner string, fencingToken int64, attempt int, reason string) (string, Event, error) {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if strings.TrimSpace(callID) == "" {
+		return "", Event{}, errors.New("call_id is required")
+	}
+	newID := fmt.Sprintf("%s:retry:%d", callID, attempt)
+	event, err := j.Append(Input{EventType: EventToolRetried, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":retry:" + fmt.Sprint(attempt), WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"new_call_id": newID, "reason": reason, "attempt": attempt}})
+	return newID, event, err
 }
 
 func (j *Journal) AppendInteraction(scope Scope, input, key, owner string, fencingToken int64) (Event, error) {

@@ -57,7 +57,10 @@ P1 可增加：远程 Runner、GitLab/Forgejo、更多代码客户端、云存�
 
 ## 3. 总体架构
 
-![ADRO 分层架构图](./adro-architecture.svg)
+![ADRO 分层架构图](./adro-layered-architecture.svg)
+
+`./adro-architecture.svg` 作为配套交付流图保留，用于解释一次运行的推进和
+反馈回流；本图只描述系统分层，避免把流图误读为架构图。
 
 ### 3.1 分层和依赖方向
 

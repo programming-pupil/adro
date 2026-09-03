@@ -330,6 +330,17 @@ func TestLocalProviderRejectsUnpersistedMutations(t *testing.T) {
 	}
 }
 
+func TestLegacyAdapterCommandsRequireCompleteGraphScope(t *testing.T) {
+	start := StartRunCommand{WorkItemID: "work", LegacyAdapterVersion: "legacy-v1"}
+	if err := start.ValidateGraphScope(); err == nil || !strings.Contains(err.Error(), "plan_id") {
+		t.Fatalf("legacy start accepted missing graph scope: %v", err)
+	}
+	continuation := ContinuationCommand{IssueID: "issue", AgentID: "agent", ExpectedSessionID: "native-session", ExpectedWorkDir: "/work", LegacyAdapterVersion: "legacy-v1"}
+	if err := continuation.ValidateGraphScope(); err == nil || !strings.Contains(err.Error(), "plan_id") {
+		t.Fatalf("legacy continuation accepted missing graph scope: %v", err)
+	}
+}
+
 func TestLocalProviderClonesConfiguredRepository(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
 	if err := os.MkdirAll(source, 0o750); err != nil {
@@ -456,7 +467,15 @@ func TestLocalProviderStreamReplaysAfterCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSnapshot(t, p, binding.ID)
-	all, _ := bus.List(binding.ID, "", 20)
+	var all []events.Envelope
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		all, _ = bus.List(binding.ID, "", 20)
+		if len(all) >= 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if len(all) < 2 {
 		t.Fatalf("expected start and completion events, got %d", len(all))
 	}
@@ -542,6 +561,103 @@ func TestLocalProviderCodexSessionArguments(t *testing.T) {
 	ephemeral := NewLocalProvider("codex", []string{"exec", "--json", "--ephemeral", "{input}"}, t.TempDir(), newTestBus())
 	if got := strings.Join(ephemeral.commandArgs("repair", sessionID, true), " "); strings.Contains(got, "--ephemeral") {
 		t.Fatalf("resume retained ephemeral flag: %q", got)
+	}
+}
+
+func TestLocalProviderStartRunDoesNotResumeLogicalSession(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	argsPath := filepath.Join(root, "args.txt")
+	nativeSession := "44444444-4444-4444-8444-444444444444"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsPath + "\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "logical-session", Title: "logical session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{
+		WorkItemID: item.ID,
+		SessionID:  "11111111-1111-4111-8111-111111111111",
+		Input:      "initial prompt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.SessionReused {
+		t.Fatal("initial logical session was incorrectly reported as a provider resume")
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.SessionID != nativeSession || snapshot.SessionContinuity != "proven" {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "exec --json initial prompt" {
+		t.Fatalf("initial codex args=%q", got)
+	}
+}
+
+func TestLocalProviderPropagatesW3CTraceToSubprocessWithoutPromptLeak(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "trace-executor")
+	envPath := filepath.Join(root, "trace.txt")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$TRACEPARENT\" \"$TRACESTATE\" > \"$1\"\nprintf 'completed\\n'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := NewLocalProvider(executable, []string{envPath, "{input}"}, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "trace-run", Title: "trace run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "TOP-SECRET-PROMPT", TraceParent: parent, TraceState: "vendor=value"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "00-4bf92f3577b34da6a3ce929d0e0e4736-") || lines[0] == parent || lines[1] != "vendor=value" {
+		t.Fatalf("unexpected child carrier %q", data)
+	}
+	if strings.Contains(string(data), "TOP-SECRET-PROMPT") || strings.Contains(snapshot.TraceParent+snapshot.TraceState, "TOP-SECRET-PROMPT") {
+		t.Fatal("prompt leaked into trace propagation metadata")
+	}
+	if snapshot.TraceParent != lines[0] || snapshot.TraceState != lines[1] {
+		t.Fatalf("snapshot trace=%q/%q env=%q", snapshot.TraceParent, snapshot.TraceState, data)
+	}
+}
+
+func TestLocalProviderCodexExecClosesStdin(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	nativeSession := "55555555-5555-4555-8555-555555555555"
+	script := "#!/bin/sh\nwhile IFS= read -r line; do :; done\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2s")
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "exec-eof", Title: "exec eof"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "one-shot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionID != nativeSession {
+		t.Fatalf("codex exec did not receive EOF: %+v", snapshot)
 	}
 }
 

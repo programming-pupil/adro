@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"log/slog"
@@ -18,10 +19,13 @@ import (
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/adro-project/adro/internal/store"
+	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -97,7 +101,31 @@ func main() {
 		os.Exit(1)
 	}
 	var p provider.ExecutionProvider = localExecutor
-	srv := api.NewWithRouting(controlStore, p, fs, bus, slog.Default(), router)
+	var orchestrationRepo orchestration.ControlRepository
+	var orchestrationDB *sql.DB
+	sqlDriver, sqlDSN := os.Getenv("ADRO_ORCHESTRATION_SQL_DRIVER"), os.Getenv("ADRO_ORCHESTRATION_SQL_DSN")
+	if sqlDriver != "" || sqlDSN != "" {
+		dialect := os.Getenv("ADRO_ORCHESTRATION_SQL_DIALECT")
+		if dialect == "" {
+			// SQLite is the only database/sql driver bundled in the reference
+			// binary.  Infer its dialect when operators provide only the driver
+			// and DSN; PostgreSQL remains explicit so a production deployment
+			// cannot accidentally apply BYTEA SQL to a SQLite connection.
+			if sqlDriver == "sqlite" {
+				dialect = "sqlite"
+			} else {
+				dialect = "postgres"
+			}
+		}
+		var sqlErr error
+		orchestrationRepo, orchestrationDB, sqlErr = orchestration.OpenSQLRepository(sqlDriver, sqlDSN, dialect)
+		if sqlErr != nil {
+			slog.Error("open orchestration SQL repository", "error", sqlErr)
+			os.Exit(1)
+		}
+		defer orchestrationDB.Close()
+	}
+	srv := api.NewWithRoutingAndOrchestration(controlStore, p, fs, bus, slog.Default(), router, orchestrationRepo)
 	if harnessPath := os.Getenv("ADRO_HARNESS_STATE_FILE"); harnessPath != "" {
 		harnessStore, harnessErr := harness.New(harnessPath)
 		if harnessErr != nil {

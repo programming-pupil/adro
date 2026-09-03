@@ -26,6 +26,7 @@
     userManagement: '用户与菜单权限', identityCount: '个身份', permissionSummary: '菜单', edit: '编辑', userSaveFailed: '用户保存失败，请检查用户名、密码和管理员约束',
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
     runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限'
+    ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线'
   });
   Object.assign(translations.en, {
     chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
@@ -48,12 +49,34 @@
     userManagement: 'Users and menu access', identityCount: 'identities', permissionSummary: 'menus', edit: 'Edit', userSaveFailed: 'Could not save the user; check the username, password, and administrator constraints',
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
     runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions'
+    ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline'
   });
 
   let currentUser = null;
   let directory = [];
   let managedUsers = [];
   let availableMenus = menuIDs.slice();
+  let nativeAgents = [];
+  let nativeSquads = [];
+  let nativePlans = [];
+
+  const baseOrchestrationLoadCore = loadCore;
+  loadCore = async function loadCoreWithOrchestration(force = false) {
+    await baseOrchestrationLoadCore(force);
+    if (window.adroCanAccessMenu?.('agents')) await loadOrchestrationData();
+  };
+
+  async function loadOrchestrationData() {
+    const settled = await Promise.allSettled([
+      api('/api/v1/workspaces/local/agents'),
+      api('/api/v1/workspaces/local/squads'),
+      api('/api/v1/execution-plans?workspace_id=local')
+    ]);
+    if (settled[0].status === 'fulfilled') nativeAgents = settled[0].value.items || [];
+    if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
+    if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
+    if (currentView === 'agents') render();
+  }
 
   const focusIfPresent = selector => {
     const element = $(selector);
@@ -308,6 +331,134 @@
     return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('accessControl'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div>${usersPanel}${audit}</div>`;
   };
 
+  function orchestrationAction(id, kind, action, label, variant = '') {
+    return `<button class="action-button ${variant}" type="button" data-orchestration-kind="${escapeHTML(kind)}" data-orchestration-id="${escapeHTML(id)}" data-orchestration-action="${escapeHTML(action)}">${escapeHTML(t(label || action))}</button>`;
+  }
+
+  renderAgents = function nativeOrchestrationStudio() {
+    const agentRows = nativeAgents.map(agent => {
+      const lifecycle = agent.status === 'active'
+        ? orchestrationAction(agent.id, 'agent', 'disable', 'disable')
+        : agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'enable', 'enable', 'accent') : '';
+      const archive = agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'archive', 'archive', 'danger') : '';
+      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td>${escapeHTML(agent.role || '-')}</td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td class="mono">r${escapeHTML(String(agent.revision || 0))}</td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
+    });
+    const squadRows = nativeSquads.map(squad => {
+      const publish = squad.status === 'draft' ? orchestrationAction(squad.id, 'squad', 'publish', 'publish', 'accent') : '';
+      const disable = squad.status === 'published' ? orchestrationAction(squad.id, 'squad', 'disable', 'disable') : '';
+      const archive = squad.status !== 'archived' ? orchestrationAction(squad.id, 'squad', 'archive', 'archive', 'danger') : '';
+      return `<tr><td><strong>${escapeHTML(squad.name || squad.id)}</strong><div class="mono orchestration-id">${escapeHTML(squad.id)}</div></td><td><span class="status ${squad.status === 'published' ? 'good' : squad.status === 'archived' ? 'bad' : 'active'}">${escapeHTML(squad.status)}</span></td><td class="mono">r${escapeHTML(String(squad.revision || 0))} · v${escapeHTML(String(squad.published_version || 0))}</td><td>${escapeHTML(String((squad.members || []).length))}</td><td>${escapeHTML(String((squad.graph?.nodes || []).length))}</td><td><div class="row-actions">${orchestrationAction(squad.id, 'squad', 'validate', 'validate')}${orchestrationAction(squad.id, 'squad', 'dry-run', 'dryRun')}${publish}${disable}${archive}</div></td></tr>`;
+    });
+    const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
+    const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
+    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status" role="status"></div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('role'), t('status'), t('revision'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
+  };
+
+  function ensureOrchestrationDialogs() {
+    if ($('#squadDialog')) return;
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="squadDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / SQUAD</p><h2>${escapeHTML(t('newSquad'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="squadDialog" type="button">×</button></div><form id="squadForm"><label><span>${escapeHTML(t('squadName'))}</span><input name="name" required></label><label><span>${escapeHTML(t('squadDescription'))}</span><textarea name="description"></textarea></label><label><span>${escapeHTML(t('squadLeader'))}</span><select name="leader" id="squadLeader" required></select></label><p class="form-error" id="squadFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="squadDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('create'))}</button></div></form></dialog><dialog id="nativePlanDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / IMMUTABLE PLAN</p><h2>${escapeHTML(t('newPlan'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="nativePlanDialog" type="button">×</button></div><form id="nativePlanForm"><label><span>${escapeHTML(t('planRequirement'))}</span><select name="requirement" id="nativePlanRequirement" required></select></label><label><span>${escapeHTML(t('planTarget'))}</span><select name="target" id="nativePlanTarget" required></select></label><p class="form-error" id="nativePlanFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="nativePlanDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('publish'))}</button></div></form></dialog><dialog id="timelineDialog" class="orchestration-dialog timeline-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / REPLAY</p><h2>${escapeHTML(t('timeline'))}</h2><p id="timelinePlanID" class="mono"></p></div><button class="dialog-close" data-close-orchestration="timelineDialog" type="button">×</button></div><pre id="timelineContent" class="timeline-content"></pre><div class="form-actions"><button class="secondary" data-close-orchestration="timelineDialog" type="button">${escapeHTML(t('closeTimeline'))}</button></div></dialog>`);
+    document.querySelectorAll('[data-close-orchestration]').forEach(button => {
+      button.onclick = () => $(`#${button.dataset.closeOrchestration}`)?.close();
+    });
+    $('#squadDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+    $('#nativePlanDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+    $('#timelineDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+    $('#squadForm').onsubmit = createNativeSquad;
+    $('#nativePlanForm').onsubmit = createNativePlan;
+  }
+
+  function setOrchestrationStatus(message, bad = false) {
+    const target = $('#orchestrationStatus');
+    if (!target) return;
+    target.textContent = message;
+    target.className = `orchestration-status ${bad ? 'bad' : 'good'}`;
+  }
+
+  function openSquadDialog() {
+    ensureOrchestrationDialogs();
+    $('#squadFormError').textContent = '';
+    $('#squadLeader').innerHTML = nativeAgents.filter(agent => agent.status === 'active').map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · r${escapeHTML(String(agent.revision))}</option>`).join('');
+    if (!$('#squadLeader').options.length) {
+      setOrchestrationStatus(t('noPublishedTarget'), true);
+      return;
+    }
+    $('#squadDialog').showModal();
+    setTimeout(() => $('#squadForm input[name="name"]')?.focus(), 0);
+  }
+
+  function openNativePlanDialog() {
+    ensureOrchestrationDialogs();
+    $('#nativePlanFormError').textContent = '';
+    $('#nativePlanRequirement').innerHTML = requirements.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.key || item.id)} · ${escapeHTML(item.title)}</option>`).join('');
+    const targets = [
+      ...nativeAgents.filter(agent => agent.status === 'active').map(agent => `<option value="agent:${escapeHTML(agent.id)}">Agent · ${escapeHTML(agent.name)} · r${escapeHTML(String(agent.revision))}</option>`),
+      ...nativeSquads.filter(squad => squad.status === 'published').map(squad => `<option value="squad:${escapeHTML(squad.id)}">Squad · ${escapeHTML(squad.name)} · v${escapeHTML(String(squad.published_version))}</option>`)
+    ];
+    $('#nativePlanTarget').innerHTML = targets.join('');
+    if (!requirements.length || !targets.length) {
+      setOrchestrationStatus(t('noPublishedTarget'), true);
+      return;
+    }
+    $('#nativePlanDialog').showModal();
+  }
+
+  async function createNativeSquad(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const leader = nativeAgents.find(agent => agent.id === String(data.get('leader')));
+    if (!leader) return;
+    const graphID = crypto.randomUUID?.() || `graph-${Date.now()}`;
+    const body = {
+      name: String(data.get('name')).trim(), description: String(data.get('description')).trim(), status: 'draft',
+      members: [{id: 'leader', agent_id: leader.id, role: leader.role || 'leader', leader: true, input_schema: leader.input_schema, output_schema: leader.output_schema, max_attempts: 3, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}],
+      graph: {id: graphID, version: 1, entry_node_ids: ['leader'], exit_node_ids: ['leader'], nodes: [{id: 'leader', kind: 'agent', agent_ref: {id: leader.id, revision: leader.revision}, retry_policy: {max_attempts: 3}, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}], edges: []},
+      policy: {max_nesting_depth: 2, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}, human_exit_required: true}
+    };
+    try {
+      await api('/api/v1/workspaces/local/squads', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      form.reset(); $('#squadDialog').close(); await loadOrchestrationData(); setOrchestrationStatus(t('newSquad'));
+    } catch (_) { $('#squadFormError').textContent = t('squadCreateFailed'); }
+  }
+
+  async function createNativePlan(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const requirementID = String(data.get('requirement'));
+    const [kind, id] = String(data.get('target')).split(':', 2);
+    const body = {idempotency_key: idempotencyKey()};
+    if (kind === 'agent') {
+      const agent = nativeAgents.find(item => item.id === id);
+      body.agent_id = id; body.agent_revision = agent?.revision || 0;
+    } else {
+      const squad = nativeSquads.find(item => item.id === id);
+      body.squad_id = id; body.squad_version = squad?.published_version || 0;
+    }
+    try {
+      await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/execution-plan`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': body.idempotency_key}, body: JSON.stringify(body)});
+      form.reset(); $('#nativePlanDialog').close(); await loadOrchestrationData(); setOrchestrationStatus(t('newPlan'));
+    } catch (_) { $('#nativePlanFormError').textContent = t('planCreateFailed'); }
+  }
+
+  async function applyOrchestrationAction(kind, id, action) {
+    try {
+      if (kind === 'plan') {
+        const path = action === 'timeline' ? `/api/v1/plans/${encodeURIComponent(id)}/timeline` : `/api/v1/execution-plans/${encodeURIComponent(id)}/replay`;
+        const result = await api(path);
+        ensureOrchestrationDialogs();
+        $('#timelinePlanID').textContent = id;
+        $('#timelineContent').textContent = JSON.stringify(result, null, 2);
+        $('#timelineDialog').showModal();
+        return;
+      }
+      const result = await api(`/api/v1/${kind === 'agent' ? 'agents' : 'squads'}/${encodeURIComponent(id)}/${encodeURIComponent(action)}?workspace_id=local`, {method: action === 'capabilities' ? 'GET' : 'POST'});
+      const message = result.valid === false ? `${action}: ${result.error || 'invalid'}` : `${action}: ${id}`;
+      await loadOrchestrationData();
+      setOrchestrationStatus(message, result.valid === false);
+    } catch (_) { setOrchestrationStatus(t('lifecycleActionFailed'), true); }
+  }
+
   function renderPermissionGrid(selected, role) {
     const allSelected = role === 'admin';
     $('#menuPermissionGrid').innerHTML = menuIDs.map(menu => `<label class="permission-option"><input type="checkbox" name="menus" value="${escapeHTML(menu)}" ${(allSelected || selected.includes(menu)) ? 'checked' : ''} ${allSelected ? 'disabled' : ''}><span>${escapeHTML(t(menu))}</span></label>`).join('');
@@ -430,6 +581,38 @@
     document.querySelectorAll('[data-edit-user]').forEach(button => {
       button.onclick = () => openUserDialog(managedUsers.find(user => user.id === button.dataset.editUser));
     });
+    const newSquad = $('#newSquad');
+    if (newSquad) newSquad.onclick = openSquadDialog;
+    const newPlan = $('#newPlan');
+    if (newPlan) newPlan.onclick = openNativePlanDialog;
+    document.querySelectorAll('[data-orchestration-action]').forEach(button => {
+      button.onclick = () => applyOrchestrationAction(button.dataset.orchestrationKind, button.dataset.orchestrationId, button.dataset.orchestrationAction);
+    });
+  };
+
+  ensureOrchestrationDialogs();
+  $('#agentForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const member = String(data.get('member') || '').trim();
+    const name = String(data.get('name') || '').trim();
+    const instructions = String(data.get('instructions') || '').trim();
+    const role = String(data.get('role') || '').trim() || 'developer';
+    const nativeBody = {
+      name, role, instructions, status: 'active', created_by: currentUser?.id || member,
+      capabilities: [{name: 'session.start', version: 'v1'}, {name: 'stream.events', version: 'v1'}],
+      executor_binding: {provider_id: rootInfo.provider || 'local', required_caps: ['run.snapshot.v1'], config_version: 'web-v1'},
+      concurrency_budget: {tokens: 120000, tool_calls: 200, concurrent: 1},
+      input_schema: {id: 'adro.context-envelope', version: 1}, output_schema: {id: 'adro.structured-result', version: 1},
+      tool_policy: {network: false}, memory_policy: {require_evidence: true}
+    };
+    $('#agentFormError').textContent = '';
+    try {
+      await api('/api/v1/workspaces/local/agents', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(nativeBody)});
+      await api('/api/v1/agents', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({workspace_id: 'local', member_id: member, name, instructions, role})});
+      closeAgentDialog(); form.reset(); await loadCore(true);
+    } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
   };
 
   const baseOpenRequirement = openRequirement;

@@ -13,6 +13,7 @@ go mod download
 npm ci
 node scripts/release-assets.mjs generate
 node scripts/release-assets.mjs verify
+./scripts/test-release-signing.sh
 ```
 
 ## Local verification
@@ -41,6 +42,27 @@ for Git, CI, deployment, identity, secrets, event transport, persistence and
 notifications. Measure restart recovery, concurrency limits, audit retention,
 RTO/RPO, and security isolation. Plugins are versioned and can be rolled back
 without changing ADRO domain records.
+
+## Signed release manifest
+
+Release tags are fail-closed unless the workflow secret
+`ADRO_RELEASE_SIGNING_KEY_B64` contains a base64-encoded, unencrypted SSH
+private key dedicated to ADRO releases. The private key is written only to the
+runner temporary directory with mode `0600`; it is never committed or uploaded.
+The release contains the traceable manifest, its detached SSH signature, and
+an `allowed_signers` file containing the corresponding public key.
+
+Operators can verify the assets after download:
+
+```bash
+node scripts/release-assets.mjs verify-signature release-manifest.json \
+  --signature release-manifest.json.sig \
+  --allowed-signers release-allowed-signers
+```
+
+Rotate the release key by replacing the repository secret before the next tag.
+Retain previously published public keys with the matching release evidence;
+rotation must never rewrite an existing GitHub release.
 
 ## Rollback
 

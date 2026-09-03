@@ -18,7 +18,10 @@ extensible without coupling the kernel to a particular execution vendor.
 
 ## Runtime shape
 
-![Layered ADRO architecture](./adro-architecture.svg)
+![Layered ADRO architecture](./adro-layered-architecture.svg)
+
+The companion delivery-flow view is `./adro-architecture.svg`; it explains run
+movement and feedback, while the image above describes the system layers.
 
 The local profile stores state in atomic mode-0600 JSON snapshots and keeps a
 fsynced append-only `harness.json.transcript.jsonl` alongside a short-lived

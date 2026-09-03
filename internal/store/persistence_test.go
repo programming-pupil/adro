@@ -3,10 +3,53 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
 )
+
+func TestConcurrentCommentEditAllowsSingleRevisionWinner(t *testing.T) {
+	m := NewMemory()
+	requirement, err := m.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "comment race", Description: "exercise optimistic edit concurrency", AcceptanceCriteria: []string{"one revision wins"}, AssigneeMemberIDs: []string{"author"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := m.CreateComment(domain.Comment{WorkspaceID: "w", TargetType: "requirement", TargetID: requirement.ID, AuthorID: "author", AuthorType: "member", Content: "original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, content := range []string{"edit-a", "edit-b"} {
+		wg.Add(1)
+		go func(content string) {
+			defer wg.Done()
+			_, updateErr := m.UpdateComment(comment.ID, 1, content, nil, nil, content, "member")
+			errs <- updateErr
+		}(content)
+	}
+	wg.Wait()
+	close(errs)
+	succeeded, conflicted := 0, 0
+	for updateErr := range errs {
+		switch {
+		case updateErr == nil:
+			succeeded++
+		case errors.Is(updateErr, ErrConflict):
+			conflicted++
+		default:
+			t.Fatalf("unexpected edit error: %v", updateErr)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("concurrent edit result succeeded=%d conflicted=%d", succeeded, conflicted)
+	}
+	current, err := m.GetComment(comment.ID)
+	if err != nil || current.Revision != 2 {
+		t.Fatalf("comment revision=%d err=%v", current.Revision, err)
+	}
+}
 
 func TestPersistentMemoryRoundTripsControlPlaneAndContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.json")
@@ -64,6 +107,41 @@ func TestPersistentMemoryRejectsStaleWriter(t *testing.T) {
 	}
 	if _, err := second.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "stale", Description: "must reject", AcceptanceCriteria: []string{"ok"}, AssigneeMemberIDs: []string{"dev"}, RepositoryIDs: []string{"repo"}}); err == nil {
 		t.Fatal("expected stale writer to be rejected")
+	}
+}
+
+func TestPersistentMemoryRetainsImmutableCommentAttachmentRevisions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.json")
+	first, err := NewPersistentMemory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requirement, err := first.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "comment lineage", Description: "survive restart", AcceptanceCriteria: []string{"revisions"}, AssigneeMemberIDs: []string{"dev"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := first.CreateComment(domain.Comment{WorkspaceID: "w", TargetType: "requirement", TargetID: requirement.ID, AuthorID: "author", AuthorType: "member", Content: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := first.SaveAttachment(domain.EntityAttachment{WorkspaceID: "w", OwnerType: "comment", OwnerID: comment.ID, Filename: "evidence.txt", ArtifactURI: "artifact://tenant/evidence/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentIDs := []string{attachment.ID}
+	if _, err := first.UpdateComment(comment.ID, 1, "second", nil, &attachmentIDs, "editor", "member"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPersistentMemory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := second.ListCommentRevisions(comment.ID)
+	if err != nil || len(revisions) != 2 {
+		t.Fatalf("revisions=%+v err=%v", revisions, err)
+	}
+	if revisions[0].Content != "first" || len(revisions[0].AttachmentIDs) != 0 || revisions[1].Content != "second" || len(revisions[1].AttachmentIDs) != 1 || revisions[1].AttachmentIDs[0] != attachment.ID || revisions[1].EditorID != "editor" {
+		t.Fatalf("comment lineage=%+v", revisions)
 	}
 }
 

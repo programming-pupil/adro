@@ -38,6 +38,22 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           mkdir -p dist
           git archive --format=tar.gz --prefix="adro-$version/" "$GITHUB_REF_NAME" -o "dist/adro-$version.tar.gz"
+          node scripts/release-assets.mjs manifest --output dist/release-manifest.json
+      - name: Sign and verify release manifest
+        env:
+          ADRO_RELEASE_SIGNING_KEY_B64: ${{ secrets.ADRO_RELEASE_SIGNING_KEY_B64 }}
+        run: |
+          test -n "$ADRO_RELEASE_SIGNING_KEY_B64"
+          umask 077
+          printf '%s' "$ADRO_RELEASE_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/adro-release-key"
+          node scripts/release-assets.mjs sign-manifest dist/release-manifest.json \
+            --key "$RUNNER_TEMP/adro-release-key" \
+            --signature dist/release-manifest.json.sig \
+            --allowed-signers dist/release-allowed-signers
+          node scripts/release-assets.mjs verify-manifest dist/release-manifest.json
+          node scripts/release-assets.mjs verify-signature dist/release-manifest.json \
+            --signature dist/release-manifest.json.sig \
+            --allowed-signers dist/release-allowed-signers
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

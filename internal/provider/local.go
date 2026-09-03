@@ -27,6 +27,7 @@ import (
 	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
 	runtimekernel "github.com/adro-project/adro/internal/runtime"
+	"github.com/adro-project/adro/internal/telemetry"
 )
 
 type localRun struct {
@@ -207,6 +208,12 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 	if err := command.ValidateGraphScope(); err != nil {
 		return RunBinding{}, err
 	}
+	if err := command.ValidateContext(); err != nil {
+		return RunBinding{}, err
+	}
+	if err := command.ValidateTraceContext(); err != nil {
+		return RunBinding{}, err
+	}
 	// Serialize the idempotency lookup and durable run reservation. Without this
 	// narrow gate two concurrent retries can both observe a missing key and
 	// launch duplicate child processes before either one records the key.
@@ -223,6 +230,13 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 	if err != nil {
 		return RunBinding{}, err
 	}
+	if requested := strings.TrimSpace(command.WorkDir); requested != "" {
+		clean := filepath.Clean(requested)
+		if clean == "." || clean == string(filepath.Separator) || strings.Contains(clean, ".."+string(filepath.Separator)) {
+			return RunBinding{}, errors.New("graph dispatch workdir is invalid")
+		}
+		workDir = clean
+	}
 	p.mu.RLock()
 	item := p.items[command.WorkItemID]
 	p.mu.RUnlock()
@@ -238,14 +252,24 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 			if existing.snapshot.InputHash != "" && existing.snapshot.InputHash != sha256Hex(command.Input) {
 				return RunBinding{}, fmt.Errorf("%w: idempotency key maps to different input", ErrConflict)
 			}
-			return bindingFromSnapshot(existing.snapshot, command.ContextID, command.ContextVersion, command.SessionID != ""), nil
+			return bindingFromSnapshot(existing.snapshot, command.ContextID, command.ContextVersion, false), nil
 		}
 	}
-	return p.start(ctx, command.WorkItemID, command.ProviderIssueID, command.Input, sessionID, workDir, command.ContextID, command.ContextVersion, command.SessionID != "", command.IdempotencyKey)
+	// SessionID scopes ADRO's initial run and workdir; it is not proof that a
+	// provider-native conversation already exists. Only ContinueWorkItem may
+	// request a resume after a completed run has emitted continuity evidence.
+	providerCtx, span, _ := telemetry.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
+	return p.start(providerCtx, command.WorkItemID, command.ProviderIssueID, command.Input, sessionID, workDir, command.ContextID, command.ContextVersion, false, command.IdempotencyKey, span.TraceParent(), span.TraceState)
 }
 
 func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command ContinuationCommand) (RunBinding, error) {
 	if err := command.ValidateGraphScope(); err != nil {
+		return RunBinding{}, err
+	}
+	if err := command.ValidateContext(); err != nil {
+		return RunBinding{}, err
+	}
+	if err := command.ValidateTraceContext(); err != nil {
 		return RunBinding{}, err
 	}
 	p.startMu.Lock()
@@ -291,7 +315,8 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 			return bindingFromSnapshot(existing.snapshot, "", 0, true), nil
 		}
 	}
-	return p.start(ctx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true, command.IdempotencyKey)
+	providerCtx, span, _ := telemetry.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
+	return p.start(providerCtx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true, command.IdempotencyKey, span.TraceParent(), span.TraceState)
 }
 
 func (p *LocalProvider) hasProvenSessionLocked(workItemID, sessionID string) bool {
@@ -307,7 +332,7 @@ func (p *LocalProvider) hasProvenSessionLocked(workItemID, sessionID string) boo
 	return false
 }
 
-func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, sessionID, workDir, contextID string, contextVersion int64, reused bool, idempotencyKey string) (RunBinding, error) {
+func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, sessionID, workDir, contextID string, contextVersion int64, reused bool, idempotencyKey, traceParent, traceState string) (RunBinding, error) {
 	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		return RunBinding{}, fmt.Errorf("create execution workdir: %w", err)
 	}
@@ -319,8 +344,8 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// A run outlives the HTTP request that created it. The cancel handle is
 	// retained in the run record and is exercised by CancelRun or the explicit
 	// executor deadline, whichever comes first.
-	runCtx, cancel := localExecutionContext()
-	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, StartedAt: &now}
+	runCtx, cancel := localExecutionContext(ctx)
+	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, TraceParent: traceParent, TraceState: traceState, StartedAt: &now}
 	fencingToken := int64(0)
 	var runtimeScope runtimekernel.Scope
 	if p.runtime != nil {
@@ -369,9 +394,9 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	if p.runtime != nil {
 		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventTurnStarted, AggregateType: "run", AggregateID: id, Scope: runtimeScope, CorrelationID: id, IdempotencyKey: "run:" + id + ":start", WriterID: "local", FencingToken: fencingToken, Payload: map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input)}})
 	}
-	_ = p.Bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input), "session_id": sessionID, "work_dir": workDir}))
+	_ = p.Bus.Publish(runCtx, events.NewWithContext(runCtx, "execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input), "session_id": sessionID, "work_dir": workDir}))
 	go p.execute(runCtx, id, input, workDir, sessionID, reused)
-	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}, nil
+	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, TraceParent: traceParent, TraceState: traceState, StartedAt: now}, nil
 }
 
 func bindingFromSnapshot(snapshot RunSnapshot, contextID string, contextVersion int64, reused bool) RunBinding {
@@ -379,19 +404,26 @@ func bindingFromSnapshot(snapshot RunSnapshot, contextID string, contextVersion 
 	if snapshot.StartedAt != nil {
 		now = *snapshot.StartedAt
 	}
-	return RunBinding{ID: snapshot.ID, ProviderRunID: snapshot.ID, SessionID: snapshot.SessionID, WorkDir: snapshot.WorkDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, StartedAt: now}
+	return RunBinding{ID: snapshot.ID, ProviderRunID: snapshot.ID, SessionID: snapshot.SessionID, WorkDir: snapshot.WorkDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, TraceParent: snapshot.TraceParent, TraceState: snapshot.TraceState, StartedAt: now}
 }
 
-func localExecutionContext() (context.Context, context.CancelFunc) {
+func localExecutionContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	parent = context.WithoutCancel(parent)
 	value := strings.TrimSpace(os.Getenv("ADRO_EXECUTOR_TIMEOUT"))
 	if value == "" {
-		return context.WithCancel(context.Background())
+		// A provider process must never run without a deadline. Operators can
+		// increase this bound explicitly, but the local profile remains
+		// fail-closed when the environment is incomplete or malformed.
+		return context.WithTimeout(parent, 30*time.Minute)
 	}
 	timeout, err := time.ParseDuration(value)
 	if err != nil || timeout <= 0 {
-		return context.WithCancel(context.Background())
+		return context.WithTimeout(parent, 30*time.Minute)
 	}
-	return context.WithTimeout(context.Background(), timeout)
+	return context.WithTimeout(parent, timeout)
 }
 
 func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sessionID string, resumed bool) {
@@ -404,7 +436,29 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if pathErr == nil {
 		cmd := exec.CommandContext(ctx, path, args...)
 		cmd.Dir = workDir
-		stdin, stdinErr := cmd.StdinPipe()
+		cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+		// Codex `exec` consumes its prompt from argv and is explicitly one-shot.
+		// Do not create a live pipe for it: even a prompt-less child can inherit a
+		// descriptor whose close races process startup and wait forever for EOF.
+		// Leaving Stdin nil makes os/exec attach /dev/null, giving one-shot
+		// providers deterministic EOF without relying on a copy goroutine to
+		// close an intermediate pipe. Interactive providers retain a pipe for
+		// AppendInput.
+		codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
+		var stdin io.WriteCloser
+		var stdinErr error
+		var devNull *os.File
+		if codexOneShot {
+			// os/exec documents nil stdin as /dev/null, but on some PTY-backed
+			// test runners the inherited descriptor can remain open. Bind an
+			// explicit descriptor so one-shot commands always observe EOF.
+			devNull, stdinErr = os.Open(os.DevNull)
+			if stdinErr == nil {
+				cmd.Stdin = devNull
+			}
+		} else {
+			stdin, stdinErr = cmd.StdinPipe()
+		}
 		if stdinErr != nil {
 			runErr = stdinErr
 		} else {
@@ -428,7 +482,12 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 					close(run.started)
 					run.inputMu.Lock()
 					for _, interaction := range pending {
-						_, writeErr := io.WriteString(stdin, interaction.Input+"\n")
+						var writeErr error
+						if stdin == nil {
+							writeErr = errors.New("executor is not interactive")
+						} else {
+							_, writeErr = io.WriteString(stdin, interaction.Input+"\n")
+						}
 						p.mu.Lock()
 						if current := p.runs[runID]; current != nil {
 							status, eventType := "sent", "interaction.sent"
@@ -446,13 +505,30 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 						p.mu.Unlock()
 					}
 					run.inputMu.Unlock()
+					// `codex exec` is a one-shot command. Keeping its stdin pipe
+					// open makes the CLI wait forever for additional input after the
+					// prompt argument has been consumed. Interactive providers can
+					// retain stdin for AppendInput; exec mode must receive EOF.
+					if codexOneShot && stdin != nil {
+						_ = stdin.Close()
+						p.mu.Lock()
+						if current := p.runs[runID]; current != nil {
+							current.stdin = nil
+						}
+						p.mu.Unlock()
+					}
 				}
 				runErr = cmd.Wait()
 			}
 			if startErr != nil && run != nil {
 				close(run.started)
 			}
-			_ = stdin.Close()
+			if stdin != nil {
+				_ = stdin.Close()
+			}
+			if devNull != nil {
+				_ = devNull.Close()
+			}
 			output = outputBuffer.Bytes()
 		}
 	} else {
@@ -565,7 +641,22 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if persistenceFailure != "" {
 		payload["error"] = "durable run snapshot unavailable"
 	}
-	_ = p.Bus.Publish(context.Background(), events.New("execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
+	_ = p.Bus.Publish(ctx, events.NewWithContext(ctx, "execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
+}
+
+func traceEnvironment(base, carrier []string) []string {
+	if len(carrier) == 0 {
+		return base
+	}
+	filtered := make([]string, 0, len(base)+len(carrier))
+	for _, value := range base {
+		upper := strings.ToUpper(value)
+		if strings.HasPrefix(upper, "TRACEPARENT=") || strings.HasPrefix(upper, "TRACESTATE=") {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return append(filtered, carrier...)
 }
 
 // extractToolEvents accepts the JSONL shapes emitted by Codex and Claude
@@ -686,6 +777,18 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 	default:
 		return []string{input}
 	}
+}
+
+func codexExecMode(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "app-server", "mcp-server":
+			return false
+		case "exec":
+			return true
+		}
+	}
+	return false
 }
 
 func (p *LocalProvider) executorKind() string {

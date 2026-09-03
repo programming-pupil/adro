@@ -32,3 +32,25 @@ func TestManifestOverflow(t *testing.T) {
 		t.Fatalf("want overflow, got %v", err)
 	}
 }
+
+func TestManifestPromptHashAndSemanticSnapshotAreVerified(t *testing.T) {
+	m, err := NewManifest("session", 3, 10, []Block{{ID: "system", Source: "system", Content: "rules", Policy: "mandatory", Trust: "trusted", SelectionReason: "required", TokenEstimate: 2, Mandatory: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	m.PromptManifestHash = "tampered"
+	if err := m.Validate(); err == nil {
+		t.Fatal("tampered prompt manifest hash must be rejected")
+	}
+	m, err = NewManifest("session", 3, 10, []Block{{ID: "system", Source: "system", Content: "rules", Policy: "mandatory", Trust: "trusted", SelectionReason: "required", TokenEstimate: 2, Mandatory: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SemanticSnapshotVersion = 0
+	if err := m.Validate(); err == nil {
+		t.Fatal("missing semantic snapshot version must be rejected")
+	}
+}

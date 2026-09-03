@@ -2,6 +2,7 @@ package mentions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -62,6 +63,8 @@ type TriggerPlan struct {
 	Outcomes []TriggerOutcome `json:"trigger_outcomes"`
 }
 
+const MaxTargetsPerComment = 32
+
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // ComputeTriggers is the sole trigger decision function for preview, create,
@@ -84,15 +87,23 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 		suppressed[id] = true
 	}
 	out := TriggerPlan{Parser: parsed, Outcomes: []TriggerOutcome{}}
-	seen := map[string]bool{}
-	for _, m := range parsed.Targets() {
+	// ParseResult.Targets already de-duplicates by target type/id. Apply the
+	// limit to unique invocation targets; repeated markup for the same agent
+	// must not consume the comment's fan-out budget or block a later target.
+	mentions := parsed.InvocationTargets()
+	tooMany := len(mentions) > MaxTargetsPerComment
+	for index, m := range mentions {
 		key := string(m.TargetType) + ":" + m.TargetID
-		if seen[key] {
+		t, ok := targets[key]
+		o := TriggerOutcome{TargetType: m.TargetType, TargetID: m.TargetID, ReasonCode: "explicit_mention", SourceCommentID: in.CommentID, ParentTaskID: strings.TrimSpace(in.ParentThreadID), DedupeKey: fmt.Sprintf("%s:%s:%s:%s:%d", in.CommentID, m.TargetType, m.TargetID, in.PlanVersion, in.CommentRevision)}
+		o.AuthoritySnapshot = authoritySnapshot(in, t, ok)
+		if tooMany || index >= MaxTargetsPerComment {
+			o.Status = StatusBlocked
+			o.ReasonCode = "mention_limit_exceeded"
+			o.Reason = fmt.Sprintf("a comment may target at most %d unique agents or squads", MaxTargetsPerComment)
+			out.Outcomes = append(out.Outcomes, o)
 			continue
 		}
-		seen[key] = true
-		t, ok := targets[key]
-		o := TriggerOutcome{TargetType: m.TargetType, TargetID: m.TargetID, ReasonCode: "explicit_mention", SourceCommentID: in.CommentID, DedupeKey: fmt.Sprintf("%s:%s:%s:%s:%d", in.CommentID, m.TargetType, m.TargetID, in.PlanVersion, in.CommentRevision)}
 		if m.TargetType == TargetAll {
 			if !in.UserCanInvoke {
 				o.Status, o.ReasonCode, o.Reason = StatusBlocked, "invoke_forbidden", "caller is not allowed to invoke @all"
@@ -169,6 +180,15 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 		out.Outcomes = append(out.Outcomes, o)
 	}
 	return out, nil
+}
+
+func authoritySnapshot(in TriggerInput, target Target, found bool) string {
+	payload := map[string]any{"workspace_id": in.WorkspaceID, "target_type": target.Type, "target_id": target.ID, "found": found, "active": target.Active, "version": target.Version, "leader_id": target.LeaderID, "can_invoke": target.CanInvoke, "runtime_healthy": in.RuntimeHealthy}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // ImplicitOutcome describes an assignee/thread-owner route. @all suppresses

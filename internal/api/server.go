@@ -23,16 +23,19 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
 	adroauth "github.com/adro-project/adro/internal/auth"
+	"github.com/adro-project/adro/internal/compat"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
 	mcpclient "github.com/adro-project/adro/internal/mcp"
+	"github.com/adro-project/adro/internal/memory"
 	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
 	"github.com/gorilla/websocket"
 )
@@ -49,7 +52,8 @@ type Server struct {
 	Logger          *slog.Logger
 	Router          *provider.AgentRouteResolver
 	Auth            *adroauth.Service
-	Orchestration   *orchestration.MemoryRepository
+	Orchestration   orchestration.ControlRepository
+	Memory          *memory.Repository
 	uploadMu        sync.Mutex
 	materializeMu   sync.Mutex
 	idempotencyMu   sync.Mutex
@@ -119,9 +123,15 @@ func (w *bufferedResponseWriter) response() idempotencyResponse {
 }
 func writeBufferedResponse(dst http.ResponseWriter, response idempotencyResponse) {
 	for key, values := range response.Headers {
-		if strings.EqualFold(key, "X-Request-ID") && dst.Header().Get("X-Request-ID") != "" {
+		if (strings.EqualFold(key, "X-Request-ID") || strings.EqualFold(key, "X-Trace-ID") || strings.EqualFold(key, telemetry.TraceParentHeader) || strings.EqualFold(key, telemetry.TraceStateHeader)) && dst.Header().Get(key) != "" {
 			continue
 		}
+		// The buffer starts with a copy of the response headers that were
+		// already installed on the real writer (CORS, cache and trace metadata).
+		// Replace those values instead of appending them a second time: browsers
+		// reject duplicate Access-Control-Allow-Origin values even when the two
+		// values are byte-for-byte identical.
+		dst.Header().Del(key)
 		for _, value := range values {
 			dst.Header().Add(key, value)
 		}
@@ -172,11 +182,40 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 	if orchestrationRepo == nil && strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")) == "" {
 		orchestrationRepo = orchestration.NewMemoryRepository()
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
+	memoryRepo := memory.NewRepository()
+	if path := strings.TrimSpace(os.Getenv("ADRO_MEMORY_STATE_FILE")); path != "" {
+		if loaded, loadErr := memory.NewPersistentRepository(path); loadErr == nil {
+			memoryRepo = loaded
+		} else {
+			logger.Error("load memory state", "error", loadErr, "path", path)
+		}
+	}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
+}
+
+// NewWithRoutingAndOrchestration is the production injection seam for SQL,
+// queue-backed, or other ControlRepository implementations. The default
+// constructor remains the local file/memory profile for backwards compatibility.
+func NewWithRoutingAndOrchestration(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger, router *provider.AgentRouteResolver, repo orchestration.ControlRepository) *Server {
+	srv := NewWithRouting(s, p, a, b, logger, router)
+	if repo != nil {
+		srv.Orchestration = repo
+	}
+	return srv
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	traceCtx, serverSpan, traceErr := telemetry.StartRemoteSpan(r.Context(), r.Header.Get(telemetry.TraceParentHeader), r.Header.Get(telemetry.TraceStateHeader))
+	r = r.WithContext(traceCtx)
+	w.Header().Set(telemetry.TraceParentHeader, serverSpan.TraceParent())
+	if serverSpan.TraceState != "" {
+		w.Header().Set(telemetry.TraceStateHeader, serverSpan.TraceState)
+	}
+	w.Header().Set("X-Trace-ID", serverSpan.TraceID)
+	if traceErr != nil && s.Logger != nil {
+		s.Logger.Warn("ignored invalid incoming trace context", "request_path", r.URL.Path)
+	}
 	// Mutating store methods persist their own snapshots. Flushing after every
 	// read (including CORS preflights and the long-lived WebSocket route) turns
 	// a burst of dashboard reads into serialized fsyncs and can stall requests
@@ -225,6 +264,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s.Logger.Error("persist orchestration state", "error", err)
 			}
 		}
+		if s.Memory != nil {
+			if err := s.Memory.Flush(); err != nil && s.Logger != nil {
+				s.Logger.Error("persist evidence memory", "error", err)
+			}
+		}
 	}()
 	if origin := r.Header.Get("Origin"); origin != "" && allowedOrigin(origin) {
 		// The local profile is intentionally permissive for a separately served
@@ -233,7 +277,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, X-Request-ID, X-Tenant-ID, X-Workspace-ID, X-Member-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, traceparent, tracestate, X-Request-ID, X-Trace-ID, X-Tenant-ID, X-Workspace-ID, X-Member-ID")
+		w.Header().Set("Access-Control-Expose-Headers", "traceparent, tracestate, X-Request-ID, X-Trace-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
@@ -245,6 +290,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestID = domain.NewID()
 	}
 	w.Header().Set("X-Request-ID", requestID)
+	traceID := serverSpan.TraceID
 	w.Header().Set("Cache-Control", "no-store")
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	if path == "" {
@@ -290,6 +336,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		originalWriter := w
 		buffered = newBufferedResponseWriter()
+		for key, values := range originalWriter.Header() {
+			buffered.header[key] = append([]string(nil), values...)
+		}
 		w = buffered
 		defer func() {
 			response := buffered.response()
@@ -306,6 +355,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					"status":     http.StatusServiceUnavailable,
 					"detail":     "the mutation was not acknowledged because its replay record could not be stored",
 					"request_id": requestID,
+					"trace_id":   traceID,
 				})
 				response = idempotencyResponse{Status: http.StatusServiceUnavailable, Headers: map[string][]string{"Content-Type": {"application/problem+json"}}, Body: body}
 			}
@@ -335,6 +385,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to use this product area", map[string]any{"menu_id": menu})
 			return
 		}
+	}
+	// PostgreSQL orchestration adapters apply RLS identity inside each commit
+	// transaction. Scope comes only from the authenticated/request boundary, not
+	// from a mutable JSON body, and is a no-op for local repositories.
+	if scoped, ok := s.Orchestration.(interface{ SetScope(string, string) }); ok {
+		scoped.SetScope(tenant(r), requestWorkspace(r, r.URL.Query().Get("workspace_id")))
 	}
 	switch {
 	case path == "/" && r.Method == http.MethodGet:
@@ -389,6 +445,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.orchestrationRoute(w, r, strings.TrimPrefix(path, "/api/v1"))
 	case strings.HasPrefix(path, "/api/v1/execution-plans/"):
 		s.orchestrationRoute(w, r, strings.TrimPrefix(path, "/api/v1"))
+	case strings.HasPrefix(path, "/api/v1/plans/") && strings.HasSuffix(path, "/timeline"):
+		s.planTimeline(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/plans/"), "/timeline"))
+	case strings.HasPrefix(path, "/api/v1/runs/") && strings.HasSuffix(path, "/replay"):
+		s.runReplay(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/runs/"), "/replay"))
+	case strings.HasPrefix(path, "/api/v1/runs/") && strings.HasSuffix(path, "/diagnostics"):
+		s.runDiagnostics(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/runs/"), "/diagnostics"))
 	case strings.HasPrefix(path, "/api/v1/workspaces/") && (strings.Contains(path, "/agents") || strings.Contains(path, "/squads")):
 		rest := strings.TrimPrefix(path, "/api/v1/workspaces/")
 		parts := strings.SplitN(rest, "/", 3)
@@ -401,7 +463,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			tail = parts[2]
 		}
 		s.orchestrationWorkspaceRoute(w, r, parts[0], parts[1], tail)
-	case (path == "/api/v1/agents" || strings.HasPrefix(path, "/api/v1/agents/")) && !strings.Contains(path, "/mcp-bindings"):
+	case path == "/api/v1/agents":
+		// Keep the historical provider-binding collection endpoint stable. The
+		// revisioned orchestration collection lives under /workspaces/{id}/agents
+		// and the singular /agents/{id} resource below.
+		s.agentRoute(w, r)
+	case strings.HasPrefix(path, "/api/v1/agents/") && !strings.Contains(path, "/mcp-bindings") && !strings.Contains(path, "/skill-bindings"):
 		rest := strings.TrimPrefix(path, "/api/v1/agents")
 		rest = strings.TrimPrefix(rest, "/")
 		workspaceID := requestWorkspace(r, r.URL.Query().Get("workspace_id"))
@@ -410,7 +477,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if rest == "" {
 			if r.Method == http.MethodGet && s.Orchestration != nil {
-				s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))})
+				agents := s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))
+				if capability := strings.TrimSpace(r.URL.Query().Get("capability")); capability != "" {
+					agents = filterAgentsByCapability(agents, capability)
+				}
+				s.writeJSON(w, http.StatusOK, map[string]any{"items": agents})
 				return
 			}
 			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
@@ -440,6 +511,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sessionRoute(w, r, strings.TrimPrefix(path, "/api/v1/sessions"))
 	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/follow-up"):
 		s.commentFollowUpRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/follow-up"))
+	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/revisions"):
+		s.commentRevisionsRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/comments/"), "/revisions"))
 	case strings.HasPrefix(path, "/api/v1/comments/") && r.Method == http.MethodPatch:
 		s.commentEditRoute(w, r, strings.TrimPrefix(path, "/api/v1/comments/"))
 	case strings.HasPrefix(path, "/api/v1/comments/") && strings.HasSuffix(path, "/trigger-outcomes"):
@@ -492,10 +565,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workItemRoute(w, r, strings.TrimPrefix(path, "/api/v1/work-items/"))
 	case path == "/api/v1/repository-graph" && r.Method == http.MethodGet:
 		s.repositoryGraph(w, r)
-	case path == "/api/v1/agents" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
-		s.agentRoute(w, r)
-	case strings.HasPrefix(path, "/api/v1/agents/") && !strings.Contains(path, "/mcp-bindings") && !strings.Contains(path, "/skill-bindings") && (r.Method == http.MethodGet || r.Method == http.MethodPatch || r.Method == http.MethodPost):
-		s.orchestrationAgentResource(w, r, strings.TrimPrefix(path, "/api/v1/agents/"), requestWorkspace(r, "local"))
 	case strings.HasPrefix(path, "/api/v1/agents/"):
 		s.agentBindingRoute(w, r, strings.TrimPrefix(path, "/api/v1/agents/"))
 	case path == "/api/v1/runners" || strings.HasPrefix(path, "/api/v1/runners/"):
@@ -719,6 +788,92 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "# HELP adro_open_bugs_total Open or repairing bugs.\n# TYPE adro_open_bugs_total gauge\nadro_open_bugs_total %d\n", openBugs)
 	fmt.Fprintf(w, "# HELP adro_runners_total Registered runners.\n# TYPE adro_runners_total gauge\nadro_runners_total %d\n", len(runners))
 	fmt.Fprintf(w, "# HELP adro_events_total Events retained for replay.\n# TYPE adro_events_total gauge\nadro_events_total %d\n", len(eventsPage))
+	ready, running, waiting, blocked, feedback, retries := 0, 0, 0, 0, 0, 0
+	transitionCount, loopExhausted, contextOverflow, toolDenials, leaseConflicts := 0, 0, 0, 0, 0
+	coalesced, triggerBlocked, eventGaps := 0, 0, 0
+	var transitionSeconds float64
+	var tokenUsage, costCents int64
+	toolCalls := 0
+	if s.Orchestration != nil {
+		for _, plan := range s.Orchestration.ListPlans("") {
+			projection, err := s.Orchestration.GetProjection(plan.ID)
+			if err != nil {
+				continue
+			}
+			for _, node := range projection.Nodes {
+				switch node.Status {
+				case orchestration.AttemptReady:
+					ready++
+				case orchestration.AttemptRunning:
+					running++
+				case orchestration.AttemptWaiting:
+					waiting++
+				}
+				if node.RetryCount > 0 {
+					retries += node.RetryCount
+				}
+			}
+			for _, attempt := range projection.Attempts {
+				if attempt.StartedAt != nil && attempt.FinishedAt != nil && !attempt.FinishedAt.Before(*attempt.StartedAt) {
+					transitionCount++
+					transitionSeconds += attempt.FinishedAt.Sub(*attempt.StartedAt).Seconds()
+				}
+				if attempt.FailureReason == nil {
+					continue
+				}
+				code := strings.ToLower(attempt.FailureReason.Code)
+				if !attempt.FailureReason.Retryable {
+					blocked++
+				}
+				if strings.Contains(code, "loop") {
+					loopExhausted++
+				}
+				if strings.Contains(code, "context") && strings.Contains(code, "overflow") {
+					contextOverflow++
+				}
+				if strings.Contains(code, "denial") || strings.Contains(code, "denied") {
+					toolDenials++
+				}
+				if strings.Contains(code, "lease") || strings.Contains(code, "fencing") || strings.Contains(code, "stale_attempt") {
+					leaseConflicts++
+				}
+			}
+			feedback += len(projection.Decisions)
+			tokenUsage += projection.TokenUsage
+			toolCalls += projection.ToolCalls
+			costCents += projection.CostCents
+		}
+	}
+	comments, cursor := s.Store.ListComments("", "", "", "", 250)
+	for {
+		for _, comment := range comments {
+			for _, outcome := range comment.TriggerOutcomes {
+				switch outcome.Status {
+				case string(mentions.StatusCoalesced):
+					coalesced++
+				case string(mentions.StatusBlocked):
+					triggerBlocked++
+				}
+			}
+		}
+		if cursor == "" {
+			break
+		}
+		comments, cursor = s.Store.ListComments("", "", "", cursor, 250)
+	}
+	for _, event := range eventsPage {
+		if event.EventType == "stream.gap.v1" {
+			eventGaps++
+		}
+	}
+	fmt.Fprintf(w, "# HELP adro_orchestration_nodes_total Nodes by scheduler state.\n# TYPE adro_orchestration_nodes_total gauge\nadro_orchestration_nodes_total{state=\"ready\"} %d\nadro_orchestration_nodes_total{state=\"running\"} %d\nadro_orchestration_nodes_total{state=\"waiting\"} %d\nadro_orchestration_nodes_total{state=\"blocked\"} %d\n", ready, running, waiting, blocked)
+	fmt.Fprintf(w, "# HELP adro_orchestration_feedback_total Feedback edge decisions.\n# TYPE adro_orchestration_feedback_total counter\nadro_orchestration_feedback_total %d\n", feedback)
+	fmt.Fprintf(w, "# HELP adro_orchestration_retry_total Node retry requests.\n# TYPE adro_orchestration_retry_total counter\nadro_orchestration_retry_total %d\n", retries)
+	fmt.Fprintf(w, "# HELP adro_orchestration_transition_latency_seconds Total and count of completed attempt latency.\n# TYPE adro_orchestration_transition_latency_seconds summary\nadro_orchestration_transition_latency_seconds_sum %g\nadro_orchestration_transition_latency_seconds_count %d\n", transitionSeconds, transitionCount)
+	fmt.Fprintf(w, "# HELP adro_orchestration_failures_total Bounded orchestration failure signals.\n# TYPE adro_orchestration_failures_total counter\nadro_orchestration_failures_total{reason=\"loop_exhausted\"} %d\nadro_orchestration_failures_total{reason=\"context_overflow\"} %d\nadro_orchestration_failures_total{reason=\"tool_denial\"} %d\nadro_orchestration_failures_total{reason=\"lease_conflict\"} %d\n", loopExhausted, contextOverflow, toolDenials, leaseConflicts)
+	fmt.Fprintf(w, "# HELP adro_comment_triggers_total Structured comment trigger outcomes.\n# TYPE adro_comment_triggers_total counter\nadro_comment_triggers_total{status=\"coalesced\"} %d\nadro_comment_triggers_total{status=\"blocked\"} %d\n", coalesced, triggerBlocked)
+	fmt.Fprintf(w, "# HELP adro_event_gaps_total Stream gaps surfaced to consumers.\n# TYPE adro_event_gaps_total counter\nadro_event_gaps_total %d\n", eventGaps)
+	fmt.Fprintf(w, "# HELP adro_orchestration_usage_total Aggregated plan usage by unit.\n# TYPE adro_orchestration_usage_total counter\nadro_orchestration_usage_total{unit=\"tokens\"} %d\nadro_orchestration_usage_total{unit=\"tool_calls\"} %d\nadro_orchestration_usage_total{unit=\"cost_cents\"} %d\n", tokenUsage, toolCalls, costCents)
 }
 
 func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
@@ -763,7 +918,7 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAudit(r, created.WorkspaceID, "requirement.created", created.ID, map[string]any{"key": created.Key})
-	_ = s.Events.Publish(r.Context(), events.New("requirement.created.v1", "requirement", created.ID, tenant(r), created.WorkspaceID, created.Version, map[string]any{"key": created.Key, "title": created.Title}))
+	_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "requirement.created.v1", "requirement", created.ID, tenant(r), created.WorkspaceID, created.Version, map[string]any{"key": created.Key, "title": created.Title}))
 	s.writeJSON(w, 201, created)
 }
 
@@ -792,7 +947,7 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 				return
 			}
 			if e == nil {
-				_ = s.Events.Publish(r.Context(), events.New("requirement.status.changed.v1", "requirement", id, tenant(r), req.WorkspaceID, updated.Version, map[string]any{"from": req.Status, "to": updated.Status}))
+				_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "requirement.status.changed.v1", "requirement", id, tenant(r), req.WorkspaceID, updated.Version, map[string]any{"from": req.Status, "to": updated.Status}))
 				if err := s.materializeWorkItems(r.Context(), updated); err != nil {
 					s.problem(w, r, 502, "work_item_creation_failed", providerSafeError(err), nil)
 					return
@@ -860,7 +1015,7 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 				return
 			}
 			s.recordAudit(r, updated.WorkspaceID, "requirement.status.changed", id, map[string]any{"from": req.Status, "to": updated.Status, "reason": input.Reason})
-			_ = s.Events.Publish(r.Context(), events.New("requirement.status.changed.v1", "requirement", id, tenant(r), updated.WorkspaceID, updated.Version, map[string]any{"from": req.Status, "to": updated.Status, "reason": input.Reason}))
+			_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "requirement.status.changed.v1", "requirement", id, tenant(r), updated.WorkspaceID, updated.Version, map[string]any{"from": req.Status, "to": updated.Status, "reason": input.Reason}))
 			s.writeJSON(w, 200, updated)
 			return
 		case "confirm-assignees":
@@ -1050,7 +1205,7 @@ func (s *Server) createImpactReport(w http.ResponseWriter, r *http.Request, req 
 		s.problem(w, r, 422, "validation_error", err.Error(), nil)
 		return
 	}
-	_ = s.Events.Publish(r.Context(), events.New("impact.report.generated.v1", "impact_report", report.ID, tenant(r), req.WorkspaceID, report.Version, map[string]any{"requirement_id": req.ID, "version": report.Version}))
+	_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "impact.report.generated.v1", "impact_report", report.ID, tenant(r), req.WorkspaceID, report.Version, map[string]any{"requirement_id": req.ID, "version": report.Version}))
 	s.writeJSON(w, 201, report)
 }
 
@@ -1099,7 +1254,7 @@ func (s *Server) applyGate(w http.ResponseWriter, r *http.Request, req domain.Re
 		result.Checks = append(result.Checks, domain.GateCheck{Name: "bug_id", Actual: bug.ID, Expected: "unique"})
 	}
 	s.recordAudit(r, updated.WorkspaceID, "requirement.gate.applied", req.ID, map[string]any{"gate": input.Name, "decision": input.Decision, "from": req.Status, "to": to, "evidence_ids": input.EvidenceIDs, "reason": input.Reason})
-	_ = s.Events.Publish(r.Context(), events.New("workflow.gate.completed.v1", "requirement", req.ID, tenant(r), req.WorkspaceID, updated.Version, map[string]any{"gate": input.Name, "decision": input.Decision, "status": to, "evidence_ids": input.EvidenceIDs, "bug_id": bug.ID}))
+	_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "workflow.gate.completed.v1", "requirement", req.ID, tenant(r), req.WorkspaceID, updated.Version, map[string]any{"gate": input.Name, "decision": input.Decision, "status": to, "evidence_ids": input.EvidenceIDs, "bug_id": bug.ID}))
 	s.writeJSON(w, 200, map[string]any{"requirement": updated, "gate_result": result, "bug": bug})
 }
 
@@ -1142,7 +1297,7 @@ func (s *Server) bugs(w http.ResponseWriter, r *http.Request) {
 	if duplicate {
 		status = 200
 	} else {
-		_ = s.Events.Publish(r.Context(), events.New("bug.detected.v1", "bug", b.ID, tenant(r), b.WorkspaceID, 1, map[string]any{"fingerprint": b.Fingerprint}))
+		_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "bug.detected.v1", "bug", b.ID, tenant(r), b.WorkspaceID, 1, map[string]any{"fingerprint": b.Fingerprint}))
 	}
 	s.writeJSON(w, status, b)
 }
@@ -1224,14 +1379,34 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 				priorProvenance.AgentBindingID = workItem.DeveloperAgentBindingID
 			}
 			providerWorkItemID := provenanceWorkItemID
-			cmd := provider.StartRunCommand{WorkItemID: providerWorkItemID, AgentBindingID: priorProvenance.AgentBindingID, ProviderIssueID: workItem.ProviderIssueID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, IdempotencyKey: fmt.Sprintf("bug:%s:attempt:%d", b.ID, b.AttemptCount)}
+			cmd := provider.StartRunCommand{WorkItemID: providerWorkItemID, AgentBindingID: priorProvenance.AgentBindingID, ProviderIssueID: workItem.ProviderIssueID, Input: repairBrief(b), SessionID: priorProvenance.ProviderSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, LegacyAdapterVersion: "bug-repair-v1", IdempotencyKey: fmt.Sprintf("bug:%s:attempt:%d", b.ID, b.AttemptCount)}
+			graphScope, scopeErr := compat.BugDispatchScope(b.ID, cmd.IdempotencyKey)
+			if scopeErr != nil {
+				s.problem(w, r, http.StatusUnprocessableEntity, "dispatch_scope_invalid", scopeErr.Error(), nil)
+				return
+			}
+			cmd.PlanID, cmd.NodeID, cmd.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
 			if binding, bindingErr := s.Store.GetProviderBinding(cmd.AgentBindingID); bindingErr == nil {
 				cmd.ProviderAssigneeID = binding.ProviderObjectID
+			}
+			var continuation *provider.ContinuationCommand
+			if cmd.ProviderIssueID != "" && priorProvenance.ProviderSessionID != "" && priorProvenance.ProviderWorkDir != "" {
+				if _, supported := s.Provider.(provider.ContinuityProvider); supported {
+					continuation = &provider.ContinuationCommand{
+						IssueID: cmd.ProviderIssueID, AgentID: cmd.AgentBindingID, Input: cmd.Input,
+						ExpectedSessionID: priorProvenance.ProviderSessionID, ExpectedWorkDir: priorProvenance.ProviderWorkDir,
+						ContextEnvelope: cmd.ContextEnvelope, IdempotencyKey: cmd.IdempotencyKey,
+						LegacyAdapterVersion: cmd.LegacyAdapterVersion,
+					}
+				}
 			}
 			harnessSessionID := "session-bug-" + b.ID
 			if b.WorkItemID != "" {
 				harnessSessionID = "session-" + b.WorkItemID
 			}
+			// A new graph dispatch uses the durable harness session. Provider-native
+			// continuation identity lives only on ContinuationCommand.
+			cmd.SessionID = harnessSessionID
 			var dispatchEvent harness.OutboxEvent
 			dispatchClaimed := true
 			var repairTurnHash string
@@ -1244,13 +1419,23 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", e.Error(), nil)
 					return
 				}
+				contextEnvelope, envelopeErr := s.compiledHarnessEnvelope(harnessSessionID)
+				if envelopeErr != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
+					return
+				}
+				cmd.ContextEnvelope = contextEnvelope
+				if continuation != nil {
+					continuation.PlanID, continuation.NodeID, continuation.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
+					continuation.ContextEnvelope = contextEnvelope
+				}
 				turn, turnErr := s.Harness.AppendTurn(harnessSessionID, harness.Turn{Role: harness.RoleUser, Content: repairBrief(b), IdempotencyKey: cmd.IdempotencyKey, Metadata: map[string]string{"bug_id": b.ID, "attempt": strconv.Itoa(b.AttemptCount)}})
 				if turnErr != nil {
 					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
 					return
 				}
 				repairTurnHash = turn.Hash
-				intent := providerDispatchIntent{Type: providerDispatchIntentType, Kind: "bug", BugID: b.ID, WorkItemID: providerWorkItemID, RequirementID: b.RequirementID, ProviderIssueID: cmd.ProviderIssueID, AgentID: cmd.AgentBindingID, HarnessSessionID: harnessSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, TurnHash: turn.Hash, Command: cmd}
+				intent := providerDispatchIntent{Type: providerDispatchIntentType, Kind: "bug", BugID: b.ID, WorkItemID: providerWorkItemID, RequirementID: b.RequirementID, ProviderIssueID: cmd.ProviderIssueID, AgentID: cmd.AgentBindingID, HarnessSessionID: harnessSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, TurnHash: turn.Hash, ContextEnvelope: contextEnvelope, Command: cmd, Continuation: continuation}
 				dispatchEvent, dispatchClaimed, e = s.Harness.EnqueueAndClaimOutbox(harnessSessionID, cmd.IdempotencyKey, intent, providerDispatchOwner, dispatchLeaseTTL(), time.Now().UTC())
 				if e != nil {
 					if errors.Is(e, harness.ErrLeaseBusy) {
@@ -1269,7 +1454,21 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 					return
 				}
 			}
-			run, e = s.Provider.StartRun(r.Context(), cmd)
+			if continuation != nil {
+				*continuation = continuation.WithTraceContext(r.Context())
+				continuity, supported := s.Provider.(provider.ContinuityProvider)
+				if !supported {
+					e = errors.New("provider cannot continue the original bug repair session")
+				} else {
+					run, e = continuity.ContinueWorkItem(r.Context(), *continuation)
+					if e == nil && (!run.SessionReused || run.SessionID != continuation.ExpectedSessionID || filepathClean(run.WorkDir) != filepathClean(continuation.ExpectedWorkDir)) {
+						e = errors.New("provider did not confirm the original bug repair session and workdir")
+					}
+				}
+			} else {
+				cmd = cmd.WithTraceContext(r.Context())
+				run, e = s.Provider.StartRun(r.Context(), cmd)
+			}
 			if e != nil {
 				if dispatchEvent.ID != "" {
 					_ = s.Harness.NackOutbox(harnessSessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
@@ -1440,6 +1639,9 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 	case "chat_session":
 		item, err := s.Store.GetChatSession(ownerID)
 		return item.WorkspaceID, err == nil
+	case "comment":
+		item, err := s.Store.GetComment(ownerID)
+		return item.WorkspaceID, err == nil
 	default:
 		return "", false
 	}
@@ -1447,12 +1649,12 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 
 func (s *Server) canUseAttachmentOwner(user adroauth.User, authenticated, machine bool, ownerType string) bool {
 	if machine || !authenticated && !authRequired() {
-		return ownerType == "requirement" || ownerType == "bug" || ownerType == "chat_session"
+		return ownerType == "requirement" || ownerType == "bug" || ownerType == "chat_session" || ownerType == "comment"
 	}
 	if !authenticated {
 		return false
 	}
-	return ownerType == "requirement" && user.Can("requirements") || ownerType == "bug" && user.Can("bugs") || ownerType == "chat_session" && user.Can("executions")
+	return ownerType == "requirement" && user.Can("requirements") || ownerType == "bug" && user.Can("bugs") || ownerType == "chat_session" && user.Can("executions") || ownerType == "comment" && (user.Can("requirements") || user.Can("bugs"))
 }
 
 func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
@@ -1557,7 +1759,7 @@ func (s *Server) createScreenshot(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	_ = s.Events.Publish(r.Context(), events.New("evidence.screenshot.created.v1", "artifact", artifactID, tenant(r), r.Header.Get("X-Workspace-ID"), 1, map[string]any{"uri": meta.Key.URI(), "media_type": mediaType, "target_type": targetType, "target_id": targetID, "delivery": delivery}))
+	_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "evidence.screenshot.created.v1", "artifact", artifactID, tenant(r), r.Header.Get("X-Workspace-ID"), 1, map[string]any{"uri": meta.Key.URI(), "media_type": mediaType, "target_type": targetType, "target_id": targetID, "delivery": delivery}))
 	s.writeJSON(w, http.StatusCreated, map[string]any{"artifact": meta, "uri": meta.Key.URI(), "delivery": delivery, "provider_receipt": receipt})
 }
 
@@ -1979,7 +2181,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 				s.problem(w, r, 422, "validation_error", err.Error(), nil)
 				return
 			}
-			_ = s.Events.Publish(r.Context(), events.New("workspace.diff.updated.v1", "work_item", id, tenant(r), "", 1, map[string]any{"repository_id": diff.RepositoryID, "content_sha256": diff.ContentSHA256}))
+			_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "workspace.diff.updated.v1", "work_item", id, tenant(r), "", 1, map[string]any{"repository_id": diff.RepositoryID, "content_sha256": diff.ContentSHA256}))
 			s.writeJSON(w, 201, diff)
 			return
 		}
@@ -2015,7 +2217,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 			}
 			contextVersion = manifest.Version
 		}
-		cmd := provider.StartRunCommand{WorkItemID: id, AgentBindingID: input.AgentBindingID, Input: input.Input, ProviderIssueID: witem.ProviderIssueID, SessionID: sessionID, ContextID: contextID, ContextVersion: contextVersion}
+		cmd := provider.StartRunCommand{WorkItemID: id, AgentBindingID: input.AgentBindingID, Input: input.Input, ProviderIssueID: witem.ProviderIssueID, SessionID: sessionID, ContextID: contextID, ContextVersion: contextVersion, LegacyAdapterVersion: "work-item-v1"}
 		if binding, bindingErr := s.Store.GetProviderBinding(input.AgentBindingID); bindingErr == nil {
 			cmd.ProviderAssigneeID = binding.ProviderObjectID
 		}
@@ -2028,6 +2230,12 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 		}
 		turnKey := "work-item:" + id + ":request:" + requestKey
 		cmd.IdempotencyKey = turnKey
+		graphScope, scopeErr := compat.WorkItemDispatchScope(id, turnKey)
+		if scopeErr != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "dispatch_scope_invalid", scopeErr.Error(), nil)
+			return
+		}
+		cmd.PlanID, cmd.NodeID, cmd.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
 		var harnessTurnHash string
 		var dispatchEvent harness.OutboxEvent
 		dispatchClaimed := true
@@ -2040,6 +2248,12 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", harnessErr.Error(), nil)
 				return
 			}
+			contextEnvelope, envelopeErr := s.compiledHarnessEnvelope(sessionID)
+			if envelopeErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
+				return
+			}
+			cmd.ContextEnvelope = contextEnvelope
 			turn, turnErr := s.Harness.AppendTurn(sessionID, harness.Turn{Role: harness.RoleUser, Content: input.Input, IdempotencyKey: turnKey, Metadata: map[string]string{"work_item_id": id, "agent_id": input.AgentBindingID}})
 			if turnErr != nil {
 				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
@@ -2067,6 +2281,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 				return
 			}
 		}
+		cmd = cmd.WithTraceContext(r.Context())
 		binding, err := s.Provider.StartRun(r.Context(), cmd)
 		if err != nil {
 			if dispatchEvent.ID != "" {
@@ -2103,7 +2318,7 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 				return
 			}
 		}
-		_ = s.Events.Publish(r.Context(), events.New("execution.queued.v1", "work_item", id, tenant(r), "", 1, map[string]any{"run_id": binding.ID}))
+		_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "execution.queued.v1", "work_item", id, tenant(r), "", 1, map[string]any{"run_id": binding.ID}))
 		s.writeJSON(w, 202, map[string]any{"run": binding, "work_item": witem, "session_id": sessionID, "context_id": contextID, "context_version": contextVersion})
 		return
 	}
@@ -2114,7 +2329,67 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 	s.problem(w, r, 405, "method_not_allowed", "method not allowed", nil)
 }
 func (s *Server) streamRoute(w http.ResponseWriter, r *http.Request, workspaceID string) {
+	parts := strings.Split(strings.Trim(workspaceID, "/"), "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		s.problem(w, r, http.StatusNotFound, "not_found", "stream not found", nil)
+		return
+	}
+	workspaceID = strings.TrimSpace(parts[0])
 	if !workspaceMatchesRequest(r, workspaceID) {
+		s.problem(w, r, http.StatusNotFound, "not_found", "stream not found", nil)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "ack" {
+		if r.Method != http.MethodPost {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required", nil)
+			return
+		}
+		var input struct {
+			ConsumerID  string `json:"consumer_id"`
+			EventID     string `json:"event_id"`
+			AggregateID string `json:"aggregate_id,omitempty"`
+		}
+		if err := decodeJSON(r, &input); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+			return
+		}
+		tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+		if err := s.Events.AckScoped(input.ConsumerID, tenantID, workspaceID, input.AggregateID, input.EventID); err != nil {
+			status := http.StatusConflict
+			if errors.Is(err, events.ErrInvalidCursor) || strings.Contains(err.Error(), "not retained") {
+				status = http.StatusGone
+			}
+			s.problem(w, r, status, "stream_ack_failed", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"acknowledged": true, "consumer_id": input.ConsumerID, "event_id": input.EventID, "workspace_id": workspaceID})
+		return
+	}
+	if len(parts) == 2 && (parts[1] == "range" || parts[1] == "replay-range") {
+		if r.Method != http.MethodGet {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
+			return
+		}
+		from, fromErr := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("from")), 10, 64)
+		to, toErr := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("to")), 10, 64)
+		if fromErr != nil || toErr != nil || from < 1 || to < from || to-from > 1000 {
+			s.problem(w, r, http.StatusBadRequest, "invalid_event_range", "from and to must define a positive range of at most 1001 events", nil)
+			return
+		}
+		tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+		items, err := s.Events.ReplayRange(tenantID, workspaceID, r.URL.Query().Get("aggregate_id"), from, to)
+		if errors.Is(err, events.ErrInvalidCursor) {
+			s.problem(w, r, http.StatusGone, "event_range_unavailable", err.Error(), nil)
+			return
+		}
+		if err != nil {
+			s.problem(w, r, http.StatusInternalServerError, "event_range_unavailable", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"items": items, "from_sequence": from, "to_sequence": to, "workspace_id": workspaceID})
+		return
+	}
+	if len(parts) != 1 {
 		s.problem(w, r, http.StatusNotFound, "not_found", "stream not found", nil)
 		return
 	}
@@ -2126,7 +2401,12 @@ func (s *Server) streamRoute(w http.ResponseWriter, r *http.Request, workspaceID
 		s.problem(w, r, 405, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	items, next, err := s.Events.ListChecked("", r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	consumerID := strings.TrimSpace(r.URL.Query().Get("consumer_id"))
+	if consumerID == "" {
+		consumerID = "http"
+	}
+	items, next, err := s.Events.ReplayScoped(consumerID, tenantID, workspaceID, r.URL.Query().Get("aggregate_id"), r.URL.Query().Get("cursor"), queryInt(r, "limit", 100))
 	if errors.Is(err, events.ErrInvalidCursor) {
 		s.problem(w, r, http.StatusGone, "invalid_cursor", err.Error(), nil)
 		return
@@ -2135,13 +2415,7 @@ func (s *Server) streamRoute(w http.ResponseWriter, r *http.Request, workspaceID
 		s.problem(w, r, http.StatusInternalServerError, "event_stream_unavailable", err.Error(), nil)
 		return
 	}
-	filtered := items[:0]
-	for _, e := range items {
-		if e.WorkspaceID == workspaceID {
-			filtered = append(filtered, e)
-		}
-	}
-	s.writeJSON(w, 200, map[string]any{"items": filtered, "next_cursor": next})
+	s.writeJSON(w, 200, map[string]any{"items": items, "next_cursor": next, "consumer_id": consumerID, "workspace_id": workspaceID})
 }
 
 var streamUpgrader = websocket.Upgrader{ReadBufferSize: 4096, WriteBufferSize: 8192, CheckOrigin: func(r *http.Request) bool { return allowedOrigin(r.Header.Get("Origin")) }}
@@ -2180,7 +2454,12 @@ func (s *Server) websocketStream(w http.ResponseWriter, r *http.Request, workspa
 	// retained in the buffered channel instead of racing the initial snapshot.
 	updates, cancel := s.Events.Subscribe(128)
 	defer cancel()
-	initial, _, err := s.Events.ListChecked("", r.URL.Query().Get("cursor"), 250)
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	consumerID := strings.TrimSpace(r.URL.Query().Get("consumer_id"))
+	if consumerID == "" {
+		consumerID = "websocket"
+	}
+	initial, _, err := s.Events.ReplayScoped(consumerID, tenantID, workspaceID, r.URL.Query().Get("aggregate_id"), r.URL.Query().Get("cursor"), 250)
 	if errors.Is(err, events.ErrInvalidCursor) {
 		_ = conn.WriteJSON(map[string]any{"type": "error", "code": "invalid_cursor", "message": err.Error()})
 		return
@@ -2189,10 +2468,8 @@ func (s *Server) websocketStream(w http.ResponseWriter, r *http.Request, workspa
 		return
 	}
 	for _, event := range initial {
-		if event.WorkspaceID == workspaceID {
-			if err := conn.WriteJSON(event); err != nil {
-				return
-			}
+		if err := conn.WriteJSON(event); err != nil {
+			return
 		}
 	}
 	done := make(chan struct{})
@@ -2389,7 +2666,7 @@ func (s *Server) repositoryRoute(w http.ResponseWriter, r *http.Request, path st
 			s.problem(w, r, 404, "not_found", err.Error(), nil)
 			return
 		}
-		_ = s.Events.Publish(r.Context(), events.New("repository.indexed.v1", "repository", id, tenant(r), saved.WorkspaceID, 1, map[string]any{"commit": input.Commit}))
+		_ = s.Events.Publish(r.Context(), events.NewWithContext(r.Context(), "repository.indexed.v1", "repository", id, tenant(r), saved.WorkspaceID, 1, map[string]any{"commit": input.Commit}))
 		s.writeJSON(w, 200, saved)
 		return
 	}
@@ -3353,7 +3630,7 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 		if err := s.Store.UpdateWorkItem(item); err != nil {
 			return err
 		}
-		_ = s.Events.Publish(ctx, events.New("work_item.created.v1", "work_item", item.ID, "", req.WorkspaceID, 1, map[string]any{"requirement_id": req.ID, "repository_id": repositoryID, "member_id": memberID, "agent_route_source": item.AgentRouteSource, "routing_config_revision": item.RoutingConfigRevision}))
+		_ = s.Events.Publish(ctx, events.NewWithContext(ctx, "work_item.created.v1", "work_item", item.ID, "", req.WorkspaceID, 1, map[string]any{"requirement_id": req.ID, "repository_id": repositoryID, "member_id": memberID, "agent_route_source": item.AgentRouteSource, "routing_config_revision": item.RoutingConfigRevision}))
 	}
 	return nil
 }
@@ -3408,7 +3685,11 @@ func (s *Server) recordAudit(r *http.Request, workspaceID, action, correlationID
 	}
 }
 func (s *Server) problem(w http.ResponseWriter, r *http.Request, status int, code, detail string, extra map[string]any) {
-	body := map[string]any{"type": "https://adro.dev/problems/" + code, "title": http.StatusText(status), "status": status, "detail": detail, "error_code": code, "request_id": w.Header().Get("X-Request-ID")}
+	traceID := w.Header().Get("X-Trace-ID")
+	if traceID == "" {
+		traceID = r.Header.Get("X-Trace-ID")
+	}
+	body := map[string]any{"type": "https://adro.dev/problems/" + code, "title": http.StatusText(status), "status": status, "detail": detail, "error_code": code, "request_id": w.Header().Get("X-Request-ID"), "trace_id": traceID}
 	for k, v := range extra {
 		body[k] = v
 	}

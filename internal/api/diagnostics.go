@@ -31,15 +31,17 @@ func (s *Server) systemDiagnostics(w http.ResponseWriter, r *http.Request) {
 		profile = "single-node"
 	}
 	backends := map[string]string{
-		"persistence": envOrDefault("ADRO_PERSISTENCE_BACKEND", "file"),
-		"events":      envOrDefault("ADRO_EVENT_BACKEND", "memory"),
-		"workflow":    envOrDefault("ADRO_WORKFLOW_BACKEND", "in-process"),
-		"artifacts":   envOrDefault("ADRO_ARTIFACT_BACKEND", "filesystem"),
-		"auth":        envOrDefault("ADRO_AUTH_BACKEND", "local"),
-		"secrets":     envOrDefault("ADRO_SECRET_STORE", "environment"),
-		"runner":      envOrDefault("ADRO_RUNNER_MODE", "argv"),
-		"source":      envOrDefault("ADRO_SOURCE_CONTROL", "none"),
-		"ci":          envOrDefault("ADRO_CI_BACKEND", "none"),
+		"persistence":   envOrDefault("ADRO_PERSISTENCE_BACKEND", "file"),
+		"events":        envOrDefault("ADRO_EVENT_BACKEND", "memory"),
+		"orchestration": envOrDefault("ADRO_ORCHESTRATION_BACKEND", "file-single-node"),
+		"workflow":      envOrDefault("ADRO_WORKFLOW_BACKEND", "in-process"),
+		"artifacts":     envOrDefault("ADRO_ARTIFACT_BACKEND", "filesystem"),
+		"memory":        envOrDefault("ADRO_MEMORY_BACKEND", "evidence-repository"),
+		"auth":          envOrDefault("ADRO_AUTH_BACKEND", "local"),
+		"secrets":       envOrDefault("ADRO_SECRET_STORE", "environment"),
+		"runner":        envOrDefault("ADRO_RUNNER_MODE", "argv"),
+		"source":        envOrDefault("ADRO_SOURCE_CONTROL", "none"),
+		"ci":            envOrDefault("ADRO_CI_BACKEND", "none"),
 	}
 	state := map[string]bool{
 		"control_plane_durable": os.Getenv("ADRO_STATE_FILE") != "",
@@ -48,6 +50,7 @@ func (s *Server) systemDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"provider_durable":      os.Getenv("ADRO_RUN_STATE_FILE") != "",
 		"harness_durable":       s.Harness != nil && s.Harness.Durable(),
 		"plugins_durable":       s.Plugins != nil && s.Plugins.Durable(),
+		"memory_durable":        s.Memory != nil && strings.TrimSpace(os.Getenv("ADRO_MEMORY_STATE_FILE")) != "",
 	}
 	transcriptValid, compactionRecall := true, true
 	if s.Harness != nil {
@@ -62,14 +65,23 @@ func (s *Server) systemDiagnostics(w http.ResponseWriter, r *http.Request) {
 	}
 	state["harness_transcript_valid"] = transcriptValid
 	state["harness_compaction_recall_verified"] = compactionRecall
+	orchestrationProfile := "unavailable"
+	if s.Orchestration != nil {
+		if profiled, ok := s.Orchestration.(interface{ Profile() string }); ok {
+			orchestrationProfile = profiled.Profile()
+		} else {
+			orchestrationProfile = "custom"
+		}
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"profile":          profile,
-		"provider_state":   providerState,
-		"backends":         backends,
-		"durability":       state,
-		"recovery_worker":  s.recoveryRunning(),
-		"checked_at":       time.Now().UTC(),
-		"production_ready": false,
+		"profile":               profile,
+		"provider_state":        providerState,
+		"backends":              backends,
+		"durability":            state,
+		"recovery_worker":       s.recoveryRunning(),
+		"orchestration_profile": orchestrationProfile,
+		"checked_at":            time.Now().UTC(),
+		"production_ready":      false,
 	})
 }
 

@@ -176,6 +176,48 @@ func TestReplayScopedDoesNotReuseCursorAcrossStreams(t *testing.T) {
 	}
 }
 
+func TestReplayScopedFiltersWorkspaceBeforeApplyingPagination(t *testing.T) {
+	b := NewBus()
+	a := New("scope.v1", "run", "a", "tenant", "workspace-a", 1, map[string]any{"id": "a"})
+	bEvent := New("scope.v1", "run", "b", "tenant", "workspace-b", 1, map[string]any{"id": "b"})
+	c := New("scope.v1", "run", "c", "tenant", "workspace-a", 1, map[string]any{"id": "c"})
+	for _, event := range []Envelope{a, bEvent, c} {
+		if err := b.Publish(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, next, err := b.ReplayScoped("consumer", "tenant", "workspace-a", "", "", 1)
+	if err != nil || len(items) != 1 || items[0].AggregateID != "a" || next == "" {
+		t.Fatalf("first scoped page=%+v next=%q err=%v", items, next, err)
+	}
+	items, next, err = b.ReplayScoped("consumer", "tenant", "workspace-a", "", next, 1)
+	if err != nil || len(items) != 1 || items[0].AggregateID != "c" || next == "" {
+		t.Fatalf("second scoped page=%+v next=%q err=%v", items, next, err)
+	}
+	items, next, err = b.ReplayScoped("consumer", "tenant", "workspace-a", "", next, 1)
+	if err != nil || len(items) != 0 || next != "" {
+		t.Fatalf("scoped stream should be exhausted: items=%+v next=%q err=%v", items, next, err)
+	}
+	if _, _, err := b.ReplayScoped("consumer", "tenant", "workspace-a", "", bEvent.EventID, 10); !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("foreign workspace cursor was accepted: %v", err)
+	}
+}
+
+func TestAckScopedAllowsWorkspaceStreamWithoutAggregate(t *testing.T) {
+	b := NewBus()
+	event := New("scope.v1", "run", "run-1", "", "workspace", 1, nil)
+	if err := b.Publish(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AckScoped("consumer", "", "workspace", "", event.EventID); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := b.ReplayScoped("consumer", "", "workspace", "", "", 10)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("ack was not scoped to workspace stream: items=%+v err=%v", items, err)
+	}
+}
+
 func TestSlowSubscriberReceivesGapBeforeLiveStreamResumes(t *testing.T) {
 	b := NewBus()
 	updates, cancel := b.Subscribe(1)
@@ -225,6 +267,12 @@ func TestPersistentBusMergesPeerWritersAndReloads(t *testing.T) {
 	items, _ := first.List("", "", 10)
 	if len(items) != 2 {
 		t.Fatalf("peer event lost after merge: %+v", items)
+	}
+	if items[1].PreviousHash != items[0].EnvelopeHash {
+		t.Fatalf("peer merge broke event chain: %+v", items)
+	}
+	if _, err := NewPersistentBus(path); err != nil {
+		t.Fatalf("peer-merged event chain cannot be reopened: %v", err)
 	}
 }
 

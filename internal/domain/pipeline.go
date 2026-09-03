@@ -125,18 +125,29 @@ type PipelineTransition struct {
 }
 
 type PipelineRun struct {
-	ID                    string               `json:"id"`
-	WorkspaceID           string               `json:"workspace_id"`
-	RequirementID         string               `json:"requirement_id"`
-	SessionID             string               `json:"session_id"`
-	PipelineWorkItemID    string               `json:"work_item_id,omitempty"`
-	BugID                 string               `json:"bug_id,omitempty"`
-	ParentSessionID       string               `json:"parent_session_id,omitempty"`
-	ProviderWorkDir       string               `json:"provider_work_dir,omitempty"`
-	PipelineStage         PipelineStage        `json:"pipeline_stage"`
-	Status                PipelineStatus       `json:"status"`
-	Roles                 PipelineAgentRoles   `json:"roles"`
-	WorkflowMode          WorkflowMode         `json:"workflow_mode,omitempty"`
+	ID                 string             `json:"id"`
+	WorkspaceID        string             `json:"workspace_id"`
+	RequirementID      string             `json:"requirement_id"`
+	SessionID          string             `json:"session_id"`
+	PipelineWorkItemID string             `json:"work_item_id,omitempty"`
+	BugID              string             `json:"bug_id,omitempty"`
+	ParentSessionID    string             `json:"parent_session_id,omitempty"`
+	ProviderWorkDir    string             `json:"provider_work_dir,omitempty"`
+	PipelineStage      PipelineStage      `json:"pipeline_stage"`
+	Status             PipelineStatus     `json:"status"`
+	Roles              PipelineAgentRoles `json:"roles"`
+	WorkflowMode       WorkflowMode       `json:"workflow_mode,omitempty"`
+	// LegacyAdapterVersion identifies the compatibility boundary for historical
+	// seven-stage clients. New graph plans do not populate this field.
+	LegacyAdapterVersion string `json:"legacy_adapter_version,omitempty"`
+	// ExecutionPlanID/ActiveGraph* are the explicit compatibility bridge for
+	// historical pipeline clients.  The legacy numeric stage remains a view
+	// field for old responses; graph identity and attempt lineage are the
+	// authoritative dispatch scope whenever the orchestration repository is
+	// enabled.
+	ExecutionPlanID       string               `json:"execution_plan_id,omitempty"`
+	ActiveGraphNodeID     string               `json:"active_graph_node_id,omitempty"`
+	ActiveGraphAttemptID  string               `json:"active_graph_attempt_id,omitempty"`
 	Workflow              []WorkflowStep       `json:"workflow,omitempty"`
 	DesignApprovalID      string               `json:"design_approval_id,omitempty"`
 	DesignApprovalStatus  string               `json:"design_approval_status,omitempty"`

@@ -2,6 +2,7 @@
 /var/
 /bin/
 /dist/
+/adroctl
 /coverage/
 /test-results/
 /node_modules/

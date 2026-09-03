@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,9 +18,23 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
+
+type startFailProvider struct {
+	*provider.MockProvider
+}
+
+func (p startFailProvider) StartRun(context.Context, provider.StartRunCommand) (provider.RunBinding, error) {
+	return provider.RunBinding{}, errors.New("injected provider start failure")
+}
+
+func (p startFailProvider) Capabilities(context.Context) (provider.Capabilities, error) {
+	return provider.Capabilities{Provider: "failing", Features: []string{"run.snapshot.v1"}}, nil
+}
 
 func TestPipelineAPIUsesNativeLocalExecutor(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "optional")
@@ -53,6 +68,12 @@ func TestPipelineAPIUsesNativeLocalExecutor(t *testing.T) {
 	}
 	if run.PipelineStage != domain.PipelineDesign || run.Status != domain.PipelineWaiting || run.ActiveProviderIssueID == "" {
 		t.Fatalf("created=%+v", run)
+	}
+	if run.ExecutionPlanID == "" || run.ActiveGraphNodeID == "" || run.ActiveGraphAttemptID == "" || run.LegacyAdapterVersion == "" {
+		t.Fatalf("legacy pipeline dispatch lost graph scope: %+v", run)
+	}
+	if _, err := server.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID); err != nil {
+		t.Fatalf("legacy execution plan was not persisted: %v", err)
 	}
 	initialSnapshot, err := local.GetRun(context.Background(), run.ActiveProviderTaskID)
 	if err != nil || initialSnapshot.SessionID == "" {
@@ -121,6 +142,14 @@ func TestPipelineResultRetryIsIdempotentAfterDurableAdvance(t *testing.T) {
 	if advanced.PipelineStage != domain.PipelineDevelopment {
 		t.Fatalf("first result did not advance: %+v", advanced)
 	}
+	projectionBefore, err := server.Orchestration.GetProjection(advanced.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeAttemptBefore := projectionBefore.Nodes[advanced.ActiveGraphNodeID].CurrentAttempt
+	if activeAttemptBefore == "" || activeAttemptBefore != advanced.ActiveGraphAttemptID {
+		t.Fatalf("new graph attempt missing: %+v", advanced)
+	}
 	retried := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines/"+initial.ID+"/results", result)
 	if retried.Code != http.StatusOK {
 		t.Fatalf("duplicate result was rejected: status=%d body=%s", retried.Code, retried.Body.String())
@@ -131,6 +160,62 @@ func TestPipelineResultRetryIsIdempotentAfterDurableAdvance(t *testing.T) {
 	}
 	if replayed.Version != advanced.Version || replayed.PipelineStage != advanced.PipelineStage {
 		t.Fatalf("duplicate result changed pipeline: first=%+v replay=%+v", advanced, replayed)
+	}
+	projectionAfter, err := server.Orchestration.GetProjection(advanced.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectionAfter.Nodes[advanced.ActiveGraphNodeID].CurrentAttempt != activeAttemptBefore || projectionAfter.Attempts[activeAttemptBefore].Status != orchestration.AttemptRunning {
+		t.Fatalf("late duplicate altered the new graph attempt: before=%+v after=%+v", projectionBefore, projectionAfter)
+	}
+}
+
+func TestPipelineProviderDispatchFailureClosesCompatibilityAttempt(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	control := store.NewMemory()
+	requirement, err := control.CreateRequirement(domain.Requirement{WorkspaceID: "workspace", Title: "fail closed", Description: "provider rejects dispatch", AcceptanceCriteria: []string{"attempt closes"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(control, startFailProvider{MockProvider: provider.NewMockProvider(bus)}, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	response := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines", map[string]any{
+		"requirement_id": requirement.ID,
+		"roles":          map[string]any{"designer_agent_id": "11111111-1111-1111-1111-111111111111", "developer_agent_id": "22222222-2222-2222-2222-222222222222", "tester_agent_id": "33333333-3333-3333-3333-333333333333", "arbitrator_agent_id": "44444444-4444-4444-4444-444444444444"},
+		"max_retries":    2, "coverage_threshold": 80,
+	})
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+	}
+	var problem struct {
+		PipelineID string `json:"pipeline_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &problem); err != nil || problem.PipelineID == "" {
+		t.Fatalf("problem=%+v err=%v body=%s", problem, err, response.Body.String())
+	}
+	run, err := control.GetPipeline(problem.PipelineID)
+	if err != nil || run.Status != domain.PipelineSuspended || run.ExecutionPlanID == "" || run.ActiveGraphAttemptID == "" {
+		t.Fatalf("pipeline=%+v err=%v", run, err)
+	}
+	plan, err := server.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := server.Orchestration.GetProjection(plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := projection.Attempts[run.ActiveGraphAttemptID]
+	if attempt.Status != orchestration.AttemptFailed || attempt.FinishedAt == nil || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_failure" {
+		t.Fatalf("failed attempt=%+v projection=%+v", attempt, projection)
+	}
+	replayed, err := orchestration.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
+	if err != nil || replayed.Attempts[attempt.ID].Status != orchestration.AttemptFailed {
+		t.Fatalf("replay=%+v err=%v", replayed, err)
 	}
 }
 
@@ -233,6 +318,25 @@ func TestPipelineLocalCollectorCompletesRealProcessRepairLoop(t *testing.T) {
 	}
 	if len(final.History) != 10 {
 		t.Fatalf("expected ten stage transitions including repair; got %d", len(final.History))
+	}
+	plan, err := server.Orchestration.GetPlan(final.WorkspaceID, final.ExecutionPlanID)
+	if err != nil {
+		t.Fatalf("load compatibility plan: %v", err)
+	}
+	projection, err := server.Orchestration.GetProjection(plan.ID)
+	if err != nil {
+		t.Fatalf("load compatibility projection: %v", err)
+	}
+	if projection.Status != orchestration.PlanTerminal || projection.TerminalOutcome != "succeeded" || len(projection.Attempts) != len(final.History) {
+		t.Fatalf("compatibility graph did not mirror the repair loop: status=%s outcome=%q attempts=%d history=%d", projection.Status, projection.TerminalOutcome, len(projection.Attempts), len(final.History))
+	}
+	eventChain := server.Orchestration.ListEvents(plan.ID, 0)
+	replayed, err := orchestration.ReplayProjection(plan, eventChain)
+	if err != nil {
+		t.Fatalf("replay compatibility graph: %v", err)
+	}
+	if replayed.Status != projection.Status || replayed.TerminalOutcome != projection.TerminalOutcome || len(replayed.Attempts) != len(projection.Attempts) {
+		t.Fatalf("replayed compatibility graph diverged: persisted=%+v replayed=%+v", projection, replayed)
 	}
 	repairResponse := pipelineRequest(t, server, http.MethodPost, "/api/v1/bugs/"+final.BugID+"/repair", map[string]any{})
 	if repairResponse.Code != http.StatusAccepted {
@@ -481,6 +585,53 @@ func TestPipelineResultFromSnapshotAcceptsFinalReportAlias(t *testing.T) {
 	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
 	if !ok || result.Report != "short report" {
 		t.Fatalf("final_report alias was not preserved: ok=%v result=%+v", ok, result)
+	}
+}
+
+func TestPipelineResultFromSnapshotAcceptsStructuredFinalReport(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineReport,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"stage\":7,\"agent_id\":\"tester\",\"outcome\":\"success\",\"final_report\":{\"tests\":[\"go test ./...\"],\"accepted\":true}}"}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.Report != `{"accepted":true,"tests":["go test ./..."]}` {
+		t.Fatalf("structured final_report was not preserved: ok=%v result=%+v", ok, result)
+	}
+}
+
+func TestProviderToolEventsAreScopedByProviderRun(t *testing.T) {
+	s := testServer(t)
+	if _, err := s.Harness.CreateSession(harness.Session{ID: "pipeline-session", TenantID: "tenant", WorkspaceID: "workspace"}); err != nil {
+		t.Fatal(err)
+	}
+	run := domain.PipelineRun{SessionID: "pipeline-session", Version: 1}
+	first := provider.RunSnapshot{ID: "provider-run-1", ToolEvents: []provider.ToolEvent{
+		{CallID: "item_1", Name: "shell", Phase: "before", Payload: "first command"},
+		{CallID: "item_1", Name: "shell", Phase: "after", Payload: "first result"},
+	}}
+	second := provider.RunSnapshot{ID: "provider-run-2", ToolEvents: []provider.ToolEvent{
+		{CallID: "item_1", Name: "shell", Phase: "before", Payload: "second command"},
+		{CallID: "item_1", Name: "shell", Phase: "after", Payload: "second result"},
+	}}
+	if err := s.recordProviderToolEvents(run, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordProviderToolEvents(run, first); err != nil {
+		t.Fatalf("same provider snapshot was not idempotent: %v", err)
+	}
+	if err := s.recordProviderToolEvents(run, second); err != nil {
+		t.Fatalf("reused executor-local item id collided across runs: %v", err)
+	}
+	checkpoints, err := s.Harness.ListCheckpoints(run.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints) != 4 {
+		t.Fatalf("checkpoint count=%d items=%+v", len(checkpoints), checkpoints)
+	}
+	if checkpoints[0].ToolCallID != "provider-run-1:item_1" || checkpoints[2].ToolCallID != "provider-run-2:item_1" {
+		t.Fatalf("provider attempt scope missing from tool ids: %+v", checkpoints)
 	}
 }
 

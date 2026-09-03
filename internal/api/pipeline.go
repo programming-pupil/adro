@@ -13,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/internal/compat"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/orchestration"
 	pipelineengine "github.com/adro-project/adro/internal/pipeline"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -133,12 +135,22 @@ func (s *Server) createPipeline(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusUnprocessableEntity, "pipeline_invalid", err.Error(), nil)
 		return
 	}
+	if s.Orchestration != nil {
+		if err := s.persistLegacyExecutionPlan(run); err != nil {
+			s.problem(w, r, http.StatusServiceUnavailable, "execution_plan_persist_failed", err.Error(), map[string]any{"pipeline_id": run.ID})
+			return
+		}
+	}
 	if err := s.ensureHarnessSession(run); err != nil {
 		s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", err.Error(), nil)
 		return
 	}
 	dispatched, err := s.dispatchPipeline(run)
 	if err != nil {
+		// dispatchPipeline may have established the compatibility graph scope
+		// before the provider rejected the call. Persist that scope with the
+		// suspension so diagnostics never lose the failed attempt lineage.
+		run = dispatched
 		if errors.Is(err, harness.ErrLeaseBusy) {
 			s.problem(w, r, http.StatusConflict, "dispatch_in_progress", err.Error(), map[string]any{"pipeline_id": run.ID})
 			return
@@ -152,6 +164,48 @@ func (s *Server) createPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusCreated, dispatched)
+}
+
+// persistLegacyExecutionPlan performs the migration adapter's dual-write at
+// pipeline creation. The legacy API continues to return PipelineRun, while
+// graph-native readers receive an immutable equivalent plan and projection.
+func (s *Server) persistLegacyExecutionPlan(run domain.PipelineRun) error {
+	migrated, err := compat.MigratePipeline(run)
+	if err != nil {
+		return err
+	}
+	// Register a frozen, provider-neutral AgentDefinition for each historical
+	// role when the legacy caller has not created one explicitly.  This keeps
+	// the compatibility graph executable by the same scheduler without making
+	// the numeric stage the runtime identity.
+	if s.Orchestration != nil {
+		for _, step := range run.Steps() {
+			if strings.TrimSpace(step.AgentID) == "" {
+				continue
+			}
+			if _, getErr := s.Orchestration.GetAgent(run.WorkspaceID, step.AgentID, 1); getErr == nil {
+				continue
+			}
+			now := time.Now().UTC()
+			agent := orchestration.AgentDefinition{
+				ID: step.AgentID, WorkspaceID: run.WorkspaceID, Revision: 1,
+				Name: "legacy-" + step.AgentID, Role: step.Stage.String(),
+				Status: orchestration.AgentActive, CreatedBy: "legacy-adapter",
+				ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RequiredCaps: []string{"run.snapshot.v1"}},
+				InputSchema:     orchestration.SchemaRef{ID: "legacy-input", Version: 1},
+				OutputSchema:    orchestration.SchemaRef{ID: "legacy-output", Version: 1},
+				CreatedAt:       now, UpdatedAt: now,
+			}
+			if saveErr := s.Orchestration.SaveAgent(agent, 0); saveErr != nil {
+				return fmt.Errorf("persist legacy agent %s: %w", step.AgentID, saveErr)
+			}
+		}
+	}
+	event, err := orchestration.NewEvent(nil, migrated.Plan.ID, migrated.Plan.WorkspaceID, "plan.created", migrated.Plan.IdempotencyKey, migrated.Plan)
+	if err != nil {
+		return err
+	}
+	return s.Orchestration.CreatePlanWithEvent(migrated.Plan, event)
 }
 
 func (s *Server) applyPipelineResult(w http.ResponseWriter, r *http.Request, run domain.PipelineRun) {
@@ -213,6 +267,16 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 			status = http.StatusConflict
 		}
 		return run, status, err
+	}
+	if err := s.finishLegacyGraphAttempt(run, advanced, result); err != nil {
+		advanced.Status = domain.PipelineSuspended
+		advanced.SuspendReason = "graph projection rejected pipeline result: " + err.Error()
+		advanced.UpdatedAt = time.Now().UTC()
+		advanced.Version++
+		if saved, updateErr := s.Store.UpdatePipeline(advanced, advanced.Version-1); updateErr == nil {
+			advanced = saved
+		}
+		return advanced, http.StatusServiceUnavailable, err
 	}
 	if run.PipelineStage == domain.PipelineIntegration && result.Outcome == "fail" {
 		if bug, bugErr := s.materializePipelineBug(advanced, result); bugErr == nil && bug.ID != "" {
@@ -281,7 +345,17 @@ func (s *Server) materializePipelineBug(run domain.PipelineRun, result domain.Pi
 	return bug, err
 }
 
-func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, error) {
+func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.PipelineRun, returnedErr error) {
+	returned = run
+	graphAttemptStarted := false
+	defer func() {
+		if returnedErr == nil || !graphAttemptStarted || errors.Is(returnedErr, harness.ErrLeaseBusy) {
+			return
+		}
+		if graphErr := s.failLegacyGraphDispatch(returned, returnedErr); graphErr != nil {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("record failed legacy graph dispatch: %w", graphErr))
+		}
+	}()
 	if err := s.ensureHarnessSession(run); err != nil {
 		return run, err
 	}
@@ -302,6 +376,23 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 	if err != nil {
 		return run, err
 	}
+	contextEnvelope, err := s.compiledHarnessEnvelope(run.SessionID)
+	if err != nil {
+		return run, fmt.Errorf("compile pipeline context envelope: %w", err)
+	}
+	graphScope, err := compat.PipelineDispatchScope(run, turnKey)
+	if err != nil {
+		return run, fmt.Errorf("derive graph compatibility scope: %w", err)
+	}
+	run.ExecutionPlanID = graphScope.PlanID
+	run.ActiveGraphNodeID = graphScope.NodeID
+	run.ActiveGraphAttemptID = graphScope.AttemptID
+	run.LegacyAdapterVersion = compat.LegacyAdapterVersion
+	returned = run
+	if err := s.startLegacyGraphAttempt(run, graphScope, contextEnvelope, time.Now().UTC()); err != nil {
+		return run, err
+	}
+	graphAttemptStarted = true
 	var dispatchEvent harness.OutboxEvent
 	dispatchClaimed := true
 	continuity := run.PipelineStage != domain.PipelineDevelopment && run.ParentSessionID != "" && run.ProviderWorkDir != "" && originalDevelopmentIssue(run) != ""
@@ -316,10 +407,12 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			return run, errors.New("provider cannot continue the original development session")
 		}
 		continuation := provider.ContinuationCommand{
+			PlanID: graphScope.PlanID, NodeID: graphScope.NodeID, AttemptID: graphScope.AttemptID,
 			IssueID: issueID, AgentID: agentID, Input: dispatchPrompt,
 			ExpectedSessionID: run.ParentSessionID, ExpectedWorkDir: run.ProviderWorkDir, IdempotencyKey: turnKey,
+			ContextEnvelope: contextEnvelope, ExpectedRevision: run.Version, LegacyAdapterVersion: compat.LegacyAdapterVersion,
 		}
-		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, Continuation: &continuation}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, Continuation: &continuation, ContextEnvelope: contextEnvelope}
 		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
 			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
@@ -344,6 +437,12 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 			return run, errors.New("provider did not confirm the original development task session and workdir")
 		}
+		run.ActiveProviderIssueID, run.ActiveProviderTaskID = issueID, binding.ProviderRunID
+		returned = run
+		if err := s.bindLegacyGraphAttempt(run, graphScope.AttemptID, binding.ProviderRunID, binding.SessionID, binding.WorkDir); err != nil {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			return run, fmt.Errorf("bind legacy graph attempt: %w", err)
+		}
 		if run.PipelineWorkItemID != "" {
 			if provenance, found := s.Store.FindProvenance(run.PipelineWorkItemID); found {
 				provenance.ProviderTaskID = binding.ProviderRunID
@@ -357,7 +456,6 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 				}
 			}
 		}
-		run.ActiveProviderIssueID, run.ActiveProviderTaskID = issueID, binding.ProviderRunID
 	} else {
 		repositoryID, repositoryPath, cloneURL, defaultBranch := "", "", "", ""
 		if requirement, requirementErr := s.Store.GetRequirement(run.RequirementID); requirementErr == nil && len(requirement.RepositoryIDs) > 0 {
@@ -417,10 +515,11 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 		}
 		run.ActiveProviderIssueID = item.ProviderIssueID
 		command := provider.StartRunCommand{
+			PlanID: graphScope.PlanID, NodeID: graphScope.NodeID, AttemptID: graphScope.AttemptID,
 			WorkItemID: item.ID, ProviderIssueID: item.ProviderIssueID, AgentBindingID: agentID, ProviderAssigneeID: agentID,
-			Input: dispatchPrompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, IdempotencyKey: turnKey,
+			Input: dispatchPrompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: compat.LegacyAdapterVersion, SessionID: run.SessionID, IdempotencyKey: turnKey,
 		}
-		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, Command: command}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, Command: command, ContextEnvelope: contextEnvelope}
 		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
 			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
@@ -445,6 +544,12 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
 			return run, errors.New("provider returned an empty run binding")
 		}
+		run.ActiveProviderTaskID = binding.ProviderRunID
+		returned = run
+		if err := s.bindLegacyGraphAttempt(run, graphScope.AttemptID, binding.ProviderRunID, binding.SessionID, binding.WorkDir); err != nil {
+			_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
+			return run, fmt.Errorf("bind legacy graph attempt: %w", err)
+		}
 		if run.PipelineStage == domain.PipelineDevelopment && run.PipelineWorkItemID != "" {
 			provenanceErr := s.Store.SaveProvenance(domain.Provenance{
 				WorkItemID: run.PipelineWorkItemID, RequirementID: run.RequirementID, AgentBindingID: agentID,
@@ -456,7 +561,6 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (domain.PipelineRun, e
 				return run, fmt.Errorf("persist provider provenance: %w", provenanceErr)
 			}
 		}
-		run.ActiveProviderTaskID = binding.ProviderRunID
 	}
 	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch recorded"); err != nil {
 		return run, err
@@ -894,8 +998,8 @@ type pipelineStepResultWire struct {
 	FailedTests       json.RawMessage      `json:"failed_tests"`
 	ErrorLog          json.RawMessage      `json:"error_log"`
 	RepairNote        string               `json:"repair_note"`
-	Report            string               `json:"report"`
-	FinalReport       string               `json:"final_report"`
+	Report            json.RawMessage      `json:"report"`
+	FinalReport       json.RawMessage      `json:"final_report"`
 	ProviderIssueID   string               `json:"provider_issue_id"`
 	ProviderTaskID    string               `json:"provider_task_id"`
 	ProviderSessionID string               `json:"provider_session_id"`
@@ -911,7 +1015,7 @@ func decodePipelineStepResult(data []byte) (*domain.PipelineStepResult, error) {
 	result := &domain.PipelineStepResult{
 		Stage: wire.Stage, AgentID: wire.AgentID, Outcome: wire.Outcome, Summary: wire.Summary,
 		DesignDoc: wire.DesignDoc, CodeVersion: wire.CodeVersion, RepairNote: wire.RepairNote,
-		Report: wire.Report, ProviderIssueID: wire.ProviderIssueID, ProviderTaskID: wire.ProviderTaskID,
+		Report: pipelineReport(wire.Report), ProviderIssueID: wire.ProviderIssueID, ProviderTaskID: wire.ProviderTaskID,
 		ProviderSessionID: wire.ProviderSessionID, ProviderWorkDir: wire.ProviderWorkDir,
 		Coverage: pipelineCoverage(wire.Coverage), PassedTests: pipelineStrings(wire.PassedTests),
 		FailedTests: pipelineStrings(wire.FailedTests), ErrorLog: pipelineErrorLog(wire.ErrorLog),
@@ -920,9 +1024,32 @@ func decodePipelineStepResult(data []byte) (*domain.PipelineStepResult, error) {
 		result.PassedTests = pipelineStrings(wire.Tests)
 	}
 	if result.Report == "" {
-		result.Report = wire.FinalReport
+		result.Report = pipelineReport(wire.FinalReport)
 	}
 	return result, nil
+}
+
+func pipelineReport(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	// Structured reports are retained as canonical compact JSON instead of
+	// rejecting an otherwise valid terminal result. The immutable provider
+	// output remains the full-fidelity source; this projection stays compatible
+	// with the historical string field used by APIs and storage.
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func pipelineCoverage(raw json.RawMessage) float64 {

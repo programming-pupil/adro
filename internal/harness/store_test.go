@@ -395,6 +395,66 @@ func TestToolCheckpointsRequireBeforeAndAfterPair(t *testing.T) {
 	}
 }
 
+func TestCheckpointExactReplayConvergesAfterNewerCheckpoint(t *testing.T) {
+	store := newTestSession(t, "")
+	firstTurn, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := Checkpoint{TurnSequence: firstTurn.Sequence, Phase: CheckpointEffectBefore, EventHash: firstTurn.Hash, ContextVersion: 1, State: "first"}
+	saved, err := store.SaveCheckpoint("session-1", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTurn, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveCheckpoint("session-1", Checkpoint{TurnSequence: secondTurn.Sequence, Phase: CheckpointEffectAfter, EventHash: secondTurn.Hash, ContextVersion: 1, State: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := store.SaveCheckpoint("session-1", first)
+	if err != nil || replayed.ID != saved.ID || replayed.Hash != saved.Hash {
+		t.Fatalf("exact replay did not converge: saved=%+v replayed=%+v err=%v", saved, replayed, err)
+	}
+	checkpoints, err := store.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 2 {
+		t.Fatalf("replay grew checkpoint history: count=%d err=%v", len(checkpoints), err)
+	}
+}
+
+func TestCheckpointExactReplayRejectsForgedChainFields(t *testing.T) {
+	store := newTestSession(t, "")
+	turn, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: "effect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := Checkpoint{TurnSequence: turn.Sequence, Phase: CheckpointEffectAfter, EventHash: turn.Hash, ContextVersion: 1, State: "committed"}
+	saved, err := store.SaveCheckpoint("session-1", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*Checkpoint){
+		"id":         func(candidate *Checkpoint) { candidate.ID = "forged" },
+		"session":    func(candidate *Checkpoint) { candidate.SessionID = "foreign-session" },
+		"prev_hash":  func(candidate *Checkpoint) { candidate.PrevHash = "sha256:forged" },
+		"hash":       func(candidate *Checkpoint) { candidate.Hash = "sha256:forged" },
+		"created_at": func(candidate *Checkpoint) { candidate.CreatedAt = saved.CreatedAt.Add(time.Second) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := input
+			mutate(&candidate)
+			if _, err := store.SaveCheckpoint("session-1", candidate); !errors.Is(err, ErrCorrupt) {
+				t.Fatalf("forged replay field was accepted: %v", err)
+			}
+		})
+	}
+	checkpoints, err := store.ListCheckpoints("session-1")
+	if err != nil || len(checkpoints) != 1 || checkpoints[0].Hash != saved.Hash {
+		t.Fatalf("forged replay mutated history: checkpoints=%+v err=%v", checkpoints, err)
+	}
+}
+
 func TestContextStatusExcludesArchivedTurnTokens(t *testing.T) {
 	store := newTestSession(t, "")
 	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: strings.Repeat("archived ", 20)}); err != nil {

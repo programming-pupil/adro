@@ -194,7 +194,11 @@ func (s *FileStore) Open(ctx context.Context, k Key, br ByteRange) (io.ReadClose
 	}
 	meta, err := s.readMeta(path, k)
 	if err != nil {
-		meta = ObjectMeta{Key: k, SizeBytes: st.Size(), CreatedAt: st.ModTime().UTC()}
+		_ = f.Close()
+		return nil, ObjectMeta{}, fmt.Errorf("artifact metadata unavailable: %w", err)
+	} else if err := verifyObject(path, meta); err != nil {
+		_ = f.Close()
+		return nil, ObjectMeta{}, err
 	}
 	return reader, meta, nil
 }
@@ -216,15 +220,44 @@ func (s *FileStore) Stat(ctx context.Context, k Key) (ObjectMeta, error) {
 	if err := ctx.Err(); err != nil {
 		return ObjectMeta{}, err
 	}
-	st, err := os.Stat(path)
+	_, err = os.Stat(path)
 	if err != nil {
 		return ObjectMeta{}, err
 	}
 	meta, err := s.readMeta(path, k)
-	if err == nil {
-		return meta, nil
+	if err != nil {
+		return ObjectMeta{}, fmt.Errorf("artifact metadata unavailable: %w", err)
 	}
-	return ObjectMeta{Key: k, SizeBytes: st.Size(), CreatedAt: st.ModTime().UTC()}, nil
+	if verifyErr := verifyObject(path, meta); verifyErr != nil {
+		return ObjectMeta{}, verifyErr
+	}
+	return meta, nil
+}
+
+func verifyObject(path string, meta ObjectMeta) error {
+	if meta.SizeBytes < 0 || strings.TrimSpace(meta.ContentSHA256) == "" {
+		return errors.New("artifact integrity metadata is incomplete")
+	}
+	if decoded, err := hex.DecodeString(meta.ContentSHA256); err != nil || len(decoded) != sha256.Size {
+		return errors.New("artifact integrity metadata has invalid content hash")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	size, err := io.Copy(h, f)
+	if err != nil {
+		return fmt.Errorf("verify artifact content: %w", err)
+	}
+	if size != meta.SizeBytes {
+		return fmt.Errorf("artifact integrity mismatch: size got %d want %d", size, meta.SizeBytes)
+	}
+	if hex.EncodeToString(h.Sum(nil)) != strings.TrimSpace(meta.ContentSHA256) {
+		return errors.New("artifact integrity mismatch: content hash does not match metadata")
+	}
+	return nil
 }
 
 func (s *FileStore) Delete(ctx context.Context, k Key, opts DeleteOptions) error {

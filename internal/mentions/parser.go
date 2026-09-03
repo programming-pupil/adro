@@ -17,7 +17,11 @@ type TargetType string
 const (
 	TargetAgent TargetType = "agent"
 	TargetSquad TargetType = "squad"
-	TargetAll   TargetType = "all"
+	// TargetMember and TargetIssue are render-only references. They are part of
+	// the Multica mention grammar but must never become execution targets.
+	TargetMember TargetType = "member"
+	TargetIssue  TargetType = "issue"
+	TargetAll    TargetType = "all"
 )
 
 type Mention struct {
@@ -35,17 +39,15 @@ type ParseResult struct {
 	SourceHash    string    `json:"source_hash"`
 }
 
-var mentionPattern = regexp.MustCompile(`\[([^\]]*)\]\(mention://(agent|squad|all)/([^\)]+)\)`)
+var mentionPattern = regexp.MustCompile(`\[([^\]]*)\]\(mention://(agent|squad|member|issue|all)/([^\)]+)\)`)
 
 const ParserVersion = "mention-uri-v1"
 
 func Parse(content string) (ParseResult, error) {
-	if strings.Contains(content, "mention://") && !mentionPattern.MatchString(content) {
-		return ParseResult{}, errors.New("invalid structured mention syntax")
-	}
 	h := sha256.Sum256([]byte(content))
 	result := ParseResult{ParserVersion: ParserVersion, SourceHash: hex.EncodeToString(h[:]), Mentions: []Mention{}}
-	for _, m := range mentionPattern.FindAllStringSubmatchIndex(content, -1) {
+	matches := mentionPattern.FindAllStringSubmatchIndex(content, -1)
+	for _, m := range matches {
 		display := content[m[2]:m[3]]
 		kind := TargetType(content[m[4]:m[5]])
 		id := content[m[6]:m[7]]
@@ -53,6 +55,28 @@ func Parse(content string) (ParseResult, error) {
 			return ParseResult{}, fmt.Errorf("mention at %d: %w", m[0], err)
 		}
 		result.Mentions = append(result.Mentions, Mention{TargetType: kind, TargetID: id, DisplayText: display, Start: m[0], End: m[1], ParserVersion: ParserVersion, SourceHash: result.SourceHash})
+	}
+	// A valid mention must account for every structured URI marker. Without
+	// this check a comment containing one valid URI followed by malformed
+	// `mention://...` text would silently route only the valid target.
+	if strings.Contains(content, "mention://") {
+		covered := make([]bool, len(content))
+		for _, m := range matches {
+			for i := m[0]; i < m[1] && i < len(covered); i++ {
+				covered[i] = true
+			}
+		}
+		for start := 0; start < len(content); {
+			relative := strings.Index(content[start:], "mention://")
+			if relative < 0 {
+				break
+			}
+			index := start + relative
+			if !covered[index] {
+				return ParseResult{}, errors.New("invalid structured mention syntax")
+			}
+			start = index + len("mention://")
+		}
 	}
 	return result, nil
 }
@@ -81,6 +105,19 @@ func (p ParseResult) Targets() []Mention {
 		}
 		seen[k] = true
 		out = append(out, m)
+	}
+	return out
+}
+
+// InvocationTargets returns only mentions that are allowed to create work.
+// Member/issue references intentionally remain available in Targets for UI
+// rendering and audit, while this view prevents accidental dispatch.
+func (p ParseResult) InvocationTargets() []Mention {
+	out := make([]Mention, 0, len(p.Mentions))
+	for _, mention := range p.Targets() {
+		if mention.TargetType == TargetAgent || mention.TargetType == TargetSquad || mention.TargetType == TargetAll {
+			out = append(out, mention)
+		}
 	}
 	return out
 }

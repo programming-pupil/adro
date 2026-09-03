@@ -28,6 +28,10 @@ jobs:
       - run: node --check playwright.matrix.config.js
       - run: node --check apps/web/enhancements.js
       - run: node --check scripts/release-assets.mjs
+      - run: node --check scripts/architecture-score.mjs
+      - run: node --check scripts/fault-matrix.mjs
+      - run: bash -n scripts/orchestration-guard.sh
+      - run: ./scripts/orchestration-guard.sh
       - run: node scripts/check-html.mjs
       - run: ruby scripts/openapi-contract.rb
       - run: ruby -e 'require "yaml"; require "json"; YAML.load_file("openapi/openapi.yaml"); YAML.load_file("deploy/compose/docker-compose.yml"); YAML.load_file("charts/adro/values.yaml"); JSON.parse(File.read("charts/adro/values.schema.json")); JSON.parse(File.read("release/dependencies.json")); JSON.parse(File.read("SBOM"))'

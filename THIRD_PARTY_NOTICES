@@ -2,6 +2,46 @@ ADRO Third-Party Notices
 Generated from go.mod, go.sum, package-lock.json, and release/dependencies.json for ADRO 0.1.0.
 The release verifier fails when a manifest dependency is absent from this list.
 
+github.com/chzyer/readline v1.5.1
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/chzyer/readline
+  license-file: THIRD_PARTY_LICENSES/go-github.com_chzyer_readline@v1.5.1.txt
+  license-sha256: 3e07c02046bf3c2a73f060636997e0323dbe92a2d4ba43ef9e6b05a1031ae4c4
+
+github.com/dustin/go-humanize v1.0.1
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/dustin/go-humanize
+  license-file: THIRD_PARTY_LICENSES/go-github.com_dustin_go-humanize@v1.0.1.txt
+  license-sha256: a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71
+
+github.com/google/go-cmp v0.5.8
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://github.com/google/go-cmp
+  license-file: THIRD_PARTY_LICENSES/go-github.com_google_go-cmp@v0.5.8.txt
+  license-sha256: 17b5d209ba8f9684257ecfcff87df6ceda6194143a8fbd074f29727cff6f0c40
+
+github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://github.com/google/pprof
+  license-file: THIRD_PARTY_LICENSES/go-github.com_google_pprof@v0.0.0-20250317173921-a4b03ec1a45e.txt
+  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+github.com/google/uuid v1.6.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://github.com/google/uuid
+  license-file: THIRD_PARTY_LICENSES/go-github.com_google_uuid@v1.6.0.txt
+  license-sha256: 0a8d61ed3cbfd5312326e8126c31ce9c627a283adc99131b56896d29ada04b2d
+
 github.com/gorilla/websocket v1.5.3
   ecosystem: go
   scope: runtime
@@ -9,6 +49,214 @@ github.com/gorilla/websocket v1.5.3
   source: https://github.com/gorilla/websocket
   license-file: THIRD_PARTY_LICENSES/go-github.com_gorilla_websocket@v1.5.3.txt
   license-sha256: 2be1b548b0387ca8948e1bb9434e709126904d15f622cc2d0d8e7f186e4d122d
+
+github.com/ianlancetaylor/demangle v0.0.0-20240312041847-bd984b5ce465
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://github.com/ianlancetaylor/demangle
+  license-file: THIRD_PARTY_LICENSES/go-github.com_ianlancetaylor_demangle@v0.0.0-20240312041847-bd984b5ce465.txt
+  license-sha256: b73277f7730993ef8e7f80aed83e5309762fed4d77eced982abb2c00657c074d
+
+github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/kballard/go-shellquote
+  license-file: THIRD_PARTY_LICENSES/go-github.com_kballard_go-shellquote@v0.0.0-20180428030007-95032a82bc51.txt
+  license-sha256: 3c0dbd7f2068b713b6784788ffde16a5b91baa86a61a1357e43beb97475a90b3
+
+github.com/lib/pq v1.10.9
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/lib/pq
+  license-file: THIRD_PARTY_LICENSES/go-github.com_lib_pq@v1.10.9.txt
+  license-sha256: 3e2d79d27727d59ab1c9752f57654733d6c8824936c22800594dccfe8864ec28
+
+github.com/mattn/go-isatty v0.0.20
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/mattn/go-isatty
+  license-file: THIRD_PARTY_LICENSES/go-github.com_mattn_go-isatty@v0.0.20.txt
+  license-sha256: 08eab1118c80885fa1fa6a6dd7303f65a379fcb3733e063d20d1bbc2c76e6fa1
+
+github.com/ncruces/go-strftime v0.1.9
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/ncruces/go-strftime
+  license-file: THIRD_PARTY_LICENSES/go-github.com_ncruces_go-strftime@v0.1.9.txt
+  license-sha256: 38ae43959daf953a393a585b2988672cb65a5a541aca0d0be5e72595a0a16883
+
+github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/remyoudompheng/bigfft
+  license-file: THIRD_PARTY_LICENSES/go-github.com_remyoudompheng_bigfft@v0.0.0-20230129092748-24d4a6f8daec.txt
+  license-sha256: dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d
+
+golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://cs.opensource.google/go/x/exp
+  license-file: THIRD_PARTY_LICENSES/go-golang.org_x_exp@v0.0.0-20230315142452-642cacee5cc0.txt
+  license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
+
+golang.org/x/mod v0.19.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://cs.opensource.google/go/x/mod
+  license-file: THIRD_PARTY_LICENSES/go-golang.org_x_mod@v0.19.0.txt
+  license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
+
+golang.org/x/sync v0.7.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://cs.opensource.google/go/x/sync
+  license-file: THIRD_PARTY_LICENSES/go-golang.org_x_sync@v0.7.0.txt
+  license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
+
+golang.org/x/sys v0.31.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://cs.opensource.google/go/x/sys
+  license-file: THIRD_PARTY_LICENSES/go-golang.org_x_sys@v0.31.0.txt
+  license-sha256: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
+
+golang.org/x/tools v0.23.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://cs.opensource.google/go/x/tools
+  license-file: THIRD_PARTY_LICENSES/go-golang.org_x_tools@v0.23.0.txt
+  license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
+
+lukechampine.com/uint128 v1.2.0
+  ecosystem: go
+  scope: runtime
+  license: MIT
+  source: https://github.com/lukechampine/uint128
+  license-file: THIRD_PARTY_LICENSES/go-lukechampine.com_uint128@v1.2.0.txt
+  license-sha256: 1bab848afdf73b64a7d332c4a38316f87e7ac8463d40fdb1152db7172c842990
+
+modernc.org/cc/v3 v3.41.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/cc/v3
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_cc_v3@v3.41.0.txt
+  license-sha256: e8bc016fb37cf5052bc3d17da75f1cab56263ccf3471a7b928cead7ab1fe50f5
+
+modernc.org/cc/v4 v4.24.4
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/cc/v4
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_cc_v4@v4.24.4.txt
+  license-sha256: 1c77905db36f407e0fdb513f97f1f2a3f2282049ca273637841face982d5d003
+
+modernc.org/ccgo/v3 v3.17.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/ccgo/v3
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_ccgo_v3@v3.17.0.txt
+  license-sha256: 343748b20da2ceb739c1ab7b85fe16f6fe4b67fad88fea40c5835a08383d8ffe
+
+modernc.org/ccgo/v4 v4.23.16
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/ccgo/v4
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_ccgo_v4@v4.23.16.txt
+  license-sha256: 343748b20da2ceb739c1ab7b85fe16f6fe4b67fad88fea40c5835a08383d8ffe
+
+modernc.org/fileutil v1.3.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/fileutil
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_fileutil@v1.3.0.txt
+  license-sha256: 7dc07397727fc500d5ce768d724e4d555eee8fb7687f421fd40d72249868b0ca
+
+modernc.org/gc/v2 v2.6.3
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/gc/v2
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_gc_v2@v2.6.3.txt
+  license-sha256: 4719790df5e9d33b1cef3a67df8264fb1e3e7f54f3ca900c562e84a951de62d9
+
+modernc.org/libc v1.61.13
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/libc
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_libc@v1.61.13.txt
+  license-sha256: 95ff867eb55a56935fa7492406cfa953fb7c13ca73f4c0a86ae05756b4605600
+
+modernc.org/mathutil v1.7.1
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/mathutil
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_mathutil@v1.7.1.txt
+  license-sha256: bfa9bf72a72ca009fd62a8f84fca3dca67e51d93af96352723646599898b6cf5
+
+modernc.org/memory v1.8.2
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/memory
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_memory@v1.8.2.txt
+  license-sha256: 59895e669f48f168b6b858358f6005779cdf40a265f7828813061b56af67b496
+
+modernc.org/opt v0.1.4
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/opt
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_opt@v0.1.4.txt
+  license-sha256: 7a0dd90f1d1c8fa80d03c1806bdd8e4dca7285fae9b4a34f2c4a8a2552fdd77c
+
+modernc.org/sortutil v1.2.1
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/sortutil
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_sortutil@v1.2.1.txt
+  license-sha256: 7bc9df688c16dd8e64463ec0ad66728730a0e1a70a1dbda3dcbcd8a9b45bfaab
+
+modernc.org/sqlite v1.36.3
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/sqlite
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_sqlite@v1.36.3.txt
+  license-sha256: c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822
+
+modernc.org/strutil v1.2.1
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/strutil
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_strutil@v1.2.1.txt
+  license-sha256: 0f594b710bedb0335b15155204150cb1aac98e76144b52b852b43ce6a65eaaad
+
+modernc.org/token v1.1.0
+  ecosystem: go
+  scope: runtime
+  license: BSD-3-Clause
+  source: https://modernc.org/token
+  license-file: THIRD_PARTY_LICENSES/go-modernc.org_token@v1.1.0.txt
+  license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
 
 @playwright/test 1.62.1
   ecosystem: npm

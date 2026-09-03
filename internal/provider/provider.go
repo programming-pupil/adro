@@ -17,6 +17,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/telemetry"
 )
 
 type Capabilities struct {
@@ -185,16 +186,25 @@ type StartRunCommand struct {
 	ProviderIssueID string `json:"provider_issue_id,omitempty"`
 	// SessionID and ContextID are supplied for repairs. They make continuity an
 	// explicit contract rather than relying on provider-side issue heuristics.
-	SessionID        string                  `json:"session_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// WorkDir is the provider-visible checkout boundary for graph attempts. A
+	// local provider may allocate it when omitted for legacy callers, but graph
+	// workers should persist and replay the returned binding before continuing.
+	WorkDir          string                  `json:"work_dir,omitempty"`
 	ContextID        string                  `json:"context_id,omitempty"`
 	ContextVersion   int64                   `json:"context_version,omitempty"`
 	ContextEnvelope  harness.ContextEnvelope `json:"context_envelope"`
 	ExpectedRevision int64                   `json:"expected_revision,omitempty"`
 	RepairAttempt    int                     `json:"repair_attempt,omitempty"`
+	// LegacyAdapterVersion makes the compatibility boundary explicit when an
+	// old pipeline/work-item route has not yet been graph-native.
+	LegacyAdapterVersion string `json:"legacy_adapter_version,omitempty"`
 	// IdempotencyKey is owned by ADRO's durable harness. Providers must return
 	// the original run for an identical key instead of creating a duplicate
 	// side effect after a lost response or API restart.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	TraceParent    string `json:"traceparent,omitempty"`
+	TraceState     string `json:"tracestate,omitempty"`
 }
 
 // ValidateGraphScope enforces the typed envelope at the graph boundary while
@@ -202,19 +212,57 @@ type StartRunCommand struct {
 // dispatches are identified by PlanID/NodeID/AttemptID and must carry a valid
 // immutable ContextEnvelope.
 func (c StartRunCommand) ValidateGraphScope() error {
+	if strings.TrimSpace(c.LegacyAdapterVersion) != "" {
+		if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
+			return errors.New("legacy adapter dispatch requires plan_id, node_id and attempt_id")
+		}
+	}
 	if c.PlanID == "" && c.NodeID == "" && c.AttemptID == "" {
 		return nil
 	}
 	if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
 		return errors.New("plan_id, node_id and attempt_id are required together")
 	}
-	if c.ContextEnvelope.SelectionDigest == "" || c.ContextEnvelope.ReplayKey == "" || c.ContextEnvelope.Manifest.Digest == "" {
-		return errors.New("graph dispatch requires a complete context envelope")
+	if strings.TrimSpace(c.SessionID) == "" {
+		return errors.New("graph dispatch session_id is required")
 	}
-	if c.ContextEnvelope.Manifest.SessionID == "" || c.ContextEnvelope.Manifest.TokenBudget <= 0 || c.ContextEnvelope.Manifest.TokenEstimate > c.ContextEnvelope.Manifest.TokenBudget {
-		return errors.New("graph dispatch context envelope has invalid budget or session")
+	if strings.TrimSpace(c.WorkDir) != "" && strings.ContainsRune(c.WorkDir, '\x00') {
+		return errors.New("graph dispatch work_dir contains NUL")
+	}
+	if err := c.ContextEnvelope.Validate(); err != nil {
+		return fmt.Errorf("graph dispatch context envelope: %w", err)
+	}
+	if c.ContextEnvelope.Manifest.SessionID != c.SessionID {
+		return errors.New("graph dispatch context envelope session does not match command session")
 	}
 	return nil
+}
+
+// ValidateContext accepts both the historical untyped command (empty
+// envelope) and the new envelope carried by legacy-adapter dispatches. Once a
+// caller supplies any envelope field it must be complete and tamper-evident.
+func (c StartRunCommand) ValidateContext() error {
+	if c.ContextEnvelope.Manifest.SessionID == "" && c.ContextEnvelope.Manifest.Digest == "" && c.ContextEnvelope.SelectionDigest == "" && c.ContextEnvelope.ReplayKey == "" {
+		return nil
+	}
+	if err := c.ContextEnvelope.Validate(); err != nil {
+		return fmt.Errorf("context envelope: %w", err)
+	}
+	if c.PlanID != "" && c.SessionID != "" && c.ContextEnvelope.Manifest.SessionID != c.SessionID {
+		return errors.New("context envelope session does not match command session")
+	}
+	return nil
+}
+
+func (c StartRunCommand) ValidateTraceContext() error {
+	return validateTraceCarrier(c.TraceParent, c.TraceState)
+}
+
+func (c StartRunCommand) WithTraceContext(ctx context.Context) StartRunCommand {
+	if strings.TrimSpace(c.TraceParent) == "" && strings.TrimSpace(c.TraceState) == "" {
+		c.TraceParent, c.TraceState = telemetry.Carrier(ctx)
+	}
+	return c
 }
 
 type RunBinding struct {
@@ -226,6 +274,8 @@ type RunBinding struct {
 	ContextVersion int64     `json:"context_version,omitempty"`
 	SessionReused  bool      `json:"session_reused,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
+	TraceParent    string    `json:"traceparent,omitempty"`
+	TraceState     string    `json:"tracestate,omitempty"`
 }
 
 // ContinuationCommand describes an incremental follow-up on an existing
@@ -233,31 +283,80 @@ type RunBinding struct {
 // ADRO's durable pipeline state; a provider must prove both values before the
 // continuation is considered started.
 type ContinuationCommand struct {
-	PlanID            string                  `json:"plan_id,omitempty"`
-	NodeID            string                  `json:"node_id,omitempty"`
-	AttemptID         string                  `json:"attempt_id,omitempty"`
-	IssueID           string                  `json:"issue_id"`
-	AgentID           string                  `json:"agent_id"`
-	Input             string                  `json:"input"`
-	ExpectedSessionID string                  `json:"expected_session_id"`
-	ExpectedWorkDir   string                  `json:"expected_work_dir"`
-	ContextEnvelope   harness.ContextEnvelope `json:"context_envelope"`
-	ExpectedRevision  int64                   `json:"expected_revision,omitempty"`
-	IdempotencyKey    string                  `json:"idempotency_key,omitempty"`
+	PlanID               string                  `json:"plan_id,omitempty"`
+	NodeID               string                  `json:"node_id,omitempty"`
+	AttemptID            string                  `json:"attempt_id,omitempty"`
+	IssueID              string                  `json:"issue_id"`
+	AgentID              string                  `json:"agent_id"`
+	Input                string                  `json:"input"`
+	ExpectedSessionID    string                  `json:"expected_session_id"`
+	ExpectedWorkDir      string                  `json:"expected_work_dir"`
+	ContextEnvelope      harness.ContextEnvelope `json:"context_envelope"`
+	ExpectedRevision     int64                   `json:"expected_revision,omitempty"`
+	IdempotencyKey       string                  `json:"idempotency_key,omitempty"`
+	LegacyAdapterVersion string                  `json:"legacy_adapter_version,omitempty"`
+	TraceParent          string                  `json:"traceparent,omitempty"`
+	TraceState           string                  `json:"tracestate,omitempty"`
 }
 
 func (c ContinuationCommand) ValidateGraphScope() error {
+	if strings.TrimSpace(c.LegacyAdapterVersion) != "" {
+		if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
+			return errors.New("legacy adapter continuation requires plan_id, node_id and attempt_id")
+		}
+	}
 	if c.PlanID == "" && c.NodeID == "" && c.AttemptID == "" {
 		return nil
 	}
 	if c.PlanID == "" || c.NodeID == "" || c.AttemptID == "" {
 		return errors.New("plan_id, node_id and attempt_id are required together")
 	}
-	if c.ContextEnvelope.SelectionDigest == "" || c.ContextEnvelope.ReplayKey == "" || c.ContextEnvelope.Manifest.Digest == "" {
-		return errors.New("graph continuation requires a complete context envelope")
+	if strings.TrimSpace(c.ExpectedSessionID) == "" {
+		return errors.New("graph continuation expected_session_id is required")
 	}
-	if c.ContextEnvelope.Manifest.SessionID == "" || c.ContextEnvelope.Manifest.TokenBudget <= 0 || c.ContextEnvelope.Manifest.TokenEstimate > c.ContextEnvelope.Manifest.TokenBudget {
-		return errors.New("graph continuation context envelope has invalid budget or session")
+	if strings.TrimSpace(c.ExpectedWorkDir) == "" {
+		return errors.New("graph continuation expected_work_dir is required")
+	}
+	if strings.ContainsRune(c.ExpectedWorkDir, '\x00') {
+		return errors.New("graph continuation expected_work_dir contains NUL")
+	}
+	if err := c.ContextEnvelope.Validate(); err != nil {
+		return fmt.Errorf("graph continuation context envelope: %w", err)
+	}
+	// ExpectedSessionID is the provider-native continuation/thread identity.
+	// ContextEnvelope.Manifest.SessionID is ADRO's durable harness session.
+	// They are deliberately different namespaces and must not be conflated;
+	// continuity is proven by the provider binding plus the immutable envelope.
+	return nil
+}
+
+func (c ContinuationCommand) ValidateContext() error {
+	if c.ContextEnvelope.Manifest.SessionID == "" && c.ContextEnvelope.Manifest.Digest == "" && c.ContextEnvelope.SelectionDigest == "" && c.ContextEnvelope.ReplayKey == "" {
+		return nil
+	}
+	if err := c.ContextEnvelope.Validate(); err != nil {
+		return fmt.Errorf("context envelope: %w", err)
+	}
+	return nil
+}
+
+func (c ContinuationCommand) ValidateTraceContext() error {
+	return validateTraceCarrier(c.TraceParent, c.TraceState)
+}
+
+func (c ContinuationCommand) WithTraceContext(ctx context.Context) ContinuationCommand {
+	if strings.TrimSpace(c.TraceParent) == "" && strings.TrimSpace(c.TraceState) == "" {
+		c.TraceParent, c.TraceState = telemetry.Carrier(ctx)
+	}
+	return c
+}
+
+func validateTraceCarrier(parent, state string) error {
+	if strings.TrimSpace(parent) == "" && strings.TrimSpace(state) == "" {
+		return nil
+	}
+	if _, err := telemetry.ParseTraceParent(parent, state); err != nil {
+		return fmt.Errorf("invalid W3C trace context: %w", err)
 	}
 	return nil
 }
@@ -272,6 +371,8 @@ type RunSnapshot struct {
 	SessionID         string `json:"session_id,omitempty"`
 	SessionContinuity string `json:"session_continuity,omitempty"`
 	WorkDir           string `json:"work_dir,omitempty"`
+	TraceParent       string `json:"traceparent,omitempty"`
+	TraceState        string `json:"tracestate,omitempty"`
 	BaselineCommit    string `json:"baseline_commit,omitempty"`
 	HeadCommit        string `json:"head_commit,omitempty"`
 	SubmissionURL     string `json:"submission_url,omitempty"`
@@ -448,6 +549,12 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 	if err := cmd.ValidateGraphScope(); err != nil {
 		return RunBinding{}, err
 	}
+	if err := cmd.ValidateContext(); err != nil {
+		return RunBinding{}, err
+	}
+	if err := cmd.ValidateTraceContext(); err != nil {
+		return RunBinding{}, err
+	}
 	if cmd.WorkItemID == "" {
 		return RunBinding{}, errors.New("work item id is required")
 	}
@@ -470,14 +577,15 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 			}
 		}
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, InputHash: sha256Hex(cmd.Input), SessionID: sessionID, Status: "running", StartedAt: &now}, cancel: cancel}
+	baseRunCtx, cancel := context.WithCancel(ctx)
+	runCtx, span, _ := telemetry.StartRemoteSpan(baseRunCtx, cmd.TraceParent, cmd.TraceState)
+	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, InputHash: sha256Hex(cmd.Input), SessionID: sessionID, Status: "running", TraceParent: span.TraceParent(), TraceState: span.TraceState, StartedAt: &now}, cancel: cancel}
 	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
 		p.runKeys[cmd.WorkItemID+"\x00"+key] = id
 	}
 	p.mu.Unlock()
 	inputDigest := sha256.Sum256([]byte(cmd.Input))
-	_ = p.bus.Publish(runCtx, events.New("execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": cmd.WorkItemID, "input_sha256": hex.EncodeToString(inputDigest[:]), "input_bytes": len(cmd.Input)}))
+	_ = p.bus.Publish(runCtx, events.NewWithContext(runCtx, "execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": cmd.WorkItemID, "input_sha256": hex.EncodeToString(inputDigest[:]), "input_bytes": len(cmd.Input)}))
 	go func() {
 		select {
 		case <-time.After(10 * time.Millisecond):
@@ -490,11 +598,11 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 				r.snapshot.LastEventID = domain.NewID()
 			}
 			p.mu.Unlock()
-			_ = p.bus.Publish(context.Background(), events.New("execution.completed.v1", "execution_run", id, "", "", 2, map[string]any{"work_item_id": cmd.WorkItemID}))
+			_ = p.bus.Publish(runCtx, events.NewWithContext(runCtx, "execution.completed.v1", "execution_run", id, "", "", 2, map[string]any{"work_item_id": cmd.WorkItemID}))
 		case <-runCtx.Done():
 		}
 	}()
-	return RunBinding{ID: id, ProviderRunID: "mock-run-" + id, SessionID: sessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", StartedAt: now}, nil
+	return RunBinding{ID: id, ProviderRunID: "mock-run-" + id, SessionID: sessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", TraceParent: span.TraceParent(), TraceState: span.TraceState, StartedAt: now}, nil
 }
 func (p *MockProvider) AppendInput(_ context.Context, runID, input string) error {
 	p.mu.Lock()

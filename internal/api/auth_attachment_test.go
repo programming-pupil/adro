@@ -86,6 +86,49 @@ func TestInteractiveIdentityCannotSpoofWorkspaceOrActor(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedCommentEditRevisionRecordsAuthenticatedActor(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_USERNAME", "admin")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	s := testServer(t)
+	token := loginToken(t, s, "admin", "AdminPass123!")
+	admin := s.Auth.ListUsers("local")[0]
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{
+		WorkspaceID: "local", Title: "Authenticated comment revision", Description: "record the real editor",
+		AcceptanceCriteria: []string{"revision actor is authenticated"}, AssigneeMemberIDs: []string{admin.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"content":"original"}`, bearer(token))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var payload struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	headers := bearer(token)
+	headers["X-Member-ID"] = "spoofed-editor"
+	edited := request(t, s.Routes(), http.MethodPatch, "/api/v1/comments/"+payload.Comment.ID, `{"content":"edited","expected_revision":1}`, headers)
+	if edited.Code != http.StatusOK {
+		t.Fatalf("edit status=%d body=%s", edited.Code, edited.Body.String())
+	}
+	revisions := request(t, s.Routes(), http.MethodGet, "/api/v1/comments/"+payload.Comment.ID+"/revisions", "", bearer(token))
+	var history struct {
+		Items []domain.CommentRevision `json:"items"`
+	}
+	if revisions.Code != http.StatusOK || json.Unmarshal(revisions.Body.Bytes(), &history) != nil || len(history.Items) != 2 {
+		t.Fatalf("revisions status=%d body=%s", revisions.Code, revisions.Body.String())
+	}
+	if history.Items[1].EditorID != admin.ID || history.Items[1].EditorType != "member" {
+		t.Fatalf("revision editor was not authenticated identity: %+v", history.Items[1])
+	}
+}
+
 func TestRequirementRejectsForeignRegisteredRepository(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "optional")
 	s := testServer(t)

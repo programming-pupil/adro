@@ -22,4 +22,10 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build ./...
+      - run: make fault-matrix
       - run: git diff --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fault-matrix-evidence
+          path: var/test-report/fault-matrix

@@ -5,6 +5,7 @@
 package orchestration
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,19 @@ import (
 
 	"github.com/adro-project/adro/internal/harness"
 )
+
+// NewID returns a canonical UUID-shaped identifier for orchestration entities.
+// The rest of ADRO retains its historical opaque IDs, but structured mention
+// targets are required to be UUIDs so display names can never become routes.
+func NewID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("00000000-0000-4000-8000-%012d", time.Now().UnixNano()%1e12)
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
 
 type AgentStatus string
 
@@ -190,6 +204,12 @@ type WorkflowNode struct {
 	Timeout        time.Duration `json:"timeout,omitempty"`
 	Budget         Budget        `json:"budget,omitempty"`
 	JoinPolicy     JoinPolicy    `json:"join_policy,omitempty"`
+	// JoinQuorum is the explicit number of successful incoming branches needed
+	// when JoinPolicy is quorum. A zero value uses strict majority.
+	JoinQuorum int `json:"join_quorum,omitempty"`
+	// JoinFailurePolicy makes merge failure behavior explicit. Supported values
+	// are wait (default) and short_circuit.
+	JoinFailurePolicy string `json:"join_failure_policy,omitempty"`
 }
 type WorkflowEdge struct {
 	ID               string    `json:"id"`
@@ -201,6 +221,9 @@ type WorkflowEdge struct {
 	MaxTraversals    int       `json:"max_traversals,omitempty"`
 	RequiredEvidence []string  `json:"required_evidence,omitempty"`
 	LoopGroup        string    `json:"loop_group,omitempty"`
+	// FanOut permits multiple equal-priority edges to be selected for one
+	// completion. Without this opt-in an equal-priority match is ambiguous.
+	FanOut bool `json:"fan_out,omitempty"`
 }
 type WorkflowGraph struct {
 	ID               string         `json:"id"`
@@ -248,6 +271,11 @@ type RequirementExecutionPlan struct {
 	IdempotencyKey string         `json:"idempotency_key,omitempty"`
 	Deadline       time.Time      `json:"deadline,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`
+	// Nested Squad plans retain explicit parent lineage. Root plans leave these
+	// fields empty; child plans include the parent plan and attempt IDs in their
+	// frozen snapshot so replay cannot detach a nested execution.
+	ParentPlanID    string `json:"parent_plan_id,omitempty"`
+	ParentAttemptID string `json:"parent_attempt_id,omitempty"`
 }
 
 type Lease struct {
@@ -290,6 +318,9 @@ type NodeAttempt struct {
 	Result          StructuredResult        `json:"result,omitempty"`
 	Status          AttemptStatus           `json:"status"`
 	FailureReason   *FailureReason          `json:"failure_reason,omitempty"`
+	ParentAttemptID string                  `json:"parent_attempt_id,omitempty"`
+	RetryOf         string                  `json:"retry_of,omitempty"`
+	ChildPlanID     string                  `json:"child_plan_id,omitempty"`
 	StartedAt       *time.Time              `json:"started_at,omitempty"`
 	FinishedAt      *time.Time              `json:"finished_at,omitempty"`
 }
@@ -323,6 +354,9 @@ func (g WorkflowGraph) CanonicalHash() (string, error) {
 func (p RequirementExecutionPlan) Freeze() (RequirementExecutionPlan, error) {
 	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.RequirementID) == "" || strings.TrimSpace(p.WorkspaceID) == "" {
 		return p, errors.New("plan id, requirement_id and workspace_id are required")
+	}
+	if (strings.TrimSpace(p.ParentPlanID) == "") != (strings.TrimSpace(p.ParentAttemptID) == "") {
+		return p, errors.New("parent_plan_id and parent_attempt_id must be provided together")
 	}
 	if err := ValidateGraph(p.GraphSnapshot); err != nil {
 		return p, err
@@ -362,8 +396,32 @@ func (a AgentDefinition) Validate() error {
 	if a.Revision < 1 {
 		return errors.New("agent revision must be positive")
 	}
+	switch a.Status {
+	case AgentDraft, AgentActive, AgentDisabled, AgentArchived:
+	default:
+		return fmt.Errorf("agent status %q is invalid", a.Status)
+	}
+	if err := validateBudget(a.ConcurrencyBudget, "agent concurrency budget"); err != nil {
+		return err
+	}
+	if a.InputSchema.Version < 0 || a.OutputSchema.Version < 0 {
+		return errors.New("agent schema versions cannot be negative")
+	}
+	if overlap := policyOverlap(a.ToolPolicy); overlap != "" {
+		return fmt.Errorf("agent tool policy allows and denies %q", overlap)
+	}
 	if a.Status == AgentActive && (strings.TrimSpace(a.ExecutorBinding.ProviderID) == "" || strings.TrimSpace(a.InputSchema.ID) == "" || strings.TrimSpace(a.OutputSchema.ID) == "") {
 		return errors.New("active agent requires executor binding and schemas")
+	}
+	for i, capability := range a.Capabilities {
+		if strings.TrimSpace(capability.Name) == "" {
+			return fmt.Errorf("agent capabilities[%d].name is required", i)
+		}
+	}
+	for i, required := range a.ExecutorBinding.RequiredCaps {
+		if strings.TrimSpace(required) == "" {
+			return fmt.Errorf("agent executor required_caps[%d] is empty", i)
+		}
 	}
 	return nil
 }
@@ -376,6 +434,15 @@ func (m SquadMember) Validate() error {
 	}
 	if m.MaxAttempts < 0 {
 		return errors.New("max_attempts cannot be negative")
+	}
+	if err := validateBudget(m.Budget, "squad member budget"); err != nil {
+		return err
+	}
+	if m.InputSchema.Version < 0 || m.OutputSchema.Version < 0 {
+		return errors.New("squad member schema versions cannot be negative")
+	}
+	if m.Leader && m.AgentID == "" {
+		return errors.New("squad leader must reference an agent")
 	}
 	return nil
 }
@@ -403,5 +470,62 @@ func (s SquadDefinition) Validate() error {
 	if s.Policy.MaxNestingDepth < 0 || s.Policy.MaxNestingDepth > 8 {
 		return errors.New("squad max_nesting_depth must be between 0 and 8")
 	}
+	if err := validateBudget(s.Policy.Budget, "squad policy budget"); err != nil {
+		return err
+	}
+	if overlap := policyOverlap(s.Policy.ToolPolicy); overlap != "" {
+		return fmt.Errorf("squad tool policy allows and denies %q", overlap)
+	}
 	return ValidateGraph(s.Graph)
+}
+
+// ValidateDraft checks only the durable identity and policy envelope. Drafts
+// are intentionally allowed to contain an incomplete graph or roster so the
+// quick-squad endpoint can persist a workspace-scoped editing target and
+// return actionable graph validation diagnostics. Publishing always calls the
+// full Validate path.
+func (s SquadDefinition) ValidateDraft() error {
+	if strings.TrimSpace(s.ID) == "" || strings.TrimSpace(s.WorkspaceID) == "" || strings.TrimSpace(s.Name) == "" {
+		return errors.New("squad id, workspace_id and name are required")
+	}
+	if s.Revision < 1 {
+		return errors.New("squad revision must be positive")
+	}
+	if s.Status != SquadDraft {
+		return fmt.Errorf("draft validation requires draft status, got %q", s.Status)
+	}
+	if s.Policy.MaxNestingDepth < 0 || s.Policy.MaxNestingDepth > 8 {
+		return errors.New("squad max_nesting_depth must be between 0 and 8")
+	}
+	if err := validateBudget(s.Policy.Budget, "squad policy budget"); err != nil {
+		return err
+	}
+	if overlap := policyOverlap(s.Policy.ToolPolicy); overlap != "" {
+		return fmt.Errorf("squad tool policy allows and denies %q", overlap)
+	}
+	return nil
+}
+
+func validateBudget(b Budget, label string) error {
+	if b.Tokens < 0 || b.ToolCalls < 0 || b.CostCents < 0 || b.Duration < 0 || b.Concurrent < 0 {
+		return fmt.Errorf("%s cannot contain negative values", label)
+	}
+	return nil
+}
+
+func policyOverlap(policy ToolPolicy) string {
+	denied := make(map[string]struct{}, len(policy.Denied))
+	for _, item := range policy.Denied {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			denied[item] = struct{}{}
+		}
+	}
+	for _, item := range policy.Allowed {
+		item = strings.TrimSpace(item)
+		if _, exists := denied[item]; exists {
+			return item
+		}
+	}
+	return ""
 }

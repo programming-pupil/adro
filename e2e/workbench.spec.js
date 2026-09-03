@@ -111,6 +111,84 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('creates and operates native Agent, Squad, and immutable Plan records', async ({ page }) => {
+  await page.locator('.nav-item[data-view="repositories"]').click();
+  await page.locator('#newResource').click();
+  await page.locator('#resourceFields input[name="name"]').fill('native-orchestration-service');
+  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/native-orchestration.git');
+  await page.locator('#resourceForm button[type="submit"]').click();
+  await expect(page.locator('#resourceDialog')).not.toBeVisible();
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('#newRequirement').click();
+  await page.locator('#requirementForm input[name="title"]').fill('Native orchestration acceptance');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Create an immutable plan from a published revisioned squad.');
+  await page.locator('#requirementForm textarea[name="acceptance"]').fill('Agent and Squad revisions are frozen\nTimeline and replay are available');
+  await page.locator('#requirementRepository').selectOption({ label: 'native-orchestration-service' });
+  await page.locator('#requirementAssignee').selectOption({ index: 0 });
+  await page.locator('#requirementForm button[type="submit"]').click();
+  await expect(page.locator('#requirementDialog')).not.toBeVisible();
+
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await page.locator('#agentForm input[name="member"]').fill('native-orchestration-owner');
+  await page.locator('#agentForm input[name="name"]').fill('Browser Native Agent');
+  await page.locator('#agentForm textarea[name="instructions"]').fill('Execute the frozen graph with evidence.');
+  await page.locator('#agentForm input[name="role"]').fill('delivery-lead');
+  await page.locator('#agentForm button[type="submit"]').click();
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+
+  const agentRow = page.locator('tr').filter({ hasText: 'Browser Native Agent' }).first();
+  await expect(agentRow).toContainText('active');
+  const agentID = await agentRow.locator('.orchestration-id').textContent();
+  await agentRow.locator('[data-orchestration-action="validate"]').click();
+  await expect(page.locator('#orchestrationStatus')).toContainText('validate');
+  await agentRow.locator('[data-orchestration-action="capabilities"]').click();
+  await expect(page.locator('#orchestrationStatus')).toContainText('capabilities');
+
+  await page.locator('#newSquad').click();
+  await page.locator('#squadForm input[name="name"]').fill('Browser Native Squad');
+  await page.locator('#squadForm textarea[name="description"]').fill('Revision-locked browser acceptance squad');
+  await page.locator('#squadLeader').selectOption(agentID.trim());
+  await page.locator('#squadForm button[type="submit"]').click();
+  await expect(page.locator('#squadDialog')).not.toBeVisible();
+
+  const squadRow = page.locator('tr').filter({ hasText: 'Browser Native Squad' }).first();
+  await expect(squadRow).toContainText('draft');
+  const squadID = (await squadRow.locator('.orchestration-id').textContent()).trim();
+  await squadRow.locator('[data-orchestration-action="validate"]').click();
+  await expect(page.locator('#orchestrationStatus')).toContainText('validate');
+  await squadRow.locator('[data-orchestration-action="dry-run"]').click();
+  await expect(page.locator('#orchestrationStatus')).toContainText('dry-run');
+  await squadRow.locator('[data-orchestration-action="publish"]').click();
+
+  const publishedSquad = page.locator('tr').filter({ hasText: 'Browser Native Squad' }).first();
+  await expect(publishedSquad).toContainText('published');
+  await expect(publishedSquad).toContainText('v1');
+
+  await page.locator('#newPlan').click();
+  const requirementOption = page.locator('#nativePlanRequirement option').filter({ hasText: 'Native orchestration acceptance' }).first();
+  await page.locator('#nativePlanRequirement').selectOption(await requirementOption.getAttribute('value'));
+  const squadOption = page.locator('#nativePlanTarget option').filter({ hasText: 'Squad · Browser Native Squad' }).first();
+  await page.locator('#nativePlanTarget').selectOption(await squadOption.getAttribute('value'));
+  await page.locator('#nativePlanForm button[type="submit"]').click();
+  await expect(page.locator('#nativePlanDialog')).not.toBeVisible();
+
+  const planRow = page.locator('tr', { has: page.locator('[data-orchestration-kind="plan"]') }).filter({ hasText: squadID }).first();
+  await expect(planRow).toContainText('ready');
+  await expect(planRow.locator('.digest-cell')).not.toHaveText('-');
+  await planRow.locator('[data-orchestration-action="timeline"]').click();
+  await expect(page.locator('#timelineDialog')).toBeVisible();
+  await expect(page.locator('#timelineContent')).toContainText('plan.created');
+  await page.locator('#timelineDialog [data-close-orchestration="timelineDialog"]').first().click();
+  await planRow.locator('[data-orchestration-action="replay"]').click();
+  await expect(page.locator('#timelineDialog')).toBeVisible();
+  await expect(page.locator('#timelineContent')).toContainText('projection');
+  await expect(page.locator('#timelineContent')).toContainText('plan_id');
+
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('executes resource actions from every ADRO-owned control menu', async ({ page }) => {
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();

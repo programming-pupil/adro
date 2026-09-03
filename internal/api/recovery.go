@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/internal/compat"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
@@ -40,7 +41,11 @@ type providerDispatchIntent struct {
 	BugID              string                        `json:"bug_id,omitempty"`
 	CommentID          string                        `json:"comment_id,omitempty"`
 	WorkspaceID        string                        `json:"workspace_id,omitempty"`
+	DispatchTargetType string                        `json:"dispatch_target_type,omitempty"`
+	DispatchTargetID   string                        `json:"dispatch_target_id,omitempty"`
+	DedupeKey          string                        `json:"dedupe_key,omitempty"`
 	HarnessSessionID   string                        `json:"harness_session_id,omitempty"`
+	ContextEnvelope    harness.ContextEnvelope       `json:"context_envelope,omitempty"`
 	ContextID          string                        `json:"context_id,omitempty"`
 	ContextVersion     int64                         `json:"context_version,omitempty"`
 	RepairAttempt      int                           `json:"repair_attempt,omitempty"`
@@ -133,7 +138,7 @@ func (p harnessPublisher) Publish(ctx context.Context, event harness.OutboxEvent
 	if value, ok := payload["event_type"].(string); ok && strings.TrimSpace(value) != "" {
 		eventType = value
 	}
-	return p.server.Events.Publish(ctx, events.New(eventType, "harness_outbox", event.ID, "", event.SessionID, 1, map[string]any{
+	return p.server.Events.Publish(ctx, events.NewWithContext(ctx, eventType, "harness_outbox", event.ID, "", event.SessionID, 1, map[string]any{
 		"outbox_id": event.ID, "session_id": event.SessionID, "payload": payload,
 	}))
 }
@@ -179,6 +184,22 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 		}
 		return fmt.Errorf("provider dispatch intent conflicts with pipeline version %d (expected %d): %w", run.Version, intent.ExpectedVersion, store.ErrConflict)
 	}
+	graphScope := compat.DispatchScope{PlanID: intent.Command.PlanID, NodeID: intent.Command.NodeID, AttemptID: intent.Command.AttemptID}
+	legacyVersion := intent.Command.LegacyAdapterVersion
+	if intent.Continuation != nil {
+		graphScope = compat.DispatchScope{PlanID: intent.Continuation.PlanID, NodeID: intent.Continuation.NodeID, AttemptID: intent.Continuation.AttemptID}
+		legacyVersion = intent.Continuation.LegacyAdapterVersion
+	}
+	if strings.TrimSpace(legacyVersion) != "" {
+		if graphScope.PlanID == "" || graphScope.NodeID == "" || graphScope.AttemptID == "" {
+			return errors.New("recovered legacy dispatch has incomplete graph scope")
+		}
+		run.ExecutionPlanID, run.ActiveGraphNodeID, run.ActiveGraphAttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
+		run.LegacyAdapterVersion = compat.LegacyAdapterVersion
+		if err := s.startLegacyGraphAttempt(run, graphScope, intent.ContextEnvelope, event.CreatedAt); err != nil {
+			return fmt.Errorf("recover legacy graph attempt: %w", err)
+		}
+	}
 
 	var binding provider.RunBinding
 	reusedBinding := false
@@ -194,7 +215,8 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 			if !ok {
 				return errors.New("provider cannot continue the original development session")
 			}
-			binding, err = continuity.ContinueWorkItem(ctx, *intent.Continuation)
+			command := intent.Continuation.WithTraceContext(ctx)
+			binding, err = continuity.ContinueWorkItem(ctx, command)
 			if err == nil && (!binding.SessionReused || binding.SessionID != intent.Continuation.ExpectedSessionID || filepathClean(binding.WorkDir) != filepathClean(intent.Continuation.ExpectedWorkDir)) {
 				err = errors.New("provider did not confirm the original development task session and workdir")
 			}
@@ -202,13 +224,18 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 			err = errors.New("stored provider provenance does not match the original development session")
 		}
 	} else if !reusedBinding {
-		binding, err = s.Provider.StartRun(ctx, intent.Command)
+		binding, err = s.Provider.StartRun(ctx, intent.Command.WithTraceContext(ctx))
 	}
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(binding.ProviderRunID) == "" {
 		return errors.New("provider returned an empty run binding")
+	}
+	if strings.TrimSpace(legacyVersion) != "" {
+		if err := s.bindLegacyGraphAttempt(run, graphScope.AttemptID, binding.ProviderRunID, binding.SessionID, binding.WorkDir); err != nil {
+			return fmt.Errorf("recover legacy graph binding: %w", err)
+		}
 	}
 
 	if intent.Stage == domain.PipelineDevelopment && intent.PipelineWorkItemID != "" && !reusedBinding {
@@ -254,7 +281,7 @@ func (s *Server) processWorkItemDispatchIntent(ctx context.Context, event harnes
 	if provenance, found := s.Store.FindProvenance(item.ID); found && provenance.ProviderIdempotencyKey == event.IdempotencyKey && provenance.ProviderTaskID != "" {
 		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.Command.ContextVersion, []string{event.ID}, nil, "provider run recorded")
 	}
-	binding, err := s.Provider.StartRun(ctx, intent.Command)
+	binding, err := s.Provider.StartRun(ctx, intent.Command.WithTraceContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -297,12 +324,13 @@ func (s *Server) processCommentDispatchIntent(ctx context.Context, event harness
 		if !ok {
 			return errors.New("provider cannot continue the comment thread session")
 		}
-		binding, err = continuity.ContinueWorkItem(ctx, *intent.Continuation)
+		command := intent.Continuation.WithTraceContext(ctx)
+		binding, err = continuity.ContinueWorkItem(ctx, command)
 		if err == nil && (!binding.SessionReused || binding.SessionID != intent.Continuation.ExpectedSessionID || filepathClean(binding.WorkDir) != filepathClean(intent.Continuation.ExpectedWorkDir)) {
 			err = errors.New("provider did not confirm the comment thread session and workdir")
 		}
 	} else {
-		binding, err = s.Provider.StartRun(ctx, intent.Command)
+		binding, err = s.Provider.StartRun(ctx, intent.Command.WithTraceContext(ctx))
 	}
 	if err != nil {
 		return err
@@ -328,7 +356,7 @@ func (s *Server) processCommentDispatchIntent(ctx context.Context, event harness
 	}
 	s.markCommentFollowUpStarted(intent, binding.ProviderRunID, binding.SessionID, binding.WorkDir)
 	if s.Events != nil {
-		_ = s.Events.Publish(ctx, events.New("comment.follow_up.started.v1", "comment", intent.CommentID, "", intent.WorkspaceID, intent.ContextVersion, map[string]any{"comment_id": intent.CommentID, "run_id": binding.ProviderRunID, "session_id": binding.SessionID, "session_reused": binding.SessionReused}))
+		_ = s.Events.Publish(ctx, events.NewWithContext(ctx, "comment.follow_up.started.v1", "comment", intent.CommentID, "", intent.WorkspaceID, intent.ContextVersion, map[string]any{"comment_id": intent.CommentID, "run_id": binding.ProviderRunID, "session_id": binding.SessionID, "session_reused": binding.SessionReused}))
 	}
 	return nil
 }
@@ -337,13 +365,20 @@ func (s *Server) markCommentFollowUpStarted(intent providerDispatchIntent, provi
 	if s == nil || s.Store == nil || strings.TrimSpace(intent.CommentID) == "" {
 		return
 	}
-	receipt, err := s.Store.GetCommentFollowUp(intent.CommentID)
+	dispatchType, dispatchID := strings.TrimSpace(intent.DispatchTargetType), strings.TrimSpace(intent.DispatchTargetID)
+	if dispatchType == "" {
+		dispatchType = "legacy"
+	}
+	if dispatchID == "" {
+		dispatchID = intent.CommentID
+	}
+	receipt, err := s.Store.GetCommentFollowUpForTarget(intent.CommentID, dispatchType, dispatchID)
 	if err != nil {
 		targetType, targetID := "requirement", intent.RequirementID
 		if intent.BugID != "" {
 			targetType, targetID = "bug", intent.BugID
 		}
-		receipt = domain.CommentFollowUp{CommentID: intent.CommentID, WorkspaceID: intent.WorkspaceID, TargetType: targetType, TargetID: targetID, AgentBindingID: intent.AgentID, HarnessSessionID: intent.HarnessSessionID, ContextVersion: intent.ContextVersion, TurnHash: intent.TurnHash, Status: "started", Mode: "continuation"}
+		receipt = domain.CommentFollowUp{CommentID: intent.CommentID, WorkspaceID: intent.WorkspaceID, TargetType: targetType, TargetID: targetID, DispatchTargetType: dispatchType, DispatchTargetID: dispatchID, DedupeKey: intent.DedupeKey, AgentBindingID: intent.AgentID, HarnessSessionID: intent.HarnessSessionID, ContextVersion: intent.ContextVersion, TurnHash: intent.TurnHash, Status: "started", Mode: "continuation"}
 	}
 	if receipt.Mode == "" {
 		receipt.Mode = "continuation"
@@ -352,6 +387,11 @@ func (s *Server) markCommentFollowUpStarted(intent providerDispatchIntent, provi
 	receipt.ProviderRunID = providerRunID
 	receipt.ProviderSessionID = providerSessionID
 	receipt.ProviderWorkDir = providerWorkDir
+	receipt.DispatchTargetType = dispatchType
+	receipt.DispatchTargetID = dispatchID
+	if receipt.DedupeKey == "" {
+		receipt.DedupeKey = intent.DedupeKey
+	}
 	receipt.Attempts++
 	_, _ = s.Store.SaveCommentFollowUp(receipt)
 }
@@ -377,7 +417,20 @@ func (s *Server) processBugDispatchIntent(ctx context.Context, event harness.Out
 		return s.saveHarnessCheckpoint(intent.HarnessSessionID, harness.CheckpointEffectAfter, intent.TurnHash, intent.ContextVersion, []string{event.ID}, nil, "bug repair provider run recorded")
 	}
 	intent.Command.WorkItemID = providerWorkItemID
-	binding, err := s.Provider.StartRun(ctx, intent.Command)
+	var binding provider.RunBinding
+	if intent.Continuation != nil {
+		continuity, supported := s.Provider.(provider.ContinuityProvider)
+		if !supported {
+			return errors.New("provider cannot continue the original bug repair session")
+		}
+		command := intent.Continuation.WithTraceContext(ctx)
+		binding, err = continuity.ContinueWorkItem(ctx, command)
+		if err == nil && (!binding.SessionReused || binding.SessionID != intent.Continuation.ExpectedSessionID || filepathClean(binding.WorkDir) != filepathClean(intent.Continuation.ExpectedWorkDir)) {
+			return errors.New("provider did not confirm the original bug repair session and workdir")
+		}
+	} else {
+		binding, err = s.Provider.StartRun(ctx, intent.Command.WithTraceContext(ctx))
+	}
 	if err != nil {
 		return err
 	}

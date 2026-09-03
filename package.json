@@ -5,6 +5,7 @@
   "description": "Repeatable browser acceptance tests for the ADRO reference workbench",
   "scripts": {
     "test:e2e": "playwright test",
+    "test:e2e:adro": "playwright test",
     "test:e2e:matrix": "playwright test --config=playwright.matrix.config.js"
   },
   "devDependencies": {

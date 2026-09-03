@@ -124,18 +124,23 @@ type MemoryItem struct {
 	Kind      string `json:"kind"`
 	// Fingerprint is a deterministic claim key used by the reducer to detect
 	// duplicate and conflicting facts without a vector index.
-	Fingerprint  string     `json:"fingerprint,omitempty"`
-	Content      string     `json:"content"`
-	SourceIDs    []string   `json:"source_ids"`
-	Confidence   float64    `json:"confidence"`
-	Importance   float64    `json:"importance,omitempty"`
-	Status       string     `json:"status,omitempty"`
-	QualityScore float64    `json:"quality_score,omitempty"`
-	EvidenceHash string     `json:"evidence_hash,omitempty"`
-	Pinned       bool       `json:"pinned,omitempty"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-	Supersedes   []string   `json:"supersedes,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	Fingerprint      string     `json:"fingerprint,omitempty"`
+	Content          string     `json:"content"`
+	SourceIDs        []string   `json:"source_ids"`
+	Confidence       float64    `json:"confidence"`
+	Importance       float64    `json:"importance,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	QualityScore     float64    `json:"quality_score,omitempty"`
+	EvidenceHash     string     `json:"evidence_hash,omitempty"`
+	Sensitivity      string     `json:"sensitivity,omitempty"`
+	PollutionLineage []string   `json:"pollution_lineage,omitempty"`
+	ConflictPackage  []string   `json:"conflict_package,omitempty"`
+	Reviewer         string     `json:"reviewer,omitempty"`
+	LastReason       string     `json:"last_reason,omitempty"`
+	Pinned           bool       `json:"pinned,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Supersedes       []string   `json:"supersedes,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 type Session struct {
@@ -225,14 +230,16 @@ type ContextBlock struct {
 // Digest excludes CreatedAt, making repeated compilation of unchanged state
 // deterministic while still exposing when this manifest was produced.
 type ContextManifest struct {
-	SessionID     string         `json:"session_id"`
-	Version       int64          `json:"version"`
-	TokenBudget   int64          `json:"token_budget"`
-	TokenEstimate int64          `json:"token_estimate"`
-	Blocks        []ContextBlock `json:"blocks"`
-	Digest        string         `json:"digest"`
-	ParentDigest  string         `json:"parent_digest,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
+	SessionID               string         `json:"session_id"`
+	Version                 int64          `json:"version"`
+	SemanticSnapshotVersion int64          `json:"semantic_snapshot_version,omitempty"`
+	TokenBudget             int64          `json:"token_budget"`
+	TokenEstimate           int64          `json:"token_estimate"`
+	Blocks                  []ContextBlock `json:"blocks"`
+	Digest                  string         `json:"digest"`
+	PromptManifestHash      string         `json:"prompt_manifest_hash,omitempty"`
+	ParentDigest            string         `json:"parent_digest,omitempty"`
+	CreatedAt               time.Time      `json:"created_at"`
 }
 
 // ContextEnvelope is the provider-facing immutable packet for one dispatch
@@ -245,14 +252,73 @@ type ContextEnvelope struct {
 	ReplayKey       string          `json:"replay_key"`
 }
 
-func (m ContextManifest) Envelope() (ContextEnvelope, error) {
-	if strings.TrimSpace(m.SessionID) == "" || strings.TrimSpace(m.Digest) == "" || m.TokenBudget <= 0 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
-		return ContextEnvelope{}, errors.New("invalid context manifest")
+// Validate verifies the immutable manifest when block lineage is present. A
+// handful of legacy callers only carry a session/version placeholder, so an
+// empty block list remains accepted for source compatibility; newly compiled
+// envelopes always contain blocks and therefore get full hash verification.
+func (m ContextManifest) Validate() error {
+	if strings.TrimSpace(m.SessionID) == "" || strings.TrimSpace(m.Digest) == "" || m.Version < 1 || m.TokenBudget <= 0 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
+		return errors.New("invalid context manifest")
 	}
+	if len(m.Blocks) == 0 {
+		return nil
+	}
+	var total int64
 	for _, block := range m.Blocks {
 		if strings.TrimSpace(block.ID) == "" || strings.TrimSpace(block.Source) == "" || strings.TrimSpace(block.Hash) == "" || strings.TrimSpace(block.Policy) == "" || strings.TrimSpace(block.Trust) == "" || strings.TrimSpace(block.SelectionReason) == "" || block.TokenEstimate <= 0 {
-			return ContextEnvelope{}, errors.New("context block is missing lineage metadata")
+			return errors.New("context block is missing lineage metadata")
 		}
+		h := sha256.Sum256([]byte(block.Content))
+		if block.Hash != hex.EncodeToString(h[:]) {
+			return fmt.Errorf("context block %s hash mismatch", block.ID)
+		}
+		total += block.TokenEstimate
+	}
+	if total != m.TokenEstimate {
+		return fmt.Errorf("context token estimate mismatch: got %d want %d", m.TokenEstimate, total)
+	}
+	canonical := m
+	canonical.CreatedAt = time.Time{}
+	canonical.Digest = ""
+	canonical.PromptManifestHash = ""
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(data)
+	if m.Digest != hex.EncodeToString(digest[:]) {
+		return errors.New("context manifest digest mismatch")
+	}
+	if m.PromptManifestHash != "" && m.PromptManifestHash != promptManifestHash(m) {
+		return errors.New("context prompt manifest hash mismatch")
+	}
+	return nil
+}
+
+// promptManifestHash authenticates the exact provider prompt selection while
+// keeping the manifest digest independent of the derived field. This lets a
+// replay verify both the immutable block manifest and the rendered selection.
+func promptManifestHash(m ContextManifest) string {
+	type promptBlock struct {
+		ID      string `json:"id"`
+		Hash    string `json:"hash"`
+		Content string `json:"content"`
+	}
+	blocks := make([]promptBlock, 0, len(m.Blocks))
+	for _, block := range m.Blocks {
+		blocks = append(blocks, promptBlock{ID: block.ID, Hash: block.Hash, Content: block.Content})
+	}
+	data, _ := json.Marshal(struct {
+		ManifestDigest string        `json:"manifest_digest"`
+		Blocks         []promptBlock `json:"blocks"`
+	}{m.Digest, blocks})
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func (m ContextManifest) Envelope() (ContextEnvelope, error) {
+	if err := m.Validate(); err != nil {
+		return ContextEnvelope{}, err
 	}
 	data, err := json.Marshal(struct {
 		Digest string         `json:"digest"`
@@ -263,6 +329,26 @@ func (m ContextManifest) Envelope() (ContextEnvelope, error) {
 	}
 	selection := digest([]byte(string(data)))
 	return ContextEnvelope{Manifest: cloneContextManifest(m), SelectionDigest: selection, ReplayKey: m.SessionID + ":" + fmt.Sprint(m.Version) + ":" + selection}, nil
+}
+
+// Validate verifies both the manifest digest and the derived selection/replay
+// identifiers supplied by a provider command. This prevents a caller from
+// replacing selected blocks while retaining a previously valid digest.
+func (e ContextEnvelope) Validate() error {
+	if err := e.Manifest.Validate(); err != nil {
+		return err
+	}
+	derived, err := e.Manifest.Envelope()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(e.SelectionDigest) == "" || e.SelectionDigest != derived.SelectionDigest {
+		return errors.New("context selection digest mismatch")
+	}
+	if strings.TrimSpace(e.ReplayKey) == "" || e.ReplayKey != derived.ReplayKey {
+		return errors.New("context replay key mismatch")
+	}
+	return nil
 }
 
 // TranscriptIntegrity is a compact audit result for the append-only log and
@@ -1127,6 +1213,34 @@ func saveCheckpointLocked(state *sessionState, checkpoint Checkpoint) (Checkpoin
 	if checkpoint.EventHash != "" && !hasTurnHash(state.Turns, checkpoint.EventHash) {
 		return Checkpoint{}, fmt.Errorf("%w: checkpoint event hash is not in the transcript", ErrCorrupt)
 	}
+	// Lost-response replays may arrive after newer checkpoints have already
+	// committed. Resolve an exact durable checkpoint before applying monotonic
+	// append checks; otherwise a valid retry of an older tool transaction is
+	// incorrectly rejected solely because the session has advanced.
+	for _, existing := range state.Checkpoints {
+		if existing.TurnSequence == checkpoint.TurnSequence &&
+			existing.Phase == checkpoint.Phase &&
+			existing.EventHash == checkpoint.EventHash &&
+			existing.ToolCallID == checkpoint.ToolCallID &&
+			existing.ContextVersion == checkpoint.ContextVersion &&
+			existing.State == checkpoint.State &&
+			sameStrings(existing.OutboxIDs, checkpoint.OutboxIDs) &&
+			sameStrings(existing.LeaseIDs, checkpoint.LeaseIDs) {
+			// Generated checkpoint identity and chain fields are optional on a
+			// lost-response retry. If a caller does supply them, however, they
+			// must describe the durable record exactly. Silently accepting a
+			// conflicting hash/ID here would let a forged replay bypass the
+			// append-time chain validation below.
+			if (checkpoint.ID != "" && checkpoint.ID != existing.ID) ||
+				(checkpoint.SessionID != "" && checkpoint.SessionID != existing.SessionID) ||
+				(checkpoint.PrevHash != "" && checkpoint.PrevHash != existing.PrevHash) ||
+				(checkpoint.Hash != "" && checkpoint.Hash != existing.Hash) ||
+				(!checkpoint.CreatedAt.IsZero() && !checkpoint.CreatedAt.Equal(existing.CreatedAt)) {
+				return Checkpoint{}, fmt.Errorf("%w: replayed checkpoint identity or chain fields do not match", ErrCorrupt)
+			}
+			return cloneCheckpoint(existing), nil
+		}
+	}
 	if len(state.Checkpoints) > 0 && checkpoint.TurnSequence < state.Checkpoints[len(state.Checkpoints)-1].TurnSequence {
 		return Checkpoint{}, ErrConflict
 	}
@@ -1139,20 +1253,6 @@ func saveCheckpointLocked(state *sessionState, checkpoint Checkpoint) (Checkpoin
 	}
 	if checkpoint.PrevHash != "" && checkpoint.PrevHash != previousHash {
 		return Checkpoint{}, fmt.Errorf("%w: checkpoint previous hash does not match the chain", ErrCorrupt)
-	}
-	// Replaying a request after a lost response converges on the existing
-	// checkpoint instead of growing an unbounded duplicate trail.
-	for _, existing := range state.Checkpoints {
-		if existing.TurnSequence == checkpoint.TurnSequence &&
-			existing.Phase == checkpoint.Phase &&
-			existing.EventHash == checkpoint.EventHash &&
-			existing.ToolCallID == checkpoint.ToolCallID &&
-			existing.ContextVersion == checkpoint.ContextVersion &&
-			existing.State == checkpoint.State &&
-			sameStrings(existing.OutboxIDs, checkpoint.OutboxIDs) &&
-			sameStrings(existing.LeaseIDs, checkpoint.LeaseIDs) {
-			return cloneCheckpoint(existing), nil
-		}
 	}
 	if checkpoint.ToolCallID != "" {
 		pairedBefore, pairedAfter := false, false
@@ -1536,6 +1636,12 @@ func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
 // compiled context until explicitly confirmed. Status transitions are
 // monotonic and scoped to the owning tenant/session/project.
 func (s *Store) TransitionMemory(sessionID, memoryID, status string) (MemoryItem, error) {
+	return s.TransitionMemoryWithReview(sessionID, memoryID, status, "", "")
+}
+
+// TransitionMemoryWithReview records reviewer and reason metadata at the
+// promotion/rejection boundary while retaining the original evidence hash.
+func (s *Store) TransitionMemoryWithReview(sessionID, memoryID, status, reviewer, reason string) (MemoryItem, error) {
 	status = strings.ToLower(strings.TrimSpace(status))
 	if !validMemoryStatus(status) || status == "" {
 		return MemoryItem{}, errors.New("memory status is invalid")
@@ -1574,6 +1680,8 @@ func (s *Store) TransitionMemory(sessionID, memoryID, status string) (MemoryItem
 	previous := cloneSessionState(state)
 	oldStatus := target.Status
 	target.Status = status
+	target.Reviewer = strings.TrimSpace(reviewer)
+	target.LastReason = strings.TrimSpace(reason)
 	if status == "superseded" || status == "forgotten" || status == "rejected" {
 		target.ExpiresAt = nil
 	}
@@ -2488,7 +2596,11 @@ func cloneCheckpoint(checkpoint Checkpoint) Checkpoint {
 }
 
 func cloneContextManifest(manifest ContextManifest) ContextManifest {
-	manifest.Blocks = append([]ContextBlock(nil), manifest.Blocks...)
+	if manifest.Blocks != nil {
+		blocks := manifest.Blocks
+		manifest.Blocks = make([]ContextBlock, len(manifest.Blocks))
+		copy(manifest.Blocks, blocks)
+	}
 	for i := range manifest.Blocks {
 		manifest.Blocks[i].Metadata = cloneStringMap(manifest.Blocks[i].Metadata)
 	}
@@ -2498,11 +2610,13 @@ func cloneContextManifest(manifest ContextManifest) ContextManifest {
 func cloneMemory(item MemoryItem) MemoryItem {
 	item.SourceIDs = append([]string(nil), item.SourceIDs...)
 	item.Supersedes = append([]string(nil), item.Supersedes...)
+	item.PollutionLineage = append([]string(nil), item.PollutionLineage...)
+	item.ConflictPackage = append([]string(nil), item.ConflictPackage...)
 	return item
 }
 
 func memoryActive(item MemoryItem, now time.Time) bool {
-	if item.Status == "quarantined" || item.Status == "forgotten" || item.Status == "rejected" || item.Status == "superseded" {
+	if item.Status != "confirmed" {
 		return false
 	}
 	return item.ExpiresAt == nil || item.ExpiresAt.After(now)
@@ -2743,7 +2857,14 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 			blocks = append(blocks, selected[i])
 		}
 	}
-	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CreatedAt: time.Now().UTC()}
+	semanticVersion := state.Session.ContextVersion
+	if semanticVersion < 1 {
+		semanticVersion = 1
+	}
+	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, SemanticSnapshotVersion: semanticVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CreatedAt: time.Now().UTC()}
+	if manifest.Version < 1 {
+		manifest.Version = 1
+	}
 	canonical := manifest
 	canonical.CreatedAt = time.Time{}
 	canonical.Digest = ""
@@ -2753,6 +2874,7 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 	}
 	digest := sha256.Sum256(data)
 	manifest.Digest = hex.EncodeToString(digest[:])
+	manifest.PromptManifestHash = promptManifestHash(manifest)
 	return manifest, nil
 }
 

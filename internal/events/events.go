@@ -17,6 +17,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
+	"github.com/adro-project/adro/internal/telemetry"
 )
 
 type Envelope struct {
@@ -32,6 +33,8 @@ type Envelope struct {
 	WorkspaceID      string    `json:"workspace_id"`
 	CorrelationID    string    `json:"correlation_id"`
 	CausationID      string    `json:"causation_id,omitempty"`
+	TraceParent      string    `json:"traceparent,omitempty"`
+	TraceState       string    `json:"tracestate,omitempty"`
 	Provider         string    `json:"provider,omitempty"`
 	ProviderEventID  string    `json:"provider_event_id,omitempty"`
 	OccurredAt       time.Time `json:"occurred_at"`
@@ -40,6 +43,7 @@ type Envelope struct {
 	// EnvelopeHash authenticates every field in the envelope, including
 	// sequence and scope. PayloadHash remains separately useful for payload
 	// addressing and backwards compatibility with older snapshots.
+	PreviousHash string         `json:"previous_hash,omitempty"`
 	EnvelopeHash string         `json:"envelope_hash,omitempty"`
 	Payload      map[string]any `json:"payload"`
 }
@@ -55,8 +59,22 @@ func New(eventType, aggregateType, aggregateID, tenantID, workspaceID string, ve
 	return event
 }
 
+// NewWithContext binds the immutable event to the current W3C trace without
+// copying prompts, secrets, or arbitrary baggage into the event envelope.
+func NewWithContext(ctx context.Context, eventType, aggregateType, aggregateID, tenantID, workspaceID string, version int64, payload map[string]any) Envelope {
+	event := New(eventType, aggregateType, aggregateID, tenantID, workspaceID, version, payload)
+	event.TraceParent, event.TraceState = telemetry.Carrier(ctx)
+	event.EnvelopeHash = envelopeHash(event)
+	return event
+}
+
 type Publisher interface {
 	Publish(context.Context, Envelope) error
+}
+
+type RetentionPolicy struct {
+	MaxEvents int           `json:"max_events,omitempty"`
+	MaxAge    time.Duration `json:"max_age,omitempty"`
 }
 
 var ErrInvalidCursor = errors.New("event cursor is invalid or expired")
@@ -75,6 +93,7 @@ type Bus struct {
 	nextSubID    int
 	revision     int64
 	acks         map[string]string
+	retention    RetentionPolicy
 }
 
 type streamGap struct {
@@ -88,9 +107,10 @@ type streamGap struct {
 }
 
 type persistedEvents struct {
-	Revision int64             `json:"revision"`
-	Events   []Envelope        `json:"events"`
-	Acks     map[string]string `json:"acks,omitempty"`
+	Revision  int64             `json:"revision"`
+	Events    []Envelope        `json:"events"`
+	Acks      map[string]string `json:"acks,omitempty"`
+	Retention RetentionPolicy   `json:"retention,omitempty"`
 }
 
 func NewBus() *Bus {
@@ -116,6 +136,7 @@ func NewPersistentBus(path string) (*Bus, error) {
 		stored = persisted.Events
 		b.revision = persisted.Revision
 		b.acks = persisted.Acks
+		b.retention = persisted.Retention
 		if b.acks == nil {
 			b.acks = make(map[string]string)
 		}
@@ -141,6 +162,60 @@ func NewPersistentBus(path string) (*Bus, error) {
 		}
 	}
 	return b, nil
+}
+
+// SetRetention configures bounded local history. Acknowledged cursors that
+// fall outside the retention horizon intentionally return ErrInvalidCursor so
+// consumers perform a full resync instead of silently skipping events.
+func (b *Bus) SetRetention(policy RetentionPolicy) error {
+	if policy.MaxEvents < 0 || policy.MaxAge < 0 {
+		return errors.New("retention limits cannot be negative")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.retention = policy
+	b.pruneLocked(time.Now().UTC())
+	return b.persistLocked()
+}
+
+func (b *Bus) Retention() RetentionPolicy { b.mu.RLock(); defer b.mu.RUnlock(); return b.retention }
+
+func (b *Bus) Prune(now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pruneLocked(now)
+	return b.persistLocked()
+}
+
+func (b *Bus) pruneLocked(now time.Time) {
+	if b.retention.MaxEvents <= 0 && b.retention.MaxAge <= 0 {
+		return
+	}
+	start := 0
+	if b.retention.MaxAge > 0 {
+		cutoff := now.Add(-b.retention.MaxAge)
+		for start < len(b.events) && b.events[start].OccurredAt.Before(cutoff) {
+			start++
+		}
+	}
+	if b.retention.MaxEvents > 0 && len(b.events)-start > b.retention.MaxEvents {
+		start = len(b.events) - b.retention.MaxEvents
+	}
+	if start <= 0 {
+		return
+	}
+	b.events = append([]Envelope(nil), b.events[start:]...)
+	b.seen = make(map[string]struct{}, len(b.events))
+	b.seenProvider = make(map[string]struct{})
+	for _, event := range b.events {
+		b.seen[event.EventID] = struct{}{}
+		if event.Provider != "" && event.ProviderEventID != "" {
+			b.seenProvider[event.Provider+"\x00"+event.ProviderEventID] = struct{}{}
+		}
+	}
 }
 
 func (b *Bus) Flush() error {
@@ -181,10 +256,7 @@ func (b *Bus) persistLocked() error {
 			rebuildSeen(b)
 			b.revision = disk.revision
 		}
-		for i := range b.events {
-			b.events[i].PayloadHash = payloadHash(b.events[i].Payload)
-			b.events[i].EnvelopeHash = envelopeHash(b.events[i])
-		}
+		rebuildEventChain(b.events)
 		if err := validatePersistedEvents(b.events); err != nil {
 			return err
 		}
@@ -192,7 +264,7 @@ func (b *Bus) persistLocked() error {
 		if eventsCopy == nil {
 			eventsCopy = []Envelope{}
 		}
-		next := persistedEvents{Revision: b.revision + 1, Events: eventsCopy, Acks: b.acks}
+		next := persistedEvents{Revision: b.revision + 1, Events: eventsCopy, Acks: b.acks, Retention: b.retention}
 		data, err := json.Marshal(next)
 		if err != nil {
 			return err
@@ -259,6 +331,24 @@ func rebasePeerEvents(merged, disk, local []Envelope) error {
 	return nil
 }
 
+// rebuildEventChain recalculates hashes in sequence order after peer histories
+// have been merged. Sequence rebasing changes an envelope's authenticated
+// fields, so retaining its old previous_hash would either break replay or leave
+// the merged tail outside the append-only chain.
+func rebuildEventChain(items []Envelope) {
+	for i := range items {
+		items[i].PayloadHash = payloadHash(items[i].Payload)
+		if i == 0 {
+			if items[i].Sequence <= 1 {
+				items[i].PreviousHash = ""
+			}
+		} else {
+			items[i].PreviousHash = items[i-1].EnvelopeHash
+		}
+		items[i].EnvelopeHash = envelopeHash(items[i])
+	}
+}
+
 // Reload refreshes a persistent bus from a peer process. Subscribers are not
 // replayed automatically; callers can use List with the last cursor to catch
 // up deterministically.
@@ -282,6 +372,7 @@ func (b *Bus) reloadLocked() error {
 		b.acks[consumer] = cursor
 	}
 	b.revision = persisted.revision
+	b.retention = persisted.retention
 	if err := validatePersistedEvents(b.events); err != nil {
 		return err
 	}
@@ -290,9 +381,10 @@ func (b *Bus) reloadLocked() error {
 }
 
 func readPersistedEvents(path string) (*struct {
-	revision int64
-	events   []Envelope
-	acks     map[string]string
+	revision  int64
+	events    []Envelope
+	acks      map[string]string
+	retention RetentionPolicy
 }, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -304,20 +396,22 @@ func readPersistedEvents(path string) (*struct {
 	var persisted persistedEvents
 	if err := json.Unmarshal(data, &persisted); err == nil && persisted.Events != nil {
 		return &struct {
-			revision int64
-			events   []Envelope
-			acks     map[string]string
-		}{persisted.Revision, persisted.Events, persisted.Acks}, nil
+			revision  int64
+			events    []Envelope
+			acks      map[string]string
+			retention RetentionPolicy
+		}{persisted.Revision, persisted.Events, persisted.Acks, persisted.Retention}, nil
 	}
 	var events []Envelope
 	if err := json.Unmarshal(data, &events); err != nil {
 		return nil, fmt.Errorf("decode event state: %w", err)
 	}
 	return &struct {
-		revision int64
-		events   []Envelope
-		acks     map[string]string
-	}{0, events, nil}, nil
+		revision  int64
+		events    []Envelope
+		acks      map[string]string
+		retention RetentionPolicy
+	}{0, events, nil, RetentionPolicy{}}, nil
 }
 
 func payloadHash(payload map[string]any) string {
@@ -356,8 +450,20 @@ func validatePersistedEvents(items []Envelope) error {
 		}
 	}
 	seen := make(map[string]struct{}, len(items))
+	chainMetadata := false
+	for _, event := range items {
+		if event.PreviousHash != "" {
+			chainMetadata = true
+			break
+		}
+	}
+	previousHash := ""
+	baseSequence := items[0].Sequence
+	if baseSequence < 1 {
+		baseSequence = 1
+	}
 	for i := range items {
-		expected := int64(i + 1)
+		expected := baseSequence + int64(i)
 		if items[i].Sequence != expected {
 			return fmt.Errorf("event sequence corruption at index %d: got %d want %d", i, items[i].Sequence, expected)
 		}
@@ -377,12 +483,21 @@ func validatePersistedEvents(items []Envelope) error {
 		if items[i].PayloadHash != "" && items[i].PayloadHash != payloadHash(items[i].Payload) {
 			return fmt.Errorf("event %s payload hash mismatch", items[i].EventID)
 		}
+		if items[i].TraceParent != "" || items[i].TraceState != "" {
+			if _, err := telemetry.ParseTraceParent(items[i].TraceParent, items[i].TraceState); err != nil {
+				return fmt.Errorf("event %s trace context: %w", items[i].EventID, err)
+			}
+		}
 		if items[i].EnvelopeHash != "" && items[i].EnvelopeHash != envelopeHash(items[i]) {
 			return fmt.Errorf("event %s envelope hash mismatch", items[i].EventID)
 		}
 		if items[i].EnvelopeHash == "" {
 			items[i].EnvelopeHash = envelopeHash(items[i])
 		}
+		if chainMetadata && i > 0 && items[i].PreviousHash != previousHash {
+			return fmt.Errorf("event previous hash mismatch at sequence %d", expected)
+		}
+		previousHash = items[i].EnvelopeHash
 	}
 	return nil
 }
@@ -509,11 +624,16 @@ func (b *Bus) Replay(consumerID, aggregateID, cursor string, limit int) ([]Envel
 // AckScoped records a cursor under an explicit stream scope. The legacy Ack
 // API remains available for callers that already namespace consumer IDs.
 func (b *Bus) AckScoped(consumerID, tenantID, workspaceID, aggregateID, eventID string) error {
+	if b.statePath != "" {
+		if err := b.Reload(); err != nil {
+			return err
+		}
+	}
 	b.mu.RLock()
 	var matched bool
 	for _, event := range b.events {
 		if event.EventID == eventID {
-			matched = event.TenantID == tenantID && event.WorkspaceID == workspaceID && event.AggregateID == aggregateID
+			matched = (tenantID == "" || event.TenantID == tenantID) && event.WorkspaceID == workspaceID && (aggregateID == "" || event.AggregateID == aggregateID)
 			break
 		}
 	}
@@ -528,29 +648,50 @@ func (b *Bus) AckScoped(consumerID, tenantID, workspaceID, aggregateID, eventID 
 // ReplayScoped prevents a cursor acknowledged for one tenant/workspace/
 // aggregate from being reused on another stream.
 func (b *Bus) ReplayScoped(consumerID, tenantID, workspaceID, aggregateID, cursor string, limit int) ([]Envelope, string, error) {
-	if strings.TrimSpace(cursor) != "" {
-		b.mu.RLock()
-		matched := false
-		for _, event := range b.events {
-			if event.EventID == cursor {
-				matched = event.TenantID == tenantID && event.WorkspaceID == workspaceID && event.AggregateID == aggregateID
-				break
+	if b.statePath != "" {
+		if err := b.Reload(); err != nil {
+			return nil, "", err
+		}
+	}
+	if limit <= 0 || limit > 250 {
+		limit = 100
+	}
+	scopedConsumer := scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	effectiveCursor := strings.TrimSpace(cursor)
+	if effectiveCursor == "" && consumerID != "" {
+		effectiveCursor = b.acks[scopedConsumer]
+	}
+	start := -1
+	if effectiveCursor != "" {
+		for i, event := range b.events {
+			if event.EventID != effectiveCursor {
+				continue
 			}
+			if event.WorkspaceID != workspaceID || (tenantID != "" && event.TenantID != tenantID) || (aggregateID != "" && event.AggregateID != aggregateID) {
+				return nil, "", fmt.Errorf("%w: cursor does not belong to scoped stream", ErrInvalidCursor)
+			}
+			start = i
+			break
 		}
-		b.mu.RUnlock()
-		if !matched {
-			return nil, "", fmt.Errorf("%w: cursor does not belong to scoped stream", ErrInvalidCursor)
+		if start < 0 {
+			return nil, "", ErrInvalidCursor
 		}
 	}
-	consumerID = scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID)
-	items, next, err := b.Replay(consumerID, aggregateID, cursor, limit)
-	if err != nil {
-		return nil, "", err
-	}
-	for _, event := range items {
-		if event.TenantID != tenantID || event.WorkspaceID != workspaceID {
-			return nil, "", fmt.Errorf("%w: replay crossed tenant/workspace scope", ErrInvalidCursor)
+	items := make([]Envelope, 0, limit)
+	for _, event := range b.events[start+1:] {
+		if event.WorkspaceID != workspaceID || (tenantID != "" && event.TenantID != tenantID) || (aggregateID != "" && event.AggregateID != aggregateID) {
+			continue
 		}
+		items = append(items, cloneEnvelope(event))
+		if len(items) == limit {
+			break
+		}
+	}
+	next := ""
+	if len(items) == limit {
+		next = items[len(items)-1].EventID
 	}
 	return items, next, nil
 }
@@ -562,6 +703,7 @@ func scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID string) str
 func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	oldEvents := append([]Envelope(nil), b.events...)
 	if event.EventID == "" {
 		event.EventID = domain.NewID()
 	}
@@ -599,14 +741,15 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 	}
 	b.seen[event.EventID] = struct{}{}
 	event.Sequence = maxSequence(b.events) + 1
+	if len(b.events) > 0 {
+		event.PreviousHash = b.events[len(b.events)-1].EnvelopeHash
+	}
 	event.EnvelopeHash = envelopeHash(event)
 	b.events = append(b.events, event)
+	b.pruneLocked(time.Now().UTC())
 	if err := b.persistLocked(); err != nil {
-		b.events = b.events[:len(b.events)-1]
-		delete(b.seen, event.EventID)
-		if providerKey != "" {
-			delete(b.seenProvider, providerKey)
-		}
+		b.events = oldEvents
+		b.rebuildSeenLocked()
 		return fmt.Errorf("persist event: %w", err)
 	}
 	// A peer writer may have occupied the sequence we tentatively assigned.
@@ -658,6 +801,17 @@ func (b *Bus) Publish(_ context.Context, event Envelope) error {
 		}
 	}
 	return nil
+}
+
+func (b *Bus) rebuildSeenLocked() {
+	b.seen = make(map[string]struct{}, len(b.events))
+	b.seenProvider = make(map[string]struct{})
+	for _, retained := range b.events {
+		b.seen[retained.EventID] = struct{}{}
+		if retained.Provider != "" && retained.ProviderEventID != "" {
+			b.seenProvider[retained.Provider+"\x00"+retained.ProviderEventID] = struct{}{}
+		}
+	}
 }
 
 func (b *Bus) List(aggregateID, cursor string, limit int) ([]Envelope, string) {
@@ -714,6 +868,42 @@ func (b *Bus) ListChecked(aggregateID, cursor string, limit int) ([]Envelope, st
 		next = items[len(items)-1].EventID
 	}
 	return items, next, nil
+}
+
+// ReplayRange returns an explicit sequence interval for gap repair. Sequence
+// numbers are global and retained history is never synthesized when a range
+// has already expired.
+func (b *Bus) ReplayRange(tenantID, workspaceID, aggregateID string, from, to int64) ([]Envelope, error) {
+	if from < 1 || to < from {
+		return nil, ErrInvalidCursor
+	}
+	if b.statePath != "" {
+		if err := b.Reload(); err != nil {
+			return nil, err
+		}
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make([]Envelope, 0)
+	retained := 0
+	for _, event := range b.events {
+		if event.Sequence < from || event.Sequence > to {
+			continue
+		}
+		retained++
+		if tenantID != "" && event.TenantID != tenantID || workspaceID != "" && event.WorkspaceID != workspaceID || aggregateID != "" && event.AggregateID != aggregateID {
+			continue
+		}
+		result = append(result, cloneEnvelope(event))
+	}
+	// Sequence numbers are global to the bus. A workspace/aggregate stream may
+	// legitimately have other scopes interleaved in the requested interval, so
+	// validate retention against the unfiltered global count and return only the
+	// requested scope.
+	if retained != int(to-from+1) {
+		return nil, ErrInvalidCursor
+	}
+	return result, nil
 }
 
 func cloneEnvelope(event Envelope) Envelope {

@@ -2,13 +2,17 @@ package orchestration
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/adro-project/adro/internal/harness"
 	"time"
+
+	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/telemetry"
 )
 
 type Event struct {
@@ -26,10 +30,16 @@ type Event struct {
 	EnvelopeHash   string          `json:"envelope_hash"`
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 	FencingToken   int64           `json:"fencing_token"`
+	TraceParent    string          `json:"traceparent,omitempty"`
+	TraceState     string          `json:"tracestate,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
 func NewEvent(previous *Event, planID, workspaceID, typ, idempotency string, payload any) (Event, error) {
+	return NewEventWithContext(context.Background(), previous, planID, workspaceID, typ, idempotency, payload)
+}
+
+func NewEventWithContext(ctx context.Context, previous *Event, planID, workspaceID, typ, idempotency string, payload any) (Event, error) {
 	if planID == "" || workspaceID == "" || typ == "" {
 		return Event{}, errors.New("plan, workspace and event type are required")
 	}
@@ -37,7 +47,8 @@ func NewEvent(previous *Event, planID, workspaceID, typ, idempotency string, pay
 	if err != nil {
 		return Event{}, err
 	}
-	e := Event{ID: fmt.Sprintf("%s-%d", planID, time.Now().UnixNano()), PlanID: planID, WorkspaceID: workspaceID, Sequence: 1, Type: typ, Payload: b, PayloadHash: payloadDigest(b), IdempotencyKey: idempotency, CreatedAt: time.Now().UTC()}
+	traceParent, traceState := telemetry.Carrier(ctx)
+	e := Event{ID: domain.NewID(), PlanID: planID, WorkspaceID: workspaceID, Sequence: 1, Type: typ, Payload: b, PayloadHash: payloadDigest(b), IdempotencyKey: idempotency, TraceParent: traceParent, TraceState: traceState, CreatedAt: time.Now().UTC()}
 	if previous != nil {
 		e.Sequence = previous.Sequence + 1
 		e.PreviousHash = previous.EnvelopeHash
@@ -45,6 +56,19 @@ func NewEvent(previous *Event, planID, workspaceID, typ, idempotency string, pay
 	e.EnvelopeHash = eventDigest(e)
 	return e, nil
 }
+
+// Seal recomputes the tamper-evident hashes after a caller adds typed scope
+// such as node, attempt, run or fencing data. NewEvent seals the base event,
+// but those fields are intentionally populated by the executor only after the
+// attempt has been reserved.
+func (e *Event) Seal() {
+	if e == nil {
+		return
+	}
+	e.PayloadHash = payloadDigest(e.Payload)
+	e.EnvelopeHash = eventDigest(*e)
+}
+
 func eventDigest(e Event) string {
 	cp := e
 	cp.EnvelopeHash = ""
@@ -56,6 +80,9 @@ func eventDigest(e Event) string {
 func ValidateEventChain(events []Event, planID, workspaceID string) error {
 	var prev string
 	for i, e := range events {
+		if e.ID == "" || e.Type == "" || e.PlanID == "" || e.WorkspaceID == "" || len(e.Payload) == 0 || e.PayloadHash == "" || e.EnvelopeHash == "" {
+			return fmt.Errorf("event %d is incomplete", i+1)
+		}
 		if e.PlanID != planID || e.WorkspaceID != workspaceID {
 			return errors.New("event scope mismatch")
 		}
@@ -70,6 +97,11 @@ func ValidateEventChain(events []Event, planID, workspaceID string) error {
 		}
 		if payloadDigest(e.Payload) != e.PayloadHash {
 			return fmt.Errorf("event payload hash mismatch at %d", e.Sequence)
+		}
+		if e.TraceParent != "" || e.TraceState != "" {
+			if _, err := telemetry.ParseTraceParent(e.TraceParent, e.TraceState); err != nil {
+				return fmt.Errorf("event trace context mismatch at %d: %w", e.Sequence, err)
+			}
 		}
 		prev = e.EnvelopeHash
 	}
@@ -109,27 +141,82 @@ func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjec
 			continue
 		case "attempt.started":
 			var x struct {
-				NodeID, AttemptID string
-				AttemptNo         int
-				Lease             Lease
-				Context           harness.ContextEnvelope
+				NodeID              string                  `json:"node_id"`
+				AttemptID           string                  `json:"attempt_id"`
+				AttemptNo           int                     `json:"attempt_no"`
+				Lease               Lease                   `json:"lease"`
+				Context             harness.ContextEnvelope `json:"context"`
+				DispatchPayloadHash string                  `json:"dispatch_payload_hash"`
+				StartedAt           time.Time               `json:"started_at"`
+				ChildPlanID         string                  `json:"child_plan_id"`
 			}
 			if err := json.Unmarshal(e.Payload, &x); err != nil {
 				return PlanProjection{}, err
 			}
-			if _, err := p.StartAttempt(plan, x.NodeID, x.AttemptID, x.AttemptNo, x.Lease, x.Context, TransitionInput{PlanRevision: plan.Revision, LeaseToken: x.Lease.FencingToken, IdempotencyKey: e.IdempotencyKey, PayloadHash: e.PayloadHash}); err != nil {
+			if x.StartedAt.IsZero() {
+				x.StartedAt = e.CreatedAt
+			}
+			started, err := p.StartAttempt(plan, x.NodeID, x.AttemptID, x.AttemptNo, x.Lease, x.Context, TransitionInput{PlanRevision: plan.Revision, LeaseToken: x.Lease.FencingToken, IdempotencyKey: e.IdempotencyKey, PayloadHash: x.DispatchPayloadHash, Now: x.StartedAt})
+			if err != nil {
 				return PlanProjection{}, err
 			}
+			if x.ChildPlanID != "" {
+				started.ChildPlanID = x.ChildPlanID
+				p.Attempts[started.ID] = started
+			}
+		case "attempt.bound":
+			var x struct {
+				AttemptID   string `json:"attempt_id"`
+				RunID       string `json:"run_id"`
+				SessionID   string `json:"session_id"`
+				WorkDir     string `json:"workdir"`
+				ChildPlanID string `json:"child_plan_id"`
+			}
+			if err := json.Unmarshal(e.Payload, &x); err != nil {
+				return PlanProjection{}, err
+			}
+			if x.AttemptID == "" || e.AttemptID != "" && e.AttemptID != x.AttemptID {
+				return PlanProjection{}, ErrStaleAttempt
+			}
+			a, ok := p.Attempts[x.AttemptID]
+			if !ok || a.Status != AttemptRunning || e.FencingToken != a.Lease.FencingToken {
+				return PlanProjection{}, ErrStaleAttempt
+			}
+			if e.NodeID != "" && e.NodeID != a.NodeID || x.RunID == "" || x.SessionID == "" || x.WorkDir == "" {
+				return PlanProjection{}, errors.New("attempt.bound provenance is incomplete")
+			}
+			a.RunID, a.SessionID, a.WorkDir, a.ChildPlanID = x.RunID, x.SessionID, x.WorkDir, x.ChildPlanID
+			p.Attempts[x.AttemptID] = a
 		case "attempt.finished":
 			var x struct {
-				AttemptID, Event string
-				Result           StructuredResult
-				Failure          *FailureReason
+				AttemptID                string           `json:"attempt_id"`
+				Event                    string           `json:"event"`
+				Result                   StructuredResult `json:"result"`
+				Failure                  *FailureReason   `json:"failure"`
+				TransitionIdempotencyKey *string          `json:"transition_idempotency_key"`
+				TransitionAt             time.Time        `json:"transition_at"`
 			}
 			if err := json.Unmarshal(e.Payload, &x); err != nil {
 				return PlanProjection{}, err
 			}
-			if _, err := p.FinishAttempt(plan, x.AttemptID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: e.FencingToken, Event: x.Event, Result: x.Result, Failure: x.Failure, IdempotencyKey: e.IdempotencyKey}); err != nil {
+			transitionKey := e.IdempotencyKey
+			if x.TransitionIdempotencyKey != nil {
+				transitionKey = *x.TransitionIdempotencyKey
+			}
+			if x.TransitionAt.IsZero() {
+				x.TransitionAt = e.CreatedAt
+			}
+			if _, err := p.FinishAttempt(plan, x.AttemptID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: e.FencingToken, Event: x.Event, Result: x.Result, Failure: x.Failure, IdempotencyKey: transitionKey, Now: x.TransitionAt}); err != nil {
+				return PlanProjection{}, err
+			}
+		case "node.retry_requested":
+			var x struct {
+				NodeID string `json:"node_id"`
+			}
+			if err := json.Unmarshal(e.Payload, &x); err != nil {
+				return PlanProjection{}, err
+			}
+			if err := p.Retry(plan, x.NodeID); err != nil {
 				return PlanProjection{}, err
 			}
 		default:

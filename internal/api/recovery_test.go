@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/artifact"
+	"github.com/adro-project/adro/internal/compat"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 	"log/slog"
@@ -116,6 +118,60 @@ func TestRecoveryWorkerAcknowledgesLostOutboxAckWithoutDuplicateRun(t *testing.T
 	if len(recovered.PendingEffects) != 0 {
 		t.Fatalf("stale intent remains pending: %+v", recovered.PendingEffects)
 	}
+}
+
+func TestRecoveryWorkerStartsAndBindsLegacyGraphAttempt(t *testing.T) {
+	server, run := newRecoveryFixture(t)
+	if err := server.persistLegacyExecutionPlan(run); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := server.Harness.AppendTurn(run.SessionID, harness.Turn{Role: harness.RoleUser, Content: "recover graph provider", IdempotencyKey: "recover-graph:turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := server.compiledHarnessEnvelope(run.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "recover-graph:dispatch"
+	scope, err := compat.PipelineDispatchScope(run, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.enqueueProviderDispatch(run, key, providerDispatchIntent{
+		PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: run.Roles.Designer,
+		TurnHash: turn.Hash, ContextEnvelope: envelope,
+		Command: provider.StartRunCommand{PlanID: scope.PlanID, NodeID: scope.NodeID, AttemptID: scope.AttemptID, WorkItemID: "recovery-graph-item", AgentBindingID: run.Roles.Designer, Input: "recover graph provider", SessionID: run.SessionID, ContextEnvelope: envelope, LegacyAdapterVersion: compat.LegacyAdapterVersion, IdempotencyKey: key},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.recoverOnce(context.Background(), harness.Dispatcher{Store: server.Harness, Publisher: harnessPublisher{server: server}, Owner: "test-worker", LeaseTTL: time.Minute})
+	updated, err := server.Store.GetPipeline(run.ID)
+	if err != nil || updated.ExecutionPlanID != scope.PlanID || updated.ActiveGraphNodeID != scope.NodeID || updated.ActiveGraphAttemptID != scope.AttemptID {
+		t.Fatalf("pipeline graph scope=%+v err=%v", updated, err)
+	}
+	projection, err := server.Orchestration.GetProjection(scope.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := projection.Attempts[scope.AttemptID]
+	if attempt.Status != orchestration.AttemptRunning || attempt.RunID == "" || attempt.SessionID == "" || attempt.WorkDir == "" {
+		t.Fatalf("recovered graph attempt=%+v", attempt)
+	}
+	replayed, err := orchestration.ReplayProjection(mustPlan(t, server, run.WorkspaceID, scope.PlanID), server.Orchestration.ListEvents(scope.PlanID, 0))
+	if err != nil || replayed.Attempts[scope.AttemptID].RunID != attempt.RunID {
+		t.Fatalf("replay=%+v err=%v", replayed, err)
+	}
+}
+
+func mustPlan(t *testing.T, server *Server, workspaceID, planID string) orchestration.RequirementExecutionPlan {
+	t.Helper()
+	plan, err := server.Orchestration.GetPlan(workspaceID, planID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
 }
 
 func TestRecoveryWorkerReplaysWorkItemIntentAndProvenance(t *testing.T) {

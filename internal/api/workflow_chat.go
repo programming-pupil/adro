@@ -63,13 +63,21 @@ func (s *Server) resumePipelineAfterApproval(approval domain.Approval) (domain.P
 		if candidate.Status != domain.PipelineWaitingApproval {
 			return candidate, errors.New("pipeline is no longer waiting for design approval")
 		}
+		waiting := candidate
 		if approval.Decision == "rejected" {
 			candidate.Status = domain.PipelineSuspended
 			candidate.DesignApprovalStatus = "rejected"
 			candidate.SuspendReason = "design rejected: " + strings.TrimSpace(approval.Reason)
 			candidate.Version++
 			candidate.UpdatedAt = time.Now().UTC()
-			return s.Store.UpdatePipeline(candidate, candidate.Version-1)
+			updated, err := s.Store.UpdatePipeline(candidate, candidate.Version-1)
+			if err != nil {
+				return domain.PipelineRun{}, err
+			}
+			if err := s.resolveLegacyGraphApproval(waiting, updated, approval); err != nil {
+				return updated, err
+			}
+			return updated, nil
 		}
 		candidate.DesignApprovalStatus = "approved"
 		candidate.PipelineStage = candidate.NextSelectedStage(domain.PipelineDesign)
@@ -80,6 +88,14 @@ func (s *Server) resumePipelineAfterApproval(approval domain.Approval) (domain.P
 		updated, err := s.Store.UpdatePipeline(candidate, candidate.Version-1)
 		if err != nil {
 			return domain.PipelineRun{}, err
+		}
+		if err := s.resolveLegacyGraphApproval(waiting, updated, approval); err != nil {
+			updated.Status = domain.PipelineSuspended
+			updated.SuspendReason = "graph projection rejected approval: " + err.Error()
+			updated.Version++
+			updated.UpdatedAt = time.Now().UTC()
+			updated, _ = s.Store.UpdatePipeline(updated, updated.Version-1)
+			return updated, err
 		}
 		return s.dispatchPipeline(updated)
 	}

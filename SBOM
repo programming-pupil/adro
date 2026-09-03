@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "adro-0.1.0",
-  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-10a10da0e98f78ddaead5a038ca9e49da5983eb4e8ecd7ddfba558fa10d1a30e",
+  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-3f92760ee60698e8bc49c75064cb5c815c80866edd3aaa4ee2ab368604410f88",
   "creationInfo": {
     "created": "1970-01-01T00:00:00Z",
     "creators": [
@@ -26,6 +26,96 @@
       "supplier": "Organization: ADRO contributors"
     },
     {
+      "SPDXID": "SPDXRef-go-github.com-chzyer-readline-v1.5.1",
+      "name": "github.com/chzyer/readline",
+      "versionInfo": "v1.5.1",
+      "downloadLocation": "https://github.com/chzyer/readline",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Chzyer",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/chzyer/readline@v1.5.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-dustin-go-humanize-v1.0.1",
+      "name": "github.com/dustin/go-humanize",
+      "versionInfo": "v1.0.1",
+      "downloadLocation": "https://github.com/dustin/go-humanize",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Dustin Go Humanize Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/dustin/go-humanize@v1.0.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-google-go-cmp-v0.5.8",
+      "name": "github.com/google/go-cmp",
+      "versionInfo": "v0.5.8",
+      "downloadLocation": "https://github.com/google/go-cmp",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/go-cmp@v0.5.8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-google-pprof-v0.0.0-20250317173921-a4b03ec1a45e",
+      "name": "github.com/google/pprof",
+      "versionInfo": "v0.0.0-20250317173921-a4b03ec1a45e",
+      "downloadLocation": "https://github.com/google/pprof",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/pprof@v0.0.0-20250317173921-a4b03ec1a45e"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-google-uuid-v1.6.0",
+      "name": "github.com/google/uuid",
+      "versionInfo": "v1.6.0",
+      "downloadLocation": "https://github.com/google/uuid",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Google",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/uuid@v1.6.0"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-go-github.com-gorilla-websocket-v1.5.3",
       "name": "github.com/gorilla/websocket",
       "versionInfo": "v1.5.3",
@@ -40,6 +130,474 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/gorilla/websocket@v1.5.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-ianlancetaylor-demangle-v0.0.0-20240312041847-bd984b5ce465",
+      "name": "github.com/ianlancetaylor/demangle",
+      "versionInfo": "v0.0.0-20240312041847-bd984b5ce465",
+      "downloadLocation": "https://github.com/ianlancetaylor/demangle",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/ianlancetaylor/demangle@v0.0.0-20240312041847-bd984b5ce465"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-kballard-go-shellquote-v0.0.0-20180428030007-95032a82bc51",
+      "name": "github.com/kballard/go-shellquote",
+      "versionInfo": "v0.0.0-20180428030007-95032a82bc51",
+      "downloadLocation": "https://github.com/kballard/go-shellquote",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Kevin Ballard",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/kballard/go-shellquote@v0.0.0-20180428030007-95032a82bc51"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-lib-pq-v1.10.9",
+      "name": "github.com/lib/pq",
+      "versionInfo": "v1.10.9",
+      "downloadLocation": "https://github.com/lib/pq",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Contributors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/lib/pq@v1.10.9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-mattn-go-isatty-v0.0.20",
+      "name": "github.com/mattn/go-isatty",
+      "versionInfo": "v0.0.20",
+      "downloadLocation": "https://github.com/mattn/go-isatty",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Yasuhiro Matsumoto",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/mattn/go-isatty@v0.0.20"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-ncruces-go-strftime-v0.1.9",
+      "name": "github.com/ncruces/go-strftime",
+      "versionInfo": "v0.1.9",
+      "downloadLocation": "https://github.com/ncruces/go-strftime",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Nuno Cruces",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/ncruces/go-strftime@v0.1.9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-remyoudompheng-bigfft-v0.0.0-20230129092748-24d4a6f8daec",
+      "name": "github.com/remyoudompheng/bigfft",
+      "versionInfo": "v0.0.0-20230129092748-24d4a6f8daec",
+      "downloadLocation": "https://github.com/remyoudompheng/bigfft",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Remy Oudompheng",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-golang.org-x-exp-v0.0.0-20230315142452-642cacee5cc0",
+      "name": "golang.org/x/exp",
+      "versionInfo": "v0.0.0-20230315142452-642cacee5cc0",
+      "downloadLocation": "https://cs.opensource.google/go/x/exp",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/exp@v0.0.0-20230315142452-642cacee5cc0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-golang.org-x-mod-v0.19.0",
+      "name": "golang.org/x/mod",
+      "versionInfo": "v0.19.0",
+      "downloadLocation": "https://cs.opensource.google/go/x/mod",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/mod@v0.19.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-golang.org-x-sync-v0.7.0",
+      "name": "golang.org/x/sync",
+      "versionInfo": "v0.7.0",
+      "downloadLocation": "https://cs.opensource.google/go/x/sync",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/sync@v0.7.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-golang.org-x-sys-v0.31.0",
+      "name": "golang.org/x/sys",
+      "versionInfo": "v0.31.0",
+      "downloadLocation": "https://cs.opensource.google/go/x/sys",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/sys@v0.31.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-golang.org-x-tools-v0.23.0",
+      "name": "golang.org/x/tools",
+      "versionInfo": "v0.23.0",
+      "downloadLocation": "https://cs.opensource.google/go/x/tools",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: The Go Authors",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/tools@v0.23.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-lukechampine.com-uint128-v1.2.0",
+      "name": "lukechampine.com/uint128",
+      "versionInfo": "v1.2.0",
+      "downloadLocation": "https://github.com/lukechampine/uint128",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Luke Champine",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/lukechampine.com/uint128@v1.2.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-cc-v3-v3.41.0",
+      "name": "modernc.org/cc/v3",
+      "versionInfo": "v3.41.0",
+      "downloadLocation": "https://modernc.org/cc/v3",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/cc/v3@v3.41.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-cc-v4-v4.24.4",
+      "name": "modernc.org/cc/v4",
+      "versionInfo": "v4.24.4",
+      "downloadLocation": "https://modernc.org/cc/v4",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/cc/v4@v4.24.4"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-ccgo-v3-v3.17.0",
+      "name": "modernc.org/ccgo/v3",
+      "versionInfo": "v3.17.0",
+      "downloadLocation": "https://modernc.org/ccgo/v3",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/ccgo/v3@v3.17.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-ccgo-v4-v4.23.16",
+      "name": "modernc.org/ccgo/v4",
+      "versionInfo": "v4.23.16",
+      "downloadLocation": "https://modernc.org/ccgo/v4",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/ccgo/v4@v4.23.16"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-fileutil-v1.3.0",
+      "name": "modernc.org/fileutil",
+      "versionInfo": "v1.3.0",
+      "downloadLocation": "https://modernc.org/fileutil",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/fileutil@v1.3.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-gc-v2-v2.6.3",
+      "name": "modernc.org/gc/v2",
+      "versionInfo": "v2.6.3",
+      "downloadLocation": "https://modernc.org/gc/v2",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/gc/v2@v2.6.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-libc-v1.61.13",
+      "name": "modernc.org/libc",
+      "versionInfo": "v1.61.13",
+      "downloadLocation": "https://modernc.org/libc",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/libc@v1.61.13"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-mathutil-v1.7.1",
+      "name": "modernc.org/mathutil",
+      "versionInfo": "v1.7.1",
+      "downloadLocation": "https://modernc.org/mathutil",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/mathutil@v1.7.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-memory-v1.8.2",
+      "name": "modernc.org/memory",
+      "versionInfo": "v1.8.2",
+      "downloadLocation": "https://modernc.org/memory",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/memory@v1.8.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-opt-v0.1.4",
+      "name": "modernc.org/opt",
+      "versionInfo": "v0.1.4",
+      "downloadLocation": "https://modernc.org/opt",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/opt@v0.1.4"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-sortutil-v1.2.1",
+      "name": "modernc.org/sortutil",
+      "versionInfo": "v1.2.1",
+      "downloadLocation": "https://modernc.org/sortutil",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/sortutil@v1.2.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-sqlite-v1.36.3",
+      "name": "modernc.org/sqlite",
+      "versionInfo": "v1.36.3",
+      "downloadLocation": "https://modernc.org/sqlite",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.36.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-strutil-v1.2.1",
+      "name": "modernc.org/strutil",
+      "versionInfo": "v1.2.1",
+      "downloadLocation": "https://modernc.org/strutil",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/strutil@v1.2.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-modernc.org-token-v1.1.0",
+      "name": "modernc.org/token",
+      "versionInfo": "v1.1.0",
+      "downloadLocation": "https://modernc.org/token",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: modernc.org",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/modernc.org/token@v1.1.0"
         }
       ]
     },
@@ -120,7 +678,162 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-chzyer-readline-v1.5.1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-dustin-go-humanize-v1.0.1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-google-go-cmp-v0.5.8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-google-pprof-v0.0.0-20250317173921-a4b03ec1a45e"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-google-uuid-v1.6.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-gorilla-websocket-v1.5.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-ianlancetaylor-demangle-v0.0.0-20240312041847-bd984b5ce465"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-kballard-go-shellquote-v0.0.0-20180428030007-95032a82bc51"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-lib-pq-v1.10.9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-mattn-go-isatty-v0.0.20"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-ncruces-go-strftime-v0.1.9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-remyoudompheng-bigfft-v0.0.0-20230129092748-24d4a6f8daec"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-golang.org-x-exp-v0.0.0-20230315142452-642cacee5cc0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-golang.org-x-mod-v0.19.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-golang.org-x-sync-v0.7.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-golang.org-x-sys-v0.31.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-golang.org-x-tools-v0.23.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-lukechampine.com-uint128-v1.2.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-cc-v3-v3.41.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-cc-v4-v4.24.4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-ccgo-v3-v3.17.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-ccgo-v4-v4.23.16"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-fileutil-v1.3.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-gc-v2-v2.6.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-libc-v1.61.13"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-mathutil-v1.7.1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-memory-v1.8.2"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-opt-v0.1.4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-sortutil-v1.2.1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-sqlite-v1.36.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-strutil-v1.2.1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-modernc.org-token-v1.1.0"
     },
     {
       "spdxElementId": "SPDXRef-npm--playwright-test-1.62.1",

@@ -16,8 +16,10 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/gorilla/websocket"
 )
 
@@ -94,6 +96,34 @@ func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 	}
 }
 
+func TestHTTPTraceContextSurvivesResponseEventAndIdempotentReplay(t *testing.T) {
+	s := testServer(t)
+	parent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	body := `{"workspace_id":"w1","title":"Trace propagation","description":"retain W3C identity","acceptance_criteria":["event is correlated"],"assignee_member_ids":["member"]}`
+	headers := map[string]string{"traceparent": parent, "tracestate": "vendor=value", "Idempotency-Key": "trace-create"}
+	first := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", body, headers)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", first.Code, first.Body.String())
+	}
+	responseSpan, err := telemetry.ParseTraceParent(first.Header().Get("traceparent"), first.Header().Get("tracestate"))
+	if err != nil || responseSpan.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || responseSpan.SpanID == "00f067aa0ba902b7" {
+		t.Fatalf("response trace=%#v err=%v", responseSpan, err)
+	}
+	items, _ := s.Events.List("", "", 10)
+	if len(items) != 1 || items[0].TraceParent != first.Header().Get("traceparent") || items[0].TraceState != "vendor=value" {
+		t.Fatalf("event did not retain request trace: %+v", items)
+	}
+	secondParent := "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
+	replayed := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", body, map[string]string{"traceparent": secondParent, "Idempotency-Key": "trace-create"})
+	if replayed.Code != first.Code || replayed.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("replay status=%d body=%s", replayed.Code, replayed.Body.String())
+	}
+	replaySpan, err := telemetry.ParseTraceParent(replayed.Header().Get("traceparent"), replayed.Header().Get("tracestate"))
+	if err != nil || replaySpan.TraceID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("idempotent replay leaked the original request trace: %#v err=%v", replaySpan, err)
+	}
+}
+
 func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
 	s := testServer(t)
 	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "Commentable requirement", Description: "exercise discussion", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
@@ -129,7 +159,7 @@ func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bugComment := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/comments", `{"content":"@agent-1 please investigate","mentions":["agent-1"]}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
+	bugComment := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/comments", `{"content":"@agent-1 please investigate","mentions":["agent-1"],"dispatch":true}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
 	if bugComment.Code != http.StatusCreated || !strings.Contains(bugComment.Body.String(), `"requested":true`) {
 		t.Fatalf("bug comment status=%d body=%s", bugComment.Code, bugComment.Body.String())
 	}
@@ -148,6 +178,83 @@ func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
 	retry := request(t, s.Routes(), http.MethodPost, "/api/v1/comments/"+bugCommentBody.Comment.ID+"/follow-up", `{}`, map[string]string{"X-Workspace-ID": "w1", "Idempotency-Key": "follow-up-retry"})
 	if retry.Code != http.StatusAccepted || !strings.Contains(retry.Body.String(), `"requested":true`) {
 		t.Fatalf("follow-up retry=%d body=%s", retry.Code, retry.Body.String())
+	}
+}
+
+func TestCommentDisplayMentionsAreRenderOnlyAndAttachmentRevisionsAreImmutable(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "revisioned comment", Description: "retain edit lineage", AcceptanceCriteria: []string{"lineage"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"content":"@display-name is render only","mentions":["display-name"]}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "author"})
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"requested":false`) {
+		t.Fatalf("display mention dispatched status=%d body=%s", created.Code, created.Body.String())
+	}
+	var body struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil || body.Comment.ID == "" {
+		t.Fatalf("comment decode=%v body=%s", err, created.Body.String())
+	}
+	firstUpload := multipartRequest(t, s.Routes(), "/api/v1/attachments", map[string]string{"owner_type": "comment", "owner_id": body.Comment.ID}, "first.txt", []byte("first"))
+	if firstUpload.Code != http.StatusCreated {
+		t.Fatalf("first upload status=%d body=%s", firstUpload.Code, firstUpload.Body.String())
+	}
+	var first domain.EntityAttachment
+	if err := json.Unmarshal(firstUpload.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	edit := request(t, s.Routes(), http.MethodPatch, "/api/v1/comments/"+body.Comment.ID, mustJSON(map[string]any{"content": body.Comment.Content, "expected_revision": 1, "attachment_ids": []string{first.ID}}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "author"})
+	if edit.Code != http.StatusOK || !strings.Contains(edit.Body.String(), `"revision":2`) || !strings.Contains(edit.Body.String(), first.ID) {
+		t.Fatalf("attachment edit status=%d body=%s", edit.Code, edit.Body.String())
+	}
+	secondUpload := multipartRequest(t, s.Routes(), "/api/v1/attachments", map[string]string{"owner_type": "comment", "owner_id": body.Comment.ID}, "second.txt", []byte("second"))
+	var second domain.EntityAttachment
+	if secondUpload.Code != http.StatusCreated || json.Unmarshal(secondUpload.Body.Bytes(), &second) != nil {
+		t.Fatalf("second upload status=%d body=%s", secondUpload.Code, secondUpload.Body.String())
+	}
+	replace := request(t, s.Routes(), http.MethodPatch, "/api/v1/comments/"+body.Comment.ID, mustJSON(map[string]any{"content": body.Comment.Content, "expected_revision": 2, "attachment_ids": []string{second.ID}}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "author"})
+	if replace.Code != http.StatusOK || strings.Contains(replace.Body.String(), first.ID) || !strings.Contains(replace.Body.String(), second.ID) {
+		t.Fatalf("attachment replacement status=%d body=%s", replace.Code, replace.Body.String())
+	}
+	revisions := request(t, s.Routes(), http.MethodGet, "/api/v1/comments/"+body.Comment.ID+"/revisions", "", map[string]string{"X-Workspace-ID": "w1"})
+	var history struct {
+		Items []domain.CommentRevision `json:"items"`
+	}
+	if revisions.Code != http.StatusOK || json.Unmarshal(revisions.Body.Bytes(), &history) != nil || len(history.Items) != 3 {
+		t.Fatalf("revisions status=%d body=%s", revisions.Code, revisions.Body.String())
+	}
+	if len(history.Items[0].AttachmentIDs) != 0 || len(history.Items[1].AttachmentIDs) != 1 || history.Items[1].AttachmentIDs[0] != first.ID || len(history.Items[2].AttachmentIDs) != 1 || history.Items[2].AttachmentIDs[0] != second.ID {
+		t.Fatalf("attachment lineage=%+v", history.Items)
+	}
+}
+
+func TestStructuredCommentEditUsesNewRevisionDispatchIdentity(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "structured edit", Description: "re-dispatch safely", AcceptanceCriteria: []string{"new run"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := "550e8400-e29b-41d4-a716-446655440000"
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock-agent"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	content := "please review [@reviewer](mention://agent/" + agentID + ")"
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"content": content}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "author"})
+	var body struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &body) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	edit := request(t, s.Routes(), http.MethodPatch, "/api/v1/comments/"+body.Comment.ID, mustJSON(map[string]any{"content": content + " again", "expected_revision": 1}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "author"})
+	if edit.Code != http.StatusOK {
+		t.Fatalf("edit status=%d body=%s", edit.Code, edit.Body.String())
+	}
+	followUps := s.Store.ListCommentFollowUps(body.Comment.ID)
+	if len(followUps) != 2 || followUps[0].CommentRevision != 1 || followUps[1].CommentRevision != 2 || followUps[0].ProviderRunID == "" || followUps[1].ProviderRunID == "" || followUps[0].ProviderRunID == followUps[1].ProviderRunID || followUps[0].DedupeKey == followUps[1].DedupeKey {
+		t.Fatalf("revision dispatch lineage=%+v", followUps)
 	}
 }
 
@@ -217,6 +324,35 @@ func TestGenericMutationIdempotencyReplaysResponse(t *testing.T) {
 	conflict := request(t, s.Routes(), http.MethodPost, "/api/v1/repositories", strings.Replace(body, "repo-one", "repo-two", 1), headers)
 	if conflict.Code != http.StatusConflict || conflict.Header().Get("Content-Type") != "application/problem+json" || !strings.Contains(conflict.Body.String(), "idempotency_key_conflict") {
 		t.Fatalf("conflict status=%d type=%q body=%s", conflict.Code, conflict.Header().Get("Content-Type"), conflict.Body.String())
+	}
+}
+
+func TestIdempotentMutationEmitsSingleCORSHeader(t *testing.T) {
+	s := testServer(t)
+	body := `{"workspace_id":"w1","title":"cors","description":"response headers remain valid","acceptance_criteria":["single origin"],"assignee_member_ids":["member"]}`
+	headers := map[string]string{
+		"Origin":          "http://127.0.0.1:18081",
+		"X-Workspace-ID":  "w1",
+		"Idempotency-Key": "cors-single-origin",
+	}
+
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", body, headers)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Values("Access-Control-Allow-Origin"); len(got) != 1 || got[0] != headers["Origin"] {
+		t.Fatalf("Access-Control-Allow-Origin=%q, want one value %q", got, headers["Origin"])
+	}
+	if got := response.Header().Values("Access-Control-Allow-Credentials"); len(got) != 1 || got[0] != "true" {
+		t.Fatalf("Access-Control-Allow-Credentials=%q, want one true value", got)
+	}
+
+	replayed := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", body, headers)
+	if replayed.Code != http.StatusCreated || replayed.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("replay status=%d headers=%v body=%s", replayed.Code, replayed.Header(), replayed.Body.String())
+	}
+	if got := replayed.Header().Values("Access-Control-Allow-Origin"); len(got) != 1 || got[0] != headers["Origin"] {
+		t.Fatalf("replayed Access-Control-Allow-Origin=%q, want one value %q", got, headers["Origin"])
 	}
 }
 
@@ -730,6 +866,48 @@ func TestWorkspaceWebSocketReplaysAndStreamsEvents(t *testing.T) {
 	}
 	if live.EventType != "test.event.2.v1" {
 		t.Fatalf("live event=%+v", live)
+	}
+}
+
+func TestWorkspaceStreamHTTPReplayAndAckAreScoped(t *testing.T) {
+	s := testServer(t)
+	first := events.New("stream.one.v1", "requirement", "req-a", "", "workspace-a", 1, map[string]any{"ok": true})
+	foreign := events.New("stream.foreign.v1", "requirement", "req-b", "", "workspace-b", 1, map[string]any{"ok": true})
+	second := events.New("stream.two.v1", "requirement", "req-c", "", "workspace-a", 1, map[string]any{"ok": true})
+	for _, event := range []events.Envelope{first, foreign, second} {
+		if err := s.Events.Publish(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := request(t, s.Routes(), http.MethodGet, "/api/v1/streams/workspaces/workspace-a?limit=1", "", nil)
+	if page.Code != http.StatusOK {
+		t.Fatalf("page status=%d body=%s", page.Code, page.Body.String())
+	}
+	var body struct {
+		Items      []events.Envelope `json:"items"`
+		NextCursor string            `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(page.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 || body.Items[0].EventID != first.EventID || body.NextCursor == "" {
+		t.Fatalf("unexpected scoped page=%+v", body)
+	}
+	ack := request(t, s.Routes(), http.MethodPost, "/api/v1/streams/workspaces/workspace-a/ack", "{\"consumer_id\":\"browser\",\"event_id\":\""+first.EventID+"\"}", nil)
+	if ack.Code != http.StatusOK {
+		t.Fatalf("ack status=%d body=%s", ack.Code, ack.Body.String())
+	}
+	replay := request(t, s.Routes(), http.MethodGet, "/api/v1/streams/workspaces/workspace-a?consumer_id=browser", "", nil)
+	if replay.Code != http.StatusOK || !strings.Contains(replay.Body.String(), second.EventID) || strings.Contains(replay.Body.String(), foreign.EventID) {
+		t.Fatalf("scoped replay=%d %s", replay.Code, replay.Body.String())
+	}
+	foreignCursor := request(t, s.Routes(), http.MethodGet, "/api/v1/streams/workspaces/workspace-a?cursor="+foreign.EventID, "", nil)
+	if foreignCursor.Code != http.StatusGone {
+		t.Fatalf("foreign cursor status=%d body=%s", foreignCursor.Code, foreignCursor.Body.String())
+	}
+	rangePage := request(t, s.Routes(), http.MethodGet, "/api/v1/streams/workspaces/workspace-a/replay-range?from=1&to=3", "", nil)
+	if rangePage.Code != http.StatusOK || !strings.Contains(rangePage.Body.String(), first.EventID) || !strings.Contains(rangePage.Body.String(), second.EventID) || strings.Contains(rangePage.Body.String(), foreign.EventID) {
+		t.Fatalf("scoped range repair=%d %s", rangePage.Code, rangePage.Body.String())
 	}
 }
 

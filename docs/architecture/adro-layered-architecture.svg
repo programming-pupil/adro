@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">ADRO layered architecture</title>
+  <desc id="desc">Three-layer ADRO architecture: experience and composition, orchestration and session harness, and durable substrate with external adapters.</desc>
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#86a7bb" stroke-opacity=".09"/></pattern>
+    <filter id="glowCyan" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glowLime" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <marker id="arrowCyan" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#62ddff"/></marker>
+    <marker id="arrowLime" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#c6f36b"/></marker>
+    <style>
+      .title{font:700 42px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:5px;fill:#f2fbff}.kicker{font:600 13px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:3px;fill:#69dff7}.layer{font:700 15px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:2px;fill:#b7d8e4}.layerSub{font:500 12px 'Avenir Next','Segoe UI',sans-serif;fill:#7fa6b6}.nodeTitle{font:700 19px 'Avenir Next','Segoe UI',sans-serif;fill:#f1fbff}.nodeSub{font:500 13px 'Avenir Next','Segoe UI',sans-serif;fill:#a6c6d0}.chip{font:600 11px 'Avenir Next','Segoe UI',sans-serif;letter-spacing:1px;fill:#c9f5ff}.foot{font:600 13px 'Avenir Next','Segoe UI',sans-serif;fill:#bed6df}.node{fill:#102338;stroke:#2f5a70;stroke-width:1.5}.nodeCyan{stroke:#5cdef8;stroke-width:2}.nodeLime{stroke:#bfe96b;stroke-width:2}.nodePink{stroke:#ff91d1;stroke-width:2}.wire{fill:none;stroke:#5dddf9;stroke-width:2.5;marker-end:url(#arrowCyan);opacity:.95}.wireLime{fill:none;stroke:#c6f36b;stroke-width:2.5;marker-end:url(#arrowLime);opacity:.95}.wireDash{fill:none;stroke:#b9d2db;stroke-width:1.6;stroke-dasharray:7 8;opacity:.7}
+    </style>
+  </defs>
+  <rect width="1600" height="980" fill="#07111f"/><rect x="28" y="28" width="1544" height="924" rx="26" fill="url(#grid)" stroke="#23475f" stroke-width="1.5"/>
+  <text x="76" y="82" class="kicker">SYSTEM BLUEPRINT / 03</text><text x="76" y="126" class="title">ADRO LAYERED ARCHITECTURE</text><text x="1524" y="86" text-anchor="end" class="kicker">COMPOSE FREELY / RECOVER PROVABLY</text><path d="M74 150H1526" stroke="#69dff7" stroke-opacity=".22"/>
+
+  <rect x="70" y="180" width="1460" height="190" rx="18" fill="#0c1a2b" stroke="#31566b"/>
+  <text x="98" y="216" class="layer">LAYER 1  /  EXPERIENCE &amp; COMPOSITION</text><text x="98" y="240" class="layerSub">Where people state intent, select actors, and define a graph without being locked to seven stages.</text>
+  <g><rect class="node nodeCyan" x="98" y="266" width="300" height="76" rx="12"/><circle cx="122" cy="290" r="6" fill="#63e5ff" filter="url(#glowCyan)"/><text x="142" y="298" class="nodeTitle">Workbench + API</text><text x="122" y="322" class="nodeSub">requirements, review, access</text></g>
+  <g><rect class="node nodePink" x="430" y="266" width="300" height="76" rx="12"/><circle cx="454" cy="290" r="6" fill="#ff91d1"/><text x="474" y="298" class="nodeTitle">Agent + Squad catalog</text><text x="454" y="322" class="nodeSub">roles, capabilities, revisions</text></g>
+  <g><rect class="node nodeLime" x="762" y="266" width="300" height="76" rx="12"/><circle cx="786" cy="290" r="6" fill="#c6f36b" filter="url(#glowLime)"/><text x="806" y="298" class="nodeTitle">Workflow graph studio</text><text x="786" y="322" class="nodeSub">nodes, predicates, joins, loops</text></g>
+  <g><rect class="node" x="1094" y="266" width="408" height="76" rx="12"/><text x="1120" y="298" class="nodeTitle">Policy, approval + comments</text><text x="1120" y="322" class="nodeSub">permissions, mentions, human gates</text></g>
+
+  <rect x="70" y="392" width="1460" height="246" rx="18" fill="#0e2230" stroke="#477064"/>
+  <text x="98" y="428" class="layer">LAYER 2  /  ORCHESTRATION &amp; SESSION HARNESS</text><text x="98" y="452" class="layerSub">The runtime middle layer: it turns intent into bounded attempts and keeps the thread recoverable across feedback.</text>
+  <g><rect class="node nodeCyan" x="98" y="478" width="300" height="124" rx="12"/><circle cx="122" cy="504" r="6" fill="#63e5ff" filter="url(#glowCyan)"/><text x="142" y="512" class="nodeTitle">Graph compiler</text><text x="122" y="538" class="nodeSub">immutable plan, policy</text><text x="122" y="558" class="nodeSub">revision and plan hash</text><text x="122" y="582" class="chip">FREE-FORM GRAPH</text></g>
+  <g><rect class="node nodeLime" x="430" y="478" width="300" height="124" rx="12"/><circle cx="454" cy="504" r="6" fill="#c6f36b" filter="url(#glowLime)"/><text x="474" y="512" class="nodeTitle">Scheduler + feedback</text><text x="454" y="538" class="nodeSub">fan-out, join, retry</text><text x="454" y="558" class="nodeSub">bug repair, human takeover</text><text x="454" y="582" class="chip">BIDIRECTIONAL ROUTING</text></g>
+  <g><rect class="node nodePink" x="762" y="478" width="300" height="124" rx="12"/><circle cx="786" cy="504" r="6" fill="#ff91d1"/><text x="806" y="512" class="nodeTitle">Session harness</text><text x="786" y="538" class="nodeSub">transcript, context, memory</text><text x="786" y="558" class="nodeSub">compaction and continuity proof</text><text x="786" y="582" class="chip">SAME THREAD / NEW ATTEMPT</text></g>
+  <g><rect class="node" x="1094" y="478" width="408" height="124" rx="12"/><text x="1120" y="512" class="nodeTitle">Typed agent + tool loop</text><text x="1120" y="538" class="nodeSub">authorize, approve, execute, receipt</text><text x="1120" y="558" class="nodeSub">cancel, timeout, effect fence</text><text x="1120" y="582" class="chip">FAIL CLOSED / EXACTLY ONCE</text></g>
+
+  <rect x="70" y="660" width="1460" height="190" rx="18" fill="#101a29" stroke="#31566b"/>
+  <text x="98" y="696" class="layer">LAYER 3  /  DURABLE SUBSTRATE &amp; EXTERNAL ADAPTERS</text><text x="98" y="720" class="layerSub">Durability and integration boundaries: every transition can be replayed, audited, and connected to replaceable systems.</text>
+  <g><rect class="node nodeCyan" x="98" y="746" width="300" height="76" rx="12"/><text x="122" y="778" class="nodeTitle">Store + event outbox</text><text x="122" y="802" class="nodeSub">snapshots, leases, replay cursors</text></g>
+  <g><rect class="node nodeLime" x="430" y="746" width="300" height="76" rx="12"/><text x="454" y="778" class="nodeTitle">Evidence ledger</text><text x="454" y="802" class="nodeSub">tests, commits, artifacts, audit</text></g>
+  <g><rect class="node" x="762" y="746" width="300" height="76" rx="12"/><text x="786" y="778" class="nodeTitle">SQLite / PostgreSQL</text><text x="786" y="802" class="nodeSub">local profile to production adapter</text></g>
+  <g><rect class="node nodePink" x="1094" y="746" width="408" height="76" rx="12"/><text x="1120" y="778" class="nodeTitle">Git, CI, deploy, identity, notify</text><text x="1120" y="802" class="nodeSub">provider-neutral SPI boundaries</text></g>
+
+  <path class="wire" d="M248 370V478"/><path class="wire" d="M580 370V478"/><path class="wireLime" d="M912 370V478"/><path class="wire" d="M1298 370V478"/>
+  <path class="wire" d="M248 602V746"/><path class="wireLime" d="M580 602V746"/><path class="wire" d="M912 602V746"/><path class="wireLime" d="M1298 602V746"/>
+  <path class="wireLime" d="M730 540C748 462 846 462 862 540"/><path class="wireDash" d="M862 570C846 648 748 648 730 570"/>
+  <text x="800" y="438" text-anchor="middle" class="chip">feedback can travel back to any explicit predecessor</text>
+  <rect x="70" y="884" width="1460" height="40" rx="20" fill="#0c2133" stroke="#315b70"/><circle cx="98" cy="904" r="5" fill="#c6f36b" filter="url(#glowLime)"/><text x="118" y="909" class="foot">DESIGN RULE  /  intent before side effect  /  harness in the middle  /  evidence before success  /  unknown never becomes success</text>
+</svg>

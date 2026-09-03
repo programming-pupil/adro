@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ const command = process.argv[2] || 'verify';
 const registry = JSON.parse(readFileSync(join(root, 'release/dependencies.json'), 'utf8'));
 const packageJSON = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
+const releaseSigningNamespace = 'adro-release';
 
 function fail(message) {
   process.stderr.write(`release assets: ${message}\n`);
@@ -25,6 +26,11 @@ function run(program, args, options = {}) {
     const detail = error.stderr?.toString().trim() || error.message;
     fail(`${program} ${args.join(' ')} failed: ${detail}`);
   }
+}
+
+function option(name, fallback = '') {
+  const index = process.argv.indexOf(name);
+  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 }
 
 function sha256(data) {
@@ -92,6 +98,13 @@ function licenseSource(item) {
     return join(root, licenseTarget(item));
   }
   const moduleDir = run('go', ['list', '-m', '-f', '{{.Dir}}', `${item.name}@${item.version}`]);
+  // Go modules are inconsistent about the license filename (lib/pq ships
+  // LICENSE.md while most modules use LICENSE). Pick the first conventional
+  // candidate so release generation never fails for a valid SPDX dependency.
+  for (const filename of ['LICENSE', 'LICENSE.md', 'COPYING', 'NOTICE']) {
+    const candidate = join(moduleDir, filename);
+    if (existsSync(candidate)) return candidate;
+  }
   return join(moduleDir, 'LICENSE');
 }
 
@@ -260,6 +273,47 @@ function verifyManifest(path) {
   process.stdout.write(`release manifest ${path} is traceable to ${manifest.commit}\n`);
 }
 
+function parseManifest(path) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    fail(`release manifest ${path} is not valid JSON: ${error.message}`);
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) fail(`release manifest ${path} must be a JSON object`);
+  return manifest;
+}
+
+function signManifest(path, keyPath, signaturePath, allowedSignersPath, identity) {
+  parseManifest(path);
+  if (!existsSync(keyPath)) fail(`release signing key is unavailable: ${keyPath}`);
+  const generatedSignature = `${path}.sig`;
+  if (existsSync(generatedSignature)) unlinkSync(generatedSignature);
+  run('ssh-keygen', ['-Y', 'sign', '-f', keyPath, '-n', releaseSigningNamespace, path]);
+  if (!existsSync(generatedSignature)) fail('ssh-keygen did not produce a detached signature');
+  mkdirSync(dirname(signaturePath), { recursive: true });
+  if (resolve(generatedSignature) !== resolve(signaturePath)) {
+    copyFileSync(generatedSignature, signaturePath);
+    unlinkSync(generatedSignature);
+  }
+  const publicKey = run('ssh-keygen', ['-y', '-f', keyPath]);
+  if (!publicKey.startsWith('ssh-ed25519 ') && !publicKey.startsWith('ssh-rsa ') && !publicKey.startsWith('ecdsa-')) {
+    fail('release signing key did not produce a supported SSH public key');
+  }
+  mkdirSync(dirname(allowedSignersPath), { recursive: true });
+  writeFileSync(allowedSignersPath, `${identity} ${publicKey}\n`, { mode: 0o644 });
+  verifyManifestSignature(path, signaturePath, allowedSignersPath, identity);
+  process.stdout.write(`release manifest signature written to ${signaturePath}\n`);
+}
+
+function verifyManifestSignature(path, signaturePath, allowedSignersPath, identity) {
+  parseManifest(path);
+  if (!existsSync(signaturePath)) fail(`release signature is unavailable: ${signaturePath}`);
+  if (!existsSync(allowedSignersPath)) fail(`allowed signers file is unavailable: ${allowedSignersPath}`);
+  run('ssh-keygen', ['-Y', 'verify', '-f', allowedSignersPath, '-I', identity, '-n', releaseSigningNamespace, '-s', signaturePath], { input: readFileSync(path), stdio: ['pipe', 'pipe', 'pipe'] });
+  process.stdout.write(`release manifest signature verified for ${identity}\n`);
+}
+
 switch (command) {
   case 'generate':
     generatedFiles(root);
@@ -278,6 +332,24 @@ switch (command) {
     if (!process.argv[3]) fail('verify-manifest requires a manifest path');
     verifyManifest(resolve(root, process.argv[3]));
     break;
+  case 'sign-manifest': {
+    if (!process.argv[3]) fail('sign-manifest requires a manifest path');
+    const manifestPath = resolve(root, process.argv[3]);
+    const keyPath = option('--key');
+    if (!keyPath) fail('sign-manifest requires --key <private-key>');
+    const signaturePath = resolve(root, option('--signature', `${process.argv[3]}.sig`));
+    const allowedSignersPath = resolve(root, option('--allowed-signers', `${process.argv[3]}.allowed-signers`));
+    signManifest(manifestPath, resolve(root, keyPath), signaturePath, allowedSignersPath, option('--identity', releaseSigningNamespace));
+    break;
+  }
+  case 'verify-signature': {
+    if (!process.argv[3]) fail('verify-signature requires a manifest path');
+    const signature = option('--signature');
+    const allowedSigners = option('--allowed-signers');
+    if (!signature || !allowedSigners) fail('verify-signature requires --signature and --allowed-signers');
+    verifyManifestSignature(resolve(root, process.argv[3]), resolve(root, signature), resolve(root, allowedSigners), option('--identity', releaseSigningNamespace));
+    break;
+  }
   default:
     fail(`unknown command ${command}`);
 }

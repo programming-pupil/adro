@@ -11,6 +11,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -74,6 +75,56 @@ func TestWorkflowTemplateDesignApprovalAndOptionalStages(t *testing.T) {
 	}
 	if resumed.Pipeline.PipelineStage != domain.PipelineReport || resumed.Pipeline.Status != domain.PipelineWaiting {
 		t.Fatalf("resume=%+v", resumed.Pipeline)
+	}
+}
+
+func TestLegacyDesignApprovalRejectionIsTerminalAndReplayable(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	control := store.NewMemory()
+	requirement, err := control.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "reject design", Description: "fail closed", AcceptanceCriteria: []string{"rejected"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := provider.NewLocalProvider("/usr/bin/true", nil, t.TempDir(), bus)
+	server := New(control, local, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	templateResponse := request(t, server.Routes(), http.MethodPost, "/api/v1/workflow-templates", mustJSONWorkflow(map[string]any{"workspace_id": "w", "name": "reject-gate", "mode": "design_approval", "steps": []map[string]any{{"id": "design", "stage": 1, "agent_id": "designer", "required": true}, {"id": "report", "stage": 7, "agent_id": "reporter", "required": true}}}), map[string]string{"X-Workspace-ID": "w"})
+	var template domain.WorkflowTemplate
+	if templateResponse.Code != http.StatusCreated || json.Unmarshal(templateResponse.Body.Bytes(), &template) != nil {
+		t.Fatalf("template status=%d body=%s", templateResponse.Code, templateResponse.Body.String())
+	}
+	created := request(t, server.Routes(), http.MethodPost, "/api/v1/pipelines", mustJSONWorkflow(map[string]any{"requirement_id": requirement.ID, "workflow_template_id": template.ID, "max_retries": 2, "coverage_threshold": 80}), map[string]string{"X-Workspace-ID": "w"})
+	var run domain.PipelineRun
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &run) != nil {
+		t.Fatalf("pipeline status=%d body=%s", created.Code, created.Body.String())
+	}
+	afterDesign := request(t, server.Routes(), http.MethodPost, "/api/v1/pipelines/"+run.ID+"/results", mustJSONWorkflow(map[string]any{"stage": 1, "agent_id": "designer", "outcome": "pass", "design_doc": "reject this"}), map[string]string{"X-Workspace-ID": "w"})
+	if afterDesign.Code != http.StatusOK || json.Unmarshal(afterDesign.Body.Bytes(), &run) != nil || run.Status != domain.PipelineWaitingApproval {
+		t.Fatalf("design status=%d body=%s", afterDesign.Code, afterDesign.Body.String())
+	}
+	rejected := request(t, server.Routes(), http.MethodPost, "/api/v1/approvals/"+run.DesignApprovalID+"/decide", `{"decision":"rejected","reason":"unsafe design"}`, map[string]string{"X-Workspace-ID": "w", "X-Member-ID": "reviewer"})
+	if rejected.Code != http.StatusOK || !strings.Contains(rejected.Body.String(), "unsafe design") {
+		t.Fatalf("reject status=%d body=%s", rejected.Code, rejected.Body.String())
+	}
+	projection, err := server.Orchestration.GetProjection(run.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := projection.Attempts[run.ActiveGraphAttemptID]
+	if attempt.Status != orchestration.AttemptFailed || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_approval_denied" {
+		t.Fatalf("rejected projection=%+v", projection)
+	}
+	plan, err := server.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := orchestration.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
+	if err != nil || replayed.Attempts[attempt.ID].Status != orchestration.AttemptFailed || replayed.Attempts[attempt.ID].FailureReason == nil {
+		t.Fatalf("replayed rejection=%+v err=%v", replayed, err)
 	}
 }
 
