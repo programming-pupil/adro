@@ -1,0 +1,141 @@
+name: Release Gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-quality:
+    name: Go quality and fault matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - run: scripts/e2e-go.sh test ./... -count=1 -p 1
+      - run: scripts/e2e-go.sh test -race ./... -count=1 -p 1
+      - run: scripts/e2e-go.sh vet ./...
+      - run: scripts/e2e-go.sh build ./...
+      - run: make fault-matrix
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-gate-fault-matrix
+          path: var/test-report/fault-matrix
+
+  contracts-supply-chain:
+    name: Contracts and supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: make contracts
+      - run: make supply-chain
+
+  browser:
+    name: Browser ADRO and platform matrix
+    runs-on: ubuntu-latest
+    env:
+      ADRO_E2E_EXECUTOR: ${{ github.workspace }}/scripts/e2e-executor.sh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:e2e:adro
+      - run: npm run test:e2e:matrix
+
+  postgres:
+    name: PostgreSQL conformance
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: adro_app
+          POSTGRES_PASSWORD: adro_test
+          POSTGRES_DB: adro_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U adro_app -d adro_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ADRO_POSTGRES_TEST_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
+      ADRO_POSTGRES_BACKUP_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
+      ADRO_POSTGRES_ADMIN_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/postgres?sslmode=disable
+      ADRO_POSTGRES_RESTORE_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_restore?sslmode=disable
+      ADRO_POSTGRES_RESTORE_DB: adro_restore
+      ADRO_POSTGRES_EVIDENCE_DIR: var/test-report/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Install PostgreSQL client tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: make postgres-conformance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-gate-postgres
+          path: var/test-report/postgres
+
+  real-codex:
+    name: Protected real Codex acceptance
+    runs-on: [self-hosted, adro-codex]
+    timeout-minutes: 45
+    env:
+      ADRO_REQUIRE_CODEX: '1'
+      ADRO_EXECUTOR: codex
+      ADRO_EXECUTOR_COMMAND: ${{ secrets.ADRO_CODEX_COMMAND }}
+      ADRO_AUTH_MODE: optional
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Verify protected runner prerequisites
+        run: |
+          command -v codex
+          codex --version
+          test -n "$ADRO_EXECUTOR_COMMAND"
+      - run: ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
+      - run: ADRO_REQUIRE_CODEX=1 ADRO_REAL_E2E_TIMEOUT=1800 bash scripts/real-pipeline-e2e.sh
+
+  release-gate:
+    name: Required release gate
+    if: always()
+    needs: [go-quality, contracts-supply-chain, browser, postgres, real-codex]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every release signal
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: test "$RESULTS" = "success,success,success,success,success"

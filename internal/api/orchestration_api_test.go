@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
 )
 
@@ -16,6 +17,77 @@ func TestExecutionPlanGraphValidationRoute(t *testing.T) {
 	r := request(t, s.Routes(), http.MethodPost, "/api/v1/execution-plans/validate", body, map[string]string{"X-Workspace-ID": "w1"})
 	if r.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+}
+
+func TestExecutionPlanValidationDryRunResolvesTemporarySquadGraph(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-dry-run", WorkspaceID: "w1", Title: "dry run", Description: "validate before execution", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := orchestration.NewID()
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	squad := orchestration.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, PublishedVersion: 1, Status: orchestration.SquadPublished, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: orchestration.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"old"}, ExitNodeIDs: []string{"old"}, Nodes: []orchestration.WorkflowNode{{ID: "old", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}}}}
+	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
+		t.Fatal(err)
+	}
+	graph := orchestration.WorkflowGraph{ID: "edited-graph", Version: 1, EntryNodeIDs: []string{"edited"}, ExitNodeIDs: []string{"edited"}, Nodes: []orchestration.WorkflowNode{{ID: "edited", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}, RetryPolicy: orchestration.RetryPolicy{MaxAttempts: 2}}}}
+	body := mustJSON(map[string]any{"squad_id": squad.ID, "squad_version": 1, "graph": graph})
+	r := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/execution-plan/dry-run", body, map[string]string{"X-Workspace-ID": "w1"})
+	if r.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+	var response struct {
+		Valid       bool                           `json:"valid"`
+		Graph       orchestration.WorkflowGraph    `json:"graph"`
+		ReadyNodes  []orchestration.WorkflowNode   `json:"ready_nodes"`
+		Diagnostics orchestration.GraphDiagnostics `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(r.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Valid || response.Graph.ID != graph.ID || len(response.ReadyNodes) != 1 || response.ReadyNodes[0].ID != "edited" || response.Diagnostics.RetryNodeIDs[0] != "edited" {
+		t.Fatalf("dry-run response=%+v body=%s", response, r.Body.String())
+	}
+}
+
+func TestSquadGraphForkAndImportExportRoutes(t *testing.T) {
+	s := testServer(t)
+	agentID := "550e8400-e29b-41d4-a716-446655440000"
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	squad := orchestration.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, Status: orchestration.SquadDraft, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: orchestration.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"a"}, Nodes: []orchestration.WorkflowNode{{ID: "a", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}}}}
+	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
+		t.Fatal(err)
+	}
+	exported := request(t, s.Routes(), http.MethodGet, "/api/v1/workspaces/w1/squads/"+squad.ID+"/graph", "", map[string]string{"X-Workspace-ID": "w1"})
+	if exported.Code != http.StatusOK || !strings.Contains(exported.Body.String(), "template-graph") {
+		t.Fatalf("export status=%d body=%s", exported.Code, exported.Body.String())
+	}
+	forked := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/squads/"+squad.ID+"/fork", `{"name":"edited"}`, map[string]string{"X-Workspace-ID": "w1"})
+	if forked.Code != http.StatusCreated || !strings.Contains(forked.Body.String(), "edited") {
+		t.Fatalf("fork status=%d body=%s", forked.Code, forked.Body.String())
+	}
+	var fork struct {
+		Squad orchestration.SquadDefinition `json:"squad"`
+	}
+	if err := json.Unmarshal(forked.Body.Bytes(), &fork); err != nil {
+		t.Fatal(err)
+	}
+	if fork.Squad.ID == squad.ID || fork.Squad.Status != orchestration.SquadDraft || fork.Squad.Graph.ID == squad.Graph.ID {
+		t.Fatalf("fork did not create an editable copy: %+v", fork.Squad)
+	}
+	updatedGraph := fork.Squad.Graph
+	updatedGraph.Nodes[0].ID = "edited-node"
+	updatedGraph.EntryNodeIDs = []string{"edited-node"}
+	updatedGraph.ExitNodeIDs = []string{"edited-node"}
+	updated := request(t, s.Routes(), http.MethodPut, "/api/v1/workspaces/w1/squads/"+fork.Squad.ID+"/graph", mustJSON(map[string]any{"expected_revision": 1, "graph": updatedGraph}), map[string]string{"X-Workspace-ID": "w1"})
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), "edited-node") {
+		t.Fatalf("import status=%d body=%s", updated.Code, updated.Body.String())
 	}
 }
 
@@ -55,6 +127,59 @@ func TestMentionPreviewRoute(t *testing.T) {
 	r := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/req-0001/comments/trigger-preview", body, map[string]string{"X-Workspace-ID": "w1"})
 	if r.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+}
+
+func TestCommentTriggerRetryRecomputesRosterAndDispatches(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-trigger-retry", WorkspaceID: "w1", Title: "retry mention", Description: "retry after roster change", AcceptanceCriteria: []string{"dispatches"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := orchestration.NewID()
+	content := "Please retry [@delivery](mention://agent/" + agentID + ")"
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"content": content}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var createdBody struct {
+		Comment  domain.Comment            `json:"comment"`
+		Outcomes []mentions.TriggerOutcome `json:"trigger_outcomes"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createdBody); err != nil {
+		t.Fatal(err)
+	}
+	if len(createdBody.Outcomes) != 1 || createdBody.Outcomes[0].ReasonCode != "target_not_found" || createdBody.Outcomes[0].Status != mentions.StatusBlocked {
+		t.Fatalf("initial outcome=%+v body=%s", createdBody.Outcomes, created.Body.String())
+	}
+
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{
+		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "delivery", Status: orchestration.AgentActive,
+		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"},
+		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	retried := request(t, s.Routes(), http.MethodPost, "/api/v1/comments/"+createdBody.Comment.ID+"/trigger-retry", `{}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer", "Idempotency-Key": "retry-mention-1"})
+	if retried.Code != http.StatusAccepted {
+		t.Fatalf("retry status=%d body=%s", retried.Code, retried.Body.String())
+	}
+	var retryBody struct {
+		Outcomes  []mentions.TriggerOutcome `json:"trigger_outcomes"`
+		FollowUps []map[string]any          `json:"mention_follow_ups"`
+	}
+	if err := json.Unmarshal(retried.Body.Bytes(), &retryBody); err != nil {
+		t.Fatal(err)
+	}
+	if len(retryBody.Outcomes) != 1 || retryBody.Outcomes[0].Status != mentions.StatusQueued || retryBody.Outcomes[0].ReasonCode != "explicit_mention" {
+		t.Fatalf("retry outcome=%+v body=%s", retryBody.Outcomes, retried.Body.String())
+	}
+	followUps := s.Store.ListCommentFollowUps(createdBody.Comment.ID)
+	if len(followUps) != 1 || followUps[0].DispatchTargetType != "agent" || followUps[0].DispatchTargetID != agentID {
+		t.Fatalf("retry follow-ups=%+v body=%s", followUps, retried.Body.String())
+	}
+	if len(retryBody.FollowUps) != 1 {
+		t.Fatalf("retry response follow-ups=%+v body=%s", retryBody.FollowUps, retried.Body.String())
 	}
 }
 

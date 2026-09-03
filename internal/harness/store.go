@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
 )
@@ -100,17 +101,18 @@ type Checkpoint struct {
 }
 
 type ArchiveWindow struct {
-	ID              string    `json:"id"`
-	SessionID       string    `json:"session_id"`
-	StartSequence   int64     `json:"start_sequence"`
-	EndSequence     int64     `json:"end_sequence"`
-	SourceHash      string    `json:"source_hash"`
-	ReplacementHash string    `json:"replacement_hash"`
-	Summary         string    `json:"summary"`
-	RetainedTail    int       `json:"retained_tail"`
-	ParentArchiveID string    `json:"parent_archive_id,omitempty"`
-	Reason          string    `json:"reason,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string                            `json:"id"`
+	SessionID       string                            `json:"session_id"`
+	StartSequence   int64                             `json:"start_sequence"`
+	EndSequence     int64                             `json:"end_sequence"`
+	SourceHash      string                            `json:"source_hash"`
+	ReplacementHash string                            `json:"replacement_hash"`
+	Summary         string                            `json:"summary"`
+	RetainedTail    int                               `json:"retained_tail"`
+	ParentArchiveID string                            `json:"parent_archive_id,omitempty"`
+	Reason          string                            `json:"reason,omitempty"`
+	Compression     contextcontract.CompressionRecord `json:"compression"`
+	CreatedAt       time.Time                         `json:"created_at"`
 }
 
 type MemoryItem struct {
@@ -230,16 +232,17 @@ type ContextBlock struct {
 // Digest excludes CreatedAt, making repeated compilation of unchanged state
 // deterministic while still exposing when this manifest was produced.
 type ContextManifest struct {
-	SessionID               string         `json:"session_id"`
-	Version                 int64          `json:"version"`
-	SemanticSnapshotVersion int64          `json:"semantic_snapshot_version,omitempty"`
-	TokenBudget             int64          `json:"token_budget"`
-	TokenEstimate           int64          `json:"token_estimate"`
-	Blocks                  []ContextBlock `json:"blocks"`
-	Digest                  string         `json:"digest"`
-	PromptManifestHash      string         `json:"prompt_manifest_hash,omitempty"`
-	ParentDigest            string         `json:"parent_digest,omitempty"`
-	CreatedAt               time.Time      `json:"created_at"`
+	SessionID               string                              `json:"session_id"`
+	Version                 int64                               `json:"version"`
+	SemanticSnapshotVersion int64                               `json:"semantic_snapshot_version,omitempty"`
+	TokenBudget             int64                               `json:"token_budget"`
+	TokenEstimate           int64                               `json:"token_estimate"`
+	Blocks                  []ContextBlock                      `json:"blocks"`
+	Digest                  string                              `json:"digest"`
+	PromptManifestHash      string                              `json:"prompt_manifest_hash,omitempty"`
+	ParentDigest            string                              `json:"parent_digest,omitempty"`
+	CompressionRecords      []contextcontract.CompressionRecord `json:"compression_records,omitempty"`
+	CreatedAt               time.Time                           `json:"created_at"`
 }
 
 // ContextEnvelope is the provider-facing immutable packet for one dispatch
@@ -262,6 +265,11 @@ func (m ContextManifest) Validate() error {
 	}
 	if len(m.Blocks) == 0 {
 		return nil
+	}
+	for index, record := range m.CompressionRecords {
+		if strings.TrimSpace(record.Algorithm) == "" || strings.TrimSpace(record.Version) == "" || strings.TrimSpace(record.SourceHash) == "" || strings.TrimSpace(record.SummaryHash) == "" || record.QualityScore < 0 || record.QualityScore > 1 || strings.TrimSpace(record.ReplayKey) == "" {
+			return fmt.Errorf("context compression record %d is incomplete", index)
+		}
 	}
 	var total int64
 	for _, block := range m.Blocks {
@@ -394,9 +402,10 @@ type Store struct {
 	sessions        map[string]sessionState
 	projectMemories map[string][]MemoryItem
 	revision        int64
+	summarizer      contextcontract.Summarizer
 }
 
-const harnessStateVersion = 3
+const harnessStateVersion = 4
 
 // Durable reports whether this store is backed by an operator-owned snapshot
 // file. It intentionally does not expose the path in diagnostics.
@@ -410,7 +419,7 @@ func (s *Store) Durable() bool {
 }
 
 func New(path string) (*Store, error) {
-	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}, projectMemories: map[string][]MemoryItem{}}
+	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}, projectMemories: map[string][]MemoryItem{}, summarizer: contextcontract.ExtractiveSummarizer{}}
 	if s.path != "" {
 		s.transcriptPath = transcriptPath(s.path)
 	}
@@ -512,6 +521,21 @@ func New(path string) (*Store, error) {
 		}
 	}
 	return s, nil
+}
+
+// SetContextSummarizer installs the semantic compaction adapter used by
+// automatic budget guards. Passing nil restores the deterministic extractive
+// implementation. The full transcript remains the replay source of truth.
+func (s *Store) SetContextSummarizer(summarizer contextcontract.Summarizer) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if summarizer == nil {
+		summarizer = contextcontract.ExtractiveSummarizer{}
+	}
+	s.summarizer = summarizer
 }
 
 func (s *Store) Flush() error {
@@ -1010,7 +1034,7 @@ func (s *Store) AppendTurn(sessionID string, turn Turn) (Turn, error) {
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
-	_, _, autoCompactErr := autoCompactLocked(&state)
+	_, _, autoCompactErr := autoCompactLocked(&state, s.summarizer)
 	if autoCompactErr != nil {
 		s.sessions[sessionID] = original
 		return Turn{}, fmt.Errorf("auto compact turn: %w", autoCompactErr)
@@ -1062,7 +1086,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if contextVersion <= 0 {
 		return nil, errors.New("context version must be positive")
 	}
-	before, beforeAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"})
+	before, beforeAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"}, s.summarizer)
 	if err != nil {
 		return nil, err
 	}
@@ -1070,7 +1094,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if err != nil {
 		return nil, err
 	}
-	after, afterAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"})
+	after, afterAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"}, s.summarizer)
 	if err != nil {
 		return nil, err
 	}
@@ -1101,7 +1125,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	return []Checkpoint{beforeCheckpoint, afterCheckpoint}, nil
 }
 
-func appendTurnLocked(state *sessionState, sessionID string, turn Turn) (Turn, bool, error) {
+func appendTurnLocked(state *sessionState, sessionID string, turn Turn, summarizer contextcontract.Summarizer) (Turn, bool, error) {
 	if state == nil || state.Session.ID != sessionID {
 		return Turn{}, false, ErrNotFound
 	}
@@ -1141,7 +1165,7 @@ func appendTurnLocked(state *sessionState, sessionID string, turn Turn) (Turn, b
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
-	if _, _, err := autoCompactLocked(state); err != nil {
+	if _, _, err := autoCompactLocked(state, summarizer); err != nil {
 		return Turn{}, false, fmt.Errorf("auto compact turn: %w", err)
 	}
 	return cloneTurn(turn), true, nil
@@ -1328,6 +1352,7 @@ type CompactRequest struct {
 	Summary       string `json:"summary"`
 	RetainedTail  int    `json:"retained_tail"`
 	Reason        string `json:"reason,omitempty"`
+	compression   contextcontract.CompressionRecord
 }
 
 func (s *Store) Compact(sessionID string, request CompactRequest) (ArchiveWindow, error) {
@@ -1400,7 +1425,20 @@ func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, 
 	}
 	sourceHash := digest([]byte(source.String()))
 	replacementHash := digest([]byte(strings.TrimSpace(request.Summary)))
-	archive := ArchiveWindow{ID: domain.NewID(), SessionID: state.Session.ID, StartSequence: request.StartSequence, EndSequence: request.EndSequence, SourceHash: sourceHash, ReplacementHash: replacementHash, Summary: strings.TrimSpace(request.Summary), RetainedTail: request.RetainedTail, Reason: strings.TrimSpace(request.Reason), CreatedAt: time.Now().UTC()}
+	compression := request.compression
+	if compression.Algorithm == "" {
+		compression = contextcontract.CompressionRecord{Algorithm: "operator-summary", Version: "v1", SourceHash: sourceHash, SummaryHash: replacementHash, QualityScore: summaryCoverage(state.Turns, request), ReplayKey: sourceHash + ":" + replacementHash}
+	}
+	if compression.SourceHash == "" {
+		compression.SourceHash = sourceHash
+	}
+	if compression.SummaryHash == "" {
+		compression.SummaryHash = replacementHash
+	}
+	if compression.ReplayKey == "" {
+		compression.ReplayKey = compression.SourceHash + ":" + compression.SummaryHash
+	}
+	archive := ArchiveWindow{ID: domain.NewID(), SessionID: state.Session.ID, StartSequence: request.StartSequence, EndSequence: request.EndSequence, SourceHash: sourceHash, ReplacementHash: replacementHash, Summary: strings.TrimSpace(request.Summary), RetainedTail: request.RetainedTail, Reason: strings.TrimSpace(request.Reason), Compression: compression, CreatedAt: time.Now().UTC()}
 	if len(state.Archives) > 0 {
 		archive.ParentArchiveID = state.Archives[len(state.Archives)-1].ID
 	}
@@ -1415,7 +1453,7 @@ func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, 
 // deterministic and provenance-preserving; callers can still replace it with
 // a higher-quality model summary through Compact because the full transcript
 // remains intact for audit and replay.
-func autoCompactLocked(state *sessionState) (ArchiveWindow, bool, error) {
+func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarizer) (ArchiveWindow, bool, error) {
 	if state == nil || !state.Session.AutoCompaction || state.Session.BudgetTokens <= 0 || len(state.Turns) == 0 {
 		return ArchiveWindow{}, false, nil
 	}
@@ -1464,14 +1502,44 @@ func autoCompactLocked(state *sessionState) (ArchiveWindow, bool, error) {
 	if selectedTokens < 16 {
 		return ArchiveWindow{}, false, nil
 	}
-	summary := automaticSummary(selected, budget)
+	if summarizer == nil {
+		summarizer = contextcontract.ExtractiveSummarizer{}
+	}
+	blocks := make([]contextcontract.Block, 0, len(selected))
+	for _, turn := range selected {
+		blocks = append(blocks, contextcontract.Block{ID: turn.ID, Kind: "turn", Source: turn.ID, Content: turn.Content, Policy: "transcript", Trust: "hash_chain", SelectionReason: "automatic_compaction", TokenEstimate: estimateTokens(turn.Content)})
+	}
+	target := selectedTokens / 3
+	if target < 16 {
+		target = 16
+	}
+	if budget > 0 && target > budget/2 {
+		target = budget / 2
+	}
+	semantic, summaryErr := summarizer.Summarize(contextcontract.SummaryRequest{Blocks: blocks, TargetTokens: target})
+	summary := strings.TrimSpace(semantic.Content)
+	record := contextcontract.CompressionRecord{SourceBlockIDs: turnIDs(selected), Algorithm: "semantic-extractive", Version: "v1", TargetTokens: estimateTokens(summary), RetainedFacts: append([]string(nil), semantic.RetainedFacts...), DroppedFacts: append([]string(nil), semantic.DroppedFacts...), QualityScore: semantic.QualityScore}
+	if summaryErr != nil || summary == "" || semantic.QualityScore < 0.60 || estimateTokens(summary) >= selectedTokens {
+		summary = automaticSummary(selected, budget)
+		record.Algorithm = "deterministic-extractive-fallback"
+		record.Version = "v1"
+		record.TargetTokens = estimateTokens(summary)
+		record.QualityScore = summaryCoverage(selected, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary})
+		if summaryErr != nil {
+			record.FallbackReason = "summarizer_failed: " + summaryErr.Error()
+		} else if semantic.QualityScore < 0.60 {
+			record.FallbackReason = "summary_quality_below_threshold"
+		} else {
+			record.FallbackReason = "summary_did_not_reduce"
+		}
+	}
 	eventHash := state.Turns[len(state.Turns)-1].Hash
 	turnSequence := int64(len(state.Turns))
 	contextVersion := state.Session.ContextVersion
 	if _, err := saveCheckpointLocked(state, Checkpoint{TurnSequence: turnSequence, Phase: CheckpointCompactionBegin, EventHash: eventHash, ContextVersion: contextVersion, State: "automatic compaction pending"}); err != nil {
 		return ArchiveWindow{}, false, err
 	}
-	archive, err := compactLocked(state, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary, RetainedTail: retain, Reason: "automatic budget guard"})
+	archive, err := compactLocked(state, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary, RetainedTail: retain, Reason: "automatic budget guard", compression: record})
 	if err != nil {
 		return ArchiveWindow{}, false, err
 	}
@@ -1523,6 +1591,47 @@ func automaticSummary(turns []Turn, budget int64) string {
 		builder.WriteString(line)
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func turnIDs(turns []Turn) []string {
+	ids := make([]string, 0, len(turns))
+	for _, turn := range turns {
+		ids = append(ids, turn.ID)
+	}
+	return ids
+}
+
+func summaryCoverage(turns []Turn, request CompactRequest) float64 {
+	sourceWords := map[string]struct{}{}
+	for _, turn := range turns {
+		if turn.Sequence < request.StartSequence || turn.Sequence > request.EndSequence {
+			continue
+		}
+		for _, word := range semanticWords(turn.Content) {
+			sourceWords[word] = struct{}{}
+		}
+	}
+	if len(sourceWords) == 0 {
+		return 1
+	}
+	retained := 0
+	for _, word := range semanticWords(request.Summary) {
+		if _, ok := sourceWords[word]; ok {
+			retained++
+			delete(sourceWords, word)
+		}
+	}
+	total := retained + len(sourceWords)
+	if total == 0 {
+		return 1
+	}
+	return float64(retained) / float64(total)
+}
+
+func semanticWords(value string) []string {
+	return strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && !(r >= '\u4e00' && r <= '\u9fff')
+	})
 }
 
 func (s *Store) AddMemory(item MemoryItem) (MemoryItem, error) {
@@ -2451,6 +2560,9 @@ func validateSessionState(state sessionState) error {
 		if archive.SourceHash != digest([]byte(source.String())) || archive.ReplacementHash != digest([]byte(strings.TrimSpace(archive.Summary))) {
 			return fmt.Errorf("%w: archive digest %s", ErrCorrupt, archive.ID)
 		}
+		if archive.Compression.Algorithm != "" && (archive.Compression.SourceHash != archive.SourceHash || archive.Compression.SummaryHash != archive.ReplacementHash || archive.Compression.QualityScore < 0 || archive.Compression.QualityScore > 1 || strings.TrimSpace(archive.Compression.Version) == "" || strings.TrimSpace(archive.Compression.ReplayKey) == "") {
+			return fmt.Errorf("%w: archive compression record %s", ErrCorrupt, archive.ID)
+		}
 		if i > 0 && archive.ParentArchiveID != state.Archives[i-1].ID {
 			return fmt.Errorf("%w: archive parent %s", ErrCorrupt, archive.ID)
 		}
@@ -2604,7 +2716,22 @@ func cloneContextManifest(manifest ContextManifest) ContextManifest {
 	for i := range manifest.Blocks {
 		manifest.Blocks[i].Metadata = cloneStringMap(manifest.Blocks[i].Metadata)
 	}
+	manifest.CompressionRecords = cloneCompressionRecords(manifest.CompressionRecords)
 	return manifest
+}
+
+func cloneCompressionRecords(records []contextcontract.CompressionRecord) []contextcontract.CompressionRecord {
+	if records == nil {
+		return nil
+	}
+	cloned := make([]contextcontract.CompressionRecord, len(records))
+	copy(cloned, records)
+	for i := range cloned {
+		cloned[i].SourceBlockIDs = append([]string(nil), cloned[i].SourceBlockIDs...)
+		cloned[i].RetainedFacts = append([]string(nil), cloned[i].RetainedFacts...)
+		cloned[i].DroppedFacts = append([]string(nil), cloned[i].DroppedFacts...)
+	}
+	return cloned
 }
 
 func cloneMemory(item MemoryItem) MemoryItem {
@@ -2771,6 +2898,7 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 	}
 	sortMemories(memoryItems)
 	blocks := make([]ContextBlock, 0, len(state.Archives)+len(memoryItems)+len(state.Turns))
+	compressionRecords := make([]contextcontract.CompressionRecord, 0, len(state.Archives))
 	used := int64(0)
 	appendBlock := func(kind, source, line, policy, trust, reason string, mandatory bool, metadata map[string]string) bool {
 		line = strings.TrimSuffix(line, "\n") + "\n"
@@ -2809,6 +2937,9 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 	for _, archive := range state.Archives {
 		if !appendBlock("archive", archive.ID, fmt.Sprintf("[archive %s] %s", archive.ID, archive.Summary), "verified_summary", "verified", "archive_order", false, map[string]string{"start_sequence": fmt.Sprint(archive.StartSequence), "end_sequence": fmt.Sprint(archive.EndSequence)}) {
 			break
+		}
+		if archive.Compression.Algorithm != "" {
+			compressionRecords = append(compressionRecords, archive.Compression)
 		}
 	}
 	// Memory is append-only, but a newer fact can supersede an older one. Keep
@@ -2861,7 +2992,7 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 	if semanticVersion < 1 {
 		semanticVersion = 1
 	}
-	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, SemanticSnapshotVersion: semanticVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CreatedAt: time.Now().UTC()}
+	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, SemanticSnapshotVersion: semanticVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CompressionRecords: compressionRecords, CreatedAt: time.Now().UTC()}
 	if manifest.Version < 1 {
 		manifest.Version = 1
 	}

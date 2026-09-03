@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/durable"
 )
 
@@ -542,6 +543,71 @@ func TestAutomaticCompactionUsesBudgetGuardAndKeepsTail(t *testing.T) {
 	compiled, err := store.Compile("auto-session", 100)
 	if err != nil || !strings.Contains(compiled, "Auto-archived transcript") || !strings.Contains(compiled, "third long turn") {
 		t.Fatalf("compiled=%q err=%v", compiled, err)
+	}
+}
+
+func TestAutomaticCompactionRecordsSemanticQualityAndManifestLineage(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetContextSummarizer(contextcontract.SummarizerFunc(func(request contextcontract.SummaryRequest) (contextcontract.SummaryResult, error) {
+		return contextcontract.SummaryResult{Content: "must preserve idempotency", RetainedFacts: []string{"fact:required"}, DroppedFacts: []string{"fact:noise"}, QualityScore: 0.9}, nil
+	}))
+	if _, err := store.CreateSession(Session{ID: "semantic-session", TenantID: "tenant", WorkspaceID: "workspace", BudgetTokens: 20, CompactionRetainTail: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{strings.Repeat("source context ", 10), strings.Repeat("more source context ", 10), "latest turn stays raw"} {
+		if _, err := store.AppendTurn("semantic-session", Turn{Role: RoleUser, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archives, err := store.ListArchives("semantic-session")
+	if err != nil || len(archives) == 0 {
+		t.Fatalf("archives=%+v err=%v", archives, err)
+	}
+	record := archives[0].Compression
+	if record.Algorithm != "semantic-extractive" || record.QualityScore != 0.9 || record.SourceHash != archives[0].SourceHash || record.SummaryHash != archives[0].ReplacementHash || len(record.RetainedFacts) != 1 || len(record.DroppedFacts) != 1 {
+		t.Fatalf("semantic compression record=%+v archive=%+v", record, archives[0])
+	}
+	manifest, err := store.CompileManifest("semantic-session", 100)
+	if err != nil || len(manifest.CompressionRecords) != len(archives) {
+		t.Fatalf("manifest=%+v err=%v", manifest, err)
+	}
+	foundRecord := false
+	for _, candidate := range manifest.CompressionRecords {
+		if candidate.ReplayKey == record.ReplayKey {
+			foundRecord = true
+		}
+	}
+	if !foundRecord {
+		t.Fatalf("manifest did not retain archive compression lineage: %+v", manifest.CompressionRecords)
+	}
+}
+
+func TestAutomaticCompactionFallsBackWithoutLosingTurn(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetContextSummarizer(contextcontract.SummarizerFunc(func(contextcontract.SummaryRequest) (contextcontract.SummaryResult, error) {
+		return contextcontract.SummaryResult{}, errors.New("summary service unavailable")
+	}))
+	if _, err := store.CreateSession(Session{ID: "fallback-session", TenantID: "tenant", WorkspaceID: "workspace", BudgetTokens: 20, CompactionRetainTail: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{strings.Repeat("first recoverable turn ", 10), strings.Repeat("second recoverable turn ", 10), "latest raw turn"} {
+		if _, err := store.AppendTurn("fallback-session", Turn{Role: RoleUser, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archives, err := store.ListArchives("fallback-session")
+	turns, _, turnsErr := store.ListTurns("fallback-session", 0, 10)
+	if err != nil || turnsErr != nil || len(archives) == 0 || len(turns) != 3 {
+		t.Fatalf("archives=%+v turns=%+v err=%v turns_err=%v", archives, turns, err, turnsErr)
+	}
+	if archives[0].Compression.Algorithm != "deterministic-extractive-fallback" || !strings.Contains(archives[0].Compression.FallbackReason, "summary service unavailable") || archives[0].Compression.ReplayKey == "" {
+		t.Fatalf("fallback was not recoverable: %+v", archives[0].Compression)
 	}
 }
 

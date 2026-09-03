@@ -21,12 +21,15 @@ import (
 // complete typed scope and context envelope.  Production workers can replace
 // this adapter with a queue consumer without changing the contracts.
 type Executor struct {
-	Provider   provider.ExecutionProvider
-	Repository Repository
-	Events     interface{ AppendEvent(Event) error }
-	Owner      string
-	Now        func() time.Time
-	LeaseTTL   time.Duration
+	Provider         provider.ExecutionProvider
+	Repository       Repository
+	Events           interface{ AppendEvent(Event) error }
+	GateEvaluator    GateEvaluator
+	MergeReducer     MergeReducer
+	RepairController RepairController
+	Owner            string
+	Now              func() time.Time
+	LeaseTTL         time.Duration
 }
 
 func (e Executor) now() time.Time {
@@ -106,27 +109,54 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 			started = append(started, waiting)
 			continue
 		}
-		evidence := []string{"structural:" + node.ID + ":" + a.ID}
-		for _, edge := range plan.GraphSnapshot.Edges {
-			if edge.To != node.ID {
-				continue
-			}
-			if source, ok := projection.Nodes[edge.From]; ok && source.CurrentAttempt != "" {
-				evidence = append(evidence, source.CurrentAttempt)
-			}
-		}
-		finished, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: "success", Result: StructuredResult{Outcome: "pass", Summary: "structural node completed", EvidenceIDs: evidence}, IdempotencyKey: key + ":success", Now: now})
+		input := StructuralInput{Plan: plan, Projection: cloneProjection(*projection), Node: node, Attempt: a, Envelope: envelope, Incoming: incomingStructuralSources(plan, *projection, node.ID)}
+		decision, err := e.evaluateStructural(ctx, input)
 		if err != nil {
 			*projection = before
 			return started, err
 		}
-		if err := e.commitAttemptEvent(ctx, plan, projection, finished, "attempt.finished", key+":finished", map[string]any{"attempt_id": finished.ID, "event": "success", "result": finished.Result, "transition_idempotency_key": key + ":success", "transition_at": now}, lease.FencingToken); err != nil {
+		if decision.Event == "" || decision.Result.ReasonCode == "" || len(decision.Result.EvidenceIDs) == 0 {
+			*projection = before
+			return started, fmt.Errorf("%s node %s returned an incomplete structural decision", node.Kind, node.ID)
+		}
+		finishKey := key + ":" + decision.Result.ReasonCode
+		finished, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: decision.Event, Result: decision.Result, Failure: decision.Failure, IdempotencyKey: finishKey, Now: now})
+		if err != nil {
+			*projection = before
+			return started, err
+		}
+		if err := e.commitAttemptEvent(ctx, plan, projection, finished, "attempt.finished", key+":finished", map[string]any{"attempt_id": finished.ID, "event": decision.Event, "result": finished.Result, "failure": decision.Failure, "artifact_ids": decision.ArtifactIDs, "transition_idempotency_key": finishKey, "transition_at": now}, lease.FencingToken); err != nil {
 			*projection = before
 			return started, err
 		}
 		started = append(started, finished)
 	}
 	return started, nil
+}
+
+func (e Executor) evaluateStructural(ctx context.Context, input StructuralInput) (StructuralDecision, error) {
+	switch input.Node.Kind {
+	case NodeGate:
+		evaluator := e.GateEvaluator
+		if evaluator == nil {
+			evaluator = DefaultGateEvaluator{}
+		}
+		return evaluator.EvaluateGate(ctx, input)
+	case NodeMerge:
+		reducer := e.MergeReducer
+		if reducer == nil {
+			reducer = DefaultMergeReducer{}
+		}
+		return reducer.ReduceMerge(ctx, input)
+	case NodeRepair:
+		controller := e.RepairController
+		if controller == nil {
+			controller = DefaultRepairController{}
+		}
+		return controller.PlanRepair(ctx, input)
+	default:
+		return StructuralDecision{}, fmt.Errorf("unsupported structural node kind %q", input.Node.Kind)
+	}
 }
 
 func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, attempt NodeAttempt, typ, key string, payload map[string]any, fencing ...int64) error {

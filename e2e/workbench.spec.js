@@ -85,6 +85,62 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('posts a structured mention comment with an attachment and reply', async ({ page }) => {
+  await page.locator('.nav-item[data-view="repositories"]').click();
+  await page.locator('#newResource').click();
+  await page.locator('#resourceFields input[name="name"]').fill('comment-evidence-service');
+  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/comment-evidence.git');
+  await page.locator('#resourceForm button[type="submit"]').click();
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('#newRequirement').click();
+  await page.locator('#requirementForm input[name="title"]').fill('Comment thread acceptance');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Exercise the structured comment delivery path.');
+  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The comment is retained with its attachment and reply.');
+  await page.locator('#requirementRepository').selectOption({ label: 'comment-evidence-service' });
+  await page.locator('#requirementAssignee').selectOption({ index: 0 });
+  await page.locator('#requirementForm button[type="submit"]').click();
+
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await page.locator('#agentForm input[name="member"]').fill('comment-evidence-owner');
+  await page.locator('#agentForm input[name="name"]').fill('Comment Evidence Agent');
+  await page.locator('#agentForm textarea[name="instructions"]').fill('Process the comment acceptance evidence.');
+  await page.locator('#agentForm input[name="role"]').fill('delivery');
+  await page.locator('#agentForm button[type="submit"]').click();
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  await expect(page.locator('tr').filter({ hasText: 'Comment Evidence Agent' }).first()).toContainText('active');
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  const row = page.locator('tr[data-requirement-id]').filter({ hasText: 'Comment thread acceptance' }).first();
+  await row.click();
+  await expect(page.locator('#detailDialog')).toBeVisible();
+  await expect(page.locator('#commentInput')).toBeVisible();
+
+  await page.locator('#commentInput').fill('@Comment');
+  await expect(page.locator('.comment-mention-option').filter({ hasText: 'Comment Evidence Agent' }).first()).toBeVisible();
+  await page.locator('.comment-mention-option').filter({ hasText: 'Comment Evidence Agent' }).first().click();
+  await expect(page.locator('#commentInput')).toHaveValue(/mention:\/\/agent\//);
+  await page.locator('#commentPreviewButton').click();
+  await expect(page.locator('#commentPreview')).toBeVisible();
+  await expect(page.locator('#commentPreview')).toContainText('agent:');
+
+  await page.locator('#commentFiles').setInputFiles({ name: 'comment-evidence.txt', mimeType: 'text/plain', buffer: Buffer.from('comment delivery evidence') });
+  await page.locator('#commentComposer button[type="submit"]').click();
+  await expect(page.locator('#commentThread')).toContainText('@Comment Evidence Agent');
+  await expect(page.locator('.comment-attachment')).toContainText('comment-evidence.txt');
+  await expect(page.locator('.comment-activity')).toContainText('触发结果');
+
+  const firstComment = page.locator('.comment-item').first();
+  await firstComment.locator('.comment-reply').click();
+  await expect(page.locator('#commentComposerContext')).toBeVisible();
+  await page.locator('#commentInput').fill('Thread reply with additional evidence');
+  await page.locator('#commentComposer button[type="submit"]').click();
+  await expect(page.locator('#commentThread')).toContainText('Thread reply with additional evidence');
+  await expect(page.locator('#commentThread .comment-item')).toHaveCount(2);
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('captures the screenshot delivery path through ArtifactStore and provider', async ({ page }) => {
   await page.locator('.nav-item[data-view="artifacts"]').click();
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');

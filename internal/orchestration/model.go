@@ -173,6 +173,35 @@ type RetryPolicy struct {
 	RetryOn     []string      `json:"retry_on,omitempty"`
 }
 
+// GatePolicy is the declarative input contract for a Gate node. Predicates
+// are evaluated against committed incoming results, never against arbitrary
+// executable expressions.
+type GatePolicy struct {
+	Predicate        Predicate `json:"predicate,omitempty"`
+	RequiredEvidence []string  `json:"required_evidence,omitempty"`
+	FailureCode      string    `json:"failure_code,omitempty"`
+}
+
+// MergePolicy controls conflict handling for a Merge node. The default
+// collect policy preserves every branch result; prefer_priority and fail make
+// the conflict decision explicit and replayable.
+type MergePolicy struct {
+	ConflictPolicy  string   `json:"conflict_policy,omitempty"`
+	KeyFields       []string `json:"key_fields,omitempty"`
+	RequireEvidence bool     `json:"require_evidence,omitempty"`
+}
+
+// RepairPolicy describes the bounded repair hand-off represented by a Repair
+// node. The actual patch is performed by the configured downstream agent or
+// squad; this controller records scope, lineage, and verification intent.
+type RepairPolicy struct {
+	TargetNodeID        string   `json:"target_node_id,omitempty"`
+	Scope               []string `json:"scope,omitempty"`
+	VerificationNodeIDs []string `json:"verification_node_ids,omitempty"`
+	MaxRounds           int      `json:"max_rounds,omitempty"`
+	Budget              Budget   `json:"budget,omitempty"`
+}
+
 type Predicate struct {
 	Kind     string      `json:"kind"`
 	Field    string      `json:"field,omitempty"`
@@ -209,7 +238,10 @@ type WorkflowNode struct {
 	JoinQuorum int `json:"join_quorum,omitempty"`
 	// JoinFailurePolicy makes merge failure behavior explicit. Supported values
 	// are wait (default) and short_circuit.
-	JoinFailurePolicy string `json:"join_failure_policy,omitempty"`
+	JoinFailurePolicy string       `json:"join_failure_policy,omitempty"`
+	GatePolicy        GatePolicy   `json:"gate_policy,omitempty"`
+	MergePolicy       MergePolicy  `json:"merge_policy,omitempty"`
+	RepairPolicy      RepairPolicy `json:"repair_policy,omitempty"`
 }
 type WorkflowEdge struct {
 	ID               string    `json:"id"`
@@ -286,6 +318,7 @@ type Lease struct {
 }
 type StructuredResult struct {
 	Outcome     string         `json:"outcome"`
+	ReasonCode  string         `json:"reason_code,omitempty"`
 	Fields      map[string]any `json:"fields,omitempty"`
 	Summary     string         `json:"summary,omitempty"`
 	EvidenceIDs []string       `json:"evidence_ids,omitempty"`

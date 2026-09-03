@@ -53,8 +53,6 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 			a, getErr := s.Orchestration.GetAgent(comment.WorkspaceID, m.TargetID, 0)
 			if getErr == nil {
 				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: a.WorkspaceID, Active: a.Status == orchestration.AgentActive, Version: a.Revision, CanInvoke: a.Status == orchestration.AgentActive})
-			} else {
-				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: comment.WorkspaceID})
 			}
 		case mentions.TargetSquad:
 			sq, getErr := s.Orchestration.GetSquad(comment.WorkspaceID, m.TargetID, 0)
@@ -67,8 +65,6 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 					}
 				}
 				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: sq.WorkspaceID, Active: sq.Status == orchestration.SquadPublished, Version: sq.PublishedVersion, LeaderID: leader, CanInvoke: sq.Status == orchestration.SquadPublished && leader != ""})
-			} else {
-				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: comment.WorkspaceID})
 			}
 		}
 	}
@@ -128,7 +124,10 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.problem(w, r, status, "comment_edit_failed", err.Error(), nil)
 		return
 	}
-	triggerMaterialChanged := old.Content != updated.Content || !equalStrings(old.AttachmentIDs, updated.AttachmentIDs)
+	// Attachment uploads are committed after the comment exists because the
+	// attachment owner must already be a persisted comment. They create a new
+	// immutable revision, but must not cancel and redispatch an unchanged body.
+	triggerMaterialChanged := old.Content != updated.Content
 	if triggerMaterialChanged {
 		// Editing a comment invalidates all trigger receipts derived from the
 		// previous content. Cancel provider runs before recomputing the new AST;
@@ -277,7 +276,8 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 		converted = append(converted, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
 	}
 	_, _ = s.Store.SetCommentTriggerOutcomes(commentID, comment.Revision, converted)
-	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": commentID, "trigger_outcomes": plan.Outcomes})
+	followUps := s.dispatchStructuredMentions(r, comment, plan.Outcomes)
+	s.writeJSON(w, http.StatusAccepted, map[string]any{"comment_id": commentID, "trigger_outcomes": plan.Outcomes, "mention_follow_ups": followUps})
 }
 
 // commentRoute implements the provider-neutral discussion contract for a

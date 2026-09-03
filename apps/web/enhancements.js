@@ -26,7 +26,7 @@
     userManagement: '用户与菜单权限', identityCount: '个身份', permissionSummary: '菜单', edit: '编辑', userSaveFailed: '用户保存失败，请检查用户名、密码和管理员约束',
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
     runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限'
-    ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线'
+    ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.en, {
     chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
@@ -49,8 +49,10 @@
     userManagement: 'Users and menu access', identityCount: 'identities', permissionSummary: 'menus', edit: 'Edit', userSaveFailed: 'Could not save the user; check the username, password, and administrator constraints',
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
     runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions'
-    ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline'
+    ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
   });
+  Object.assign(translations.zh, { reply: '回复', cancelReply: '取消回复', retryTrigger: '重试触发', attachComment: '添加附件', attachmentReady: '附件已准备', commentReplyingTo: '正在回复', commentEmpty: '评论内容不能为空', commentSendFailed: '评论发布失败', commentLoadFailed: '评论加载失败', commentPreview: '触发预览', commentPreviewReady: '预览已更新', commentPreviewNoTargets: '没有可触发的结构化 mention', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: '触发结果', commentFollowUp: '执行收据', commentNoOutcome: '暂无触发结果', outcomeQueued: '已排队', outcomeCoalesced: '已合并', outcomeDeferred: '已延迟', outcomeBlocked: '已阻止', outcomeStarted: '已启动', outcomeRunning: '运行中', outcomeCompleted: '已完成', outcomeFailed: '失败', outcomeRetrying: '重试中', outcomeCancelled: '已取消', outcomeTimedOut: '已超时', outcomeNotRequested: '未请求', planGraph: '计划图', planGraphHelp: '可在提交前临时编辑已选 Agent 或 Squad 的图。', planGraphLoad: '载入图', planGraphValidate: '校验并预览', planGraphStatus: '提交前检查', planGraphReady: '计划图已通过检查', planGraphInvalid: '计划图校验失败', graphDiagnostics: '节点/边/循环/并发' });
+  Object.assign(translations.en, { reply: 'Reply', cancelReply: 'Cancel reply', retryTrigger: 'Retry trigger', attachComment: 'Attach files', attachmentReady: 'Files attached', commentReplyingTo: 'Replying to', commentEmpty: 'Comment cannot be empty', commentSendFailed: 'Could not post the comment', commentLoadFailed: 'Could not load comments', commentPreview: 'Preview triggers', commentPreviewReady: 'Preview updated', commentPreviewNoTargets: 'No structured mentions to invoke', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: 'Trigger outcome', commentFollowUp: 'Execution receipt', commentNoOutcome: 'No trigger outcome', outcomeQueued: 'Queued', outcomeCoalesced: 'Coalesced', outcomeDeferred: 'Deferred', outcomeBlocked: 'Blocked', outcomeStarted: 'Started', outcomeRunning: 'Running', outcomeCompleted: 'Completed', outcomeFailed: 'Failed', outcomeRetrying: 'Retrying', outcomeCancelled: 'Cancelled', outcomeTimedOut: 'Timed out', outcomeNotRequested: 'Not requested', planGraph: 'Plan graph', planGraphHelp: 'Temporarily edit the selected Agent or Squad graph before submitting.', planGraphLoad: 'Load graph', planGraphValidate: 'Validate and preview', planGraphStatus: 'Pre-submit checks', planGraphReady: 'Plan graph passed checks', planGraphInvalid: 'Plan graph validation failed', graphDiagnostics: 'nodes / edges / loops / concurrency' });
 
   let currentUser = null;
   let directory = [];
@@ -59,6 +61,18 @@
   let nativeAgents = [];
   let nativeSquads = [];
   let nativePlans = [];
+  let activeGraphEditor = null;
+  let commentReplyParentID = '';
+  let commentMentionIndex = -1;
+  let commentMentionOptions = [];
+  let commentMentionStart = -1;
+  let commentMentionTargetID = '';
+  let commentDraftFiles = [];
+  let commentMentionRoster = [];
+  let commentMentionRosterPromise = null;
+  let activeCommentTargetID = '';
+  let activeCommentItems = [];
+  let commentActivity = new Map();
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -335,6 +349,192 @@
     return `<button class="action-button ${variant}" type="button" data-orchestration-kind="${escapeHTML(kind)}" data-orchestration-id="${escapeHTML(id)}" data-orchestration-action="${escapeHTML(action)}">${escapeHTML(t(label || action))}</button>`;
   }
 
+  function ensureGraphDialog() {
+    if ($('#graphEditorDialog')) return;
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="graphEditorDialog" class="orchestration-dialog graph-editor-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / WORKFLOW GRAPH</p><h2>${escapeHTML(t('graphEditor'))}</h2><p id="graphEditorTarget" class="mono"></p></div><button class="dialog-close" id="closeGraphEditor" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><form id="graphEditorForm"><label><span>${escapeHTML(t('graphJSON'))}</span><textarea id="graphEditorJSON" spellcheck="false" required></textarea><small class="form-help">${escapeHTML(t('graphJSONHelp'))}</small></label><div id="graphEditorSummary" class="graph-editor-summary"></div><p id="graphEditorStatus" class="form-error" role="status"></p><div class="form-actions"><button class="secondary" id="graphEditorFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="graphEditorValidate" type="button">${escapeHTML(t('validateGraph'))}</button><button class="primary" id="graphEditorSave" type="submit">${escapeHTML(t('saveGraph'))}</button></div></form></dialog>`);
+    $('#closeGraphEditor').onclick = () => $('#graphEditorDialog').close();
+    $('#graphEditorDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
+    $('#graphEditorFormat').onclick = () => {
+      try { $('#graphEditorJSON').value = JSON.stringify(JSON.parse($('#graphEditorJSON').value), null, 2); setGraphEditorStatus(''); } catch (_) { setGraphEditorStatus(t('graphValidationFailed'), true); }
+    };
+    $('#graphEditorValidate').onclick = () => validateGraphEditor();
+    $('#graphEditorForm').onsubmit = saveGraphEditor;
+  }
+
+  function setGraphEditorStatus(message, bad = false) {
+    const target = $('#graphEditorStatus');
+    if (!target) return;
+    target.textContent = message;
+    target.className = `form-error ${bad ? 'graph-status-bad' : 'graph-status-good'}`;
+  }
+
+  function renderGraphEditorSummary(graph) {
+    const target = $('#graphEditorSummary');
+    if (!target) return;
+    const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+    target.innerHTML = `<div class="graph-summary-head"><strong>${escapeHTML(t('graphNodes'))} ${nodes.length}</strong><span>${escapeHTML(t('edges'))} ${edges.length}</span></div><div class="graph-node-list">${nodes.map(node => `<span class="graph-node-chip"><b>${escapeHTML(node.id || '?')}</b><small>${escapeHTML(node.kind || '?')}</small></span>`).join('') || `<span class="muted">${escapeHTML(t('noItems'))}</span>`}</div><p class="form-help">${escapeHTML(t('graphNodeHint'))}</p>`;
+  }
+
+  function graphEditorInput() {
+    try {
+      const graph = JSON.parse($('#graphEditorJSON').value);
+      if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw new Error('graph must be an object');
+      return graph;
+    } catch (error) {
+      setGraphEditorStatus(error.message || t('graphValidationFailed'), true);
+      return null;
+    }
+  }
+
+  async function validateGraphEditor() {
+    const graph = graphEditorInput();
+    if (!graph) return false;
+    try {
+      const response = await api('/api/v1/execution-plans/validate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({graph})});
+      if (!response.valid) { setGraphEditorStatus(response.error || t('graphValidationFailed'), true); return false; }
+      $('#graphEditorJSON').value = JSON.stringify(response.graph, null, 2);
+      renderGraphEditorSummary(response.graph);
+      const d = response.diagnostics || {};
+      setGraphEditorStatus(`${t('validate')}: ${d.node_count || 0} ${t('graphNodes')} / ${d.edge_count || 0} ${t('edges')}`);
+      return true;
+    } catch (_) {
+      setGraphEditorStatus(t('graphValidationFailed'), true);
+      return false;
+    }
+  }
+
+  function openGraphEditor(squad) {
+    if (!squad) return;
+    ensureGraphDialog();
+    activeGraphEditor = {id: squad.id, revision: squad.revision, name: squad.name};
+    $('#graphEditorTarget').textContent = `${squad.name || squad.id} · r${squad.revision}`;
+    $('#graphEditorJSON').value = JSON.stringify(squad.graph || {}, null, 2);
+    renderGraphEditorSummary(squad.graph || {});
+    setGraphEditorStatus('');
+    $('#graphEditorDialog').showModal();
+    setTimeout(() => $('#graphEditorJSON').focus(), 0);
+  }
+
+  async function saveGraphEditor(event) {
+    event.preventDefault();
+    if (!activeGraphEditor) return;
+    if (!(await validateGraphEditor())) return;
+    const graph = graphEditorInput();
+    try {
+      await api(`/api/v1/workspaces/local/squads/${encodeURIComponent(activeGraphEditor.id)}/graph`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({expected_revision: activeGraphEditor.revision, graph})});
+      $('#graphEditorDialog').close();
+      await loadOrchestrationData();
+      setOrchestrationStatus(t('graphSaved'));
+    } catch (_) {
+      setGraphEditorStatus(t('graphValidationFailed'), true);
+    }
+  }
+
+  function graphForNativeAgent(agent) {
+    const graphID = crypto.randomUUID?.() || `graph-${Date.now()}`;
+    return {id: graphID, version: agent.revision || 1, entry_node_ids: ['agent'], exit_node_ids: ['agent'], nodes: [{id: 'agent', kind: 'agent', agent_ref: {id: agent.id, revision: agent.revision}, retry_policy: {max_attempts: 3}, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}], edges: []};
+  }
+
+  function nativePlanSelectionBody() {
+    const value = String($('#nativePlanTarget')?.value || '');
+    const [kind, id] = value.split(':', 2);
+    const body = {};
+    if (kind === 'agent') {
+      const agent = nativeAgents.find(item => item.id === id);
+      body.agent_id = id;
+      body.agent_revision = agent?.revision || 0;
+    } else if (kind === 'squad') {
+      const squad = nativeSquads.find(item => item.id === id);
+      body.squad_id = id;
+      body.squad_version = squad?.published_version || 0;
+    }
+    return body;
+  }
+
+  function setNativePlanGraphStatus(message, bad = false) {
+    const status = $('#nativePlanGraphStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `form-help ${bad ? 'graph-status-bad' : 'graph-status-good'}`;
+  }
+
+  function renderNativePlanGraphSummary(graph, diagnostics = {}) {
+    const target = $('#nativePlanGraphSummary');
+    if (!target) return;
+    const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+    const loopCount = diagnostics.loop_edge_count ?? edges.filter(edge => edge.max_traversals || edge.loop_group).length;
+    const concurrency = diagnostics.max_concurrency ?? nodes.reduce((max, node) => Math.max(max, node.budget?.concurrent || 0), 0);
+    target.innerHTML = `<div class="graph-summary-head"><strong>${escapeHTML(t('graphNodes'))} ${nodes.length}</strong><span>${escapeHTML(t('edges'))} ${edges.length}</span></div><div class="graph-node-list">${nodes.map(node => `<span class="graph-node-chip"><b>${escapeHTML(node.id || '?')}</b><small>${escapeHTML(node.kind || '?')}</small></span>`).join('') || `<span class="muted">${escapeHTML(t('noItems'))}</span>`}</div><p class="form-help">${escapeHTML(t('graphDiagnostics'))}: ${escapeHTML(String(loopCount))} / ${escapeHTML(String(concurrency || 0))}</p>`;
+  }
+
+  function nativePlanGraphInput() {
+    const textarea = $('#nativePlanGraph');
+    if (!textarea || !textarea.value.trim()) return null;
+    try {
+      const graph = JSON.parse(textarea.value);
+      if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw new Error('graph must be an object');
+      return graph;
+    } catch (error) {
+      setNativePlanGraphStatus(error.message || t('planGraphInvalid'), true);
+      return undefined;
+    }
+  }
+
+  async function loadNativePlanGraph() {
+    const value = String($('#nativePlanTarget')?.value || '');
+    const [kind, id] = value.split(':', 2);
+    const target = kind === 'agent' ? nativeAgents.find(item => item.id === id) : nativeSquads.find(item => item.id === id);
+    if (!target) return;
+    const graph = kind === 'agent' ? graphForNativeAgent(target) : target.graph;
+    $('#nativePlanGraph').value = JSON.stringify(graph || {}, null, 2);
+    renderNativePlanGraphSummary(graph || {});
+    setNativePlanGraphStatus('');
+  }
+
+  async function validateNativePlanGraph(requirementID) {
+    const graph = nativePlanGraphInput();
+    if (graph === undefined) return null;
+    if (!graph) {
+      setNativePlanGraphStatus(t('planGraphInvalid'), true);
+      return null;
+    }
+    try {
+      const body = {...nativePlanSelectionBody(), graph, idempotency_key: `preview-${idempotencyKey()}`};
+      const response = await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/execution-plan/dry-run`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (!response.valid) {
+        setNativePlanGraphStatus((response.errors || [t('planGraphInvalid')]).join('; '), true);
+        return null;
+      }
+      $('#nativePlanGraph').value = JSON.stringify(response.graph || graph, null, 2);
+      renderNativePlanGraphSummary(response.graph || graph, response.diagnostics || {});
+      setNativePlanGraphStatus(`${t('planGraphReady')} · ${(response.ready_nodes || []).length} ${t('nodes')}`);
+      return response.graph || graph;
+    } catch (_) {
+      setNativePlanGraphStatus(t('planGraphInvalid'), true);
+      return null;
+    }
+  }
+
+  function ensureNativePlanGraphControls() {
+    const host = $('#nativePlanGraphControls');
+    if (!host || host.dataset.ready === 'true') return;
+    host.dataset.ready = 'true';
+    host.innerHTML = `<div class="plan-graph-head"><strong>${escapeHTML(t('planGraph'))}</strong><button class="secondary" id="nativePlanGraphLoad" type="button">${escapeHTML(t('planGraphLoad'))}</button></div><textarea id="nativePlanGraph" spellcheck="false" aria-label="${escapeHTML(t('planGraph'))}"></textarea><small class="form-help">${escapeHTML(t('planGraphHelp'))}</small><div id="nativePlanGraphSummary" class="graph-editor-summary"></div><p id="nativePlanGraphStatus" class="form-help" role="status"></p><div class="form-actions plan-graph-actions"><button class="secondary" id="nativePlanGraphFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="nativePlanGraphValidate" type="button">${escapeHTML(t('planGraphValidate'))}</button></div>`;
+    $('#nativePlanTarget').addEventListener('change', loadNativePlanGraph);
+    $('#nativePlanGraphLoad').onclick = loadNativePlanGraph;
+    $('#nativePlanGraphFormat').onclick = () => {
+      const graph = nativePlanGraphInput();
+      if (graph) {
+        $('#nativePlanGraph').value = JSON.stringify(graph, null, 2);
+        renderNativePlanGraphSummary(graph);
+        setNativePlanGraphStatus('');
+      }
+    };
+    $('#nativePlanGraphValidate').onclick = () => validateNativePlanGraph(String($('#nativePlanRequirement')?.value || ''));
+  }
+
   renderAgents = function nativeOrchestrationStudio() {
     const agentRows = nativeAgents.map(agent => {
       const lifecycle = agent.status === 'active'
@@ -347,7 +547,7 @@
       const publish = squad.status === 'draft' ? orchestrationAction(squad.id, 'squad', 'publish', 'publish', 'accent') : '';
       const disable = squad.status === 'published' ? orchestrationAction(squad.id, 'squad', 'disable', 'disable') : '';
       const archive = squad.status !== 'archived' ? orchestrationAction(squad.id, 'squad', 'archive', 'archive', 'danger') : '';
-      return `<tr><td><strong>${escapeHTML(squad.name || squad.id)}</strong><div class="mono orchestration-id">${escapeHTML(squad.id)}</div></td><td><span class="status ${squad.status === 'published' ? 'good' : squad.status === 'archived' ? 'bad' : 'active'}">${escapeHTML(squad.status)}</span></td><td class="mono">r${escapeHTML(String(squad.revision || 0))} · v${escapeHTML(String(squad.published_version || 0))}</td><td>${escapeHTML(String((squad.members || []).length))}</td><td>${escapeHTML(String((squad.graph?.nodes || []).length))}</td><td><div class="row-actions">${orchestrationAction(squad.id, 'squad', 'validate', 'validate')}${orchestrationAction(squad.id, 'squad', 'dry-run', 'dryRun')}${publish}${disable}${archive}</div></td></tr>`;
+      return `<tr><td><strong>${escapeHTML(squad.name || squad.id)}</strong><div class="mono orchestration-id">${escapeHTML(squad.id)}</div></td><td><span class="status ${squad.status === 'published' ? 'good' : squad.status === 'archived' ? 'bad' : 'active'}">${escapeHTML(squad.status)}</span></td><td class="mono">r${escapeHTML(String(squad.revision || 0))} · v${escapeHTML(String(squad.published_version || 0))}</td><td>${escapeHTML(String((squad.members || []).length))}</td><td>${escapeHTML(String((squad.graph?.nodes || []).length))}</td><td><div class="row-actions">${orchestrationAction(squad.id, 'squad', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(squad.id, 'squad', 'fork', 'forkSquad')}${orchestrationAction(squad.id, 'squad', 'validate', 'validate')}${orchestrationAction(squad.id, 'squad', 'dry-run', 'dryRun')}${publish}${disable}${archive}</div></td></tr>`;
     });
     const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
     const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
@@ -356,7 +556,7 @@
 
   function ensureOrchestrationDialogs() {
     if ($('#squadDialog')) return;
-    document.body.insertAdjacentHTML('beforeend', `<dialog id="squadDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / SQUAD</p><h2>${escapeHTML(t('newSquad'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="squadDialog" type="button">×</button></div><form id="squadForm"><label><span>${escapeHTML(t('squadName'))}</span><input name="name" required></label><label><span>${escapeHTML(t('squadDescription'))}</span><textarea name="description"></textarea></label><label><span>${escapeHTML(t('squadLeader'))}</span><select name="leader" id="squadLeader" required></select></label><p class="form-error" id="squadFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="squadDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('create'))}</button></div></form></dialog><dialog id="nativePlanDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / IMMUTABLE PLAN</p><h2>${escapeHTML(t('newPlan'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="nativePlanDialog" type="button">×</button></div><form id="nativePlanForm"><label><span>${escapeHTML(t('planRequirement'))}</span><select name="requirement" id="nativePlanRequirement" required></select></label><label><span>${escapeHTML(t('planTarget'))}</span><select name="target" id="nativePlanTarget" required></select></label><p class="form-error" id="nativePlanFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="nativePlanDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('publish'))}</button></div></form></dialog><dialog id="timelineDialog" class="orchestration-dialog timeline-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / REPLAY</p><h2>${escapeHTML(t('timeline'))}</h2><p id="timelinePlanID" class="mono"></p></div><button class="dialog-close" data-close-orchestration="timelineDialog" type="button">×</button></div><pre id="timelineContent" class="timeline-content"></pre><div class="form-actions"><button class="secondary" data-close-orchestration="timelineDialog" type="button">${escapeHTML(t('closeTimeline'))}</button></div></dialog>`);
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="squadDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / SQUAD</p><h2>${escapeHTML(t('newSquad'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="squadDialog" type="button">×</button></div><form id="squadForm"><label><span>${escapeHTML(t('squadName'))}</span><input name="name" required></label><label><span>${escapeHTML(t('squadDescription'))}</span><textarea name="description"></textarea></label><label><span>${escapeHTML(t('squadLeader'))}</span><select name="leader" id="squadLeader" required></select></label><p class="form-error" id="squadFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="squadDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('create'))}</button></div></form></dialog><dialog id="nativePlanDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / IMMUTABLE PLAN</p><h2>${escapeHTML(t('newPlan'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="nativePlanDialog" type="button">×</button></div><form id="nativePlanForm"><label><span>${escapeHTML(t('planRequirement'))}</span><select name="requirement" id="nativePlanRequirement" required></select></label><label><span>${escapeHTML(t('planTarget'))}</span><select name="target" id="nativePlanTarget" required></select></label><div id="nativePlanGraphControls"></div><p class="form-error" id="nativePlanFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="nativePlanDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('publish'))}</button></div></form></dialog><dialog id="timelineDialog" class="orchestration-dialog timeline-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / REPLAY</p><h2>${escapeHTML(t('timeline'))}</h2><p id="timelinePlanID" class="mono"></p></div><button class="dialog-close" data-close-orchestration="timelineDialog" type="button">×</button></div><pre id="timelineContent" class="timeline-content"></pre><div class="form-actions"><button class="secondary" data-close-orchestration="timelineDialog" type="button">${escapeHTML(t('closeTimeline'))}</button></div></dialog>`);
     document.querySelectorAll('[data-close-orchestration]').forEach(button => {
       button.onclick = () => $(`#${button.dataset.closeOrchestration}`)?.close();
     });
@@ -365,6 +565,7 @@
     $('#timelineDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
     $('#squadForm').onsubmit = createNativeSquad;
     $('#nativePlanForm').onsubmit = createNativePlan;
+    ensureNativePlanGraphControls();
   }
 
   function setOrchestrationStatus(message, bad = false) {
@@ -399,6 +600,7 @@
       setOrchestrationStatus(t('noPublishedTarget'), true);
       return;
     }
+    loadNativePlanGraph();
     $('#nativePlanDialog').showModal();
   }
 
@@ -408,11 +610,10 @@
     const data = new FormData(form);
     const leader = nativeAgents.find(agent => agent.id === String(data.get('leader')));
     if (!leader) return;
-    const graphID = crypto.randomUUID?.() || `graph-${Date.now()}`;
     const body = {
       name: String(data.get('name')).trim(), description: String(data.get('description')).trim(), status: 'draft',
       members: [{id: 'leader', agent_id: leader.id, role: leader.role || 'leader', leader: true, input_schema: leader.input_schema, output_schema: leader.output_schema, max_attempts: 3, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}],
-      graph: {id: graphID, version: 1, entry_node_ids: ['leader'], exit_node_ids: ['leader'], nodes: [{id: 'leader', kind: 'agent', agent_ref: {id: leader.id, revision: leader.revision}, retry_policy: {max_attempts: 3}, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}], edges: []},
+      graph: graphForNativeAgent(leader),
       policy: {max_nesting_depth: 2, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}, human_exit_required: true}
     };
     try {
@@ -427,15 +628,11 @@
     const data = new FormData(form);
     const requirementID = String(data.get('requirement'));
     const [kind, id] = String(data.get('target')).split(':', 2);
-    const body = {idempotency_key: idempotencyKey()};
-    if (kind === 'agent') {
-      const agent = nativeAgents.find(item => item.id === id);
-      body.agent_id = id; body.agent_revision = agent?.revision || 0;
-    } else {
-      const squad = nativeSquads.find(item => item.id === id);
-      body.squad_id = id; body.squad_version = squad?.published_version || 0;
-    }
+    const body = {...nativePlanSelectionBody(), idempotency_key: idempotencyKey()};
     try {
+      const graph = await validateNativePlanGraph(requirementID);
+      if (!graph) return;
+      body.graph = graph;
       await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/execution-plan`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': body.idempotency_key}, body: JSON.stringify(body)});
       form.reset(); $('#nativePlanDialog').close(); await loadOrchestrationData(); setOrchestrationStatus(t('newPlan'));
     } catch (_) { $('#nativePlanFormError').textContent = t('planCreateFailed'); }
@@ -450,6 +647,17 @@
         $('#timelinePlanID').textContent = id;
         $('#timelineContent').textContent = JSON.stringify(result, null, 2);
         $('#timelineDialog').showModal();
+        return;
+      }
+      if (kind === 'squad' && action === 'edit-graph') {
+        openGraphEditor(nativeSquads.find(item => item.id === id));
+        return;
+      }
+      if (kind === 'squad' && action === 'fork') {
+        const source = nativeSquads.find(item => item.id === id);
+        const result = await api(`/api/v1/workspaces/local/squads/${encodeURIComponent(id)}/fork`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: `${t('forkSquad')}: ${source?.name || id}`})});
+        await loadOrchestrationData();
+        if (result?.squad) openGraphEditor(result.squad);
         return;
       }
       const result = await api(`/api/v1/${kind === 'agent' ? 'agents' : 'squads'}/${encodeURIComponent(id)}/${encodeURIComponent(action)}?workspace_id=local`, {method: action === 'capabilities' ? 'GET' : 'POST'});
@@ -615,19 +823,365 @@
     } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
   };
 
+  function commentRosterLabel(item) {
+    return `${item.name || item.id} · ${item.type === 'squad' ? t('mentionSquad') : t('mentionAgent')}`;
+  }
+
+  async function loadCommentMentionRoster() {
+    if (commentMentionRosterPromise) return commentMentionRosterPromise;
+    commentMentionRosterPromise = Promise.allSettled([
+      api('/api/v1/workspaces/local/agents'),
+      api('/api/v1/workspaces/local/squads')
+    ]).then(results => {
+      const agents = results[0].status === 'fulfilled' ? results[0].value.items || [] : nativeAgents;
+      const squads = results[1].status === 'fulfilled' ? results[1].value.items || [] : nativeSquads;
+      commentMentionRoster = [
+        ...agents.filter(item => item.status === 'active').map(item => ({type: 'agent', id: item.id, name: item.name || item.id, revision: item.revision})),
+        ...squads.filter(item => item.status === 'published').map(item => ({type: 'squad', id: item.id, name: item.name || item.id, revision: item.published_version}))
+      ];
+      return commentMentionRoster;
+    }).finally(() => { commentMentionRosterPromise = null; });
+    return commentMentionRosterPromise;
+  }
+
+  function commentMentionContext(textarea) {
+    if (!textarea) return null;
+    const cursor = textarea.selectionStart;
+    const before = textarea.value.slice(0, cursor);
+    const match = before.match(/(?:^|\s)@([^\s@]*)$/);
+    if (!match) return null;
+    return {start: cursor - match[1].length - 1, end: cursor, query: match[1].toLowerCase()};
+  }
+
+  function hideCommentMentionMenu() {
+    const menu = $('#commentMentionMenu');
+    if (menu) menu.hidden = true;
+    commentMentionOptions = [];
+    commentMentionIndex = -1;
+    commentMentionStart = -1;
+    commentMentionTargetID = '';
+  }
+
+  function renderCommentMentionMenu() {
+    const menu = $('#commentMentionMenu');
+    if (!menu) return;
+    if (!commentMentionOptions.length) {
+      menu.hidden = true;
+      return;
+    }
+    menu.innerHTML = commentMentionOptions.map((item, index) => `<button type="button" class="comment-mention-option ${index === commentMentionIndex ? 'selected' : ''}" data-comment-mention-index="${index}"><strong>${escapeHTML(item.name)}</strong><small>${escapeHTML(commentRosterLabel(item))}</small></button>`).join('');
+    menu.hidden = false;
+    menu.querySelectorAll('[data-comment-mention-index]').forEach(button => {
+      button.onclick = () => insertCommentMention(Number(button.dataset.commentMentionIndex));
+    });
+  }
+
+  function updateCommentMentionMenu() {
+    const textarea = $('#commentInput');
+    const context = commentMentionContext(textarea);
+    if (!context) {
+      hideCommentMentionMenu();
+      return;
+    }
+    commentMentionStart = context.start;
+    commentMentionOptions = commentMentionRoster.filter(item => `${item.name} ${item.id}`.toLowerCase().includes(context.query)).slice(0, 8);
+    if (!commentMentionOptions.length) {
+      hideCommentMentionMenu();
+      return;
+    }
+    commentMentionIndex = Math.min(Math.max(commentMentionIndex, 0), commentMentionOptions.length - 1);
+    renderCommentMentionMenu();
+  }
+
+  function insertCommentMention(index) {
+    const textarea = $('#commentInput');
+    const option = commentMentionOptions[index];
+    if (!textarea || !option || commentMentionStart < 0) return;
+    const before = textarea.value.slice(0, commentMentionStart);
+    const after = textarea.value.slice(textarea.selectionEnd);
+    const display = String(option.name || option.id).replace(/[\[\]()]/g, '');
+    const markup = `[@${display}](mention://${option.type}/${option.id})`;
+    textarea.value = `${before}${markup} ${after}`;
+    const cursor = before.length + markup.length + 1;
+    textarea.setSelectionRange(cursor, cursor);
+    commentMentionTargetID = option.id;
+    hideCommentMentionMenu();
+    textarea.focus();
+  }
+
+  function commentStatusKey(status) {
+    return {
+      queued: 'outcomeQueued', coalesced: 'outcomeCoalesced', deferred: 'outcomeDeferred', blocked: 'outcomeBlocked',
+      started: 'outcomeStarted', dispatching: 'outcomeQueued', running: 'outcomeRunning', completed: 'outcomeCompleted',
+      failed: 'outcomeFailed', retrying: 'outcomeRetrying', cancelled: 'outcomeCancelled', timed_out: 'outcomeTimedOut',
+      not_requested: 'outcomeNotRequested', unavailable: 'outcomeBlocked', rejected: 'outcomeBlocked'
+    }[String(status || '').toLowerCase()] || '';
+  }
+
+  function commentStatusLabel(status) {
+    const key = commentStatusKey(status);
+    return key ? t(key) : String(status || '-');
+  }
+
+  function commentStatusClass(status) {
+    if (['completed'].includes(String(status).toLowerCase())) return 'good';
+    if (['blocked', 'failed', 'cancelled', 'timed_out', 'unavailable', 'rejected'].includes(String(status).toLowerCase())) return 'bad';
+    if (['deferred', 'retrying'].includes(String(status).toLowerCase())) return 'warn';
+    return 'active';
+  }
+
+  function renderCommentContent(content) {
+    const value = String(content || '');
+    const mention = /\[([^\]]*)\]\(mention:\/\/(agent|squad)\/([^\)]+)\)/g;
+    let output = '';
+    let cursor = 0;
+    let match;
+    while ((match = mention.exec(value))) {
+      output += escapeHTML(value.slice(cursor, match.index));
+      output += `<span class="comment-mention" title="${escapeHTML(`${match[2]}:${match[3]}`)}">${escapeHTML(match[1])}</span>`;
+      cursor = match.index + match[0].length;
+    }
+    return output + escapeHTML(value.slice(cursor));
+  }
+
+  function commentAuthorLabel(comment) {
+    if (comment.author_type === 'agent') return `${t('mentionAgent')} · ${comment.author_id}`;
+    if (comment.author_type === 'system') return comment.author_id || 'system';
+    return userLabel(comment.author_id);
+  }
+
+  function commentActivityHTML(comment) {
+    const activity = commentActivity.get(comment.id) || {};
+    const outcomes = activity.outcomes || comment.trigger_outcomes || [];
+    const followUps = activity.followUps || [];
+    const attachments = activity.attachments || [];
+    const outcomeMarkup = outcomes.map(outcome => `<span class="comment-outcome ${commentStatusClass(outcome.status)}"><b>${escapeHTML(outcome.target_type || 'target')}</b><em>${escapeHTML(commentStatusLabel(outcome.status))}</em></span>`).join('');
+    const receiptMarkup = followUps.map(receipt => `<div class="comment-receipt"><span class="comment-outcome ${commentStatusClass(receipt.status)}"><b>${escapeHTML(receipt.dispatch_target_type || 'agent')}:${escapeHTML(receipt.dispatch_target_id || receipt.agent_binding_id || '-')}</b><em>${escapeHTML(commentStatusLabel(receipt.status))}</em></span><small>${escapeHTML(receipt.provider_run_id || receipt.outbox_id || receipt.reason || '')}</small></div>`).join('');
+    const attachmentMarkup = attachments.map(item => `<div class="comment-attachment"><span>${escapeHTML(item.filename || item.id)}</span><small>${escapeHTML(formatBytes(item.size_bytes || 0))}</small></div>`).join('');
+    const retryable = outcomes.some(item => ['blocked', 'deferred'].includes(item.status)) || followUps.some(item => ['failed', 'retrying', 'cancelled', 'timed_out', 'unavailable', 'rejected'].includes(item.status));
+    if (!outcomeMarkup && !receiptMarkup && !attachmentMarkup && !activity.loading) return '';
+    return `<div class="comment-activity">${outcomeMarkup ? `<div class="comment-activity-row"><strong>${escapeHTML(t('commentOutcome'))}</strong><div class="comment-outcomes">${outcomeMarkup}</div></div>` : ''}${receiptMarkup ? `<div class="comment-activity-row"><strong>${escapeHTML(t('commentFollowUp'))}</strong><div class="comment-receipts">${receiptMarkup}</div></div>` : ''}${attachmentMarkup ? `<div class="comment-attachments">${attachmentMarkup}</div>` : ''}${activity.loading ? `<small class="form-help">${escapeHTML(t('loading'))}</small>` : ''}${retryable ? `<button type="button" class="comment-retry" data-comment-retry="${escapeHTML(comment.id)}">${escapeHTML(t('retryTrigger'))}</button>` : ''}</div>`;
+  }
+
+  function commentTreeMarkup(items) {
+    const byParent = new Map();
+    items.forEach(item => {
+      const parent = item.parent_id || '';
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(item);
+    });
+    const rendered = new Set();
+    const renderNode = (comment, depth) => {
+      if (!comment || rendered.has(comment.id)) return '';
+      rendered.add(comment.id);
+      const children = (byParent.get(comment.id) || []).map(child => renderNode(child, Math.min(depth + 1, 4))).join('');
+      const time = comment.created_at ? new Date(comment.created_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US') : '';
+      return `<article class="comment-item" style="--comment-depth:${depth}" data-comment-id="${escapeHTML(comment.id)}"><header><div><strong>${escapeHTML(commentAuthorLabel(comment))}</strong><small>${escapeHTML(time)} · r${escapeHTML(String(comment.revision || 1))}</small></div><button type="button" class="comment-reply" data-comment-reply="${escapeHTML(comment.id)}">${escapeHTML(t('reply'))}</button></header><p>${renderCommentContent(comment.content)}</p>${commentActivityHTML(comment)}${children}</article>`;
+    };
+    const roots = items.filter(item => !item.parent_id || !items.some(candidate => candidate.id === item.parent_id));
+    return roots.map(item => renderNode(item, 0)).join('') || `<p class="comment-empty">${escapeHTML(t('noComments'))}</p>`;
+  }
+
+  function renderCommentThread() {
+    const thread = $('#commentThread');
+    if (!thread) return;
+    thread.innerHTML = commentTreeMarkup(activeCommentItems);
+    thread.querySelectorAll('[data-comment-reply]').forEach(button => {
+      button.onclick = () => startCommentReply(button.dataset.commentReply);
+    });
+    thread.querySelectorAll('[data-comment-retry]').forEach(button => {
+      button.onclick = () => retryCommentTriggers(button.dataset.commentRetry);
+    });
+  }
+
+  function renderCommentPreview(outcomes) {
+    const target = $('#commentPreview');
+    if (!target) return;
+    const list = Array.isArray(outcomes) ? outcomes : [];
+    target.hidden = false;
+    target.innerHTML = `<div class="comment-preview-head"><strong>${escapeHTML(t('commentPreview'))}</strong><span>${escapeHTML(list.length ? `${list.length} ${t('triggerOutcomes')}` : t('commentPreviewNoTargets'))}</span></div>${list.length ? `<div class="comment-outcomes">${list.map(outcome => `<span class="comment-outcome ${commentStatusClass(outcome.status)}"><b>${escapeHTML(`${outcome.target_type || 'target'}:${outcome.target_id || '-'}`)}</b><em>${escapeHTML(commentStatusLabel(outcome.status))}</em></span>`).join('')}</div><p class="form-help">${escapeHTML(list.map(item => item.reason).filter(Boolean).join('; '))}</p>` : ''}`;
+  }
+
+  function setCommentComposerContext() {
+    const context = $('#commentComposerContext');
+    const label = $('#commentComposerContextText');
+    if (!context || !label) return;
+    const parent = activeCommentItems.find(item => item.id === commentReplyParentID);
+    context.hidden = !parent;
+    label.textContent = parent ? `${t('commentReplyingTo')}: ${commentAuthorLabel(parent)}` : '';
+  }
+
+  function startCommentReply(commentID) {
+    commentReplyParentID = commentID;
+    setCommentComposerContext();
+    $('#commentInput')?.focus();
+  }
+
+  function cancelCommentReply() {
+    commentReplyParentID = '';
+    setCommentComposerContext();
+    $('#commentInput')?.focus();
+  }
+
+  async function loadCommentActivity(commentID) {
+    const existing = commentActivity.get(commentID) || {};
+    commentActivity.set(commentID, {...existing, loading: true});
+    renderCommentThread();
+    const results = await Promise.allSettled([
+      api(`/api/v1/comments/${encodeURIComponent(commentID)}/trigger-outcomes`),
+      api(`/api/v1/comments/${encodeURIComponent(commentID)}/follow-up`),
+      api(`/api/v1/attachments?owner_type=comment&owner_id=${encodeURIComponent(commentID)}`)
+    ]);
+    const outcomeResponse = results[0].status === 'fulfilled' ? results[0].value : {};
+    const followUpResponse = results[1].status === 'fulfilled' ? results[1].value : {};
+    const attachmentResponse = results[2].status === 'fulfilled' ? results[2].value : {};
+    commentActivity.set(commentID, {loading: false, outcomes: outcomeResponse.trigger_outcomes || [], followUps: followUpResponse.follow_ups || (followUpResponse.follow_up ? [followUpResponse.follow_up] : []), attachments: attachmentResponse.items || []});
+    if (activeCommentTargetID) renderCommentThread();
+  }
+
+  async function loadCommentThread(requirementID, initialItems = []) {
+    if (activeCommentTargetID !== requirementID) return;
+    try {
+      const response = await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/comments?limit=250`);
+      if (activeCommentTargetID !== requirementID) return;
+      activeCommentItems = response.items || initialItems || [];
+      commentActivity = new Map();
+      renderCommentThread();
+      await Promise.all(activeCommentItems.map(item => loadCommentActivity(item.id)));
+    } catch (_) {
+      const thread = $('#commentThread');
+      if (thread) thread.innerHTML = `<p class="comment-empty bad">${escapeHTML(t('commentLoadFailed'))}</p>`;
+    }
+  }
+
+  async function previewCommentTriggers() {
+    const input = $('#commentInput');
+    const status = $('#commentComposerStatus');
+    if (!input || !activeCommentTargetID) return;
+    try {
+      const response = await api(`/api/v1/requirements/${encodeURIComponent(activeCommentTargetID)}/comments/trigger-preview`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({comment_id: `preview-${idempotencyKey()}`, revision: 1, content: input.value})});
+      renderCommentPreview(response.trigger_outcomes || []);
+      if (status) status.textContent = t('commentPreviewReady');
+    } catch (_) {
+      if (status) status.textContent = t('commentPreviewFailed');
+    }
+  }
+
+  async function retryCommentTriggers(commentID) {
+    const button = document.querySelector(`[data-comment-retry="${CSS.escape(commentID)}"]`);
+    if (button) button.disabled = true;
+    const status = $('#commentComposerStatus');
+    try {
+      const response = await api(`/api/v1/comments/${encodeURIComponent(commentID)}/trigger-retry`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: '{}'});
+      const comment = activeCommentItems.find(item => item.id === commentID);
+      if (comment && response.trigger_outcomes) comment.trigger_outcomes = response.trigger_outcomes;
+      await loadCommentActivity(commentID);
+      if (status) status.textContent = t('commentPreviewReady');
+    } catch (_) {
+      if (status) status.textContent = t('commentSendFailed');
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function submitComment(event) {
+    event.preventDefault();
+    const input = $('#commentInput');
+    const status = $('#commentComposerStatus');
+    const form = event.currentTarget;
+    const content = String(input?.value || '').trim();
+    if (!content) {
+      if (status) status.textContent = t('commentEmpty');
+      input?.focus();
+      return;
+    }
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    if (status) status.textContent = '';
+    try {
+      const body = {content};
+      if (commentReplyParentID) body.parent_id = commentReplyParentID;
+      const created = await api(`/api/v1/requirements/${encodeURIComponent(activeCommentTargetID)}/comments`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      let comment = created.comment || created;
+      let uploaded = [];
+      let uploadFailures = 0;
+      for (const file of commentDraftFiles) {
+        try {
+          const payload = new FormData();
+          payload.append('owner_type', 'comment');
+          payload.append('owner_id', comment.id);
+          payload.append('file', file);
+          const attachment = await api('/api/v1/attachments', {method: 'POST', body: payload});
+          uploaded.push(attachment.id);
+        } catch (_) { uploadFailures++; }
+      }
+      if (uploaded.length) {
+        const patched = await api(`/api/v1/comments/${encodeURIComponent(comment.id)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({content: comment.content, expected_revision: comment.revision, attachment_ids: uploaded})});
+        comment = patched.comment || comment;
+      }
+      form.reset();
+      commentDraftFiles = [];
+      commentReplyParentID = '';
+      setCommentComposerContext();
+      hideCommentMentionMenu();
+      const preview = $('#commentPreview');
+      if (preview) preview.hidden = true;
+      await loadCommentThread(activeCommentTargetID);
+      if (status) status.textContent = uploadFailures ? t('uploadFailed') : t('commentSent');
+    } catch (_) {
+      if (status) status.textContent = t('commentSendFailed');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  }
+
+  function renderCommentSection(requirementID, initialItems) {
+    const body = $('#detailBody');
+    if (!body) return;
+    activeCommentTargetID = requirementID;
+    activeCommentItems = initialItems || [];
+    commentActivity = new Map();
+    commentReplyParentID = '';
+    body.insertAdjacentHTML('beforeend', `<section class="detail-block comment-section" id="commentSection"><div class="comment-section-head"><div><h3>${escapeHTML(t('comments'))}</h3><small>${escapeHTML(t('commentPreview'))} · ${escapeHTML(t('triggerOutcomes'))}</small></div><span class="mono">${escapeHTML(String(activeCommentItems.length))}</span></div><div id="commentThread" class="comment-thread"></div><form id="commentComposer" class="comment-composer"><div id="commentComposerContext" class="comment-compose-context" hidden><span id="commentComposerContextText"></span><button type="button" id="commentCancelReply">${escapeHTML(t('cancelReply'))}</button></div><div class="comment-input-wrap"><textarea id="commentInput" required placeholder="${escapeHTML(t('commentPlaceholder'))}" aria-label="${escapeHTML(t('comments'))}"></textarea><div id="commentMentionMenu" class="comment-mention-menu" hidden></div></div><div class="comment-compose-toolbar"><label class="comment-file-label" title="${escapeHTML(t('attachComment'))}"><span aria-hidden="true">↥</span><span id="commentFilesSummary">${escapeHTML(t('attachComment'))}</span><input id="commentFiles" type="file" multiple hidden></label><div class="comment-compose-actions"><span id="commentComposerStatus" role="status"></span><button class="secondary" id="commentPreviewButton" type="button">${escapeHTML(t('preview'))}</button><button class="primary" type="submit">${escapeHTML(t('sendComment'))}</button></div></div><div id="commentPreview" class="comment-preview" hidden></div></form></section>`);
+    renderCommentThread();
+    $('#commentInput').addEventListener('input', updateCommentMentionMenu);
+    $('#commentInput').addEventListener('keydown', event => {
+      if ($('#commentMentionMenu')?.hidden || !commentMentionOptions.length) return;
+      if (event.key === 'ArrowDown') { event.preventDefault(); commentMentionIndex = (commentMentionIndex + 1) % commentMentionOptions.length; renderCommentMentionMenu(); }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); commentMentionIndex = (commentMentionIndex - 1 + commentMentionOptions.length) % commentMentionOptions.length; renderCommentMentionMenu(); }
+      else if (event.key === 'Enter' && commentMentionIndex >= 0) { event.preventDefault(); insertCommentMention(commentMentionIndex); }
+      else if (event.key === 'Escape') { event.preventDefault(); hideCommentMentionMenu(); }
+    });
+    $('#commentInput').addEventListener('blur', () => setTimeout(hideCommentMentionMenu, 120));
+    $('#commentFiles').addEventListener('change', event => {
+      commentDraftFiles = Array.from(event.currentTarget.files || []);
+      $('#commentFilesSummary').textContent = commentDraftFiles.length ? `${t('attachmentReady')} · ${commentDraftFiles.length}` : t('attachComment');
+    });
+    $('#commentCancelReply').onclick = cancelCommentReply;
+    $('#commentPreviewButton').onclick = previewCommentTriggers;
+    $('#commentComposer').onsubmit = submitComment;
+    loadCommentMentionRoster().then(updateCommentMentionMenu);
+    loadCommentThread(requirementID, initialItems);
+  }
+
   const baseOpenRequirement = openRequirement;
   openRequirement = async function enhancedRequirementDetails(id) {
     await baseOpenRequirement(id);
     try {
-      const response = await api(`/api/v1/attachments?owner_type=requirement&owner_id=${encodeURIComponent(id)}`);
-      const items = response.items || [];
+      const detail = await api(`/api/v1/requirements/${encodeURIComponent(id)}`);
       const body = $('#detailBody');
-      if (!body || !items.length) return;
-      const block = document.createElement('div');
-      block.className = 'detail-block';
-      block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${items.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div>`;
-      body.appendChild(block);
-    } catch (_) {}
+      if (!body) return;
+      const items = detail.attachments || [];
+      if (items.length) {
+        const block = document.createElement('div');
+        block.className = 'detail-block';
+        block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${items.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div>`;
+        body.appendChild(block);
+      }
+      renderCommentSection(id, detail.comments || []);
+    } catch (_) {
+      const body = $('#detailBody');
+      if (body) renderCommentSection(id, []);
+    }
   };
 
   function formatBytes(value) {

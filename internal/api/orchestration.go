@@ -104,7 +104,8 @@ func (s *Server) orchestrationRoute(w http.ResponseWriter, r *http.Request, path
 		s.problem(w, r, http.StatusUnprocessableEntity, "graph_hash_failed", err.Error(), nil)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"valid": true, "validation_digest": hash, "graph": input.Graph})
+	input.Graph.ValidationDigest = hash
+	s.writeJSON(w, http.StatusOK, map[string]any{"valid": true, "validation_digest": hash, "graph": input.Graph, "diagnostics": orchestration.DiagnoseGraph(input.Graph)})
 }
 
 // executionPlanAction applies explicit lifecycle controls through the same

@@ -180,7 +180,11 @@ function generatedFiles(outputRoot) {
       fail(`license text is unavailable for ${dependencyKey(item)} at ${source}: ${error.message}`);
     }
     const target = licenseTarget(item);
-    files.set(target, license.toString().endsWith('\n') ? license : Buffer.concat([license, Buffer.from('\n')]).toString());
+    const licenseText = license.toString();
+    const normalizedLicense = licenseText.endsWith('\n\n')
+      ? licenseText.replace(/\n+$/u, '\n')
+      : licenseText.endsWith('\n') ? licenseText : `${licenseText}\n`;
+    files.set(target, normalizedLicense);
     notices.push(`${item.name} ${item.version}`);
     notices.push(`  ecosystem: ${item.ecosystem}`);
     notices.push(`  scope: ${item.scope}`);

@@ -51,7 +51,15 @@ cleanup() {
   ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_PORT" \
     "$ROOT_DIR/start.sh" --stop --no-open >/dev/null 2>&1 || true
   if [ "${ADRO_E2E_KEEP:-0}" != "1" ]; then
-    rm -rf "$RUN_ROOT"
+    # The real Codex process may finish its cache write just after ADRO stops
+    # the local services. Retry removal so a harmless filesystem race cannot
+    # turn a completed pipeline assertion into a failed test command.
+    for attempt in 1 2 3 4 5; do
+      rm -rf "$RUN_ROOT" 2>/dev/null || true
+      [ ! -e "$RUN_ROOT" ] && return 0
+      sleep 1
+    done
+    log "WARN: unable to remove temporary run directory: $RUN_ROOT"
   else
     log "Evidence retained at $RUN_ROOT"
   fi

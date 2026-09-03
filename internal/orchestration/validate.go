@@ -73,6 +73,42 @@ func ValidateGraph(g WorkflowGraph) error {
 		if n.JoinFailurePolicy != "" && n.JoinFailurePolicy != "wait" && n.JoinFailurePolicy != "short_circuit" {
 			return fmt.Errorf("graph.nodes[%d].join_failure_policy.invalid", i)
 		}
+		if err := ValidatePredicate(n.GatePolicy.Predicate, 0, fmt.Sprintf("graph.nodes[%d].gate_policy.predicate", i)); err != nil {
+			return err
+		}
+		if n.Kind != NodeGate && (strings.TrimSpace(n.GatePolicy.Predicate.Kind) != "" || len(n.GatePolicy.RequiredEvidence) > 0 || strings.TrimSpace(n.GatePolicy.FailureCode) != "") {
+			return fmt.Errorf("graph.nodes[%d].gate_policy.kind_mismatch", i)
+		}
+		for evidenceIndex, evidence := range n.GatePolicy.RequiredEvidence {
+			if strings.TrimSpace(evidence) == "" {
+				return fmt.Errorf("graph.nodes[%d].gate_policy.required_evidence[%d].required", i, evidenceIndex)
+			}
+		}
+		if n.Kind != NodeMerge && (strings.TrimSpace(n.MergePolicy.ConflictPolicy) != "" || len(n.MergePolicy.KeyFields) > 0 || n.MergePolicy.RequireEvidence) {
+			return fmt.Errorf("graph.nodes[%d].merge_policy.kind_mismatch", i)
+		}
+		if n.MergePolicy.ConflictPolicy != "" && n.MergePolicy.ConflictPolicy != "collect" && n.MergePolicy.ConflictPolicy != "prefer_priority" && n.MergePolicy.ConflictPolicy != "fail" {
+			return fmt.Errorf("graph.nodes[%d].merge_policy.conflict_policy.invalid", i)
+		}
+		for keyIndex, key := range n.MergePolicy.KeyFields {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("graph.nodes[%d].merge_policy.key_fields[%d].required", i, keyIndex)
+			}
+		}
+		if n.Kind != NodeRepair && (strings.TrimSpace(n.RepairPolicy.TargetNodeID) != "" || len(n.RepairPolicy.Scope) > 0 || len(n.RepairPolicy.VerificationNodeIDs) > 0 || n.RepairPolicy.MaxRounds != 0 || n.RepairPolicy.Budget != (Budget{})) {
+			return fmt.Errorf("graph.nodes[%d].repair_policy.kind_mismatch", i)
+		}
+		if n.RepairPolicy.MaxRounds < 0 {
+			return fmt.Errorf("graph.nodes[%d].repair_policy.max_rounds.invalid", i)
+		}
+		if err := validateBudget(n.RepairPolicy.Budget, fmt.Sprintf("graph.nodes[%d].repair_policy.budget", i)); err != nil {
+			return err
+		}
+		for scopeIndex, scope := range n.RepairPolicy.Scope {
+			if strings.TrimSpace(scope) == "" {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.scope[%d].required", i, scopeIndex)
+			}
+		}
 		nodes[n.ID] = n
 	}
 	if len(g.EntryNodeIDs) == 0 || len(g.ExitNodeIDs) == 0 {
@@ -161,6 +197,16 @@ func ValidateGraph(g WorkflowGraph) error {
 	for i, n := range g.Nodes {
 		if n.JoinPolicy == JoinQuorum && n.JoinQuorum > 0 && n.JoinQuorum > len(incoming[n.ID]) {
 			return fmt.Errorf("graph.nodes[%d].join_quorum.exceeds_incoming", i)
+		}
+		if n.RepairPolicy.TargetNodeID != "" {
+			if _, ok := nodes[n.RepairPolicy.TargetNodeID]; !ok {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.target_node_id.unknown", i)
+			}
+		}
+		for verificationIndex, id := range n.RepairPolicy.VerificationNodeIDs {
+			if _, ok := nodes[id]; !ok {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.verification_node_ids[%d].unknown", i, verificationIndex)
+			}
 		}
 	}
 	// Reachability from entries and to exits prevents plans that can never run

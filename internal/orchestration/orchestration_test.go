@@ -688,6 +688,134 @@ func TestFanOutJoinAndStructuralMerge(t *testing.T) {
 	}
 }
 
+func TestGateEvaluatorFailsClosedWithReasonAndSourceEvidence(t *testing.T) {
+	graph := WorkflowGraph{ID: "gate-contract", Version: 1, EntryNodeIDs: []string{"source"}, ExitNodeIDs: []string{"gate"}, Nodes: []WorkflowNode{
+		{ID: "source", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}},
+		{ID: "gate", Kind: NodeGate, GatePolicy: GatePolicy{Predicate: Predicate{Kind: "field_eq", Field: "quality", Value: "approved"}, RequiredEvidence: []string{"review:source"}}},
+	}, Edges: []WorkflowEdge{{ID: "source-gate", From: "source", To: "gate", On: EdgeSuccess}}}
+	plan, err := (RequirementExecutionPlan{ID: "gate-contract-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	source, err := projection.StartAttempt(plan, "source", "gate-source", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.FinishAttempt(plan, source.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Event: "success", Result: StructuredResult{Outcome: "pass", Fields: map[string]any{"quality": "rejected"}, EvidenceIDs: []string{"review:source"}}, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("gate advance=%+v err=%v", advanced, err)
+	}
+	gate := advanced[0]
+	if gate.Status != AttemptFailed || gate.Result.ReasonCode != GateReasonPredicateFailed || projection.TerminalOutcome != "failed" {
+		t.Fatalf("gate did not fail closed: %+v projection=%+v", gate, projection)
+	}
+	if !contains(gate.Result.EvidenceIDs, "review:source") || len(gate.Result.EvidenceIDs) < 2 {
+		t.Fatalf("gate decision lost source or decision evidence: %+v", gate.Result.EvidenceIDs)
+	}
+}
+
+func TestDiagnoseGraphSummarizesExecutionControls(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "diagnostics", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"review"},
+		Nodes: []WorkflowNode{
+			{ID: "a", Kind: NodeAgent, RetryPolicy: RetryPolicy{MaxAttempts: 3}, Budget: Budget{Tokens: 100, ToolCalls: 2, Concurrent: 2}},
+			{ID: "b", Kind: NodeMerge, JoinPolicy: JoinAll, Budget: Budget{Tokens: 50}},
+			{ID: "review", Kind: NodeHuman},
+		},
+		Edges: []WorkflowEdge{{ID: "loop", From: "b", To: "a", On: EdgeFailure, LoopGroup: "repair", MaxTraversals: 2, RequiredEvidence: []string{"test"}}},
+	}
+	d := DiagnoseGraph(graph)
+	if d.NodeCount != 3 || d.EdgeCount != 1 || d.AgentNodeCount != 1 || d.StructuralNodeCount != 1 || d.HumanNodeCount != 1 || !d.RequiresHuman {
+		t.Fatalf("unexpected graph counts: %+v", d)
+	}
+	if len(d.JoinNodeIDs) != 1 || d.JoinNodeIDs[0] != "b" || len(d.LoopEdgeIDs) != 1 || d.LoopEdgeIDs[0] != "loop" || len(d.RetryNodeIDs) != 1 || d.RetryNodeIDs[0] != "a" {
+		t.Fatalf("execution controls were not summarized: %+v", d)
+	}
+	if d.TokenBudget != 150 || d.ToolCallBudget != 2 || d.MaxConcurrency != 2 || d.RequiredEvidenceEdges != 1 {
+		t.Fatalf("budget summary=%+v", d)
+	}
+}
+
+func TestMergeReducerRecordsConflictArtifact(t *testing.T) {
+	graph := WorkflowGraph{ID: "merge-contract", Version: 1, EntryNodeIDs: []string{"left", "right"}, ExitNodeIDs: []string{"merge"}, Nodes: []WorkflowNode{
+		{ID: "left", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "left-agent", Revision: 1}},
+		{ID: "right", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "right-agent", Revision: 1}},
+		{ID: "merge", Kind: NodeMerge, JoinPolicy: JoinAll, MergePolicy: MergePolicy{ConflictPolicy: "fail", KeyFields: []string{"release"}, RequireEvidence: true}},
+	}, Edges: []WorkflowEdge{{ID: "left-merge", From: "left", To: "merge", On: EdgeSuccess}, {ID: "right-merge", From: "right", To: "merge", On: EdgeSuccess}}}
+	plan, err := (RequirementExecutionPlan{ID: "merge-contract-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for index, item := range []struct {
+		node     string
+		value    string
+		evidence string
+	}{{"left", "candidate-a", "artifact:left"}, {"right", "candidate-b", "artifact:right"}} {
+		token := int64(index + 1)
+		attempt, startErr := projection.StartAttempt(plan, item.node, item.node+"-attempt", 1, Lease{FencingToken: token, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Now: now})
+		if startErr != nil {
+			t.Fatal(startErr)
+		}
+		if _, finishErr := projection.FinishAttempt(plan, attempt.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Event: "success", Result: StructuredResult{Outcome: "pass", Fields: map[string]any{"release": item.value}, EvidenceIDs: []string{item.evidence}}, Now: now}); finishErr != nil {
+			t.Fatal(finishErr)
+		}
+	}
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("merge advance=%+v err=%v", advanced, err)
+	}
+	merge := advanced[0]
+	conflicts, ok := merge.Result.Fields["conflicts"].(map[string][]any)
+	if merge.Status != AttemptFailed || merge.Result.ReasonCode != MergeReasonConflict || !ok || len(conflicts["release"]) != 2 || len(merge.Result.EvidenceIDs) != 3 {
+		t.Fatalf("merge conflict evidence=%+v fields=%#v", merge, merge.Result.Fields)
+	}
+}
+
+func TestRepairControllerCreatesBoundedPlanWithLineage(t *testing.T) {
+	graph := WorkflowGraph{ID: "repair-contract", Version: 1, EntryNodeIDs: []string{"test"}, ExitNodeIDs: []string{"repair"}, Nodes: []WorkflowNode{
+		{ID: "test", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "test", Scope: []string{"internal/orchestration"}, VerificationNodeIDs: []string{"test"}, MaxRounds: 2, Budget: Budget{Tokens: 2000, ToolCalls: 5}}},
+	}, Edges: []WorkflowEdge{{ID: "test-repair", From: "test", To: "repair", On: EdgeBug}}}
+	plan, err := (RequirementExecutionPlan{ID: "repair-contract-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	source, err := projection.StartAttempt(plan, "test", "failed-test", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.FinishAttempt(plan, source.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Event: "bug", Result: StructuredResult{Outcome: "bug", EvidenceIDs: []string{"test-report:failed"}}, Failure: &FailureReason{Code: "test_bug", Message: "regression"}, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("repair advance=%+v err=%v", advanced, err)
+	}
+	repair := advanced[0]
+	sourceIDs, ok := repair.Result.Fields["source_attempt_ids"].([]string)
+	if repair.Status != AttemptPassed || repair.Result.ReasonCode != RepairReasonPlanned || !ok || len(sourceIDs) != 1 || sourceIDs[0] != source.ID || !contains(repair.Result.EvidenceIDs, "test-report:failed") {
+		t.Fatalf("repair plan lost lineage: %+v", repair)
+	}
+}
+
 func TestJoinPoliciesCoverSuccessTimeoutAndShortCircuit(t *testing.T) {
 	testCases := []struct {
 		name            string
