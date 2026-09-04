@@ -226,6 +226,14 @@ func (s *Server) applyPipelineResult(w http.ResponseWriter, r *http.Request, run
 // process collector. Keeping both paths on one state transition prevents the
 // native executor from gaining a second, subtly different workflow policy.
 func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineStepResult) (domain.PipelineRun, int, error) {
+	// Provider callbacks and the local watcher can observe the same completed
+	// run concurrently. Serialize the read/reduce/graph-commit/pipeline-CAS
+	// sequence so a stale callback cannot race a newer stage transition.
+	s.pipelineAdvanceMu.Lock()
+	defer s.pipelineAdvanceMu.Unlock()
+	if current, err := s.Store.GetPipeline(run.ID); err == nil {
+		run = current
+	}
 	// Provider callbacks can be delivered again after the first durable update
 	// succeeds but its HTTP response is lost. Treat an exact prior attempt as an
 	// idempotent success; only a new provider task may advance the current stage.
@@ -260,20 +268,17 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 		advanced.Version++
 		advanced.UpdatedAt = time.Now().UTC()
 	}
-	advanced, err = s.Store.UpdatePipeline(advanced, run.Version)
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, store.ErrConflict) {
-			status = http.StatusConflict
-		}
-		return run, status, err
-	}
+	// Commit the graph transition before exposing the corresponding legacy
+	// pipeline state. The graph projection is the durable execution authority;
+	// publishing PipelineCompleted first creates a visible window where clients
+	// can observe a completed pipeline while its compatibility attempt is still
+	// running. That window is large enough for the local collector's polling
+	// loop to catch and was the source of the intermittent terminal race.
 	if err := s.finishLegacyGraphAttempt(run, advanced, result); err != nil {
 		advanced.Status = domain.PipelineSuspended
 		advanced.SuspendReason = "graph projection rejected pipeline result: " + err.Error()
 		advanced.UpdatedAt = time.Now().UTC()
-		advanced.Version++
-		if saved, updateErr := s.Store.UpdatePipeline(advanced, advanced.Version-1); updateErr == nil {
+		if saved, updateErr := s.Store.UpdatePipeline(advanced, run.Version); updateErr == nil {
 			advanced = saved
 		}
 		return advanced, http.StatusServiceUnavailable, err
@@ -287,6 +292,14 @@ func (s *Server) advancePipeline(run domain.PipelineRun, result domain.PipelineS
 				advanced = saved
 			}
 		}
+	}
+	advanced, err = s.Store.UpdatePipeline(advanced, run.Version)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrConflict) {
+			status = http.StatusConflict
+		}
+		return run, status, err
 	}
 	if advanced.Status == domain.PipelineRunning {
 		advanced, err = s.dispatchPipeline(advanced)
@@ -736,6 +749,8 @@ func (s *Server) handlePipelineWatchDeadline(pipelineID, taskID string, timeout 
 
 	// Re-read immediately before writing so an explicit callback that won the
 	// race cannot be overwritten by the watchdog.
+	s.pipelineAdvanceMu.Lock()
+	defer s.pipelineAdvanceMu.Unlock()
 	latest, latestErr := s.Store.GetPipeline(pipelineID)
 	if latestErr != nil || latest.Status != domain.PipelineWaiting || latest.ActiveProviderTaskID != taskID {
 		return

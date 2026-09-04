@@ -24,6 +24,8 @@ func (s *Server) startLegacyGraphAttempt(run domain.PipelineRun, scope compat.Di
 	if s == nil || s.Orchestration == nil {
 		return nil
 	}
+	s.legacyGraphMu.Lock()
+	defer s.legacyGraphMu.Unlock()
 	plan, err := s.Orchestration.GetPlan(run.WorkspaceID, scope.PlanID)
 	if err != nil {
 		return fmt.Errorf("load legacy graph plan: %w", err)
@@ -71,6 +73,8 @@ func (s *Server) bindLegacyGraphAttempt(run domain.PipelineRun, attemptID string
 	if s == nil || s.Orchestration == nil || strings.TrimSpace(attemptID) == "" {
 		return nil
 	}
+	s.legacyGraphMu.Lock()
+	defer s.legacyGraphMu.Unlock()
 	planID := run.ExecutionPlanID
 	if planID == "" {
 		planID = "legacy-plan-" + run.ID
@@ -102,6 +106,8 @@ func (s *Server) finishLegacyGraphAttempt(run, next domain.PipelineRun, result d
 	if s == nil || s.Orchestration == nil || strings.TrimSpace(run.ExecutionPlanID) == "" || strings.TrimSpace(run.ActiveGraphAttemptID) == "" {
 		return nil
 	}
+	s.legacyGraphMu.Lock()
+	defer s.legacyGraphMu.Unlock()
 	plan, err := s.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID)
 	if err != nil {
 		return err
@@ -193,6 +199,8 @@ func (s *Server) resolveLegacyGraphApproval(run, next domain.PipelineRun, approv
 	if s == nil || s.Orchestration == nil || strings.TrimSpace(run.ExecutionPlanID) == "" || strings.TrimSpace(run.ActiveGraphAttemptID) == "" {
 		return nil
 	}
+	s.legacyGraphMu.Lock()
+	defer s.legacyGraphMu.Unlock()
 	plan, err := s.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID)
 	if err != nil {
 		return err

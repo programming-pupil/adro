@@ -28,6 +28,28 @@ type startFailProvider struct {
 	*provider.MockProvider
 }
 
+type snapshotMockProvider struct {
+	*provider.MockProvider
+}
+
+func (p snapshotMockProvider) Capabilities(ctx context.Context) (provider.Capabilities, error) {
+	caps, err := p.MockProvider.Capabilities(ctx)
+	if err != nil {
+		return provider.Capabilities{}, err
+	}
+	caps.Features = append(caps.Features, "run.snapshot.v1")
+	return caps, nil
+}
+
+func (p snapshotMockProvider) StartRun(ctx context.Context, cmd provider.StartRunCommand) (provider.RunBinding, error) {
+	binding, err := p.MockProvider.StartRun(ctx, cmd)
+	if err != nil {
+		return provider.RunBinding{}, err
+	}
+	binding.WorkDir = "mock-workdir"
+	return binding, nil
+}
+
 func (p startFailProvider) StartRun(context.Context, provider.StartRunCommand) (provider.RunBinding, error) {
 	return provider.RunBinding{}, errors.New("injected provider start failure")
 }
@@ -167,6 +189,90 @@ func TestPipelineResultRetryIsIdempotentAfterDurableAdvance(t *testing.T) {
 	}
 	if projectionAfter.Nodes[advanced.ActiveGraphNodeID].CurrentAttempt != activeAttemptBefore || projectionAfter.Attempts[activeAttemptBefore].Status != orchestration.AttemptRunning {
 		t.Fatalf("late duplicate altered the new graph attempt: before=%+v after=%+v", projectionBefore, projectionAfter)
+	}
+}
+
+func TestPipelineConcurrentDuplicateResultHasOneTransition(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	control := store.NewMemory()
+	requirement, err := control.CreateRequirement(domain.Requirement{
+		WorkspaceID: "workspace", Title: "concurrent result", Description: "serialize duplicate callbacks",
+		AcceptanceCriteria: []string{"one transition"}, AssigneeMemberIDs: []string{"member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := snapshotMockProvider{MockProvider: provider.NewMockProvider(bus)}
+	server := New(control, local, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	create := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines", map[string]any{
+		"requirement_id": requirement.ID,
+		"roles": map[string]any{
+			"designer_agent_id":   "11111111-1111-1111-1111-111111111111",
+			"developer_agent_id":  "22222222-2222-2222-2222-222222222222",
+			"tester_agent_id":     "33333333-3333-3333-3333-333333333333",
+			"arbitrator_agent_id": "44444444-4444-4444-4444-444444444444",
+		},
+		"max_retries": 2, "coverage_threshold": 80,
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", create.Code, create.Body.String())
+	}
+	var initial domain.PipelineRun
+	if err := json.Unmarshal(create.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+	result := domain.PipelineStepResult{
+		Stage: initial.PipelineStage, AgentID: initial.Roles.Designer, Outcome: "pass", DesignDoc: "design",
+		ProviderIssueID: initial.ActiveProviderIssueID, ProviderTaskID: initial.ActiveProviderTaskID,
+	}
+	type advanceResult struct {
+		run    domain.PipelineRun
+		status int
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan advanceResult, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			run, status, err := server.advancePipeline(initial, result)
+			results <- advanceResult{run: run, status: status, err: err}
+		}()
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		got := <-results
+		if got.err != nil || got.status != http.StatusOK {
+			t.Fatalf("concurrent result=%+v", got)
+		}
+		if got.run.PipelineStage != domain.PipelineDevelopment {
+			t.Fatalf("duplicate callback returned unexpected run=%+v", got.run)
+		}
+	}
+	final, err := control.GetPipeline(initial.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(final.History) != 1 || final.PipelineStage != domain.PipelineDevelopment || final.Status != domain.PipelineWaiting {
+		t.Fatalf("concurrent duplicate created extra transition: %+v", final)
+	}
+	projection, err := server.Orchestration.GetProjection(final.ExecutionPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := 0
+	for _, attempt := range projection.Attempts {
+		if attempt.Status == orchestration.AttemptPassed {
+			finished++
+		}
+	}
+	if finished != 1 || len(projection.Attempts) != 2 {
+		t.Fatalf("concurrent duplicate changed graph lineage: attempts=%+v", projection.Attempts)
 	}
 }
 
@@ -327,10 +433,10 @@ func TestPipelineLocalCollectorCompletesRealProcessRepairLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load compatibility projection: %v", err)
 	}
-	if projection.Status != orchestration.PlanTerminal || projection.TerminalOutcome != "succeeded" || len(projection.Attempts) != len(final.History) {
-		t.Fatalf("compatibility graph did not mirror the repair loop: status=%s outcome=%q attempts=%d history=%d", projection.Status, projection.TerminalOutcome, len(projection.Attempts), len(final.History))
-	}
 	eventChain := server.Orchestration.ListEvents(plan.ID, 0)
+	if projection.Status != orchestration.PlanTerminal || projection.TerminalOutcome != "succeeded" || len(projection.Attempts) != len(final.History) {
+		t.Fatalf("compatibility graph did not mirror the repair loop: status=%s outcome=%q attempts=%d history=%d nodes=%+v events=%d last_event=%+v", projection.Status, projection.TerminalOutcome, len(projection.Attempts), len(final.History), projection.Nodes, len(eventChain), eventChain[len(eventChain)-1])
+	}
 	replayed, err := orchestration.ReplayProjection(plan, eventChain)
 	if err != nil {
 		t.Fatalf("replay compatibility graph: %v", err)

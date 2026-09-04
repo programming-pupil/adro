@@ -41,29 +41,36 @@ import (
 )
 
 type Server struct {
-	Store           *store.Memory
-	Provider        provider.ExecutionProvider
-	Artifacts       artifact.Store
-	Events          *events.Bus
-	Runners         *runner.Supervisor
-	Audit           *audit.Ledger
-	Harness         *harness.Store
-	Plugins         *plugins.Registry
-	Logger          *slog.Logger
-	Router          *provider.AgentRouteResolver
-	Auth            *adroauth.Service
-	Orchestration   orchestration.ControlRepository
-	Memory          *memory.Repository
-	uploadMu        sync.Mutex
-	materializeMu   sync.Mutex
-	idempotencyMu   sync.Mutex
-	watchMu         sync.Mutex
-	triggerMu       sync.RWMutex
-	recoveryMu      sync.Mutex
-	recoveryStarted bool
-	uploads         map[string]*upload
-	watchedRuns     map[string]struct{}
-	triggerOutcomes map[string][]mentions.TriggerOutcome
+	Store         *store.Memory
+	Provider      provider.ExecutionProvider
+	Artifacts     artifact.Store
+	Events        *events.Bus
+	Runners       *runner.Supervisor
+	Audit         *audit.Ledger
+	Harness       *harness.Store
+	Plugins       *plugins.Registry
+	Logger        *slog.Logger
+	Router        *provider.AgentRouteResolver
+	Auth          *adroauth.Service
+	Orchestration orchestration.ControlRepository
+	Memory        *memory.Repository
+	uploadMu      sync.Mutex
+	materializeMu sync.Mutex
+	idempotencyMu sync.Mutex
+	// legacyGraphMu serializes the compatibility adapter's read/reduce/commit
+	// sequence. The pipeline store has compare-and-swap versions, while the
+	// graph projection is loaded and committed through separate repository
+	// calls; without this lock concurrent provider watchers can overwrite a
+	// terminal projection with an older snapshot.
+	legacyGraphMu     sync.Mutex
+	pipelineAdvanceMu sync.Mutex
+	watchMu           sync.Mutex
+	triggerMu         sync.RWMutex
+	recoveryMu        sync.Mutex
+	recoveryStarted   bool
+	uploads           map[string]*upload
+	watchedRuns       map[string]struct{}
+	triggerOutcomes   map[string][]mentions.TriggerOutcome
 }
 
 // authenticatedWorkspaceKey marks the workspace selected by the interactive
