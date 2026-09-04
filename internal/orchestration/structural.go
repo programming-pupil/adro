@@ -13,16 +13,26 @@ import (
 )
 
 const (
-	GateReasonPassed             = "gate_predicate_passed"
-	GateReasonPredicateFailed    = "gate_predicate_failed"
-	GateReasonEvidenceMissing    = "gate_evidence_missing"
-	MergeReasonCollected         = "merge_collected"
-	MergeReasonPreferredPriority = "merge_preferred_priority"
-	MergeReasonConflict          = "merge_conflict"
-	MergeReasonEvidenceMissing   = "merge_evidence_missing"
-	RepairReasonPlanned          = "repair_planned"
-	RepairReasonBudgetExhausted  = "repair_budget_exhausted"
-	RepairReasonEvidenceMissing  = "repair_evidence_missing"
+	GateReasonPassed                    = "gate_predicate_passed"
+	GateReasonPredicateFailed           = "gate_predicate_failed"
+	GateReasonEvidenceMissing           = "gate_evidence_missing"
+	MergeReasonCollected                = "merge_collected"
+	MergeReasonPreferredPriority        = "merge_preferred_priority"
+	MergeReasonConflict                 = "merge_conflict"
+	MergeReasonEvidenceMissing          = "merge_evidence_missing"
+	RepairReasonPlanned                 = "repair_planned"
+	RepairReasonDispatched              = "repair_dispatched"
+	RepairReasonPatched                 = "repair_patched"
+	RepairReasonVerifying               = "repair_verifying"
+	RepairReasonVerified                = "repair_verified"
+	RepairReasonFailed                  = "repair_failed"
+	RepairReasonExhausted               = "repair_exhausted"
+	RepairReasonBudgetExhausted         = "repair_budget_exhausted"
+	RepairReasonEvidenceMissing         = "repair_evidence_missing"
+	RepairReasonTargetMissing           = "repair_target_missing"
+	RepairReasonVerificationMissing     = "repair_verification_missing"
+	RepairReasonTargetUnreachable       = "repair_target_unreachable"
+	RepairReasonVerificationUnreachable = "repair_verification_unreachable"
 )
 
 type StructuralInput struct {
@@ -145,25 +155,55 @@ func (DefaultRepairController) PlanRepair(_ context.Context, in StructuralInput)
 	if in.Attempt.AttemptNo > maxRounds {
 		return failedStructuralDecision("repair", RepairReasonBudgetExhausted, "repair round budget exhausted", evidence, map[string]any{"max_rounds": maxRounds, "attempt_no": in.Attempt.AttemptNo}), nil
 	}
-	target := strings.TrimSpace(in.Node.RepairPolicy.TargetNodeID)
+	target := resolveRepairTarget(in.Plan.GraphSnapshot, in.Node)
 	if target == "" {
-		for _, edge := range in.Plan.GraphSnapshot.Edges {
-			if edge.From == in.Node.ID && edge.On == EdgeSuccess {
-				target = edge.To
-				break
-			}
+		return failedStructuralDecision("repair", RepairReasonTargetMissing, "repair target is required", evidence, map[string]any{"repair_node_id": in.Node.ID}), nil
+	}
+	if target == in.Node.ID || !repairPathExists(in.Plan.GraphSnapshot, in.Node.ID, target, EdgeSuccess) {
+		return failedStructuralDecision("repair", RepairReasonTargetUnreachable, "repair target is not reachable on a success path", evidence, map[string]any{"target_node_id": target}), nil
+	}
+	verification := append([]string(nil), in.Node.RepairPolicy.VerificationNodeIDs...)
+	if len(verification) == 0 {
+		return failedStructuralDecision("repair", RepairReasonVerificationMissing, "repair requires at least one verification node", evidence, map[string]any{"target_node_id": target}), nil
+	}
+	for _, nodeID := range verification {
+		if strings.TrimSpace(nodeID) == "" || !repairPathExists(in.Plan.GraphSnapshot, target, nodeID, EdgeSuccess) {
+			return failedStructuralDecision("repair", RepairReasonVerificationUnreachable, "repair verification node is not reachable from target", evidence, map[string]any{"target_node_id": target, "verification_node_id": nodeID}), nil
 		}
 	}
 	fields := map[string]any{
 		"target_node_id":        target,
 		"scope":                 append([]string(nil), in.Node.RepairPolicy.Scope...),
-		"verification_node_ids": append([]string(nil), in.Node.RepairPolicy.VerificationNodeIDs...),
+		"verification_node_ids": verification,
 		"round":                 in.Attempt.AttemptNo,
 		"max_rounds":            maxRounds,
 		"budget":                in.Node.RepairPolicy.Budget,
 		"source_attempt_ids":    sourceAttemptIDs(in.Incoming),
+		"repair_state":          string(RepairPlanned),
 	}
 	return passedStructuralDecision("repair", RepairReasonPlanned, "repair plan created", evidence, fields), nil
+}
+
+// resolveRepairTarget permits the ergonomic graph form where a Repair node
+// has exactly one success edge to its patch target. Ambiguous or absent edges
+// remain invalid; a repair must never dispatch an unbound patch attempt.
+func resolveRepairTarget(graph WorkflowGraph, node WorkflowNode) string {
+	if explicit := strings.TrimSpace(node.RepairPolicy.TargetNodeID); explicit != "" {
+		return explicit
+	}
+	seen := map[string]struct{}{}
+	for _, edge := range graph.Edges {
+		if edge.From == node.ID && edge.To != node.ID && edge.On == EdgeSuccess {
+			seen[edge.To] = struct{}{}
+		}
+	}
+	if len(seen) != 1 {
+		return ""
+	}
+	for target := range seen {
+		return target
+	}
+	return ""
 }
 
 func incomingStructuralSources(plan RequirementExecutionPlan, projection PlanProjection, nodeID string) []StructuralSource {

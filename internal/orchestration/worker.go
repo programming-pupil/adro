@@ -1,7 +1,9 @@
 package orchestration
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -130,30 +132,306 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		var event string
 		var result StructuredResult
 		var failure *FailureReason
+		explicitOutcome, outcomeFields := providerOutcome(snapshot.Output)
+		providerReason := providerStringField(outcomeFields, "provider_reason_code")
+		providerSummary := providerStringField(outcomeFields, "provider_summary")
+		providerEvidence := providerStringSliceField(outcomeFields, "provider_evidence_ids")
+		if providerSummary == "" {
+			providerSummary = snapshot.Output
+		}
 		switch status {
 		case "completed", "passed", "success", "succeeded":
-			event, result = "success", StructuredResult{Outcome: "pass", Summary: snapshot.Output, Fields: usage}
-			if snapshot.LastEventID != "" {
-				result.EvidenceIDs = []string{snapshot.LastEventID}
-			} else {
+			if explicitOutcome == "" {
+				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_result_missing", Summary: "provider completed without ADRO_RESULT_JSON evidence", Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":missing-result"}}
+				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: false}
+				break
+			}
+			event, result = "success", StructuredResult{Outcome: "pass", ReasonCode: providerReason, Summary: providerSummary, Fields: usage, EvidenceIDs: providerEvidence}
+			if explicitOutcome == "bug" {
+				event, result = "bug", StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
+				failure = &FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
+			} else if explicitOutcome == "failure" {
+				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
+				failure = &FailureReason{Code: "provider_reported_failure", Message: providerSummary, Retryable: true}
+			} else if len(outcomeFields) > 0 {
+				result.Fields = mergeProviderFields(usage, outcomeFields)
+			}
+			result.EvidenceIDs = appendProviderEvidence(result.EvidenceIDs, snapshot.LastEventID)
+			if len(result.EvidenceIDs) == 0 {
 				result.EvidenceIDs = []string{"provider-run:" + runID + ":completed"}
 			}
 		case "failed", "error", "failure":
-			event, result = "failure", StructuredResult{Outcome: "failure", Summary: snapshot.Error, Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":failed"}}
-			failure = &FailureReason{Code: "provider_failed", Message: snapshot.Error, Retryable: true}
+			if explicitOutcome == "bug" {
+				event, result = "bug", StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":bug")}
+				failure = &FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
+			} else {
+				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":failed")}
+				failure = &FailureReason{Code: "provider_failed", Message: providerSummary, Retryable: true}
+			}
+		case "timed_out", "timeout", "timedout":
+			// Provider deadlines are terminal observations, not unknown running
+			// states. Consume them immediately so a graph does not wait for the
+			// server watcher deadline after the child process has already recorded
+			// its timeout evidence.
+			event, result = "timeout", StructuredResult{Outcome: "timeout", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":timeout")}
+			failure = &FailureReason{Code: "provider_timeout", Message: providerSummary, Retryable: true}
 		case "cancelled", "canceled":
 			event, result = "cancel", StructuredResult{Outcome: "cancelled", Summary: snapshot.Error, Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":cancelled"}}
 			failure = &FailureReason{Code: "cancelled", Message: snapshot.Error}
 		default:
 			continue
 		}
-		item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, Now: now})
+		item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, OutputArtifacts: providerEvidence, Now: now})
 		if err != nil {
 			return finished, err
 		}
 		finished = append(finished, item)
 	}
 	return finished, nil
+}
+
+// providerOutcome accepts only explicit structured output emitted by an
+// adapter. Free-form prose is deliberately ignored so a provider cannot
+// accidentally route a completed run onto a bug/failure feedback edge.
+func providerOutcome(output string) (string, map[string]any) {
+	var candidates []string
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 2<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var value any
+		if json.Unmarshal([]byte(line), &value) == nil {
+			collectProviderMessageTexts(value, false, &candidates)
+			continue
+		}
+		// Non-JSON executors may emit the marker as a plain text line. The
+		// parser below still requires the explicit marker and a complete object.
+		candidates = append(candidates, line)
+	}
+	if len(candidates) == 0 && strings.TrimSpace(output) != "" {
+		candidates = append(candidates, output)
+	}
+	for i := len(candidates) - 1; i >= 0; i-- {
+		payload, ok := parseProviderMarker(candidates[i])
+		if !ok {
+			continue
+		}
+		candidate := firstOutcome(payload)
+		if candidate == "" {
+			continue
+		}
+		fields := map[string]any{}
+		if raw, ok := payload["fields"].(map[string]any); ok {
+			for key, value := range raw {
+				fields[key] = value
+			}
+		}
+		if reason, ok := payload["reason_code"].(string); ok && strings.TrimSpace(reason) != "" {
+			fields["provider_reason_code"] = strings.TrimSpace(reason)
+		}
+		if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+			fields["provider_summary"] = summary
+		}
+		if evidence, ok := providerStringSlice(payload["evidence_ids"]); ok {
+			fields["provider_evidence_ids"] = evidence
+		}
+		fields["provider_outcome"] = candidate
+		return normalizeProviderOutcome(candidate), fields
+	}
+	return "", nil
+}
+
+// collectProviderMessageTexts walks Codex JSONL envelopes but only returns
+// text belonging to an AgentMessage. Command output is intentionally excluded:
+// a model can inspect an old marker in a file without routing the graph with it.
+func collectProviderMessageTexts(value any, inMessage bool, candidates *[]string) {
+	switch item := value.(type) {
+	case []any:
+		for _, child := range item {
+			collectProviderMessageTexts(child, inMessage, candidates)
+		}
+	case map[string]any:
+		typ, _ := item["type"].(string)
+		message := inMessage || isProviderAgentMessageType(typ)
+		if message {
+			if text, ok := item["text"].(string); ok && strings.TrimSpace(text) != "" {
+				*candidates = append(*candidates, text)
+			}
+		}
+		// Codex currently emits item.completed.item.text; older/current
+		// variants also wrap the same item under event_msg.payload.
+		for _, key := range []string{"item", "payload", "content"} {
+			if child, ok := item[key]; ok {
+				collectProviderMessageTexts(child, message, candidates)
+			}
+		}
+	}
+}
+
+func isProviderAgentMessageType(value string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", ""))
+	return normalized == "agentmessage" || normalized == "assistantmessage"
+}
+
+func parseProviderMarker(text string) (map[string]any, bool) {
+	marker := strings.LastIndex(text, "ADRO_RESULT_JSON")
+	if marker < 0 {
+		return nil, false
+	}
+	fragment := strings.TrimSpace(text[marker+len("ADRO_RESULT_JSON"):])
+	if strings.HasPrefix(fragment, "=") || strings.HasPrefix(fragment, ":") {
+		fragment = strings.TrimSpace(fragment[1:])
+	}
+	start := strings.IndexByte(fragment, '{')
+	if start < 0 {
+		return nil, false
+	}
+	raw := extractJSONObject(fragment[start:])
+	if raw == "" {
+		return nil, false
+	}
+	var payload map[string]any
+	if json.Unmarshal([]byte(raw), &payload) == nil {
+		return payload, true
+	}
+	// A nested JSON string can retain escaped quotes after an outer decoder.
+	unescaped := strings.ReplaceAll(raw, `\"`, `"`)
+	if json.Unmarshal([]byte(unescaped), &payload) == nil {
+		return payload, true
+	}
+	return nil, false
+}
+
+func extractJSONObject(value string) string {
+	depth := 0
+	inString := false
+	escaped := false
+	for index, r := range value {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+			} else if r == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return value[:index+1]
+			}
+		}
+	}
+	return ""
+}
+
+func providerStringSlice(value any) ([]string, bool) {
+	switch values := value.(type) {
+	case []string:
+		return append([]string(nil), values...), true
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			item, ok := value.(string)
+			if !ok || strings.TrimSpace(item) == "" {
+				return nil, false
+			}
+			result = append(result, item)
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
+func providerStringField(fields map[string]any, key string) string {
+	if fields == nil {
+		return ""
+	}
+	value, _ := fields[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func providerStringSliceField(fields map[string]any, key string) []string {
+	if fields == nil {
+		return nil
+	}
+	values, _ := providerStringSlice(fields[key])
+	return values
+}
+
+func appendProviderEvidence(values []string, additions ...string) []string {
+	result := append([]string(nil), values...)
+	seen := make(map[string]struct{}, len(result)+len(additions))
+	for _, value := range result {
+		if strings.TrimSpace(value) != "" {
+			seen[value] = struct{}{}
+		}
+	}
+	for _, value := range additions {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func firstOutcome(payload map[string]any) string {
+	for _, key := range []string{"adro_outcome", "final_outcome", "outcome"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	if nested, ok := payload["result"].(map[string]any); ok {
+		return firstOutcome(nested)
+	}
+	return ""
+}
+
+func normalizeProviderOutcome(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "bug", "defect", "regression":
+		return "bug"
+	case "failure", "failed", "fail", "error":
+		return "failure"
+	case "pass", "passed", "success", "succeeded", "ok":
+		return "pass"
+	case "timeout", "timed_out":
+		return "timeout"
+	case "cancel", "cancelled", "canceled":
+		return "cancelled"
+	default:
+		return ""
+	}
+}
+
+func mergeProviderFields(base map[string]any, extra map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(extra))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
 }
 
 func (w Worker) recoverUnboundAttempt(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, attempt NodeAttempt) (NodeAttempt, bool, error) {
@@ -196,7 +474,8 @@ func (w Worker) recoverUnboundAttempt(ctx context.Context, plan RequirementExecu
 	}
 	deliveryCtx, _, _ := telemetry.StartRemoteSpan(ctx, claimed.TraceParent, claimed.TraceState)
 	traceParent, traceState := telemetry.Carrier(deliveryCtx)
-	binding, startErr := w.Scheduler.Executor.Provider.StartRun(deliveryCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: attempt.NodeID, AttemptID: attempt.ID, WorkItemID: claimed.PayloadString("work_item_id"), AgentBindingID: claimed.PayloadString("agent_binding_id"), Input: envelopeInput(attempt.InputManifest), SessionID: attempt.InputManifest.Manifest.SessionID, ContextEnvelope: attempt.InputManifest, IdempotencyKey: attempt.IdempotencyKey, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
+	node := workflowNodeFor(plan, attempt.NodeID)
+	binding, startErr := w.Scheduler.Executor.Provider.StartRun(deliveryCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: attempt.NodeID, AttemptID: attempt.ID, WorkItemID: claimed.PayloadString("work_item_id"), AgentBindingID: claimed.PayloadString("agent_binding_id"), Input: nodeInput(attempt.InputManifest, node, attempt.AttemptNo, claimed.PayloadString("agent_binding_id"), ""), SessionID: attempt.InputManifest.Manifest.SessionID, ContextEnvelope: attempt.InputManifest, IdempotencyKey: attempt.IdempotencyKey, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
 	if startErr != nil {
 		_ = store.AckOutbox(claimed.ID, owner, w.Scheduler.now(), startErr)
 		return attempt, false, nil
@@ -248,7 +527,7 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 	report := WorkerReport{}
 	for {
 		if err := ctx.Err(); err != nil {
-			return report, err
+			return w.closeOnContextCancellation(report, plan, projection, envelope, workItemID, agentBindingID, err)
 		}
 		report.Ticks++
 		status, err := w.Scheduler.Tick(ctx, plan, projection, envelope, workItemID, agentBindingID)
@@ -270,6 +549,9 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 		report.Started = append(report.Started, status.Started...)
 		finished, reconcileErr := w.Reconcile(ctx, plan, projection)
 		if reconcileErr != nil {
+			if ctx.Err() != nil {
+				return w.closeOnContextCancellation(report, plan, projection, envelope, workItemID, agentBindingID, ctx.Err())
+			}
 			return report, reconcileErr
 		}
 		report.Finished = append(report.Finished, finished...)
@@ -298,7 +580,7 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 				select {
 				case <-ctx.Done():
 					timer.Stop()
-					return report, ctx.Err()
+					return w.closeOnContextCancellation(report, plan, projection, envelope, workItemID, agentBindingID, ctx.Err())
 				case <-timer.C:
 				}
 				continue
@@ -309,10 +591,40 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return report, ctx.Err()
+			return w.closeOnContextCancellation(report, plan, projection, envelope, workItemID, agentBindingID, ctx.Err())
 		case <-timer.C:
 		}
 	}
+}
+
+// closeOnContextCancellation turns a worker kill/deadline into the same
+// durable timeout transition as an explicit plan deadline. Provider runs are
+// cancelled best-effort first; their late callbacks then fail the attempt's
+// lease/current-attempt checks instead of resurrecting a running projection.
+// The returned error preserves the caller's cancellation cause for operators,
+// while the projection is left terminal and replayable whenever the reducer
+// can commit the timeout evidence.
+func (w Worker) closeOnContextCancellation(report WorkerReport, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, cause error) (WorkerReport, error) {
+	if projection == nil || projection.Status == PlanTerminal {
+		return report, cause
+	}
+	if provider := w.Scheduler.Executor.Provider; provider != nil {
+		for _, attempt := range cloneProjection(*projection).Attempts {
+			if attempt.Status == AttemptRunning && attempt.RunID != "" {
+				_ = provider.CancelRun(context.Background(), attempt.RunID)
+			}
+		}
+	}
+	deadlinePlan := plan
+	deadlinePlan.Deadline = w.Scheduler.now().Add(-time.Nanosecond)
+	status, closeErr := w.Scheduler.Tick(context.Background(), deadlinePlan, projection, envelope, workItemID, agentBindingID)
+	report.LastStatus = status
+	report.Finished = append(report.Finished, status.Advanced...)
+	report.Started = append(report.Started, status.Started...)
+	if closeErr != nil && !errors.Is(closeErr, ErrDeadlineExceeded) {
+		return report, fmt.Errorf("close cancelled graph: %w (worker cause: %v)", closeErr, cause)
+	}
+	return report, cause
 }
 
 func nextRetryAt(projection PlanProjection, now time.Time) (time.Time, bool) {

@@ -51,7 +51,11 @@ case "$(basename "$executor")" in
 esac
 "$executor" --version >/dev/null 2>&1 || fail "Codex executable is not runnable: $executor"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
-  export ADRO_EXECUTOR_COMMAND="$executor exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+  codex_config_flag=""
+  if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
+    codex_config_flag="--ignore-user-config"
+  fi
+  export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
 fi
 
 mkdir -p "$STATE_HOME"

@@ -18,6 +18,7 @@ contracts:
 	bash -n scripts/test-start-permissions.sh
 	bash -n scripts/release-system-e2e.sh
 	bash -n scripts/real-pipeline-e2e.sh
+	bash -n scripts/real-graph-orchestration-e2e.sh
 	./scripts/test-start-permissions.sh
 	node --check apps/web/enhancements.js
 	node --check e2e/static-server.js
@@ -54,6 +55,7 @@ production-conformance: postgres-conformance
 real-e2e:
 	ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
 	ADRO_REQUIRE_CODEX=1 bash scripts/real-pipeline-e2e.sh
+	ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh
 
 test-expert:
 	bash scripts/test-expert.sh

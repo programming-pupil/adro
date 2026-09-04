@@ -65,6 +65,7 @@ type LocalProvider struct {
 
 	mu       sync.RWMutex
 	startMu  sync.Mutex
+	workers  sync.WaitGroup
 	runs     map[string]*localRun
 	workdirs map[string]string
 	issues   map[string]string
@@ -72,6 +73,7 @@ type LocalProvider struct {
 	runKeys  map[string]string
 	revision int64
 	runtime  *runtimekernel.Journal
+	closed   bool
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -219,6 +221,12 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 	// launch duplicate child processes before either one records the key.
 	p.startMu.Lock()
 	defer p.startMu.Unlock()
+	p.mu.RLock()
+	closed := p.closed
+	p.mu.RUnlock()
+	if closed {
+		return RunBinding{}, errors.New("local provider is shutting down")
+	}
 	if strings.TrimSpace(command.WorkItemID) == "" {
 		return RunBinding{}, errors.New("work item id is required")
 	}
@@ -274,6 +282,12 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	}
 	p.startMu.Lock()
 	defer p.startMu.Unlock()
+	p.mu.RLock()
+	closed := p.closed
+	p.mu.RUnlock()
+	if closed {
+		return RunBinding{}, errors.New("local provider is shutting down")
+	}
 	if command.IssueID == "" || command.Input == "" || command.ExpectedSessionID == "" || command.ExpectedWorkDir == "" {
 		return RunBinding{}, errors.New("continuation requires issue, input, session and workdir")
 	}
@@ -395,7 +409,11 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventTurnStarted, AggregateType: "run", AggregateID: id, Scope: runtimeScope, CorrelationID: id, IdempotencyKey: "run:" + id + ":start", WriterID: "local", FencingToken: fencingToken, Payload: map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input)}})
 	}
 	_ = p.Bus.Publish(runCtx, events.NewWithContext(runCtx, "execution.started.v1", "execution_run", id, "", "", 1, map[string]any{"work_item_id": workItemID, "input_sha256": sha256Hex(input), "session_id": sessionID, "work_dir": workDir}))
-	go p.execute(runCtx, id, input, workDir, sessionID, reused)
+	p.workers.Add(1)
+	go func() {
+		defer p.workers.Done()
+		p.execute(runCtx, id, input, workDir, sessionID, reused)
+	}()
 	return RunBinding{ID: id, ProviderRunID: id, SessionID: sessionID, WorkDir: workDir, ContextID: contextID, ContextVersion: contextVersion, SessionReused: reused, TraceParent: traceParent, TraceState: traceState, StartedAt: now}, nil
 }
 
@@ -435,6 +453,16 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	var runErr error
 	if pathErr == nil {
 		cmd := exec.CommandContext(ctx, path, args...)
+		configureLocalCommand(cmd)
+		// CommandContext kills the direct process by default. A real coding
+		// executor can leave descendants holding output pipes open, so use the
+		// process-group cancellation hook and bound Wait's pipe drain as well.
+		cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
+		// The process group is killed by cmd.Cancel on deadline. Keep only a
+		// short pipe-drain grace period: a long WaitDelay makes a bounded
+		// executor timeout look like a two-second hang even after every child
+		// has been fenced and killed.
+		cmd.WaitDelay = 250 * time.Millisecond
 		cmd.Dir = workDir
 		cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
 		// Codex `exec` consumes its prompt from argv and is explicitly one-shot.
@@ -556,6 +584,8 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	}
 	head := gitRevision(workDir)
 	dirty, changedFiles := gitChanges(workDir)
+	outputDigest := sha256Bytes(output)
+	diffDigest, worktreeDigest := gitEvidence(workDir, head)
 	continuity := "unproven"
 	discovered := providerSessionID(output, p.executorKind())
 	if discovered != "" {
@@ -590,9 +620,13 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.SessionContinuity = continuity
 		run.snapshot.BaselineCommit = baseline
 		run.snapshot.HeadCommit = head
+		run.snapshot.OutputSHA256 = outputDigest
+		run.snapshot.SourceDiffSHA256 = diffDigest
+		run.snapshot.WorktreeSHA256 = worktreeDigest
 		run.snapshot.FinishedAt = &done
 		run.snapshot.Usage = usage
 		run.snapshot.ToolEvents = append([]ToolEvent(nil), toolEvents...)
+		run.snapshot.ToolEventsSHA256 = hashJSON(toolEvents)
 		run.snapshot.Output = truncateOutput(output)
 		if status == "timed_out" {
 			run.snapshot.Error = "executor deadline exceeded"
@@ -602,7 +636,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.WorkspaceDirty = dirty
 		run.snapshot.ChangedFiles = changedFiles
 		run.snapshot.LastEventID = domain.NewID()
-		appendRuntimeEventLocked(run, "run.finished", map[string]any{"status": status, "session_id": sessionID, "session_continuity": continuity, "error": run.snapshot.Error})
+		appendRuntimeEventLocked(run, "run.finished", map[string]any{"status": status, "session_id": sessionID, "session_continuity": continuity, "error": run.snapshot.Error, "output_sha256": outputDigest, "source_diff_sha256": diffDigest, "worktree_sha256": worktreeDigest, "tool_events_sha256": run.snapshot.ToolEventsSHA256})
 		if err := p.persistLocked(); err != nil {
 			// The process result is not acknowledged as completed when its
 			// durable snapshot cannot be written. Preserve the evidence in the
@@ -615,6 +649,10 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			run.snapshot.FinishedAt = &done
 			run.snapshot.Usage = usage
 			run.snapshot.Output = truncateOutput(output)
+			run.snapshot.OutputSHA256 = outputDigest
+			run.snapshot.SourceDiffSHA256 = diffDigest
+			run.snapshot.WorktreeSHA256 = worktreeDigest
+			run.snapshot.ToolEventsSHA256 = hashJSON(toolEvents)
 			run.snapshot.Error = "durable run snapshot unavailable"
 			run.snapshot.WorkspaceDirty = dirty
 			run.snapshot.ChangedFiles = changedFiles
@@ -632,7 +670,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		}
 		p.mu.RUnlock()
 		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventUsage, AggregateType: "run", AggregateID: runID, Scope: scope, CorrelationID: runID, IdempotencyKey: "run:" + runID + ":usage", WriterID: "local", FencingToken: fencingToken, Payload: usage})
-		_, _ = p.runtime.FinishTurn(scope, map[string]any{"status": status, "output_sha256": sha256Hex(truncateOutput(output))}, map[string]any{"context_version": 0, "recovery_state": runErr == nil}, "run:"+runID, "local", fencingToken)
+		_, _ = p.runtime.FinishTurn(scope, map[string]any{"status": status, "output_sha256": outputDigest, "source_diff_sha256": diffDigest, "worktree_sha256": worktreeDigest}, map[string]any{"context_version": 0, "recovery_state": runErr == nil}, "run:"+runID, "local", fencingToken)
 	}
 	payload := map[string]any{"run_id": runID, "status": status, "output": truncateOutput(output), "duration_ms": time.Since(started).Milliseconds()}
 	if runErr != nil {
@@ -1107,6 +1145,16 @@ func sha256Hex(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func sha256Bytes(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func hashJSON(value any) string {
+	data, _ := json.Marshal(value)
+	return sha256Bytes(data)
+}
+
 func hashInteraction(interaction Interaction) string {
 	copy := interaction
 	copy.Hash = ""
@@ -1165,6 +1213,40 @@ func (p *LocalProvider) CancelRun(_ context.Context, runID string) error {
 	return nil
 }
 
+// Shutdown fences new starts, cancels every active child, and waits for their
+// terminal snapshots to be durably recorded. The context bounds the drain;
+// callers receive an explicit timeout instead of silently orphaning work.
+func (p *LocalProvider) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	p.startMu.Lock()
+	p.mu.Lock()
+	p.closed = true
+	cancels := make([]context.CancelFunc, 0)
+	for _, run := range p.runs {
+		if run != nil && run.snapshot.Status == "running" && run.cancel != nil {
+			cancels = append(cancels, run.cancel)
+		}
+	}
+	p.mu.Unlock()
+	p.startMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	done := make(chan struct{})
+	go func() {
+		p.workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("shutdown local provider: %w", ctx.Err())
+	}
+}
+
 func (p *LocalProvider) GetRun(_ context.Context, runID string) (RunSnapshot, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -1179,8 +1261,9 @@ func cloneRunSnapshot(snapshot RunSnapshot) RunSnapshot {
 	snapshot.ChangedFiles = append([]string(nil), snapshot.ChangedFiles...)
 	snapshot.ToolEvents = append([]ToolEvent(nil), snapshot.ToolEvents...)
 	snapshot.Interactions = append([]Interaction(nil), snapshot.Interactions...)
-	snapshot.Ledger = make([]RuntimeEvent, len(snapshot.Ledger))
-	for i, event := range snapshot.Ledger {
+	ledger := snapshot.Ledger
+	snapshot.Ledger = make([]RuntimeEvent, len(ledger))
+	for i, event := range ledger {
 		event.Payload = clonePayload(event.Payload)
 		snapshot.Ledger[i] = event
 	}
@@ -1320,6 +1403,61 @@ func gitChanges(workDir string) (bool, []string) {
 		}
 	}
 	return len(changed) > 0, changed
+}
+
+// gitEvidence hashes the complete dirty source delta, including untracked
+// file contents. WorktreeSHA256 binds that delta to the checked-out commit so
+// evidence can distinguish identical patches applied to different baselines.
+func gitEvidence(workDir, head string) (string, string) {
+	diffCmd := exec.Command("git", "-C", workDir, "diff", "--binary", "--no-ext-diff", "HEAD", "--")
+	diff, err := diffCmd.Output()
+	if err != nil {
+		emptyDigest := sha256Bytes(nil)
+		return emptyDigest, sha256Bytes([]byte(strings.TrimSpace(head) + "\n" + emptyDigest))
+	}
+	untrackedCmd := exec.Command("git", "-C", workDir, "ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := untrackedCmd.Output()
+	if err != nil {
+		emptyDigest := sha256Bytes(diff)
+		return emptyDigest, sha256Bytes([]byte(strings.TrimSpace(head) + "\n" + emptyDigest))
+	}
+	var evidence bytes.Buffer
+	evidence.Write(diff)
+	paths := bytes.Split(untracked, []byte{0})
+	for _, raw := range paths {
+		if len(raw) == 0 {
+			continue
+		}
+		path := string(raw)
+		full := filepath.Join(workDir, filepath.FromSlash(path))
+		info, statErr := os.Lstat(full)
+		if statErr != nil {
+			continue
+		}
+		var content []byte
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, readErr := os.Readlink(full)
+			if readErr != nil {
+				continue
+			}
+			content = []byte("symlink:" + target)
+		} else if info.Mode().IsRegular() {
+			var readErr error
+			content, readErr = os.ReadFile(full)
+			if readErr != nil {
+				continue
+			}
+		} else {
+			continue
+		}
+		evidence.WriteString("\x00untracked:")
+		evidence.WriteString(filepath.ToSlash(path))
+		evidence.WriteByte(0)
+		evidence.WriteString(sha256Bytes(content))
+	}
+	diffDigest := sha256Bytes(evidence.Bytes())
+	worktreeDigest := sha256Bytes([]byte(strings.TrimSpace(head) + "\n" + diffDigest))
+	return diffDigest, worktreeDigest
 }
 
 func (p *LocalProvider) prepareWorkDir(ctx context.Context, workDir string, item localWorkItem) error {

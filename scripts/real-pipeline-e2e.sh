@@ -12,6 +12,14 @@ INTEGRATION_COUNTER="$RUN_ROOT/integration-counter"
 LOG="$RUN_ROOT/start.log"
 API="http://127.0.0.1:$API_PORT"
 WORKSPACE="adro-real-e2e"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+REPORT_DIR="$ROOT_DIR/var/test-report/real-codex/$RUN_ID"
+mkdir -p "$REPORT_DIR"
+pipeline_id=""
+requirement_id=""
+bug_id=""
+repair_json=""
+final_pipeline=""
 
 # Keep the model-backed test independent from the parent Codex runtime. The
 # parent exports CODEX_* session variables and skills for this coding run; if
@@ -48,6 +56,26 @@ log() { printf '[ADRO REAL E2E] %s\n' "$*"; }
 fail() { printf '[ADRO REAL E2E] ERROR: %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
+	local exit_status=$?
+	if [ -n "$final_pipeline" ]; then printf '%s\n' "$final_pipeline" >"$REPORT_DIR/pipeline.json"; fi
+	[ -n "$repair_json" ] && printf '%s\n' "$repair_json" >"$REPORT_DIR/repair.json"
+	[ -n "$LOG" ] && [ -f "$LOG" ] && cp "$LOG" "$REPORT_DIR/start.log" 2>/dev/null || true
+	RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" ruby -rjson -rdigest -e '
+		dir = ENV.fetch("REPORT_DIR")
+		files = Dir[File.join(dir, "*")].sort
+		report = {"status" => ENV.fetch("EXIT_STATUS").to_i == 0 ? "passed" : "failed", "exit_status" => ENV.fetch("EXIT_STATUS").to_i, "run_id" => ENV.fetch("RUN_ID"), "evidence_files" => files.map { |path| {"path" => File.basename(path), "sha256" => Digest::SHA256.file(path).hexdigest} }}
+		["pipeline", "requirement", "repair"].each do |name|
+			path = File.join(dir, "#{name}.json")
+			if File.file?(path)
+				begin
+					value = JSON.parse(File.read(path))
+					report["#{name}_id"] = value["id"] || value.dig(name, "id")
+				rescue JSON::ParserError
+				end
+			end
+		end
+		File.write(File.join(dir, "manifest.json"), JSON.pretty_generate(report) + "\n") unless File.file?(File.join(dir, "manifest.json"))
+	' || true
   ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_PORT" \
     "$ROOT_DIR/start.sh" --stop --no-open >/dev/null 2>&1 || true
   if [ "${ADRO_E2E_KEEP:-0}" != "1" ]; then
@@ -113,7 +141,11 @@ executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
 	case "$(basename "$executor")" in
 		codex)
-			export ADRO_EXECUTOR_COMMAND="$executor exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+			codex_config_flag=""
+			if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
+				codex_config_flag="--ignore-user-config"
+			fi
+			export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
 			;;
 		*)
 			export ADRO_EXECUTOR_COMMAND="$executor --dangerously-skip-permissions --output-format json --permission-mode acceptEdits {input}"
@@ -202,6 +234,7 @@ requirement_body="$(WORKSPACE="$WORKSPACE" REPO_ID="$repo_id" ruby -rjson -e '
 ')"
 requirement_json="$(curl -fsS -X POST "$API/api/v1/requirements" "${headers[@]}" -d "$requirement_body")"
 requirement_id="$(printf '%s' "$requirement_json" | json_field id)"
+printf '%s\n' "$requirement_json" >"$REPORT_DIR/requirement.json"
 
 printf '%s\n' 'ADRO real E2E requirement evidence' > "$RUN_ROOT/requirement-evidence.txt"
 curl -fsS -X POST "$API/api/v1/attachments" \
@@ -223,6 +256,7 @@ pipeline_body="$(REQUIREMENT_ID="$requirement_id" ruby -rjson -e '
 ')"
 pipeline_json="$(curl -fsS -X POST "$API/api/v1/pipelines" "${headers[@]}" -d "$pipeline_body")"
 pipeline_id="$(printf '%s' "$pipeline_json" | json_field id)"
+printf '%s\n' "$pipeline_json" >"$REPORT_DIR/pipeline-created.json"
 log "Pipeline $pipeline_id started with real executor $executor"
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
@@ -263,6 +297,7 @@ printf '%s' "$work_items" | WORK_ITEM_ID="$(printf '%s' "$final_pipeline" | json
 '
 
 repair_json="$(curl -fsS -X POST "$API/api/v1/bugs/$bug_id/repair" -H "X-Workspace-ID: $WORKSPACE" -H 'Content-Type: application/json' -d '{}')"
+printf '%s\n' "$repair_json" >"$REPORT_DIR/repair.json"
 repair_reused="$(printf '%s' "$repair_json" | json_field session_reused)"
 repair_session="$(printf '%s' "$repair_json" | json_field run.session_id)"
 repair_workdir="$(printf '%s' "$repair_json" | json_field run.work_dir)"

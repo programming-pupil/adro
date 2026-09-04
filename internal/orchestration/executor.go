@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/provider"
@@ -27,6 +28,7 @@ type Executor struct {
 	GateEvaluator    GateEvaluator
 	MergeReducer     MergeReducer
 	RepairController RepairController
+	Tracer           telemetry.Tracer
 	Owner            string
 	Now              func() time.Time
 	LeaseTTL         time.Duration
@@ -47,6 +49,13 @@ func (e Executor) leaseTTL(node WorkflowNode) time.Duration {
 		return e.LeaseTTL
 	}
 	return 15 * time.Minute
+}
+
+func (e Executor) tracer() telemetry.Tracer {
+	if e.Tracer.Exporter != nil {
+		return e.Tracer
+	}
+	return telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}
 }
 
 type eventAppender interface {
@@ -120,12 +129,12 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 			return started, fmt.Errorf("%s node %s returned an incomplete structural decision", node.Kind, node.ID)
 		}
 		finishKey := key + ":" + decision.Result.ReasonCode
-		finished, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: decision.Event, Result: decision.Result, Failure: decision.Failure, IdempotencyKey: finishKey, Now: now})
+		finished, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: decision.Event, Result: decision.Result, Failure: decision.Failure, OutputArtifacts: decision.ArtifactIDs, IdempotencyKey: finishKey, Now: now})
 		if err != nil {
 			*projection = before
 			return started, err
 		}
-		if err := e.commitAttemptEvent(ctx, plan, projection, finished, "attempt.finished", key+":finished", map[string]any{"attempt_id": finished.ID, "event": decision.Event, "result": finished.Result, "failure": decision.Failure, "artifact_ids": decision.ArtifactIDs, "transition_idempotency_key": finishKey, "transition_at": now}, lease.FencingToken); err != nil {
+		if err := e.commitAttemptEvent(ctx, plan, projection, finished, "attempt.finished", key+":finished", map[string]any{"attempt_id": finished.ID, "event": decision.Event, "result": finished.Result, "failure": decision.Failure, "artifact_ids": finished.OutputArtifacts, "transition_idempotency_key": finishKey, "transition_at": now}, lease.FencingToken); err != nil {
 			*projection = before
 			return started, err
 		}
@@ -271,6 +280,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			break
 		}
 		before := cloneProjection(*projection)
+		agentInstructions := ""
 		if node.Kind == NodeAgent && e.Repository != nil && node.AgentRef != nil {
 			agent, lookupErr := e.Repository.GetAgent(plan.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
 			if lookupErr != nil {
@@ -282,6 +292,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			if capabilityErr := e.requireAgentCapabilities(ctx, agent); capabilityErr != nil {
 				return started, fmt.Errorf("agent node %s: %w", node.ID, capabilityErr)
 			}
+			agentInstructions = agent.Instructions
 		}
 		var squadDefinition *SquadDefinition
 		if node.Kind == NodeSquad {
@@ -306,6 +317,30 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			}
 			squadDefinition = &squad
 		}
+		nodeEnvelope := envelope
+		if e.Repository != nil || node.Kind == NodeSquad {
+			// Keep the frozen node contract inside the same immutable context
+			// envelope as the user objective and tool transaction. The textual
+			// prompt remains a compatibility projection, never the source of truth.
+			contract, marshalErr := json.Marshal(map[string]any{
+				"plan_id": plan.ID, "plan_revision": plan.Revision, "node": node,
+				"binding": agentBindingID, "instructions": agentInstructions,
+			})
+			if marshalErr != nil {
+				return started, fmt.Errorf("encode graph node contract: %w", marshalErr)
+			}
+			var enrichErr error
+			nodeEnvelope, enrichErr = nodeEnvelope.WithRequiredBlock(contextcontract.Block{
+				ID:   "graph-node-contract:" + plan.ID + ":" + node.ID,
+				Kind: "plan_node_contract", Source: "graph:" + plan.ID + ":node:" + node.ID,
+				Content: string(contract), Policy: "frozen_plan", Trust: "plan_snapshot",
+				SelectionReason: "mandatory_graph_node_contract", TokenEstimate: contextcontract.EstimateTokens(string(contract)),
+				Metadata: map[string]string{"prompt_kind": "plan_node_contract", "atomic": "true"},
+			})
+			if enrichErr != nil {
+				return started, fmt.Errorf("compile graph node context: %w", enrichErr)
+			}
+		}
 		attemptNo := projection.Nodes[node.ID].AttemptNo + 1
 		attemptID := domain.NewID()
 		now := e.now()
@@ -314,9 +349,9 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			lease.ExpiresAt = plan.Deadline
 		}
 		key := plan.ID + ":" + node.ID + ":" + fmt.Sprint(attemptNo)
-		h := sha256.Sum256([]byte(key + envelope.ReplayKey))
+		h := sha256.Sum256([]byte(key + nodeEnvelope.ReplayKey))
 		payloadHash := hex.EncodeToString(h[:])
-		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, envelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, Now: now})
+		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, nodeEnvelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, Now: now})
 		if err != nil {
 			return started, err
 		}
@@ -339,7 +374,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				p := tail[len(tail)-1]
 				previous = &p
 			}
-			ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": envelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID})
+			ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": nodeEnvelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID})
 			if evErr != nil {
 				*projection = before
 				return started, evErr
@@ -411,10 +446,25 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				return started, fmt.Errorf("resolve squad leader %s: %w", leader.AgentID, leaderErr)
 			} else if capabilityErr := e.requireAgentCapabilities(ctx, leaderAgent); capabilityErr != nil {
 				return started, fmt.Errorf("squad node %s: %w", node.ID, capabilityErr)
+			} else {
+				agentInstructions = leaderAgent.Instructions
 			}
 		}
-		traceParent, traceState := telemetry.Carrier(ctx)
-		bindingResult, runErr := e.Provider.StartRun(ctx, provider.StartRunCommand{PlanID: plan.ID, NodeID: node.ID, AttemptID: a.ID, WorkItemID: workItemID, AgentBindingID: binding, Input: envelopeInput(envelope), SessionID: envelope.Manifest.SessionID, ContextEnvelope: envelope, IdempotencyKey: key, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
+		providerCtx, finishProviderSpan := e.tracer().Start(ctx, "provider.start", map[string]string{
+			"component": "orchestration",
+			"node_kind": string(node.Kind),
+		})
+		traceParent, traceState := telemetry.Carrier(providerCtx)
+		input := envelopeInput(nodeEnvelope)
+		if e.Repository != nil || node.Kind == NodeSquad {
+			input = nodeInput(nodeEnvelope, node, a.AttemptNo, binding, agentInstructions)
+		}
+		bindingResult, runErr := e.Provider.StartRun(providerCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: node.ID, AttemptID: a.ID, WorkItemID: workItemID, AgentBindingID: binding, Input: input, SessionID: nodeEnvelope.Manifest.SessionID, ContextEnvelope: nodeEnvelope, IdempotencyKey: key, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
+		if runErr != nil {
+			_ = finishProviderSpan("error", runErr.Error())
+		} else {
+			_ = finishProviderSpan("ok", "")
+		}
 		if runErr != nil {
 			failure := TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, Event: "failure", Failure: &FailureReason{Code: string(provider.ErrorCodeOf(runErr)), Message: runErr.Error(), Retryable: true}, Result: StructuredResult{Outcome: "failure", EvidenceIDs: []string{"provider-dispatch:" + a.ID}}}
 			if _, finishErr := e.FinishAttempt(ctx, plan, projection, a.ID, failure); finishErr != nil {
@@ -573,13 +623,62 @@ func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementE
 	return childID, nil
 }
 
-// envelopeInput is the deterministic provider prompt for graph-native runs.
-// The envelope remains the authoritative structured contract; this rendered
-// input is only the textual adapter payload consumed by legacy executables.
-func envelopeInput(envelope harness.ContextEnvelope) string {
-	if len(envelope.Manifest.Blocks) == 0 {
-		return ""
+// nodeInput is the deterministic provider prompt for graph-native runs. The
+// envelope remains the authoritative structured contract; this rendered input
+// is only the textual adapter payload consumed by legacy executables. Keeping
+// the node contract in-band prevents a provider from confusing a feedback
+// attempt with the original task when a plan has several active agents.
+func nodeInput(envelope harness.ContextEnvelope, node WorkflowNode, attemptNo int, binding, instructions string) string {
+	metadata := map[string]any{
+		"node_id": node.ID, "node_kind": node.Kind, "attempt_no": attemptNo,
+		"agent_binding_id": strings.TrimSpace(binding), "session_id": envelope.Manifest.SessionID,
+		"context_replay_key": envelope.ReplayKey,
 	}
+	encoded, _ := json.Marshal(metadata)
+	var builder strings.Builder
+	builder.WriteString("ADRO_GRAPH_NODE_JSON=")
+	builder.Write(encoded)
+	builder.WriteString("\nYou are executing one immutable ADRO graph attempt. Follow the node contract and the durable context below.\n")
+	if text := strings.TrimSpace(instructions); text != "" {
+		builder.WriteString("Agent instructions:\n")
+		builder.WriteString(text)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("Always finish with one plain-text line exactly in this form: ADRO_RESULT_JSON={\"outcome\":\"pass|failure|bug\",\"reason_code\":\"stable_reason\",\"summary\":\"what happened\",\"evidence_ids\":[\"evidence\"],\"fields\":{}}. Use failure for a failed check, bug for a defect found after a previously passing step, and pass only when the node work is complete.\n\n")
+	if rendered, err := contextcontract.RenderPromptManifest(envelope.Manifest.PromptManifest); err == nil {
+		builder.WriteString(rendered)
+	} else {
+		// Legacy callers may construct a placeholder envelope without a prompt
+		// manifest. Preserve their context while making the failure observable
+		// in-band; compiled production envelopes always take the authoritative
+		// manifest path above.
+		builder.WriteString("[ADRO_PROMPT_MANIFEST_INVALID]")
+		for _, block := range envelope.Manifest.Blocks {
+			if strings.TrimSpace(block.Content) == "" {
+				continue
+			}
+			builder.WriteByte('\n')
+			builder.WriteString(block.Content)
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+// envelopeInput is retained for compatibility with callers that only need the
+// rendered context, while all graph dispatches use nodeInput above.
+func envelopeInput(envelope harness.ContextEnvelope) string {
+	// Even the in-memory executor path must consume the same provider-neutral
+	// prompt contract as persisted graph dispatches. Raw block concatenation
+	// loses layer order and lineage, allowing this compatibility path to drift
+	// from the authoritative compiler.
+	if rendered, err := envelope.Render(); err == nil {
+		return rendered
+	}
+	// Some source-compatible unit callers construct a minimal envelope without
+	// the newer PromptManifest fields. Production dispatch rejects such an
+	// envelope in StartAttempt; retaining this narrow fallback keeps the helper
+	// useful for those adapters without permitting an invalid envelope through
+	// the real scheduler boundary.
 	parts := make([]string, 0, len(envelope.Manifest.Blocks))
 	for _, block := range envelope.Manifest.Blocks {
 		if strings.TrimSpace(block.Content) != "" {
@@ -612,7 +711,7 @@ func (e Executor) FinishAttempt(ctx context.Context, plan RequirementExecutionPl
 			previous = &p
 		}
 		transitionKey := input.IdempotencyKey
-		payload := map[string]any{"attempt_id": attemptID, "event": input.Event, "result": input.Result, "failure": input.Failure, "transition_idempotency_key": transitionKey, "transition_at": input.Now}
+		payload := map[string]any{"attempt_id": attemptID, "event": input.Event, "result": input.Result, "failure": input.Failure, "artifact_ids": a.OutputArtifacts, "transition_idempotency_key": transitionKey, "transition_at": input.Now}
 		idempotency := input.IdempotencyKey
 		if idempotency == "" {
 			idempotency = a.IdempotencyKey
@@ -680,6 +779,7 @@ func cloneProjection(p PlanProjection) PlanProjection {
 	cp := p
 	cp.Nodes = map[string]NodeProjection{}
 	for k, v := range p.Nodes {
+		v.ReadyEdgeIDs = append([]string(nil), v.ReadyEdgeIDs...)
 		cp.Nodes[k] = v
 	}
 	cp.Attempts = map[string]NodeAttempt{}
@@ -695,5 +795,26 @@ func cloneProjection(p PlanProjection) PlanProjection {
 		cp.Idempotency[k] = v
 	}
 	cp.Decisions = append([]FeedbackDecision(nil), p.Decisions...)
+	cp.RepairPlans = map[string]RepairPlan{}
+	for id, repair := range p.RepairPlans {
+		repair.VerificationNodeIDs = append([]string(nil), repair.VerificationNodeIDs...)
+		repair.StateHistory = append([]RepairLifecycle(nil), repair.StateHistory...)
+		repair.RepairAttemptIDs = append([]string(nil), repair.RepairAttemptIDs...)
+		repair.SourceAttemptIDs = append([]string(nil), repair.SourceAttemptIDs...)
+		repair.Scope = append([]string(nil), repair.Scope...)
+		repair.PatchArtifactIDs = append([]string(nil), repair.PatchArtifactIDs...)
+		repair.VerificationArtifactIDs = append([]string(nil), repair.VerificationArtifactIDs...)
+		verificationAttempts := repair.VerificationAttempts
+		repair.VerificationAttempts = map[string]string{}
+		for nodeID, attemptID := range verificationAttempts {
+			repair.VerificationAttempts[nodeID] = attemptID
+		}
+		verifiedNodes := repair.VerifiedNodes
+		repair.VerifiedNodes = map[string]bool{}
+		for nodeID, verified := range verifiedNodes {
+			repair.VerifiedNodes[nodeID] = verified
+		}
+		cp.RepairPlans[id] = repair
+	}
 	return cp
 }

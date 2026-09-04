@@ -29,6 +29,15 @@ type blockingProvider struct {
 	*provider.MockProvider
 }
 
+type timedOutProvider struct {
+	*testProvider
+}
+
+func (p *timedOutProvider) GetRun(_ context.Context, runID string) (provider.RunSnapshot, error) {
+	now := time.Now().UTC()
+	return provider.RunSnapshot{ID: runID, Status: "timed_out", Error: "executor deadline exceeded", FinishedAt: &now}, nil
+}
+
 type recoveryProvider struct {
 	*testProvider
 }
@@ -236,6 +245,42 @@ func TestWorkerRecoversUnboundAttemptFromOutbox(t *testing.T) {
 	outbox := repo.ListOutbox(plan.ID, "")
 	if len(outbox) != 1 || outbox[0].Status != "acked" {
 		t.Fatalf("recovery outbox status=%+v", outbox)
+	}
+}
+
+func TestWorkerReconcilesProviderTimeoutImmediately(t *testing.T) {
+	repo := NewMemoryRepository()
+	agent := AgentDefinition{ID: "timeout-agent", WorkspaceID: "w", Revision: 1, Name: "timeout", Status: AgentActive, ExecutorBinding: ExecutorBinding{ProviderID: "mock"}, InputSchema: SchemaRef{ID: "input"}, OutputSchema: SchemaRef{ID: "output"}}
+	if err := repo.SaveAgent(agent, 0); err != nil {
+		t.Fatal(err)
+	}
+	graph := WorkflowGraph{ID: "timeout-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}}
+	plan, err := (RequirementExecutionPlan{ID: "timeout-plan", RequirementID: "req", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CreatePlan(plan); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := repo.GetProjection(plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := Executor{Provider: &timedOutProvider{testProvider: newTestProvider()}, Repository: repo, Events: repo, Owner: "timeout-worker"}
+	started, err := executor.DispatchReady(context.Background(), plan, &projection, testEnvelope(), "work", agent.ID)
+	if err != nil || len(started) != 1 {
+		t.Fatalf("dispatch=%+v err=%v", started, err)
+	}
+	worker := Worker{Scheduler: Scheduler{Repository: repo, Executor: executor}}
+	finished, err := worker.Reconcile(context.Background(), plan, &projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(finished) != 1 || finished[0].Status != AttemptTimedOut {
+		t.Fatalf("finished=%+v", finished)
+	}
+	if projection.Status != PlanTerminal || projection.TerminalOutcome != "timed_out" {
+		t.Fatalf("timeout did not close graph: %+v", projection)
 	}
 }
 
@@ -594,6 +639,47 @@ func TestFinishAttemptRequiresEvidenceBeforeRouting(t *testing.T) {
 	}
 }
 
+func TestUnroutedFailureFailsClosedInsteadOfStrandingPlan(t *testing.T) {
+	graph := WorkflowGraph{
+		ID:           "unrouted-failure",
+		Version:      1,
+		EntryNodeIDs: []string{"work"},
+		ExitNodeIDs:  []string{"done"},
+		Nodes: []WorkflowNode{
+			{ID: "work", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "work-agent", Revision: 1}},
+			{ID: "done", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "done-agent", Revision: 1}},
+		},
+		Edges: []WorkflowEdge{{ID: "work-success", From: "work", To: "done", On: EdgeSuccess}},
+	}
+	plan, err := (RequirementExecutionPlan{ID: "unrouted-failure-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	attempt, err := projection.StartAttempt(plan, "work", "unrouted-failure-attempt", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Minute)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.FinishAttempt(plan, attempt.ID, TransitionInput{
+		PlanRevision: plan.Revision,
+		AttemptID:    attempt.ID,
+		LeaseToken:   1,
+		Event:        "failure",
+		Result:       StructuredResult{Outcome: "failure", ReasonCode: "provider_failed", EvidenceIDs: []string{"failure-evidence"}},
+		Failure:      &FailureReason{Code: "provider_failed", Message: "provider failed", Retryable: false},
+		Now:          now.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if projection.Status != PlanTerminal || projection.TerminalOutcome != "failed" {
+		t.Fatalf("unrouted failure stranded plan: status=%s outcome=%q nodes=%+v", projection.Status, projection.TerminalOutcome, projection.Nodes)
+	}
+}
+
 func TestSchedulerDeadlineClosesActiveAndReadyWork(t *testing.T) {
 	now := time.Now().UTC()
 	plan, err := (RequirementExecutionPlan{ID: "scheduler-deadline", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), Deadline: now.Add(time.Second), Status: PlanDraft}).Freeze()
@@ -785,10 +871,15 @@ func TestMergeReducerRecordsConflictArtifact(t *testing.T) {
 }
 
 func TestRepairControllerCreatesBoundedPlanWithLineage(t *testing.T) {
-	graph := WorkflowGraph{ID: "repair-contract", Version: 1, EntryNodeIDs: []string{"test"}, ExitNodeIDs: []string{"repair"}, Nodes: []WorkflowNode{
+	graph := WorkflowGraph{ID: "repair-contract", Version: 1, EntryNodeIDs: []string{"test"}, ExitNodeIDs: []string{"done"}, Nodes: []WorkflowNode{
 		{ID: "test", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
 		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "test", Scope: []string{"internal/orchestration"}, VerificationNodeIDs: []string{"test"}, MaxRounds: 2, Budget: Budget{Tokens: 2000, ToolCalls: 5}}},
-	}, Edges: []WorkflowEdge{{ID: "test-repair", From: "test", To: "repair", On: EdgeBug}}}
+		{ID: "done", Kind: NodeHuman},
+	}, Edges: []WorkflowEdge{
+		{ID: "test-repair", From: "test", To: "repair", On: EdgeBug, LoopGroup: "repair", MaxTraversals: 2},
+		{ID: "repair-test", From: "repair", To: "test", On: EdgeSuccess, LoopGroup: "repair", MaxTraversals: 2},
+		{ID: "test-done", From: "test", To: "done", On: EdgeSuccess},
+	}}
 	plan, err := (RequirementExecutionPlan{ID: "repair-contract-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
@@ -813,6 +904,275 @@ func TestRepairControllerCreatesBoundedPlanWithLineage(t *testing.T) {
 	sourceIDs, ok := repair.Result.Fields["source_attempt_ids"].([]string)
 	if repair.Status != AttemptPassed || repair.Result.ReasonCode != RepairReasonPlanned || !ok || len(sourceIDs) != 1 || sourceIDs[0] != source.ID || !contains(repair.Result.EvidenceIDs, "test-report:failed") {
 		t.Fatalf("repair plan lost lineage: %+v", repair)
+	}
+}
+
+func TestRepairControllerFailsClosedWithoutReachableVerification(t *testing.T) {
+	graph := WorkflowGraph{ID: "repair-invalid-runtime", Version: 1, EntryNodeIDs: []string{"repair"}, ExitNodeIDs: []string{"repair"}, Nodes: []WorkflowNode{
+		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "target", VerificationNodeIDs: []string{"missing"}, MaxRounds: 1}},
+		{ID: "target", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "dev", Revision: 1}},
+	}, Edges: []WorkflowEdge{{ID: "repair-target", From: "repair", To: "target", On: EdgeSuccess, MaxTraversals: 1}}}
+	plan := RequirementExecutionPlan{ID: "repair-invalid-runtime-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanReady, Revision: 1}
+	decision, err := (DefaultRepairController{}).PlanRepair(context.Background(), StructuralInput{Plan: plan, Node: graph.Nodes[0], Incoming: []StructuralSource{{Attempt: NodeAttempt{ID: "failed", Result: StructuredResult{EvidenceIDs: []string{"failure"}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Event != "failure" || decision.Result.ReasonCode != RepairReasonVerificationUnreachable || decision.Failure == nil {
+		t.Fatalf("unreachable verification was not rejected: %+v", decision)
+	}
+}
+
+func TestValidateGraphDerivesAUniqueRepairTarget(t *testing.T) {
+	base := WorkflowGraph{
+		ID: "repair-derived-target", Version: 1, EntryNodeIDs: []string{"source"}, ExitNodeIDs: []string{"verify"},
+		Nodes: []WorkflowNode{
+			{ID: "source", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "source-agent", Revision: 1}},
+			{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{VerificationNodeIDs: []string{"verify"}, MaxRounds: 1}},
+			{ID: "patch", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "developer", Revision: 1}},
+			{ID: "verify", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "qa", Revision: 1}},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "source-repair", From: "source", To: "repair", On: EdgeBug, MaxTraversals: 1},
+			{ID: "repair-patch", From: "repair", To: "patch", On: EdgeSuccess, MaxTraversals: 1},
+			{ID: "patch-verify", From: "patch", To: "verify", On: EdgeSuccess, MaxTraversals: 1},
+		},
+	}
+	if err := ValidateGraph(base); err != nil {
+		t.Fatalf("unique success target should be derivable: %v", err)
+	}
+	ambiguous := base
+	ambiguous.ID = "repair-ambiguous-target"
+	ambiguous.Nodes = append(append([]WorkflowNode(nil), base.Nodes...), WorkflowNode{ID: "patch-alt", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "developer-2", Revision: 1}})
+	ambiguous.Edges = append(append([]WorkflowEdge(nil), base.Edges...), WorkflowEdge{ID: "repair-patch-alt", From: "repair", To: "patch-alt", On: EdgeSuccess, MaxTraversals: 1}, WorkflowEdge{ID: "patch-alt-verify", From: "patch-alt", To: "verify", On: EdgeSuccess, MaxTraversals: 1})
+	if err := ValidateGraph(ambiguous); err == nil || !strings.Contains(err.Error(), "target_node_id.required_or_uniquely_derivable") {
+		t.Fatalf("ambiguous success targets must fail closed: %v", err)
+	}
+}
+
+func TestRepairLifecycleRequiresTargetPatchAndVerification(t *testing.T) {
+	graph := WorkflowGraph{ID: "repair-lifecycle", Version: 1, EntryNodeIDs: []string{"test"}, ExitNodeIDs: []string{"done"}, Nodes: []WorkflowNode{
+		{ID: "test", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{VerificationNodeIDs: []string{"verify"}, MaxRounds: 2}},
+		{ID: "verify", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+		{ID: "done", Kind: NodeHuman},
+	}, Edges: []WorkflowEdge{
+		{ID: "test-repair", From: "test", To: "repair", On: EdgeBug, LoopGroup: "repair", MaxTraversals: 2},
+		{ID: "repair-test", From: "repair", To: "test", On: EdgeSuccess, LoopGroup: "repair", MaxTraversals: 2},
+		{ID: "test-verify", From: "test", To: "verify", On: EdgeSuccess},
+		{ID: "verify-done", From: "verify", To: "done", On: EdgeSuccess},
+	}}
+	plan, err := (RequirementExecutionPlan{ID: "repair-lifecycle-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	failed, err := projection.StartAttempt(plan, "test", "test-attempt-1", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.FinishAttempt(plan, failed.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Event: "bug", Result: StructuredResult{Outcome: "bug", EvidenceIDs: []string{"unit-failure"}}, Failure: &FailureReason{Code: "unit_failed", Message: "unit test failed", Retryable: true}, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("repair planning failed: attempts=%+v err=%v", advanced, err)
+	}
+	repair := advanced[0]
+	if repair.RepairState != RepairPlanned || len(projection.RepairPlans) != 1 {
+		t.Fatalf("repair plan was not durable: attempt=%+v plans=%+v", repair, projection.RepairPlans)
+	}
+	if len(repair.OutputArtifacts) != 1 || repair.OutputArtifacts[0] == "" {
+		t.Fatalf("repair plan artifact was not attached to immutable attempt: %+v", repair)
+	}
+	var repairPlan RepairPlan
+	for _, candidate := range projection.RepairPlans {
+		repairPlan = candidate
+	}
+	if repairPlan.State != RepairPlanned || repairPlan.TargetNodeID != "test" || repairPlan.VerificationNodeIDs[0] != "verify" {
+		t.Fatalf("invalid repair plan=%+v", repairPlan)
+	}
+	if repairPlan.RepairNodeID != "repair" || len(repairPlan.RepairAttemptIDs) != 1 || repairPlan.RepairAttemptIDs[0] != repair.ID || len(repairPlan.StateHistory) != 1 || repairPlan.StateHistory[0] != RepairPlanned {
+		t.Fatalf("repair plan lost immutable controller lineage: %+v", repairPlan)
+	}
+	target, err := projection.StartAttempt(plan, "test", "test-attempt-2", 2, Lease{FencingToken: 2, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 2, Now: now})
+	if err != nil || target.RepairState != RepairDispatched || target.RepairPlanID != repairPlan.ID {
+		t.Fatalf("target was not dispatched through repair controller: target=%+v err=%v", target, err)
+	}
+	if projection.RepairPlans[repairPlan.ID].State != RepairDispatched {
+		t.Fatalf("target dispatch did not advance plan: %+v", projection.RepairPlans[repairPlan.ID])
+	}
+	patched, err := projection.FinishAttempt(plan, target.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 2, Event: "success", Result: StructuredResult{Outcome: "pass", EvidenceIDs: []string{"patch"}}, Now: now})
+	if err != nil || patched.RepairState != RepairPatched {
+		t.Fatalf("target patch did not advance lifecycle: attempt=%+v err=%v", patched, err)
+	}
+	verification, err := projection.StartAttempt(plan, "verify", "verify-attempt-1", 1, Lease{FencingToken: 3, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 3, Now: now})
+	if err != nil || verification.RepairState != RepairVerifying || verification.RepairPlanID != repairPlan.ID {
+		t.Fatalf("verification was not forced through repair controller: attempt=%+v err=%v", verification, err)
+	}
+	verified, err := projection.FinishAttempt(plan, verification.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: 3, Event: "success", Result: StructuredResult{Outcome: "pass", EvidenceIDs: []string{"qa-pass"}}, Now: now})
+	if err != nil || verified.RepairState != RepairVerified {
+		t.Fatalf("verification did not complete lifecycle: attempt=%+v err=%v", verified, err)
+	}
+	if got := projection.RepairPlans[repairPlan.ID].State; got != RepairVerified {
+		t.Fatalf("repair controller state=%q, want verified", got)
+	}
+	history := projection.RepairPlans[repairPlan.ID].StateHistory
+	for _, want := range []RepairLifecycle{RepairPlanned, RepairDispatched, RepairPatched, RepairVerifying, RepairVerified} {
+		found := false
+		for _, state := range history {
+			if state == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("repair controller history=%v missing %s", history, want)
+		}
+	}
+	if err := projection.Validate(); err != nil {
+		t.Fatalf("completed repair projection invalid: %v", err)
+	}
+}
+
+func TestRepairWaitsForAllVerificationExitNodes(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "repair-multi-verification", Version: 1, EntryNodeIDs: []string{"source"}, ExitNodeIDs: []string{"verify-a", "verify-b"},
+		Nodes: []WorkflowNode{
+			{ID: "source", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+			{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "patch", VerificationNodeIDs: []string{"verify-a", "verify-b"}, MaxRounds: 1}},
+			{ID: "patch", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+			{ID: "verify-a", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+			{ID: "verify-b", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "source-repair", From: "source", To: "repair", On: EdgeBug, MaxTraversals: 1},
+			{ID: "repair-patch", From: "repair", To: "patch", On: EdgeSuccess, MaxTraversals: 1},
+			{ID: "patch-verify-a", From: "patch", To: "verify-a", On: EdgeSuccess, FanOut: true},
+			{ID: "patch-verify-b", From: "patch", To: "verify-b", On: EdgeSuccess, FanOut: true},
+		},
+	}
+	plan, err := (RequirementExecutionPlan{ID: "repair-multi-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	start := func(nodeID, attemptID string, no int, token int64) NodeAttempt {
+		t.Helper()
+		attempt, startErr := projection.StartAttempt(plan, nodeID, attemptID, no, Lease{FencingToken: token, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Now: now})
+		if startErr != nil {
+			t.Fatal(startErr)
+		}
+		return attempt
+	}
+	finish := func(attempt NodeAttempt, event string, outcome string, token int64) NodeAttempt {
+		t.Helper()
+		finished, finishErr := projection.FinishAttempt(plan, attempt.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Event: event, Result: StructuredResult{Outcome: outcome, EvidenceIDs: []string{attempt.ID + ":evidence"}}, Now: now})
+		if finishErr != nil {
+			t.Fatal(finishErr)
+		}
+		return finished
+	}
+
+	source := start("source", "source-1", 1, 1)
+	finish(source, "bug", "bug", 1)
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("repair planning failed: attempts=%+v err=%v", advanced, err)
+	}
+	patch := start("patch", "patch-1", 1, 2)
+	if patch.RepairState != RepairDispatched {
+		t.Fatalf("patch was not dispatched: %+v", patch)
+	}
+	finish(patch, "success", "pass", 2)
+	verifyA := start("verify-a", "verify-a-1", 1, 3)
+	verifyB := start("verify-b", "verify-b-1", 1, 4)
+	if verifyA.RepairState != RepairVerifying || verifyB.RepairState != RepairVerifying {
+		t.Fatalf("verification attempts were not marked verifying: a=%+v b=%+v", verifyA, verifyB)
+	}
+	finish(verifyA, "success", "pass", 3)
+	if projection.Status == PlanTerminal {
+		t.Fatalf("first verification exit prematurely terminalized plan: %+v", projection)
+	}
+	finish(verifyB, "success", "pass", 4)
+	if projection.Status != PlanTerminal || projection.TerminalOutcome != "succeeded" {
+		t.Fatalf("all verification exits did not complete plan: projection=%+v", projection)
+	}
+}
+
+func TestRepairVerificationCanFollowAChainedSuccessPath(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "repair-chained-verification", Version: 1, EntryNodeIDs: []string{"source"}, ExitNodeIDs: []string{"qa"},
+		Nodes: []WorkflowNode{
+			{ID: "source", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "source-agent", Revision: 1}},
+			{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "patch", VerificationNodeIDs: []string{"unit", "qa"}, MaxRounds: 1}},
+			{ID: "patch", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "developer", Revision: 1}},
+			{ID: "unit", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "unit-agent", Revision: 1}},
+			{ID: "qa", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "qa-agent", Revision: 1}},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "source-repair", From: "source", To: "repair", On: EdgeBug, MaxTraversals: 1},
+			{ID: "repair-patch", From: "repair", To: "patch", On: EdgeSuccess, MaxTraversals: 1},
+			{ID: "patch-unit", From: "patch", To: "unit", On: EdgeSuccess, MaxTraversals: 1},
+			{ID: "unit-qa", From: "unit", To: "qa", On: EdgeSuccess, MaxTraversals: 1},
+		},
+	}
+	plan, err := (RequirementExecutionPlan{ID: "repair-chained-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	start := func(nodeID, attemptID string, no int, token int64) NodeAttempt {
+		t.Helper()
+		attempt, startErr := projection.StartAttempt(plan, nodeID, attemptID, no, Lease{FencingToken: token, ExpiresAt: now.Add(time.Hour)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Now: now})
+		if startErr != nil {
+			t.Fatal(startErr)
+		}
+		return attempt
+	}
+	finish := func(attempt NodeAttempt, event, outcome string, token int64) NodeAttempt {
+		t.Helper()
+		finished, finishErr := projection.FinishAttempt(plan, attempt.ID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: token, Event: event, Result: StructuredResult{Outcome: outcome, EvidenceIDs: []string{attempt.ID + ":evidence"}}, Now: now})
+		if finishErr != nil {
+			t.Fatal(finishErr)
+		}
+		return finished
+	}
+
+	source := start("source", "chain-source-1", 1, 1)
+	finish(source, "bug", "bug", 1)
+	advanced, err := (Executor{}).AdvanceStructural(context.Background(), plan, &projection, testEnvelope(), 1)
+	if err != nil || len(advanced) != 1 {
+		t.Fatalf("repair planning failed: attempts=%+v err=%v", advanced, err)
+	}
+	patch := start("patch", "chain-patch-1", 1, 2)
+	if patch.RepairState != RepairDispatched {
+		t.Fatalf("patch was not dispatched: %+v", patch)
+	}
+	finish(patch, "success", "pass", 2)
+	unit := start("unit", "chain-unit-1", 1, 3)
+	if unit.RepairState != RepairVerifying {
+		t.Fatalf("unit was not marked verifying: %+v", unit)
+	}
+	finish(unit, "success", "pass", 3)
+	qa := start("qa", "chain-qa-1", 1, 4)
+	if qa.RepairState != RepairVerifying {
+		t.Fatalf("chained QA was not marked verifying: %+v", qa)
+	}
+	finish(qa, "success", "pass", 4)
+	if projection.Status != PlanTerminal || projection.TerminalOutcome != "succeeded" {
+		t.Fatalf("chained verification did not complete plan: %+v", projection)
 	}
 }
 

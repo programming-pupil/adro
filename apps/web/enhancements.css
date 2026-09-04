@@ -164,6 +164,13 @@ dialog.entity-dialog { width: min(980px, calc(100vw - 32px)); max-height: min(86
 .entity-editor { padding: 24px 27px 28px; }
 .entity-properties { padding: 23px 24px 28px; border-left: 1px solid var(--line); background: #091522; }
 .entity-properties h3 { margin: 0 0 16px; color: var(--faint); font: 700 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; }
+.requirement-orchestration { margin: 16px 0 0; padding: 12px; border: 1px solid #23435d; background: #071821; }
+.requirement-orchestration legend { padding: 0 5px; color: var(--cyan); font: 700 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
+.requirement-orchestration label { margin-top: 10px; }
+.requirement-orchestration label:first-of-type { margin-top: 0; }
+.requirement-orchestration select { display: block; width: 100%; min-height: 32px; margin-top: 6px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--text); background: var(--surface); font-size: 11px; }
+.requirement-orchestration .checkbox-row { display: flex; align-items: center; gap: 7px; }
+.requirement-orchestration .checkbox-row input { width: auto; min-height: auto; margin: 0; }
 .entity-form label { margin-top: 17px; }
 .entity-form label:first-child { margin-top: 0; }
 .entity-form label > span:first-child { font-size: 10px; font-weight: 650; }
@@ -325,6 +332,30 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 .graph-editor-dialog { width: min(980px, calc(100vw - 28px)); }
 .graph-editor-dialog form { max-height: min(78vh, 760px); overflow: auto; }
 .graph-editor-dialog textarea { min-height: 360px; color: #bdebe6; background: #061018; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.graph-studio-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--line); background: #0b1b27; }
+.graph-studio-toolbar > div { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px; }
+.graph-studio-toolbar button { min-height: 30px; padding: 5px 8px; font-size: 10px; }
+.graph-editor-canvas { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; min-height: 190px; margin-bottom: 14px; padding: 14px; border: 1px solid #285368; background-color: #06141e; background-image: linear-gradient(#173545 1px, transparent 1px), linear-gradient(90deg, #173545 1px, transparent 1px); background-size: 24px 24px; }
+.graph-editor-canvas.connect-mode { outline: 2px solid var(--cyan); outline-offset: -2px; cursor: crosshair; }
+.graph-canvas-node { position: relative; display: grid; gap: 8px; min-width: 0; padding: 11px; border: 1px solid #2b6178; border-left: 3px solid var(--cyan); background: #0a2230; box-shadow: 0 8px 16px #0004; cursor: grab; }
+.graph-canvas-node:active { cursor: grabbing; }
+.graph-canvas-node.dragging { opacity: .45; }
+.graph-canvas-node header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.graph-canvas-node header strong { overflow: hidden; text-overflow: ellipsis; color: var(--text); font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.graph-canvas-node label { display: grid; gap: 4px; margin: 0; }
+.graph-canvas-node label span { color: var(--faint); font-size: 9px; }
+.graph-canvas-node select { min-width: 0; min-height: 28px; padding: 4px 6px; border: 1px solid var(--line); color: var(--text); background: #071821; font-size: 10px; }
+.graph-canvas-node input { min-width: 0; min-height: 28px; padding: 4px 6px; border: 1px solid var(--line); color: var(--text); background: #071821; font-size: 10px; }
+.graph-node-tuning { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.graph-canvas-node small { min-height: 28px; color: var(--muted); font: 9px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.graph-node-remove { width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); color: var(--muted); background: transparent; cursor: pointer; }
+.graph-node-remove:hover { border-color: var(--red); color: var(--red); }
+.graph-node-position { position: absolute; top: 6px; right: 8px; color: #4a8193; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.graph-kind-gate { border-left-color: var(--amber); }
+.graph-kind-merge { border-left-color: #e99aff; }
+.graph-kind-repair { border-left-color: var(--red); }
+.graph-kind-human { border-left-color: #ff9c6e; }
+.graph-canvas-empty { grid-column: 1 / -1; margin: 0; padding: 36px 12px; color: var(--faint); text-align: center; }
 .graph-editor-summary { margin-top: 16px; padding: 14px; border: 1px solid var(--line); background: #091b27; }
 .graph-summary-head { display: flex; justify-content: space-between; gap: 12px; color: var(--cyan); font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .graph-node-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
@@ -332,6 +363,23 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 .graph-node-chip small { color: var(--muted); font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .graph-status-good { color: var(--green); }
 .graph-status-bad { color: var(--red); }
+.graph-edge-editor { display: grid; gap: 9px; margin-bottom: 14px; }
+.graph-edge-editor-head { display: flex; justify-content: space-between; padding: 9px 11px; border: 1px solid var(--line); color: var(--cyan); background: #091b27; font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.graph-edge-row { display: grid; grid-template-columns: minmax(130px, 1.3fr) repeat(4, minmax(86px, .7fr)) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); background: #071821; }
+.graph-edge-row label, .graph-edge-row fieldset label { display: grid; gap: 4px; margin: 0; }
+.graph-edge-row label span, .graph-edge-row legend { color: var(--faint); font-size: 9px; }
+.graph-edge-row input, .graph-edge-row select { min-width: 0; min-height: 28px; padding: 4px 6px; border: 1px solid var(--line); color: var(--text); background: #0a2230; font-size: 10px; }
+.graph-edge-route { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.graph-edge-route span { color: var(--cyan); }
+.graph-edge-check { display: flex !important; align-items: center; gap: 5px; white-space: nowrap; }
+.graph-edge-check input { min-height: auto; }
+.graph-edge-row fieldset { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(100px, 1fr)); gap: 8px; margin: 2px 0 0; padding: 8px; border: 1px solid #1c3442; }
+.graph-edge-row legend { padding: 0 4px; }
+@media (max-width: 900px) {
+  .graph-edge-row { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  .graph-edge-route, .graph-edge-check { grid-column: 1 / -1; }
+  .graph-edge-row fieldset { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
+}
 @media (max-width: 760px) { .orchestration-hero { grid-template-columns: 1fr; padding: 21px; } .orchestration-hero-actions { width: 100%; } .orchestration-hero-actions button { flex: 1; } }
 .chat-workspace{display:grid;grid-template-columns:minmax(210px,280px) minmax(0,1fr);min-height:540px;border:1px solid var(--line);background:rgba(7,20,28,.72)}
 .chat-sidebar{border-right:1px solid var(--line);padding:16px;overflow:auto}.chat-sidebar-head{display:flex;justify-content:space-between;align-items:baseline;color:var(--text);font-size:13px;margin-bottom:12px}.chat-sidebar-head span{color:var(--faint);font:11px "SFMono-Regular",monospace}.chat-list{display:grid;gap:6px}.chat-list-item{display:grid;gap:4px;width:100%;padding:11px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer}.chat-list-item:hover,.chat-list-item.active{border-color:#28738a;background:#123b51;color:var(--text)}.chat-list-item strong{font-size:12px}.chat-list-item small{color:var(--faint);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chat-panel{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0}.chat-history{display:grid;align-content:start;gap:12px;padding:20px;overflow:auto}.chat-message{max-width:min(760px,88%);padding:12px 14px;border:1px solid var(--line);border-radius:7px;background:#0e2633}.chat-message.user{justify-self:end;background:#123b51;border-color:#28738a}.chat-message header{display:flex;justify-content:space-between;gap:18px;color:var(--cyan);font:10px "SFMono-Regular",monospace;text-transform:uppercase}.chat-message time{color:var(--faint)}.chat-message p{margin:8px 0 0;white-space:pre-wrap;line-height:1.55;color:var(--text);font-size:13px}.chat-message small{display:block;margin-top:7px;color:var(--faint)}.chat-empty{padding:18px;color:var(--faint);font-size:12px}.chat-composer{border-top:1px solid var(--line);padding:14px 18px;background:#0a1d27}.chat-compose-meta,.chat-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.chat-compose-meta select{max-width:260px;border:1px solid var(--line);background:#0d2835;color:var(--muted);padding:8px 10px;border-radius:5px;font-size:11px}.chat-file-label{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid var(--line);border-radius:5px;color:var(--cyan);cursor:pointer}.chat-composer textarea{width:100%;min-height:74px;resize:vertical;margin:10px 0;border:1px solid var(--line);border-radius:5px;background:#071821;color:var(--text);padding:11px;font:13px/1.5 inherit}.chat-compose-actions span{color:#ef9b77;font-size:11px}.chat-compose-actions .primary{min-width:76px}@media(max-width:800px){.chat-workspace{grid-template-columns:1fr;min-height:600px}.chat-sidebar{border-right:0;border-bottom:1px solid var(--line);max-height:170px}.chat-list{display:flex;overflow:auto}.chat-list-item{min-width:180px}.chat-message{max-width:94%}}

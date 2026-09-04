@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/orchestration"
 )
 
@@ -632,6 +633,32 @@ func (s *Server) createExecutionPlan(w http.ResponseWriter, r *http.Request, req
 	}
 	now := time.Now().UTC()
 	p := orchestration.RequirementExecutionPlan{ID: domain.NewID(), RequirementID: req.ID, WorkspaceID: req.WorkspaceID, GraphSnapshot: graph, SelectedRef: selected, PolicySnapshot: orchestration.PolicySnapshot{CapturedAt: now}, ContextRoot: orchestration.ContextRef{SessionID: "plan-" + req.ID, ManifestDigest: "pending"}, Status: orchestration.PlanDraft, IdempotencyKey: in.IdempotencyKey, CreatedAt: now}
+	// Requirement publication owns a durable context root. This keeps browser
+	// and API-created graphs on the same authoritative context compiler path;
+	// callers may still provide a newer envelope at tick time, but a graph never
+	// starts with an implicit, untracked prompt.
+	if s.Harness != nil {
+		contextSession, sessionErr := s.Harness.EnsureSession(harness.Session{ID: p.ContextRoot.SessionID, TenantID: req.WorkspaceID, WorkspaceID: req.WorkspaceID, BudgetTokens: harnessSessionBudget()})
+		if sessionErr != nil && !errors.Is(sessionErr, harness.ErrConflict) {
+			s.problem(w, r, http.StatusConflict, "context_session_failed", sessionErr.Error(), nil)
+			return
+		}
+		if sessionErr == nil {
+			objective := strings.TrimSpace(req.Title + "\n" + req.Description)
+			if len(req.AcceptanceCriteria) > 0 {
+				objective += "\nAcceptance criteria:\n- " + strings.Join(req.AcceptanceCriteria, "\n- ")
+			}
+			turnKey := "plan:" + p.ID + ":objective"
+			if _, turnErr := s.Harness.AppendTurn(contextSession.ID, harness.Turn{Role: harness.RoleUser, Content: objective, IdempotencyKey: turnKey, Metadata: map[string]string{"requirement_id": req.ID, "graph_id": graph.ID}}); turnErr != nil && !errors.Is(turnErr, harness.ErrConflict) {
+				s.problem(w, r, http.StatusConflict, "context_objective_failed", turnErr.Error(), nil)
+				return
+			}
+			if envelope, envelopeErr := s.Harness.CompileEnvelope(contextSession.ID, 0); envelopeErr == nil {
+				p.ContextRoot.ManifestDigest = envelope.Manifest.Digest
+				p.ContextRoot.ReplayKey = envelope.ReplayKey
+			}
+		}
+	}
 	frozen, err := p.Freeze()
 	if err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "plan_validation_failed", err.Error(), nil)

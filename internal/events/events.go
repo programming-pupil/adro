@@ -819,6 +819,49 @@ func (b *Bus) List(aggregateID, cursor string, limit int) ([]Envelope, string) {
 	return items, next
 }
 
+// Count returns the exact number of retained events in a stream. It is used
+// for gauges and aggregation and intentionally does not impose replay's page
+// limit.
+func (b *Bus) Count(aggregateID string) int {
+	if b == nil {
+		return 0
+	}
+	if b.statePath != "" {
+		_ = b.Reload()
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if aggregateID == "" {
+		return len(b.events)
+	}
+	count := 0
+	for _, event := range b.events {
+		if event.AggregateID == aggregateID {
+			count++
+		}
+	}
+	return count
+}
+
+// CountByType returns an exact retained-event count without replay pagination.
+func (b *Bus) CountByType(eventType string) int {
+	if b == nil {
+		return 0
+	}
+	if b.statePath != "" {
+		_ = b.Reload()
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	count := 0
+	for _, event := range b.events {
+		if event.EventType == eventType {
+			count++
+		}
+	}
+	return count
+}
+
 // ListChecked is the fail-closed cursor variant used by API/replay callers.
 // An unknown cursor is never treated as an instruction to replay from the
 // beginning, which would otherwise hide retention gaps or stale clients.

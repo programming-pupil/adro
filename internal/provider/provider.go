@@ -375,6 +375,10 @@ type RunSnapshot struct {
 	TraceState        string `json:"tracestate,omitempty"`
 	BaselineCommit    string `json:"baseline_commit,omitempty"`
 	HeadCommit        string `json:"head_commit,omitempty"`
+	OutputSHA256      string `json:"output_sha256,omitempty"`
+	SourceDiffSHA256  string `json:"source_diff_sha256,omitempty"`
+	WorktreeSHA256    string `json:"worktree_sha256,omitempty"`
+	ToolEventsSHA256  string `json:"tool_events_sha256,omitempty"`
 	SubmissionURL     string `json:"submission_url,omitempty"`
 	ChecksConclusion  string `json:"checks_conclusion,omitempty"`
 	Output            string `json:"output,omitempty"`
@@ -504,6 +508,14 @@ type ExecutionProvider interface {
 	Health(context.Context) (ProviderHealth, error)
 }
 
+// ShutdownProvider is an optional lifecycle contract for providers that own
+// child processes or other run-scoped resources. API binaries invoke it during
+// graceful shutdown so an active executor cannot become an orphan after the
+// HTTP server exits.
+type ShutdownProvider interface {
+	Shutdown(context.Context) error
+}
+
 type mockRun struct {
 	snapshot RunSnapshot
 	cancel   context.CancelFunc
@@ -518,6 +530,7 @@ type MockProvider struct {
 	bus         *events.Bus
 	caps        Capabilities
 	attachments []AttachmentSpec
+	commands    []StartRunCommand
 }
 
 func NewMockProvider(bus *events.Bus) *MockProvider {
@@ -579,6 +592,7 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 	}
 	baseRunCtx, cancel := context.WithCancel(ctx)
 	runCtx, span, _ := telemetry.StartRemoteSpan(baseRunCtx, cmd.TraceParent, cmd.TraceState)
+	p.commands = append(p.commands, cmd)
 	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, InputHash: sha256Hex(cmd.Input), SessionID: sessionID, Status: "running", TraceParent: span.TraceParent(), TraceState: span.TraceState, StartedAt: &now}, cancel: cancel}
 	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {
 		p.runKeys[cmd.WorkItemID+"\x00"+key] = id
@@ -603,6 +617,18 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 		}
 	}()
 	return RunBinding{ID: id, ProviderRunID: "mock-run-" + id, SessionID: sessionID, ContextID: cmd.ContextID, ContextVersion: cmd.ContextVersion, SessionReused: cmd.SessionID != "", TraceParent: span.TraceParent(), TraceState: span.TraceState, StartedAt: now}, nil
+}
+
+// LastCommand exposes the immutable command captured by the deterministic
+// provider contract tests. It is intentionally read-only; production
+// providers persist the equivalent command in their dispatch/evidence store.
+func (p *MockProvider) LastCommand() (StartRunCommand, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.commands) == 0 {
+		return StartRunCommand{}, false
+	}
+	return p.commands[len(p.commands)-1], true
 }
 func (p *MockProvider) AppendInput(_ context.Context, runID, input string) error {
 	p.mu.Lock()

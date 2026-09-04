@@ -202,6 +202,48 @@ type RepairPolicy struct {
 	Budget              Budget   `json:"budget,omitempty"`
 }
 
+// RepairLifecycle is carried on immutable attempts so a repair cannot be
+// represented only by a successful planning result. The target attempt and
+// verification attempts advance this same contract through the lifecycle.
+type RepairLifecycle string
+
+const (
+	RepairPlanned    RepairLifecycle = "planned"
+	RepairDispatched RepairLifecycle = "dispatched"
+	RepairPatched    RepairLifecycle = "patched"
+	RepairVerifying  RepairLifecycle = "verifying"
+	RepairVerified   RepairLifecycle = "verified"
+	RepairFailed     RepairLifecycle = "failed"
+	RepairExhausted  RepairLifecycle = "exhausted"
+)
+
+// RepairPlan is the durable controller state for one bounded repair contract.
+// The plan is derived from immutable repair-node attempts, while its current
+// lifecycle and state history are kept in the projection so recovery and
+// replay can enforce the target/verification contract without mutating
+// historical attempts.
+type RepairPlan struct {
+	ID                      string            `json:"id"`
+	PlanID                  string            `json:"plan_id"`
+	RepairNodeID            string            `json:"repair_node_id"`
+	RepairAttemptID         string            `json:"repair_attempt_id"`
+	RepairAttemptIDs        []string          `json:"repair_attempt_ids,omitempty"`
+	TargetNodeID            string            `json:"target_node_id"`
+	VerificationNodeIDs     []string          `json:"verification_node_ids"`
+	SourceAttemptIDs        []string          `json:"source_attempt_ids,omitempty"`
+	Scope                   []string          `json:"scope,omitempty"`
+	MaxRounds               int               `json:"max_rounds"`
+	Round                   int               `json:"round"`
+	State                   RepairLifecycle   `json:"state"`
+	StateHistory            []RepairLifecycle `json:"state_history,omitempty"`
+	TargetAttemptID         string            `json:"target_attempt_id,omitempty"`
+	VerificationAttempts    map[string]string `json:"verification_attempts,omitempty"`
+	VerifiedNodes           map[string]bool   `json:"verified_nodes,omitempty"`
+	PatchArtifactIDs        []string          `json:"patch_artifact_ids,omitempty"`
+	VerificationArtifactIDs []string          `json:"verification_artifact_ids,omitempty"`
+	LastReasonCode          string            `json:"last_reason_code,omitempty"`
+}
+
 type Predicate struct {
 	Kind     string      `json:"kind"`
 	Field    string      `json:"field,omitempty"`
@@ -349,6 +391,8 @@ type NodeAttempt struct {
 	InputManifest   harness.ContextEnvelope `json:"input_manifest"`
 	OutputArtifacts []string                `json:"output_artifacts,omitempty"`
 	Result          StructuredResult        `json:"result,omitempty"`
+	RepairState     RepairLifecycle         `json:"repair_state,omitempty"`
+	RepairPlanID    string                  `json:"repair_plan_id,omitempty"`
 	Status          AttemptStatus           `json:"status"`
 	FailureReason   *FailureReason          `json:"failure_reason,omitempty"`
 	ParentAttemptID string                  `json:"parent_attempt_id,omitempty"`

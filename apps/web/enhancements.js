@@ -26,7 +26,7 @@
     userManagement: '用户与菜单权限', identityCount: '个身份', permissionSummary: '菜单', edit: '编辑', userSaveFailed: '用户保存失败，请检查用户名、密码和管理员约束',
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
     runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限'
-    ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
+    ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.en, {
     chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
@@ -49,10 +49,16 @@
     userManagement: 'Users and menu access', identityCount: 'identities', permissionSummary: 'menus', edit: 'Edit', userSaveFailed: 'Could not save the user; check the username, password, and administrator constraints',
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
     runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions'
-    ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
+    ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
   });
-  Object.assign(translations.zh, { reply: '回复', cancelReply: '取消回复', retryTrigger: '重试触发', attachComment: '添加附件', attachmentReady: '附件已准备', commentReplyingTo: '正在回复', commentEmpty: '评论内容不能为空', commentSendFailed: '评论发布失败', commentLoadFailed: '评论加载失败', commentPreview: '触发预览', commentPreviewReady: '预览已更新', commentPreviewNoTargets: '没有可触发的结构化 mention', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: '触发结果', commentFollowUp: '执行收据', commentNoOutcome: '暂无触发结果', outcomeQueued: '已排队', outcomeCoalesced: '已合并', outcomeDeferred: '已延迟', outcomeBlocked: '已阻止', outcomeStarted: '已启动', outcomeRunning: '运行中', outcomeCompleted: '已完成', outcomeFailed: '失败', outcomeRetrying: '重试中', outcomeCancelled: '已取消', outcomeTimedOut: '已超时', outcomeNotRequested: '未请求', planGraph: '计划图', planGraphHelp: '可在提交前临时编辑已选 Agent 或 Squad 的图。', planGraphLoad: '载入图', planGraphValidate: '校验并预览', planGraphStatus: '提交前检查', planGraphReady: '计划图已通过检查', planGraphInvalid: '计划图校验失败', graphDiagnostics: '节点/边/循环/并发' });
-  Object.assign(translations.en, { reply: 'Reply', cancelReply: 'Cancel reply', retryTrigger: 'Retry trigger', attachComment: 'Attach files', attachmentReady: 'Files attached', commentReplyingTo: 'Replying to', commentEmpty: 'Comment cannot be empty', commentSendFailed: 'Could not post the comment', commentLoadFailed: 'Could not load comments', commentPreview: 'Preview triggers', commentPreviewReady: 'Preview updated', commentPreviewNoTargets: 'No structured mentions to invoke', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: 'Trigger outcome', commentFollowUp: 'Execution receipt', commentNoOutcome: 'No trigger outcome', outcomeQueued: 'Queued', outcomeCoalesced: 'Coalesced', outcomeDeferred: 'Deferred', outcomeBlocked: 'Blocked', outcomeStarted: 'Started', outcomeRunning: 'Running', outcomeCompleted: 'Completed', outcomeFailed: 'Failed', outcomeRetrying: 'Retrying', outcomeCancelled: 'Cancelled', outcomeTimedOut: 'Timed out', outcomeNotRequested: 'Not requested', planGraph: 'Plan graph', planGraphHelp: 'Temporarily edit the selected Agent or Squad graph before submitting.', planGraphLoad: 'Load graph', planGraphValidate: 'Validate and preview', planGraphStatus: 'Pre-submit checks', planGraphReady: 'Plan graph passed checks', planGraphInvalid: 'Plan graph validation failed', graphDiagnostics: 'nodes / edges / loops / concurrency' });
+  Object.assign(translations.en, {
+    requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
+  });
+  Object.assign(translations.zh, {
+    requirementOrchestration: '编排设置', requirementTarget: '执行目标', noExecutionPlan: '仅创建需求，不立即编排', temporarySquad: '临时小队', temporaryMembers: '临时小队成员', temporaryMembersHelp: '选择已启用的版本化 Agent；创建后可继续在 Graph Studio 编辑图。', openGraphStudio: '创建后打开 Graph Studio', requirementOrchestrationHelp: '选择 Agent 或已发布 Squad 会创建冻结计划；临时小队会保留可编辑草稿，并用其图创建初始计划。'
+  });
+  Object.assign(translations.zh, { reply: '回复', cancelReply: '取消回复', retryTrigger: '重试触发', attachComment: '添加附件', attachmentReady: '附件已准备', commentReplyingTo: '正在回复', commentEmpty: '评论内容不能为空', commentSendFailed: '评论发布失败', commentLoadFailed: '评论加载失败', commentPreview: '触发预览', commentPreviewReady: '预览已更新', commentPreviewNoTargets: '没有可触发的结构化 mention', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: '触发结果', commentFollowUp: '执行收据', commentNoOutcome: '暂无触发结果', outcomeQueued: '已排队', outcomeCoalesced: '已合并', outcomeDeferred: '已延迟', outcomeBlocked: '已阻止', outcomeStarted: '已启动', outcomeRunning: '运行中', outcomeCompleted: '已完成', outcomeFailed: '失败', outcomeRetrying: '重试中', outcomeCancelled: '已取消', outcomeTimedOut: '已超时', outcomeNotRequested: '未请求', addSquadNode: 'Squad 节点', addMergeNode: 'Merge 节点', addRepairNode: 'Repair 节点', addHumanNode: 'Human 节点', nodeReference: '版本化引用', nodeBudget: 'Token 预算', nodeTimeout: '超时 (ms)', nodeRetry: '最大尝试', edgeEditor: '边配置', edgeEvent: '事件', edgePriority: '优先级', edgeLoop: '循环组', edgeMaxTraversals: '最大遍历', edgePredicate: 'Predicate', edgePredicateField: '字段', edgePredicateOp: '操作', edgePredicateValue: '值', edgeFanOut: '并行分发', planGraph: '计划图', planGraphHelp: '可在提交前用画布编辑 Agent 或 Squad 图。', planGraphLoad: '载入图', planGraphValidate: '校验并预览', planGraphStatus: '提交前检查', planGraphReady: '计划图已通过检查', planGraphInvalid: '计划图校验失败', graphDiagnostics: '节点/边/循环/并发', squadMembers: '成员 Agent', squadMemberHelp: '可选择多个 Agent；Leader 负责路由，其余成员按图中的边执行。', squadMemberRole: '成员角色' });
+  Object.assign(translations.en, { reply: 'Reply', cancelReply: 'Cancel reply', retryTrigger: 'Retry trigger', attachComment: 'Attach files', attachmentReady: 'Files attached', commentReplyingTo: 'Replying to', commentEmpty: 'Comment cannot be empty', commentSendFailed: 'Could not post the comment', commentLoadFailed: 'Could not load comments', commentPreview: 'Preview triggers', commentPreviewReady: 'Preview updated', commentPreviewNoTargets: 'No structured mentions to invoke', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: 'Trigger outcome', commentFollowUp: 'Execution receipt', commentNoOutcome: 'No trigger outcome', outcomeQueued: 'Queued', outcomeCoalesced: 'Coalesced', outcomeDeferred: 'Deferred', outcomeBlocked: 'Blocked', outcomeStarted: 'Started', outcomeRunning: 'Running', outcomeCompleted: 'Completed', outcomeFailed: 'Failed', outcomeRetrying: 'Retrying', outcomeCancelled: 'Cancelled', outcomeTimedOut: 'Timed out', outcomeNotRequested: 'Not requested', addSquadNode: 'Squad node', addMergeNode: 'Merge node', addRepairNode: 'Repair node', addHumanNode: 'Human node', nodeReference: 'Versioned reference', nodeBudget: 'Token budget', nodeTimeout: 'Timeout (ms)', nodeRetry: 'Max attempts', edgeEditor: 'Edge configuration', edgeEvent: 'Event', edgePriority: 'Priority', edgeLoop: 'Loop group', edgeMaxTraversals: 'Max traversals', edgePredicate: 'Predicate', edgePredicateField: 'Field', edgePredicateOp: 'Operator', edgePredicateValue: 'Value', edgeFanOut: 'Fan out', planGraph: 'Plan graph', planGraphHelp: 'Edit the selected Agent or Squad graph with canvas controls before submitting.', planGraphLoad: 'Load graph', planGraphValidate: 'Validate and preview', planGraphStatus: 'Pre-submit checks', planGraphReady: 'Plan graph passed checks', planGraphInvalid: 'Plan graph validation failed', graphDiagnostics: 'nodes / edges / loops / concurrency', squadMembers: 'Member agents', squadMemberHelp: 'Select multiple agents; the leader routes work and other members execute graph edges.', squadMemberRole: 'Member role' });
 
   let currentUser = null;
   let directory = [];
@@ -218,11 +224,63 @@
     return options.join('');
   }
 
+  function squadMembersForAgents(agents) {
+    return agents.map((agent, index) => ({
+      id: `member-${agent.id}`,
+      agent_id: agent.id,
+      role: index === 0 ? 'leader' : (agent.role || `member-${index + 1}`),
+      leader: index === 0,
+      input_schema: agent.input_schema,
+      output_schema: agent.output_schema,
+      max_attempts: 3,
+      budget: {tokens: 120000, tool_calls: 200, concurrent: 1}
+    }));
+  }
+
+  function graphForRequirementTarget(value) {
+    const [kind, id] = String(value || '').split(':', 2);
+    if (kind === 'agent') {
+      const agent = nativeAgents.find(item => item.id === id && item.status === 'active');
+      return agent ? {graph: graphForNativeAgent(agent), body: {agent_id: agent.id, agent_revision: agent.revision}} : null;
+    }
+    if (kind === 'squad') {
+      const squad = nativeSquads.find(item => item.id === id && item.status === 'published');
+      return squad ? {graph: squad.graph, body: {squad_id: squad.id, squad_version: squad.published_version || squad.revision}} : null;
+    }
+    return null;
+  }
+
+  function populateRequirementOrchestration() {
+    const target = $('#requirementExecutionTarget');
+    const members = $('#requirementTemporaryMembers');
+    if (!target || !members) return;
+    const previous = target.value;
+    const activeAgents = nativeAgents.filter(agent => agent.status === 'active');
+    const publishedSquads = nativeSquads.filter(squad => squad.status === 'published');
+    const options = [
+      `<option value="">${escapeHTML(t('noExecutionPlan'))}</option>`,
+      ...activeAgents.map(agent => `<option value="agent:${escapeHTML(agent.id)}">Agent · ${escapeHTML(agent.name || agent.id)} · r${escapeHTML(String(agent.revision || 0))}</option>`),
+      ...publishedSquads.map(squad => `<option value="squad:${escapeHTML(squad.id)}">Squad · ${escapeHTML(squad.name || squad.id)} · v${escapeHTML(String(squad.published_version || squad.revision || 0))}</option>`),
+      `<option value="temporary">${escapeHTML(t('temporarySquad'))}</option>`
+    ];
+    target.innerHTML = options.join('');
+    if (options.some(option => option.includes(`value="${previous}"`))) target.value = previous;
+    members.innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name || agent.id)} · ${escapeHTML(agent.role || 'agent')} · r${escapeHTML(String(agent.revision || 0))}</option>`).join('');
+    const field = $('#requirementTemporaryMembersField');
+    if (field) field.hidden = target.value !== 'temporary';
+  }
+
   showDialog = async function enhancedRequirementDialog() {
     $('#formError').textContent = '';
     await loadIdentityData();
+    await loadOrchestrationData();
     $('#requirementRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
     $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
+    populateRequirementOrchestration();
+    $('#requirementExecutionTarget').onchange = event => {
+      const field = $('#requirementTemporaryMembersField');
+      if (field) field.hidden = event.currentTarget.value !== 'temporary';
+    };
     applyTranslations();
     $('#requirementDialog').showModal();
     setTimeout(() => focusIfPresent('#requirementForm input[name="title"]'), 0);
@@ -247,6 +305,8 @@
     const submit = formElement.querySelector('button[type="submit"]');
     const criteria = String(data.get('acceptance')).split('\n').map(item => item.trim()).filter(Boolean);
     const files = Array.from(formElement.elements.attachments.files || []);
+    const executionTarget = String(data.get('execution_target') || '').trim();
+    const temporaryMemberIDs = data.getAll('temporary_members').map(String).filter(Boolean);
     $('#formError').textContent = '';
     submit.disabled = true;
     try {
@@ -260,9 +320,49 @@
         })
       });
       try { await uploadEntityFiles('requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
+      let graphEditorSquad = null;
+      const openGraphStudio = Boolean(data.get('open_graph_studio'));
+      if (executionTarget) {
+        let planBody = null;
+        if (executionTarget === 'temporary') {
+          const temporaryAgents = nativeAgents.filter(agent => temporaryMemberIDs.includes(agent.id) && agent.status === 'active');
+          if (!temporaryAgents.length) throw new Error('temporary squad requires at least one active Agent');
+          const members = squadMembersForAgents(temporaryAgents);
+          const graph = graphForNativeSquadMembers(temporaryAgents);
+          const quick = await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan/quick-squad`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()},
+            body: JSON.stringify({
+              name: `${created.title || t('temporarySquad')} · ${created.id.slice(0, 8)}`,
+              description: String(data.get('description')).trim(), members, graph,
+              policy: {max_nesting_depth: 2, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}, human_exit_required: true}
+            })
+          });
+          if (quick.valid === false) throw new Error(quick.validation_error || t('graphValidationFailed'));
+          graphEditorSquad = quick.squad || null;
+          planBody = {graph};
+        } else {
+          const selected = graphForRequirementTarget(executionTarget);
+          if (!selected) throw new Error(t('noPublishedTarget'));
+          planBody = {...selected.body, graph: selected.graph};
+        }
+        const preview = await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan/dry-run`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...planBody, idempotency_key: `preview-${idempotencyKey()}`})
+        });
+        if (!preview.valid) throw new Error((preview.errors || [t('planGraphInvalid')]).join('; '));
+        await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()},
+          body: JSON.stringify(planBody)
+        });
+      }
       closeDialog();
       formElement.reset();
       await loadCore(true);
+      if (graphEditorSquad && openGraphStudio) {
+        await loadOrchestrationData();
+        openGraphEditor(graphEditorSquad);
+      }
     } catch (_) {
       $('#formError').textContent = t('createFailed');
     } finally {
@@ -351,12 +451,20 @@
 
   function ensureGraphDialog() {
     if ($('#graphEditorDialog')) return;
-    document.body.insertAdjacentHTML('beforeend', `<dialog id="graphEditorDialog" class="orchestration-dialog graph-editor-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / WORKFLOW GRAPH</p><h2>${escapeHTML(t('graphEditor'))}</h2><p id="graphEditorTarget" class="mono"></p></div><button class="dialog-close" id="closeGraphEditor" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><form id="graphEditorForm"><label><span>${escapeHTML(t('graphJSON'))}</span><textarea id="graphEditorJSON" spellcheck="false" required></textarea><small class="form-help">${escapeHTML(t('graphJSONHelp'))}</small></label><div id="graphEditorSummary" class="graph-editor-summary"></div><p id="graphEditorStatus" class="form-error" role="status"></p><div class="form-actions"><button class="secondary" id="graphEditorFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="graphEditorValidate" type="button">${escapeHTML(t('validateGraph'))}</button><button class="primary" id="graphEditorSave" type="submit">${escapeHTML(t('saveGraph'))}</button></div></form></dialog>`);
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="graphEditorDialog" class="orchestration-dialog graph-editor-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / WORKFLOW GRAPH</p><h2>${escapeHTML(t('graphEditor'))}</h2><p id="graphEditorTarget" class="mono"></p></div><button class="dialog-close" id="closeGraphEditor" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><form id="graphEditorForm"><section class="graph-studio-toolbar"><strong>${escapeHTML(t('graphCanvas'))}</strong><div><button class="secondary" id="graphAddAgent" type="button">+ ${escapeHTML(t('addAgentNode'))}</button><button class="secondary" id="graphAddSquad" type="button">+ ${escapeHTML(t('addSquadNode'))}</button><button class="secondary" id="graphAddGate" type="button">+ ${escapeHTML(t('addGateNode'))}</button><button class="secondary" id="graphAddMerge" type="button">+ ${escapeHTML(t('addMergeNode'))}</button><button class="secondary" id="graphAddRepair" type="button">+ ${escapeHTML(t('addRepairNode'))}</button><button class="secondary" id="graphAddHuman" type="button">+ ${escapeHTML(t('addHumanNode'))}</button><button class="secondary" id="graphConnect" type="button">${escapeHTML(t('connectNodes'))}</button></div></section><div id="graphEditorCanvas" class="graph-editor-canvas" role="application" aria-label="${escapeHTML(t('graphCanvas'))}"></div><section id="graphEditorEdges" class="graph-edge-editor"></section><label class="graph-json-fallback"><span>${escapeHTML(t('graphJSON'))}</span><textarea id="graphEditorJSON" spellcheck="false"></textarea><small class="form-help">${escapeHTML(t('graphJSONHelp'))}</small></label><div id="graphEditorSummary" class="graph-editor-summary"></div><p id="graphEditorStatus" class="form-error" role="status"></p><div class="form-actions"><button class="secondary" id="graphEditorFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="graphEditorValidate" type="button">${escapeHTML(t('validateGraph'))}</button><button class="primary" id="graphEditorSave" type="submit">${escapeHTML(t('saveGraph'))}</button></div></form></dialog>`);
     $('#closeGraphEditor').onclick = () => $('#graphEditorDialog').close();
     $('#graphEditorDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
     $('#graphEditorFormat').onclick = () => {
-      try { $('#graphEditorJSON').value = JSON.stringify(JSON.parse($('#graphEditorJSON').value), null, 2); setGraphEditorStatus(''); } catch (_) { setGraphEditorStatus(t('graphValidationFailed'), true); }
+      try { const graph = JSON.parse($('#graphEditorJSON').value); $('#graphEditorJSON').value = JSON.stringify(graph, null, 2); renderGraphEditorSummary(graph); renderGraphCanvas(graph); setGraphEditorStatus(''); } catch (_) { setGraphEditorStatus(t('graphValidationFailed'), true); }
     };
+    $('#graphEditorJSON').addEventListener('input', () => { const graph = graphEditorInput(false); if (graph) { renderGraphEditorSummary(graph); renderGraphCanvas(graph); } });
+    $('#graphAddAgent').onclick = () => addGraphNode('agent');
+    $('#graphAddSquad').onclick = () => addGraphNode('squad');
+    $('#graphAddGate').onclick = () => addGraphNode('gate');
+    $('#graphAddMerge').onclick = () => addGraphNode('merge');
+    $('#graphAddRepair').onclick = () => addGraphNode('repair');
+    $('#graphAddHuman').onclick = () => addGraphNode('human');
+    $('#graphConnect').onclick = () => { graphConnectMode = !graphConnectMode; $('#graphEditorCanvas').classList.toggle('connect-mode', graphConnectMode); setGraphEditorStatus(graphConnectMode ? t('connectNodes') : ''); };
     $('#graphEditorValidate').onclick = () => validateGraphEditor();
     $('#graphEditorForm').onsubmit = saveGraphEditor;
   }
@@ -376,15 +484,195 @@
     target.innerHTML = `<div class="graph-summary-head"><strong>${escapeHTML(t('graphNodes'))} ${nodes.length}</strong><span>${escapeHTML(t('edges'))} ${edges.length}</span></div><div class="graph-node-list">${nodes.map(node => `<span class="graph-node-chip"><b>${escapeHTML(node.id || '?')}</b><small>${escapeHTML(node.kind || '?')}</small></span>`).join('') || `<span class="muted">${escapeHTML(t('noItems'))}</span>`}</div><p class="form-help">${escapeHTML(t('graphNodeHint'))}</p>`;
   }
 
-  function graphEditorInput() {
+  let graphConnectMode = false;
+  let graphConnectSource = '';
+
+  function graphEditorInput(showError = true) {
     try {
       const graph = JSON.parse($('#graphEditorJSON').value);
       if (!graph || typeof graph !== 'object' || Array.isArray(graph)) throw new Error('graph must be an object');
       return graph;
     } catch (error) {
-      setGraphEditorStatus(error.message || t('graphValidationFailed'), true);
+      if (showError) setGraphEditorStatus(error.message || t('graphValidationFailed'), true);
       return null;
     }
+  }
+
+  function renderGraphCanvas(graph) {
+    const canvas = $('#graphEditorCanvas');
+    if (!canvas) return;
+    const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+    const outgoing = new Map(nodes.map(node => [node.id, []]));
+    edges.forEach(edge => { if (outgoing.has(edge.from)) outgoing.get(edge.from).push(edge); });
+    canvas.innerHTML = nodes.map((node, index) => {
+      const edgeText = (outgoing.get(node.id) || []).map(edge => `${edge.on || 'success'} -> ${edge.to}`).join(' · ');
+      const referenceKind = node.kind === 'agent' ? 'agent' : node.kind === 'squad' ? 'squad' : '';
+      const referenceID = referenceKind === 'agent' ? (node.agent_ref?.id || '') : (node.squad_ref?.id || '');
+      const references = referenceKind === 'agent' ? nativeAgents.filter(agent => agent.status === 'active') : nativeSquads.filter(squad => squad.status === 'published');
+      const referenceOptions = references.map(reference => {
+        const version = referenceKind === 'agent' ? reference.revision : reference.published_version;
+        const label = `${reference.name || reference.id} · ${referenceKind === 'agent' ? 'r' : 'v'}${version || 0}`;
+        return `<option value="${escapeHTML(reference.id)}" data-revision="${escapeHTML(String(version || 1))}" ${reference.id === referenceID ? 'selected' : ''}>${escapeHTML(label)}</option>`;
+      }).join('');
+      const referenceControl = referenceKind ? `<label><span>${escapeHTML(t('nodeReference'))}</span><select data-graph-ref="${escapeHTML(node.id || '')}"><option value="">${escapeHTML(t('noPublishedTarget'))}</option>${referenceOptions}</select></label>` : '';
+      return `<article class="graph-canvas-node graph-kind-${escapeHTML(node.kind || 'agent')}" draggable="true" data-graph-node="${escapeHTML(node.id || '')}"><header><strong>${escapeHTML(node.id || '?')}</strong><button type="button" class="graph-node-remove" data-graph-remove="${escapeHTML(node.id || '')}" aria-label="${escapeHTML(t('removeNode'))}">×</button></header><label><span>${escapeHTML(t('nodeKind'))}</span><select data-graph-kind="${escapeHTML(node.id || '')}"><option value="agent" ${node.kind === 'agent' ? 'selected' : ''}>Agent</option><option value="squad" ${node.kind === 'squad' ? 'selected' : ''}>Squad</option><option value="gate" ${node.kind === 'gate' ? 'selected' : ''}>Gate</option><option value="merge" ${node.kind === 'merge' ? 'selected' : ''}>Merge</option><option value="repair" ${node.kind === 'repair' ? 'selected' : ''}>Repair</option><option value="human" ${node.kind === 'human' ? 'selected' : ''}>Human</option></select></label>${referenceControl}<div class="graph-node-tuning"><label><span>${escapeHTML(t('nodeBudget'))}</span><input type="number" min="0" data-graph-budget="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.budget?.tokens || ''))}"></label><label><span>${escapeHTML(t('nodeRetry'))}</span><input type="number" min="0" data-graph-retry="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.retry_policy?.max_attempts || ''))}"></label></div><small>${escapeHTML(edgeText || t('noOutgoingEdges'))}</small><span class="graph-node-position">${index + 1}</span></article>`;
+    }).join('') || `<p class="graph-canvas-empty">${escapeHTML(t('noItems'))}</p>`;
+    renderGraphEdgeEditor(graph);
+    canvas.querySelectorAll('[data-graph-kind]').forEach(select => select.addEventListener('change', () => {
+      const current = graphEditorInput();
+      const node = current?.nodes?.find(item => item.id === select.dataset.graphKind);
+      if (!node) return;
+      node.kind = select.value;
+      if (node.kind === 'agent' && !node.agent_ref) node.agent_ref = {id: '', revision: 1};
+      if (node.kind === 'squad') delete node.agent_ref;
+      $('#graphEditorJSON').value = JSON.stringify(current, null, 2);
+      renderGraphEditorSummary(current);
+      renderGraphCanvas(current);
+    }));
+    canvas.querySelectorAll('[data-graph-ref]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphRef, node => {
+      const kind = node.kind === 'agent' ? 'agent_ref' : 'squad_ref';
+      node[kind] = {id: input.value.trim(), revision: Number(node[kind]?.revision || 1)};
+    })));
+    canvas.querySelectorAll('[data-graph-budget]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphBudget, node => {
+      node.budget = {...(node.budget || {}), tokens: Math.max(0, Number(input.value) || 0)};
+    })));
+    canvas.querySelectorAll('[data-graph-retry]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphRetry, node => {
+      node.retry_policy = {...(node.retry_policy || {}), max_attempts: Math.max(0, Number(input.value) || 0)};
+    })));
+    canvas.querySelectorAll('[data-graph-remove]').forEach(button => button.addEventListener('click', () => removeGraphNode(button.dataset.graphRemove)));
+    let draggedNode = '';
+    canvas.querySelectorAll('[data-graph-node]').forEach(node => {
+      node.addEventListener('dragstart', () => { draggedNode = node.dataset.graphNode || ''; node.classList.add('dragging'); });
+      node.addEventListener('dragend', () => { draggedNode = ''; node.classList.remove('dragging'); });
+      node.addEventListener('dragover', event => event.preventDefault());
+      node.addEventListener('drop', event => {
+        event.preventDefault();
+        if (!draggedNode || draggedNode === node.dataset.graphNode) return;
+        const current = graphEditorInput();
+        if (!current || !Array.isArray(current.nodes)) return;
+        const from = current.nodes.findIndex(item => item.id === draggedNode);
+        const to = current.nodes.findIndex(item => item.id === node.dataset.graphNode);
+        if (from < 0 || to < 0) return;
+        const [moved] = current.nodes.splice(from, 1);
+        current.nodes.splice(to, 0, moved);
+        writeGraphEditor(current);
+      });
+    });
+    canvas.querySelectorAll('[data-graph-node]').forEach(node => node.addEventListener('click', () => {
+      if (!graphConnectMode) return;
+      const id = node.dataset.graphNode;
+      if (!graphConnectSource) { graphConnectSource = id; node.classList.add('connect-source'); setGraphEditorStatus(`${t('connectNodes')}: ${id}`); return; }
+      if (graphConnectSource !== id) addGraphEdge(graphConnectSource, id);
+      graphConnectSource = '';
+      graphConnectMode = false;
+      canvas.classList.remove('connect-mode');
+    }));
+  }
+
+  function updateGraphNode(id, mutate) {
+    const graph = graphEditorInput();
+    const node = graph?.nodes?.find(item => item.id === id);
+    if (!node) return;
+    mutate(node);
+    writeGraphEditor(graph);
+  }
+
+  function updateGraphEdge(id, mutate) {
+    const graph = graphEditorInput();
+    const edge = graph?.edges?.find(item => item.id === id);
+    if (!edge) return;
+    mutate(edge);
+    writeGraphEditor(graph);
+  }
+
+  function renderGraphEdgeEditor(graph) {
+    const host = $('#graphEditorEdges');
+    if (!host) return;
+    const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+    const events = ['success', 'failure', 'bug', 'timeout', 'approval', 'cancel'];
+    const operators = ['', 'eq', 'ne', 'lt', 'lte', 'gt', 'gte'];
+    const rows = edges.map(edge => {
+      const predicate = edge.predicate || {};
+      const eventOptions = events.map(event => `<option value="${event}"${edge.on === event ? ' selected' : ''}>${event}</option>`).join('');
+      const operatorOptions = operators.map(op => `<option value="${op}"${predicate.op === op ? ' selected' : ''}>${op || 'default'}</option>`).join('');
+      return `<article class="graph-edge-row" data-graph-edge="${escapeHTML(edge.id || '')}">
+        <div class="graph-edge-route"><strong>${escapeHTML(edge.from || '?')}</strong><span>→</span><strong>${escapeHTML(edge.to || '?')}</strong></div>
+        <label><span>${escapeHTML(t('edgeEvent'))}</span><select data-edge-field="on">${eventOptions}</select></label>
+        <label><span>${escapeHTML(t('edgePriority'))}</span><input type="number" data-edge-field="priority" value="${escapeHTML(String(edge.priority || 0))}"></label>
+        <label><span>${escapeHTML(t('edgeMaxTraversals'))}</span><input type="number" min="0" data-edge-field="max_traversals" value="${escapeHTML(String(edge.max_traversals || 0))}"></label>
+        <label><span>${escapeHTML(t('edgeLoop'))}</span><input data-edge-field="loop_group" value="${escapeHTML(edge.loop_group || '')}"></label>
+        <label class="graph-edge-check"><input type="checkbox" data-edge-field="fan_out"${edge.fan_out ? ' checked' : ''}><span>${escapeHTML(t('edgeFanOut'))}</span></label>
+        <fieldset><legend>${escapeHTML(t('edgePredicate'))}</legend>
+          <label><span>kind</span><select data-edge-predicate="kind"><option value=""${!predicate.kind ? ' selected' : ''}>none</option><option value="field_eq"${predicate.kind === 'field_eq' ? ' selected' : ''}>field_eq</option><option value="number_cmp"${predicate.kind === 'number_cmp' ? ' selected' : ''}>number_cmp</option><option value="contains"${predicate.kind === 'contains' ? ' selected' : ''}>contains</option><option value="exists"${predicate.kind === 'exists' ? ' selected' : ''}>exists</option></select></label>
+          <label><span>${escapeHTML(t('edgePredicateField'))}</span><input data-edge-predicate="field" value="${escapeHTML(predicate.field || '')}"></label>
+          <label><span>${escapeHTML(t('edgePredicateOp'))}</span><select data-edge-predicate="op">${operatorOptions}</select></label>
+          <label><span>${escapeHTML(t('edgePredicateValue'))}</span><input data-edge-predicate="value" value="${escapeHTML(predicate.value == null ? '' : String(predicate.value))}"></label>
+        </fieldset>
+      </article>`;
+    }).join('');
+    host.innerHTML = `<div class="graph-edge-editor-head"><strong>${escapeHTML(t('edgeEditor'))}</strong><span>${edges.length}</span></div>${rows || `<p class="graph-canvas-empty">${escapeHTML(t('noOutgoingEdges'))}</p>`}`;
+    host.querySelectorAll('[data-graph-edge]').forEach(row => {
+      const id = row.dataset.graphEdge;
+      row.querySelectorAll('[data-edge-field]').forEach(input => input.addEventListener('change', () => updateGraphEdge(id, edge => {
+        const field = input.dataset.edgeField;
+        if (field === 'fan_out') edge[field] = input.checked;
+        else if (field === 'priority' || field === 'max_traversals') edge[field] = Math.max(0, Number(input.value) || 0);
+        else edge[field] = input.value;
+      })));
+      row.querySelectorAll('[data-edge-predicate]').forEach(input => input.addEventListener('change', () => updateGraphEdge(id, edge => {
+        const values = {};
+        row.querySelectorAll('[data-edge-predicate]').forEach(item => { values[item.dataset.edgePredicate] = item.value; });
+        if (!values.kind) delete edge.predicate;
+        else edge.predicate = {kind: values.kind, field: values.field || undefined, op: values.op || undefined, value: values.value || undefined};
+      })));
+    });
+  }
+
+  function writeGraphEditor(graph) {
+    $('#graphEditorJSON').value = JSON.stringify(graph, null, 2);
+    renderGraphEditorSummary(graph);
+    renderGraphCanvas(graph);
+  }
+
+  function addGraphNode(kind) {
+    const graph = graphEditorInput();
+    if (!graph) return;
+    graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    const base = kind === 'agent' ? 'agent' : kind;
+    let id = base;
+    let counter = 2;
+    while (graph.nodes.some(node => node.id === id)) id = `${base}-${counter++}`;
+    const node = {id, kind, retry_policy: {max_attempts: 1}, budget: {tokens: 0}};
+    if (kind === 'agent') node.agent_ref = {id: '', revision: 1};
+    if (kind === 'squad') node.squad_ref = {id: '', revision: 1};
+    if (kind === 'gate') node.gate_policy = {predicate: {kind: 'exists', field: 'outcome'}};
+    if (kind === 'merge') node.merge_policy = {conflict_policy: 'collect'};
+    if (kind === 'repair') node.repair_policy = {target_node_id: '', verification_node_ids: [], max_rounds: 1};
+    graph.nodes.push(node);
+    if (!Array.isArray(graph.entry_node_ids) || graph.entry_node_ids.length === 0) graph.entry_node_ids = [id];
+    if (!Array.isArray(graph.exit_node_ids) || graph.exit_node_ids.length === 0) graph.exit_node_ids = [id];
+    writeGraphEditor(graph);
+  }
+
+  function removeGraphNode(id) {
+    const graph = graphEditorInput();
+    if (!graph) return;
+    graph.nodes = (graph.nodes || []).filter(node => node.id !== id);
+    graph.edges = (graph.edges || []).filter(edge => edge.from !== id && edge.to !== id);
+    graph.entry_node_ids = (graph.entry_node_ids || []).filter(nodeID => nodeID !== id);
+    graph.exit_node_ids = (graph.exit_node_ids || []).filter(nodeID => nodeID !== id);
+    writeGraphEditor(graph);
+  }
+
+  function addGraphEdge(from, to) {
+    const graph = graphEditorInput();
+    if (!graph) return;
+    graph.edges = Array.isArray(graph.edges) ? graph.edges : [];
+    if (graph.edges.some(edge => edge.from === from && edge.to === to && (edge.on || 'success') === 'success')) return;
+    graph.edges.push({id: `${from}-${to}-success`, from, to, on: 'success'});
+    writeGraphEditor(graph);
+    setGraphEditorStatus(`${from} -> ${to}`);
   }
 
   async function validateGraphEditor() {
@@ -411,6 +699,7 @@
     $('#graphEditorTarget').textContent = `${squad.name || squad.id} · r${squad.revision}`;
     $('#graphEditorJSON').value = JSON.stringify(squad.graph || {}, null, 2);
     renderGraphEditorSummary(squad.graph || {});
+    renderGraphCanvas(squad.graph || {});
     setGraphEditorStatus('');
     $('#graphEditorDialog').showModal();
     setTimeout(() => $('#graphEditorJSON').focus(), 0);
@@ -434,6 +723,13 @@
   function graphForNativeAgent(agent) {
     const graphID = crypto.randomUUID?.() || `graph-${Date.now()}`;
     return {id: graphID, version: agent.revision || 1, entry_node_ids: ['agent'], exit_node_ids: ['agent'], nodes: [{id: 'agent', kind: 'agent', agent_ref: {id: agent.id, revision: agent.revision}, retry_policy: {max_attempts: 3}, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}], edges: []};
+  }
+
+  function graphForNativeSquadMembers(agents) {
+    const graphID = crypto.randomUUID?.() || `graph-${Date.now()}`;
+    const nodes = agents.map((agent, index) => ({id: `agent-${index + 1}`, kind: 'agent', agent_ref: {id: agent.id, revision: agent.revision}, retry_policy: {max_attempts: 3}, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}));
+    const nodeIDs = nodes.map(node => node.id);
+    return {id: graphID, version: Math.max(1, ...agents.map(agent => agent.revision || 1)), entry_node_ids: nodeIDs, exit_node_ids: nodeIDs, nodes, edges: []};
   }
 
   function nativePlanSelectionBody() {
@@ -557,6 +853,12 @@
   function ensureOrchestrationDialogs() {
     if ($('#squadDialog')) return;
     document.body.insertAdjacentHTML('beforeend', `<dialog id="squadDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / SQUAD</p><h2>${escapeHTML(t('newSquad'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="squadDialog" type="button">×</button></div><form id="squadForm"><label><span>${escapeHTML(t('squadName'))}</span><input name="name" required></label><label><span>${escapeHTML(t('squadDescription'))}</span><textarea name="description"></textarea></label><label><span>${escapeHTML(t('squadLeader'))}</span><select name="leader" id="squadLeader" required></select></label><p class="form-error" id="squadFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="squadDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('create'))}</button></div></form></dialog><dialog id="nativePlanDialog" class="orchestration-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / IMMUTABLE PLAN</p><h2>${escapeHTML(t('newPlan'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><button class="dialog-close" data-close-orchestration="nativePlanDialog" type="button">×</button></div><form id="nativePlanForm"><label><span>${escapeHTML(t('planRequirement'))}</span><select name="requirement" id="nativePlanRequirement" required></select></label><label><span>${escapeHTML(t('planTarget'))}</span><select name="target" id="nativePlanTarget" required></select></label><div id="nativePlanGraphControls"></div><p class="form-error" id="nativePlanFormError" role="alert"></p><div class="form-actions"><button class="secondary" data-close-orchestration="nativePlanDialog" type="button">${escapeHTML(t('cancel'))}</button><button class="primary" type="submit">${escapeHTML(t('publish'))}</button></div></form></dialog><dialog id="timelineDialog" class="orchestration-dialog timeline-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / REPLAY</p><h2>${escapeHTML(t('timeline'))}</h2><p id="timelinePlanID" class="mono"></p></div><button class="dialog-close" data-close-orchestration="timelineDialog" type="button">×</button></div><pre id="timelineContent" class="timeline-content"></pre><div class="form-actions"><button class="secondary" data-close-orchestration="timelineDialog" type="button">${escapeHTML(t('closeTimeline'))}</button></div></dialog>`);
+    const leaderLabel = $('#squadLeader')?.closest('label');
+    if (leaderLabel && !$('#squadMembers')) {
+      const memberLabel = document.createElement('label');
+      memberLabel.innerHTML = `<span>${escapeHTML(t('squadMembers'))}</span><select name="members" id="squadMembers" multiple size="5"></select><small class="form-help">${escapeHTML(t('squadMemberHelp'))}</small>`;
+      leaderLabel.after(memberLabel);
+    }
     document.querySelectorAll('[data-close-orchestration]').forEach(button => {
       button.onclick = () => $(`#${button.dataset.closeOrchestration}`)?.close();
     });
@@ -578,7 +880,9 @@
   function openSquadDialog() {
     ensureOrchestrationDialogs();
     $('#squadFormError').textContent = '';
-    $('#squadLeader').innerHTML = nativeAgents.filter(agent => agent.status === 'active').map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · r${escapeHTML(String(agent.revision))}</option>`).join('');
+    const activeAgents = nativeAgents.filter(agent => agent.status === 'active');
+    $('#squadLeader').innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · r${escapeHTML(String(agent.revision))}</option>`).join('');
+    $('#squadMembers').innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · ${escapeHTML(agent.role || 'agent')} · r${escapeHTML(String(agent.revision))}</option>`).join('');
     if (!$('#squadLeader').options.length) {
       setOrchestrationStatus(t('noPublishedTarget'), true);
       return;
@@ -610,10 +914,14 @@
     const data = new FormData(form);
     const leader = nativeAgents.find(agent => agent.id === String(data.get('leader')));
     if (!leader) return;
+    const selectedIDs = Array.from($('#squadMembers').selectedOptions || []).map(option => option.value);
+    const selectedAgents = nativeAgents.filter(agent => selectedIDs.includes(agent.id));
+    if (!selectedAgents.some(agent => agent.id === leader.id)) selectedAgents.unshift(leader);
+    const members = selectedAgents.map((agent, index) => ({id: `member-${agent.id}`, agent_id: agent.id, role: agent.id === leader.id ? 'leader' : (agent.role || `member-${index + 1}`), leader: agent.id === leader.id, input_schema: agent.input_schema, output_schema: agent.output_schema, max_attempts: 3, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}));
     const body = {
       name: String(data.get('name')).trim(), description: String(data.get('description')).trim(), status: 'draft',
-      members: [{id: 'leader', agent_id: leader.id, role: leader.role || 'leader', leader: true, input_schema: leader.input_schema, output_schema: leader.output_schema, max_attempts: 3, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}}],
-      graph: graphForNativeAgent(leader),
+      members,
+      graph: graphForNativeSquadMembers(selectedAgents),
       policy: {max_nesting_depth: 2, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}, human_exit_required: true}
     };
     try {

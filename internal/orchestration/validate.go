@@ -101,6 +101,17 @@ func ValidateGraph(g WorkflowGraph) error {
 		if n.RepairPolicy.MaxRounds < 0 {
 			return fmt.Errorf("graph.nodes[%d].repair_policy.max_rounds.invalid", i)
 		}
+		if n.Kind == NodeRepair {
+			if n.RepairPolicy.TargetNodeID == n.ID {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.target_node_id.self_reference", i)
+			}
+			if len(n.RepairPolicy.VerificationNodeIDs) == 0 {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.verification_node_ids.required", i)
+			}
+			if n.RepairPolicy.MaxRounds == 0 {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.max_rounds.required", i)
+			}
+		}
 		if err := validateBudget(n.RepairPolicy.Budget, fmt.Sprintf("graph.nodes[%d].repair_policy.budget", i)); err != nil {
 			return err
 		}
@@ -206,6 +217,20 @@ func ValidateGraph(g WorkflowGraph) error {
 		for verificationIndex, id := range n.RepairPolicy.VerificationNodeIDs {
 			if _, ok := nodes[id]; !ok {
 				return fmt.Errorf("graph.nodes[%d].repair_policy.verification_node_ids[%d].unknown", i, verificationIndex)
+			}
+		}
+		if n.Kind == NodeRepair {
+			target := resolveRepairTarget(g, n)
+			if target == "" {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.target_node_id.required_or_uniquely_derivable", i)
+			}
+			if !repairPathExists(g, n.ID, target, EdgeSuccess) {
+				return fmt.Errorf("graph.nodes[%d].repair_policy.target_node_id.unreachable", i)
+			}
+			for verificationIndex, id := range n.RepairPolicy.VerificationNodeIDs {
+				if !repairPathExists(g, target, id, EdgeSuccess) {
+					return fmt.Errorf("graph.nodes[%d].repair_policy.verification_node_ids[%d].unreachable", i, verificationIndex)
+				}
 			}
 		}
 	}

@@ -178,6 +178,11 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown", "error", err)
 	}
+	if shutdownProvider, ok := p.(provider.ShutdownProvider); ok {
+		if err := shutdownProvider.Shutdown(shutdownCtx); err != nil {
+			slog.Error("provider shutdown", "error", err)
+		}
+	}
 }
 
 func setDefaultEnv(name, value string) {

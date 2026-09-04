@@ -53,6 +53,10 @@ func TestExecutionPlanHumanApprovalTimelineReplayAndDiagnostics(t *testing.T) {
 	if timeline.Code != http.StatusOK || !strings.Contains(timeline.Body.String(), "attempt.finished") {
 		t.Fatalf("timeline status=%d body=%s", timeline.Code, timeline.Body.String())
 	}
+	executionTimeline := request(t, s.Routes(), http.MethodGet, "/api/v1/execution-plans/"+plan.ID+"/timeline", "", map[string]string{"X-Workspace-ID": "w1"})
+	if executionTimeline.Code != http.StatusOK || !strings.Contains(executionTimeline.Body.String(), `"projection"`) || !strings.Contains(executionTimeline.Body.String(), `"terminal_outcome":"succeeded"`) {
+		t.Fatalf("execution timeline status=%d body=%s", executionTimeline.Code, executionTimeline.Body.String())
+	}
 	planReplay := request(t, s.Routes(), http.MethodGet, "/api/v1/execution-plans/"+plan.ID+"/replay", "", map[string]string{"X-Workspace-ID": "w1"})
 	if planReplay.Code != http.StatusOK || !strings.Contains(planReplay.Body.String(), "succeeded") {
 		t.Fatalf("plan replay status=%d body=%s", planReplay.Code, planReplay.Body.String())

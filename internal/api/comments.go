@@ -643,13 +643,7 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 	if refreshed, refreshErr := s.Harness.GetSession(sessionID); refreshErr == nil && refreshed.ContextVersion > contextVersion {
 		contextVersion = refreshed.ContextVersion
 	}
-	dispatchPrompt, compileErr := s.compiledHarnessPrompt(sessionID, prompt)
-	if compileErr != nil {
-		result["reason"] = compileErr.Error()
-		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "retrying", Reason: result["reason"].(string)})
-		return result
-	}
-	contextEnvelope, compileErr := s.compiledHarnessEnvelope(sessionID)
+	dispatchPrompt, contextEnvelope, compileErr := s.compiledHarnessDispatch(sessionID, prompt)
 	if compileErr != nil {
 		result["reason"] = compileErr.Error()
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, AgentBindingID: agentID, HarnessSessionID: sessionID, ContextVersion: contextVersion, TurnID: turn.ID, TurnHash: turn.Hash, Status: "retrying", Reason: result["reason"].(string)})

@@ -54,6 +54,7 @@ type Server struct {
 	Auth          *adroauth.Service
 	Orchestration orchestration.ControlRepository
 	Memory        *memory.Repository
+	Tracer        telemetry.Tracer
 	uploadMu      sync.Mutex
 	materializeMu sync.Mutex
 	idempotencyMu sync.Mutex
@@ -70,6 +71,7 @@ type Server struct {
 	recoveryStarted   bool
 	uploads           map[string]*upload
 	watchedRuns       map[string]struct{}
+	watchedPlans      map[string]struct{}
 	triggerOutcomes   map[string][]mentions.TriggerOutcome
 }
 
@@ -197,7 +199,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 			logger.Error("load memory state", "error", loadErr, "path", path)
 		}
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
@@ -223,6 +225,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if traceErr != nil && s.Logger != nil {
 		s.Logger.Warn("ignored invalid incoming trace context", "request_path", r.URL.Path)
 	}
+	requestCtx, finishSpan := s.Tracer.Start(r.Context(), "http."+strings.ToLower(r.Method), map[string]string{"route": r.URL.Path, "method": r.Method})
+	r = r.WithContext(requestCtx)
+	// The response carrier identifies the request span that domain events use
+	// as their correlation parent. Returning the remote/server parent here
+	// would make a perfectly valid trace look split when clients compare the
+	// response header with the first committed event.
+	if requestTraceParent, requestTraceState := telemetry.Carrier(requestCtx); requestTraceParent != "" {
+		w.Header().Set(telemetry.TraceParentHeader, requestTraceParent)
+		if requestTraceState != "" {
+			w.Header().Set(telemetry.TraceStateHeader, requestTraceState)
+		}
+	}
+	defer func() { _ = finishSpan("ok", "") }()
 	// Mutating store methods persist their own snapshots. Flushing after every
 	// read (including CORS preflights and the long-lived WebSocket route) turns
 	// a burst of dashboard reads into serialized fsyncs and can stall requests
@@ -773,14 +788,10 @@ func containsString(values []string, wanted string) bool {
 }
 
 func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
-	requirements, _ := s.Store.ListRequirements("", "", "", 250)
+	requirementTotal, requirementCounts := s.Store.CountRequirements("", "")
 	bugs := s.Store.ListBugs("", "")
 	runners := s.Runners.List()
-	eventsPage, _ := s.Events.List("", "", 250)
-	counts := map[domain.RequirementStatus]int{}
-	for _, req := range requirements {
-		counts[req.Status]++
-	}
+	eventTotal := s.Events.Count("")
 	openBugs := 0
 	for _, bug := range bugs {
 		if bug.Status == domain.BugOpen || bug.Status == domain.BugRepairing {
@@ -788,19 +799,20 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintf(w, "# HELP adro_requirements_total Requirements retained by the control plane.\n# TYPE adro_requirements_total gauge\nadro_requirements_total %d\n", len(requirements))
-	for status, count := range counts {
+	fmt.Fprintf(w, "# HELP adro_requirements_total Requirements retained by the control plane.\n# TYPE adro_requirements_total gauge\nadro_requirements_total %d\n", requirementTotal)
+	for status, count := range requirementCounts {
 		fmt.Fprintf(w, "adro_requirements_by_status{status=%q} %d\n", status, count)
 	}
 	fmt.Fprintf(w, "# HELP adro_open_bugs_total Open or repairing bugs.\n# TYPE adro_open_bugs_total gauge\nadro_open_bugs_total %d\n", openBugs)
 	fmt.Fprintf(w, "# HELP adro_runners_total Registered runners.\n# TYPE adro_runners_total gauge\nadro_runners_total %d\n", len(runners))
-	fmt.Fprintf(w, "# HELP adro_events_total Events retained for replay.\n# TYPE adro_events_total gauge\nadro_events_total %d\n", len(eventsPage))
+	fmt.Fprintf(w, "# HELP adro_events_total Events retained for replay.\n# TYPE adro_events_total gauge\nadro_events_total %d\n", eventTotal)
 	ready, running, waiting, blocked, feedback, retries := 0, 0, 0, 0, 0, 0
 	transitionCount, loopExhausted, contextOverflow, toolDenials, leaseConflicts := 0, 0, 0, 0, 0
 	coalesced, triggerBlocked, eventGaps := 0, 0, 0
 	var transitionSeconds float64
 	var tokenUsage, costCents int64
 	toolCalls := 0
+	repairStates := map[orchestration.RepairLifecycle]int{}
 	if s.Orchestration != nil {
 		for _, plan := range s.Orchestration.ListPlans("") {
 			projection, err := s.Orchestration.GetProjection(plan.ID)
@@ -849,30 +861,15 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 			tokenUsage += projection.TokenUsage
 			toolCalls += projection.ToolCalls
 			costCents += projection.CostCents
-		}
-	}
-	comments, cursor := s.Store.ListComments("", "", "", "", 250)
-	for {
-		for _, comment := range comments {
-			for _, outcome := range comment.TriggerOutcomes {
-				switch outcome.Status {
-				case string(mentions.StatusCoalesced):
-					coalesced++
-				case string(mentions.StatusBlocked):
-					triggerBlocked++
-				}
+			for _, repair := range projection.RepairPlans {
+				repairStates[repair.State]++
 			}
 		}
-		if cursor == "" {
-			break
-		}
-		comments, cursor = s.Store.ListComments("", "", "", cursor, 250)
 	}
-	for _, event := range eventsPage {
-		if event.EventType == "stream.gap.v1" {
-			eventGaps++
-		}
-	}
+	commentOutcomeCounts := s.Store.CountCommentTriggerOutcomes("")
+	coalesced = commentOutcomeCounts[string(mentions.StatusCoalesced)]
+	triggerBlocked = commentOutcomeCounts[string(mentions.StatusBlocked)]
+	eventGaps = s.Events.CountByType("stream.gap.v1")
 	fmt.Fprintf(w, "# HELP adro_orchestration_nodes_total Nodes by scheduler state.\n# TYPE adro_orchestration_nodes_total gauge\nadro_orchestration_nodes_total{state=\"ready\"} %d\nadro_orchestration_nodes_total{state=\"running\"} %d\nadro_orchestration_nodes_total{state=\"waiting\"} %d\nadro_orchestration_nodes_total{state=\"blocked\"} %d\n", ready, running, waiting, blocked)
 	fmt.Fprintf(w, "# HELP adro_orchestration_feedback_total Feedback edge decisions.\n# TYPE adro_orchestration_feedback_total counter\nadro_orchestration_feedback_total %d\n", feedback)
 	fmt.Fprintf(w, "# HELP adro_orchestration_retry_total Node retry requests.\n# TYPE adro_orchestration_retry_total counter\nadro_orchestration_retry_total %d\n", retries)
@@ -881,6 +878,11 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "# HELP adro_comment_triggers_total Structured comment trigger outcomes.\n# TYPE adro_comment_triggers_total counter\nadro_comment_triggers_total{status=\"coalesced\"} %d\nadro_comment_triggers_total{status=\"blocked\"} %d\n", coalesced, triggerBlocked)
 	fmt.Fprintf(w, "# HELP adro_event_gaps_total Stream gaps surfaced to consumers.\n# TYPE adro_event_gaps_total counter\nadro_event_gaps_total %d\n", eventGaps)
 	fmt.Fprintf(w, "# HELP adro_orchestration_usage_total Aggregated plan usage by unit.\n# TYPE adro_orchestration_usage_total counter\nadro_orchestration_usage_total{unit=\"tokens\"} %d\nadro_orchestration_usage_total{unit=\"tool_calls\"} %d\nadro_orchestration_usage_total{unit=\"cost_cents\"} %d\n", tokenUsage, toolCalls, costCents)
+	fmt.Fprintln(w, "# HELP adro_repair_plans_total Repair plans by lifecycle state.")
+	fmt.Fprintln(w, "# TYPE adro_repair_plans_total gauge")
+	for _, state := range []orchestration.RepairLifecycle{orchestration.RepairPlanned, orchestration.RepairDispatched, orchestration.RepairPatched, orchestration.RepairVerifying, orchestration.RepairVerified, orchestration.RepairFailed, orchestration.RepairExhausted} {
+		fmt.Fprintf(w, "adro_repair_plans_total{state=%q} %d\n", state, repairStates[state])
+	}
 }
 
 func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
@@ -1426,22 +1428,31 @@ func (s *Server) bug(w http.ResponseWriter, r *http.Request, id string) {
 					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", e.Error(), nil)
 					return
 				}
-				contextEnvelope, envelopeErr := s.compiledHarnessEnvelope(harnessSessionID)
-				if envelopeErr != nil {
-					s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
-					return
-				}
-				cmd.ContextEnvelope = contextEnvelope
-				if continuation != nil {
-					continuation.PlanID, continuation.NodeID, continuation.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
-					continuation.ContextEnvelope = contextEnvelope
-				}
 				turn, turnErr := s.Harness.AppendTurn(harnessSessionID, harness.Turn{Role: harness.RoleUser, Content: repairBrief(b), IdempotencyKey: cmd.IdempotencyKey, Metadata: map[string]string{"bug_id": b.ID, "attempt": strconv.Itoa(b.AttemptCount)}})
 				if turnErr != nil {
 					s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
 					return
 				}
 				repairTurnHash = turn.Hash
+				// The repair brief is the latest mandatory objective for this
+				// durable harness session. Append it before compiling so a repair
+				// cannot dispatch the prior context snapshot by accident.
+				dispatchPrompt, contextEnvelope, envelopeErr := s.compiledHarnessDispatch(harnessSessionID, repairBrief(b))
+				if envelopeErr != nil {
+					s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
+					return
+				}
+				cmd.Input, cmd.ContextEnvelope = dispatchPrompt, contextEnvelope
+				if refreshed, refreshErr := s.Harness.GetSession(harnessSessionID); refreshErr == nil && refreshed.ContextVersion > contextVersion {
+					contextVersion = refreshed.ContextVersion
+				}
+				// AppendTurn advances the durable harness context version. Keep the
+				// provider command and persisted dispatch intent on that exact version.
+				cmd.ContextVersion = contextVersion
+				if continuation != nil {
+					continuation.PlanID, continuation.NodeID, continuation.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
+					continuation.Input, continuation.ContextEnvelope = dispatchPrompt, contextEnvelope
+				}
 				intent := providerDispatchIntent{Type: providerDispatchIntentType, Kind: "bug", BugID: b.ID, WorkItemID: providerWorkItemID, RequirementID: b.RequirementID, ProviderIssueID: cmd.ProviderIssueID, AgentID: cmd.AgentBindingID, HarnessSessionID: harnessSessionID, ContextID: contextID, ContextVersion: contextVersion, RepairAttempt: b.AttemptCount, TurnHash: turn.Hash, ContextEnvelope: contextEnvelope, Command: cmd, Continuation: continuation}
 				dispatchEvent, dispatchClaimed, e = s.Harness.EnqueueAndClaimOutbox(harnessSessionID, cmd.IdempotencyKey, intent, providerDispatchOwner, dispatchLeaseTTL(), time.Now().UTC())
 				if e != nil {
@@ -2255,18 +2266,27 @@ func (s *Server) workItemRoute(w http.ResponseWriter, r *http.Request, path stri
 				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", harnessErr.Error(), nil)
 				return
 			}
-			contextEnvelope, envelopeErr := s.compiledHarnessEnvelope(sessionID)
-			if envelopeErr != nil {
-				s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
-				return
-			}
-			cmd.ContextEnvelope = contextEnvelope
 			turn, turnErr := s.Harness.AppendTurn(sessionID, harness.Turn{Role: harness.RoleUser, Content: input.Input, IdempotencyKey: turnKey, Metadata: map[string]string{"work_item_id": id, "agent_id": input.AgentBindingID}})
 			if turnErr != nil {
 				s.problem(w, r, http.StatusServiceUnavailable, "harness_unavailable", turnErr.Error(), nil)
 				return
 			}
 			harnessTurnHash = turn.Hash
+			// Compile only after recording the new objective. The work-item route
+			// used to compile an empty session first, which allowed the provider to
+			// receive a valid envelope that silently omitted the request being run.
+			dispatchPrompt, contextEnvelope, envelopeErr := s.compiledHarnessDispatch(sessionID, input.Input)
+			if envelopeErr != nil {
+				s.problem(w, r, http.StatusServiceUnavailable, "context_envelope_failed", envelopeErr.Error(), nil)
+				return
+			}
+			cmd.Input, cmd.ContextEnvelope = dispatchPrompt, contextEnvelope
+			if refreshed, refreshErr := s.Harness.GetSession(sessionID); refreshErr == nil && refreshed.ContextVersion > contextVersion {
+				contextVersion = refreshed.ContextVersion
+			}
+			// The outbox payload is the replay source of truth, so refresh the
+			// command version before enqueueing it as well as before StartRun.
+			cmd.ContextVersion = contextVersion
 			var enqueueErr error
 			var claimedErr error
 			dispatchEvent, dispatchClaimed, claimedErr = s.enqueueAndClaimExecutionDispatch(sessionID, turnKey, providerDispatchIntent{WorkItemID: id, RequirementID: witem.RequirementID, AgentID: input.AgentBindingID, RepositoryID: witem.RepositoryID, TurnHash: turn.Hash, Command: cmd})

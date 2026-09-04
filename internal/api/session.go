@@ -40,9 +40,9 @@ func harnessSessionBudget() int64 {
 }
 
 // compiledHarnessEnvelope is the typed dispatch boundary shared by legacy
-// pipeline adapters and graph-native callers. A zero session budget still gets
-// a minimal one-token manifest so providers can verify session continuity and
-// selection/replay digests instead of receiving only a legacy ContextID.
+// pipeline adapters and graph-native callers. A zero session budget uses the
+// explicit local default so the latest mandatory objective remains available
+// instead of being dropped by a one-token compatibility placeholder.
 func (s *Server) compiledHarnessEnvelope(sessionID string) (harness.ContextEnvelope, error) {
 	if s == nil || s.Harness == nil {
 		return harness.ContextEnvelope{}, errors.New("session harness is not configured")
@@ -53,9 +53,45 @@ func (s *Server) compiledHarnessEnvelope(sessionID string) (harness.ContextEnvel
 	}
 	budget := session.BudgetTokens
 	if budget <= 0 {
-		budget = 1
+		// Zero means the caller did not configure a session budget. A one-token
+		// placeholder silently dropped the latest objective once the strict
+		// compiler began treating that objective as mandatory; use an explicit
+		// local default instead and reserve ErrOverflow for a real configured
+		// budget that cannot hold mandatory context.
+		budget = 8192
 	}
 	return s.Harness.CompileEnvelope(sessionID, budget)
+}
+
+// compiledHarnessDispatch compiles one immutable envelope and derives the
+// legacy text input from that exact snapshot. Prompt and envelope must travel
+// together: compiling them independently permits a concurrent memory expiry,
+// compaction, or turn append to produce a pair that cannot be replayed.
+func (s *Server) compiledHarnessDispatch(sessionID, fallback string) (string, harness.ContextEnvelope, error) {
+	envelope, err := s.compiledHarnessEnvelope(sessionID)
+	if err != nil {
+		return "", harness.ContextEnvelope{}, err
+	}
+	if strings.TrimSpace(fallback) != "" {
+		objective, objectiveErr := envelope.LatestObjective()
+		if objectiveErr != nil {
+			return "", harness.ContextEnvelope{}, fmt.Errorf("read compiled latest objective: %w", objectiveErr)
+		}
+		if strings.TrimSpace(objective) == strings.TrimSpace(fallback) {
+			return fallback, envelope, nil
+		}
+		if strings.TrimSpace(objective) != "" {
+			return "", harness.ContextEnvelope{}, errors.New("legacy dispatch input does not match compiled latest objective")
+		}
+	}
+	prompt, err := envelope.Render()
+	if err != nil {
+		return "", harness.ContextEnvelope{}, fmt.Errorf("render compiled harness context: %w", err)
+	}
+	if strings.TrimSpace(prompt) == "" {
+		prompt = fallback
+	}
+	return prompt, envelope, nil
 }
 
 func (s *Server) saveHarnessCheckpoint(sessionID string, phase harness.CheckpointPhase, eventHash string, contextVersion int64, outboxIDs, leaseIDs []string, state string) error {
@@ -92,7 +128,11 @@ func (s *Server) recordHarnessResult(run domain.PipelineRun, result domain.Pipel
 	if err != nil {
 		return fmt.Errorf("persist harness result turn: %w", err)
 	}
-	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointToolAfter, turn.Hash, run.Version, nil, nil, "pipeline result recorded"); err != nil {
+	contextVersion, err := s.harnessContextVersion(run.SessionID)
+	if err != nil {
+		return err
+	}
+	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointToolAfter, turn.Hash, contextVersion, nil, nil, "pipeline result recorded"); err != nil {
 		return err
 	}
 	return nil
@@ -129,13 +169,31 @@ func (s *Server) recordProviderToolEvents(run domain.PipelineRun, snapshot provi
 				// cannot be acknowledged as a side effect without a before phase.
 				continue
 			}
-			if _, err := s.Harness.RecordToolCall(run.SessionID, callID, before.name, before.input, event.Payload, run.Version); err != nil {
+			contextVersion, contextErr := s.harnessContextVersion(run.SessionID)
+			if contextErr != nil {
+				return contextErr
+			}
+			if _, err := s.Harness.RecordToolCall(run.SessionID, callID, before.name, before.input, event.Payload, contextVersion); err != nil {
 				return fmt.Errorf("record tool checkpoint %s: %w", callID, err)
 			}
 			delete(pending, callID)
 		}
 	}
 	return nil
+}
+
+func (s *Server) harnessContextVersion(sessionID string) (int64, error) {
+	if s == nil || s.Harness == nil {
+		return 0, errors.New("session harness is not configured")
+	}
+	session, err := s.Harness.GetSession(sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("read harness context version: %w", err)
+	}
+	if session.ContextVersion < 1 {
+		return 0, errors.New("harness context version is invalid")
+	}
+	return session.ContextVersion, nil
 }
 
 // sessionRoute exposes ADRO-owned transcript and recovery primitives. Provider
@@ -301,16 +359,17 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 	}
 	if len(parts) == 3 && parts[1] == "context" && parts[2] == "compile" && r.Method == http.MethodGet {
 		maxTokens, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("max_tokens")), 10, 64)
-		manifest, compileErr := s.Harness.CompileManifest(session.ID, maxTokens)
+		envelope, compileErr := s.Harness.CompileEnvelope(session.ID, maxTokens)
 		if compileErr != nil {
 			s.problem(w, r, http.StatusInternalServerError, "context_compile_failed", compileErr.Error(), nil)
 			return
 		}
-		parts := make([]string, 0, len(manifest.Blocks))
-		for _, block := range manifest.Blocks {
-			parts = append(parts, block.Content)
+		compiled, renderErr := envelope.Render()
+		if renderErr != nil {
+			s.problem(w, r, http.StatusInternalServerError, "context_render_failed", renderErr.Error(), map[string]any{"manifest_digest": envelope.Manifest.Digest})
+			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"session_id": session.ID, "context_version": session.ContextVersion, "compiled": strings.TrimSpace(strings.Join(parts, "")), "manifest": manifest, "manifest_digest": manifest.Digest})
+		s.writeJSON(w, http.StatusOK, map[string]any{"session_id": session.ID, "context_version": session.ContextVersion, "compiled": compiled, "manifest": envelope.Manifest, "envelope": envelope, "manifest_digest": envelope.Manifest.Digest})
 		return
 	}
 	if len(parts) == 3 && parts[1] == "context" && parts[2] == "integrity" && r.Method == http.MethodGet {

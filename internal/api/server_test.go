@@ -94,6 +94,22 @@ func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 	if run.Code != http.StatusAccepted {
 		t.Fatalf("run status=%d body=%s", run.Code, run.Body.String())
 	}
+	envelope, envelopeErr := s.Harness.CompileEnvelope("session-"+itemPage.Items[0].ID, 8192)
+	if envelopeErr != nil {
+		t.Fatalf("compile work-item dispatch context: %v", envelopeErr)
+	}
+	latest, latestErr := envelope.LatestObjective()
+	if latestErr != nil || latest != "design the change" {
+		t.Fatalf("work-item dispatch omitted latest objective: latest=%q err=%v", latest, latestErr)
+	}
+	mock, ok := s.Provider.(*provider.MockProvider)
+	if !ok {
+		t.Fatalf("test provider type=%T", s.Provider)
+	}
+	command, ok := mock.LastCommand()
+	if !ok || command.ContextVersion != envelope.Manifest.Version || command.ContextEnvelope.Manifest.Version != envelope.Manifest.Version {
+		t.Fatalf("work-item dispatch context version drift: command=%+v envelope=%d", command, envelope.Manifest.Version)
+	}
 }
 
 func TestHTTPTraceContextSurvivesResponseEventAndIdempotentReplay(t *testing.T) {
@@ -580,6 +596,22 @@ func TestRepairReusesWorkItemContextAndMockSession(t *testing.T) {
 	status, statusErr := s.Harness.ContextStatus("session-" + page.Items[0].ID)
 	if statusErr != nil || status.TurnCount == 0 || status.CheckpointCount < 2 {
 		t.Fatalf("repair harness state=%+v err=%v", status, statusErr)
+	}
+	repairEnvelope, repairEnvelopeErr := s.Harness.CompileEnvelope("session-"+page.Items[0].ID, 8192)
+	if repairEnvelopeErr != nil {
+		t.Fatalf("compile repair context: %v", repairEnvelopeErr)
+	}
+	repairObjective, repairObjectiveErr := repairEnvelope.LatestObjective()
+	if repairObjectiveErr != nil || !strings.Contains(repairObjective, "test failure") {
+		t.Fatalf("repair dispatch omitted latest brief: objective=%q err=%v", repairObjective, repairObjectiveErr)
+	}
+	mock, ok := s.Provider.(*provider.MockProvider)
+	if !ok {
+		t.Fatalf("test provider type=%T", s.Provider)
+	}
+	command, ok := mock.LastCommand()
+	if !ok || command.ContextVersion != repairEnvelope.Manifest.Version || command.ContextEnvelope.Manifest.Version != repairEnvelope.Manifest.Version {
+		t.Fatalf("repair dispatch context version drift: command=%+v envelope=%d", command, repairEnvelope.Manifest.Version)
 	}
 	recovery, recoveryErr := s.Harness.Recover("session-"+page.Items[0].ID, time.Now().UTC())
 	if recoveryErr != nil || len(recovery.PendingEffects) != 0 {

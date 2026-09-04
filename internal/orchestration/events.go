@@ -153,6 +153,12 @@ func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjec
 			if err := json.Unmarshal(e.Payload, &x); err != nil {
 				return PlanProjection{}, err
 			}
+			if x.NodeID == "" {
+				x.NodeID = e.NodeID
+			}
+			if x.AttemptID == "" {
+				x.AttemptID = e.AttemptID
+			}
 			if x.StartedAt.IsZero() {
 				x.StartedAt = e.CreatedAt
 			}
@@ -193,6 +199,7 @@ func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjec
 				Event                    string           `json:"event"`
 				Result                   StructuredResult `json:"result"`
 				Failure                  *FailureReason   `json:"failure"`
+				ArtifactIDs              []string         `json:"artifact_ids"`
 				TransitionIdempotencyKey *string          `json:"transition_idempotency_key"`
 				TransitionAt             time.Time        `json:"transition_at"`
 			}
@@ -206,7 +213,7 @@ func ReplayProjection(plan RequirementExecutionPlan, events []Event) (PlanProjec
 			if x.TransitionAt.IsZero() {
 				x.TransitionAt = e.CreatedAt
 			}
-			if _, err := p.FinishAttempt(plan, x.AttemptID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: e.FencingToken, Event: x.Event, Result: x.Result, Failure: x.Failure, IdempotencyKey: transitionKey, Now: x.TransitionAt}); err != nil {
+			if _, err := p.FinishAttempt(plan, x.AttemptID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: e.FencingToken, Event: x.Event, Result: x.Result, Failure: x.Failure, OutputArtifacts: x.ArtifactIDs, IdempotencyKey: transitionKey, Now: x.TransitionAt}); err != nil {
 				return PlanProjection{}, err
 			}
 		case "node.retry_requested":

@@ -170,6 +170,18 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 	if err != nil {
 		return err
 	}
+	if intent.ContextEnvelope.Manifest.Version == 0 && intent.Command.ContextEnvelope.Manifest.Version == 0 && intent.Continuation == nil {
+		// Older durable intents did not carry the typed envelope. Recompile from
+		// the same durable harness session before replaying instead of allowing a
+		// provider to run with a silently incomplete context.
+		envelope, envelopeErr := s.compiledHarnessEnvelope(run.SessionID)
+		if envelopeErr != nil {
+			return fmt.Errorf("hydrate provider dispatch context: %w", envelopeErr)
+		}
+		intent.ContextEnvelope = envelope
+		intent.Command.ContextEnvelope = envelope
+		intent.Command.ContextVersion = envelope.Manifest.Version
+	}
 	// A prior attempt may have committed the pipeline update but crashed before
 	// acknowledging the outbox. In that case the intent is already complete.
 	if run.Version > intent.ExpectedVersion && run.Status == domain.PipelineWaiting && run.ActiveProviderTaskID != "" {
@@ -199,6 +211,10 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 		if err := s.startLegacyGraphAttempt(run, graphScope, intent.ContextEnvelope, event.CreatedAt); err != nil {
 			return fmt.Errorf("recover legacy graph attempt: %w", err)
 		}
+	}
+	contextVersion := dispatchContextVersion(intent)
+	if contextVersion < 1 {
+		return errors.New("provider dispatch intent has no context version")
 	}
 
 	var binding provider.RunBinding
@@ -243,11 +259,11 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 		if caps, capsErr := s.Provider.Capabilities(ctx); capsErr == nil && caps.Provider != "" {
 			providerName = caps.Provider
 		}
-		if err := s.Store.SaveProvenance(domain.Provenance{WorkItemID: intent.PipelineWorkItemID, RequirementID: run.RequirementID, AgentBindingID: intent.AgentID, Provider: providerName, ProviderTaskID: binding.ProviderRunID, ProviderSessionID: binding.SessionID, ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: event.IdempotencyKey, RepositoryID: intent.RepositoryID, ContextVersion: run.Version}); err != nil {
+		if err := s.Store.SaveProvenance(domain.Provenance{WorkItemID: intent.PipelineWorkItemID, RequirementID: run.RequirementID, AgentBindingID: intent.AgentID, Provider: providerName, ProviderTaskID: binding.ProviderRunID, ProviderSessionID: binding.SessionID, ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: event.IdempotencyKey, RepositoryID: intent.RepositoryID, ContextVersion: contextVersion}); err != nil {
 			return err
 		}
 	}
-	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, intent.TurnHash, run.Version, []string{event.ID}, nil, "provider dispatch recorded"); err != nil {
+	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, intent.TurnHash, contextVersion, []string{event.ID}, nil, "provider dispatch recorded"); err != nil {
 		return err
 	}
 	run.PipelineWorkItemID = intent.PipelineWorkItemID
@@ -268,6 +284,29 @@ func (s *Server) processProviderDispatchIntent(ctx context.Context, event harnes
 	}
 	s.watchLocalPipelineRun(updated)
 	return nil
+}
+
+// dispatchContextVersion is the compatibility reader for durable intents
+// created before ContextVersion became an explicit field. New callers always
+// populate it, but replay must derive the value from the exact envelope rather
+// than from the mutable pipeline revision.
+func dispatchContextVersion(intent providerDispatchIntent) int64 {
+	if intent.ContextVersion > 0 {
+		return intent.ContextVersion
+	}
+	if intent.Command.ContextVersion > 0 {
+		return intent.Command.ContextVersion
+	}
+	if intent.Command.ContextEnvelope.Manifest.Version > 0 {
+		return intent.Command.ContextEnvelope.Manifest.Version
+	}
+	if intent.ContextEnvelope.Manifest.Version > 0 {
+		return intent.ContextEnvelope.Manifest.Version
+	}
+	if intent.Continuation != nil && intent.Continuation.ContextEnvelope.Manifest.Version > 0 {
+		return intent.Continuation.ContextEnvelope.Manifest.Version
+	}
+	return 0
 }
 
 func (s *Server) processWorkItemDispatchIntent(ctx context.Context, event harness.OutboxEvent, intent providerDispatchIntent) error {

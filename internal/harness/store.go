@@ -238,6 +238,11 @@ type ContextManifest struct {
 	TokenBudget             int64                               `json:"token_budget"`
 	TokenEstimate           int64                               `json:"token_estimate"`
 	Blocks                  []ContextBlock                      `json:"blocks"`
+	RequiredBlockIDs        []string                            `json:"required_block_ids,omitempty"`
+	OmittedRequiredIDs      []string                            `json:"omitted_required_ids,omitempty"`
+	CompilerVersion         string                              `json:"compiler_version,omitempty"`
+	TokenizerID             string                              `json:"tokenizer_id,omitempty"`
+	PromptManifest          contextcontract.PromptManifest      `json:"prompt_manifest,omitempty"`
 	Digest                  string                              `json:"digest"`
 	PromptManifestHash      string                              `json:"prompt_manifest_hash,omitempty"`
 	ParentDigest            string                              `json:"parent_digest,omitempty"`
@@ -262,6 +267,17 @@ type ContextEnvelope struct {
 func (m ContextManifest) Validate() error {
 	if strings.TrimSpace(m.SessionID) == "" || strings.TrimSpace(m.Digest) == "" || m.Version < 1 || m.TokenBudget <= 0 || m.TokenEstimate < 0 || m.TokenEstimate > m.TokenBudget {
 		return errors.New("invalid context manifest")
+	}
+	if m.CompilerVersion != "" || m.TokenizerID != "" || len(m.RequiredBlockIDs) > 0 || len(m.OmittedRequiredIDs) > 0 {
+		canonical := contextcontract.Manifest{
+			SessionID: m.SessionID, Version: m.Version, SemanticSnapshotVersion: m.SemanticSnapshotVersion,
+			TokenBudget: m.TokenBudget, TokenEstimate: m.TokenEstimate, Blocks: toContextBlocks(m.Blocks),
+			RequiredBlockIDs: append([]string(nil), m.RequiredBlockIDs...), OmittedRequiredIDs: append([]string(nil), m.OmittedRequiredIDs...),
+			CompilerVersion: m.CompilerVersion, TokenizerID: m.TokenizerID, CompressionRecords: cloneCompressionRecords(m.CompressionRecords),
+			PromptManifest: m.PromptManifest,
+			Digest:         m.Digest, PromptManifestHash: m.PromptManifestHash, ParentDigest: m.ParentDigest, CreatedAt: m.CreatedAt,
+		}
+		return canonical.Validate()
 	}
 	if len(m.Blocks) == 0 {
 		return nil
@@ -303,6 +319,30 @@ func (m ContextManifest) Validate() error {
 	return nil
 }
 
+func toContextBlocks(blocks []ContextBlock) []contextcontract.Block {
+	converted := make([]contextcontract.Block, len(blocks))
+	for i, block := range blocks {
+		converted[i] = contextcontract.Block{ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash, Policy: block.Policy, Trust: block.Trust, SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate, Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata)}
+	}
+	return converted
+}
+
+func fromContextManifest(manifest contextcontract.Manifest, records []contextcontract.CompressionRecord) ContextManifest {
+	blocks := make([]ContextBlock, len(manifest.Blocks))
+	for i, block := range manifest.Blocks {
+		blocks[i] = ContextBlock{ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash, Policy: block.Policy, Trust: block.Trust, SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate, Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata)}
+	}
+	prompt := manifest.PromptManifest
+	if prompt.Segments != nil {
+		// Keep [] as [] when crossing the harness/context package boundary.
+		// Changing it to null invalidates the prompt manifest digest even though
+		// no semantic segment was added or removed.
+		prompt.Segments = make([]contextcontract.PromptSegment, len(prompt.Segments))
+		copy(prompt.Segments, manifest.PromptManifest.Segments)
+	}
+	return ContextManifest{SessionID: manifest.SessionID, Version: manifest.Version, SemanticSnapshotVersion: manifest.SemanticSnapshotVersion, TokenBudget: manifest.TokenBudget, TokenEstimate: manifest.TokenEstimate, Blocks: blocks, RequiredBlockIDs: append([]string(nil), manifest.RequiredBlockIDs...), OmittedRequiredIDs: append([]string(nil), manifest.OmittedRequiredIDs...), CompilerVersion: manifest.CompilerVersion, TokenizerID: manifest.TokenizerID, PromptManifest: prompt, Digest: manifest.Digest, PromptManifestHash: manifest.PromptManifestHash, ParentDigest: manifest.ParentDigest, CompressionRecords: cloneCompressionRecords(records), CreatedAt: manifest.CreatedAt}
+}
+
 // promptManifestHash authenticates the exact provider prompt selection while
 // keeping the manifest digest independent of the derived field. This lets a
 // replay verify both the immutable block manifest and the rendered selection.
@@ -339,6 +379,65 @@ func (m ContextManifest) Envelope() (ContextEnvelope, error) {
 	return ContextEnvelope{Manifest: cloneContextManifest(m), SelectionDigest: selection, ReplayKey: m.SessionID + ":" + fmt.Sprint(m.Version) + ":" + selection}, nil
 }
 
+// Render is the canonical legacy text adapter for a compiled manifest. The
+// returned text is derived from the same validated PromptManifest carried by
+// the envelope; callers must not rebuild a prompt from mutable session state.
+func (m ContextManifest) Render() (string, error) {
+	if err := m.Validate(); err != nil {
+		return "", err
+	}
+	canonical := contextcontract.Manifest{
+		SessionID:               m.SessionID,
+		Version:                 m.Version,
+		SemanticSnapshotVersion: m.SemanticSnapshotVersion,
+		TokenBudget:             m.TokenBudget,
+		TokenEstimate:           m.TokenEstimate,
+		Blocks:                  toContextBlocks(m.Blocks),
+		RequiredBlockIDs:        append([]string(nil), m.RequiredBlockIDs...),
+		OmittedRequiredIDs:      append([]string(nil), m.OmittedRequiredIDs...),
+		CompilerVersion:         m.CompilerVersion,
+		TokenizerID:             m.TokenizerID,
+		CompressionRecords:      cloneCompressionRecords(m.CompressionRecords),
+		PromptManifest:          m.PromptManifest,
+		Digest:                  m.Digest,
+		PromptManifestHash:      m.PromptManifestHash,
+		ParentDigest:            m.ParentDigest,
+		CreatedAt:               m.CreatedAt,
+	}
+	return contextcontract.RenderManifest(canonical)
+}
+
+// Render returns the exact textual projection paired with this immutable
+// envelope. It validates the selection/replay identifiers first so a caller
+// cannot render a prompt that belongs to a different context snapshot.
+func (e ContextEnvelope) Render() (string, error) {
+	if err := e.Validate(); err != nil {
+		return "", err
+	}
+	return e.Manifest.Render()
+}
+
+// LatestObjective returns the exact latest user objective selected by the
+// authoritative compiler. Legacy one-shot providers use this as their wire
+// prompt because replaying the full historical transcript can make old
+// parsers interpret stale protocol markers as current instructions. The full
+// immutable envelope still travels alongside the string for providers that
+// understand structured context.
+func (e ContextEnvelope) LatestObjective() (string, error) {
+	if err := e.Validate(); err != nil {
+		return "", err
+	}
+	for _, segment := range e.Manifest.PromptManifest.Segments {
+		if segment.Kind != "latest_objective" {
+			continue
+		}
+		content := strings.TrimSpace(segment.Content)
+		content = strings.TrimSpace(strings.TrimPrefix(content, "user:"))
+		return content, nil
+	}
+	return "", nil
+}
+
 // Validate verifies both the manifest digest and the derived selection/replay
 // identifiers supplied by a provider command. This prevents a caller from
 // replacing selected blocks while retaining a previously valid digest.
@@ -357,6 +456,58 @@ func (e ContextEnvelope) Validate() error {
 		return errors.New("context replay key mismatch")
 	}
 	return nil
+}
+
+// WithRequiredBlock extends a compiled envelope through the same authoritative
+// context compiler used by session dispatch. Graph and repair executors use
+// this for node contracts so the provider cannot receive a prompt whose
+// mandatory role/contract was assembled outside the manifest.
+func (e ContextEnvelope) WithRequiredBlock(block contextcontract.Block) (ContextEnvelope, error) {
+	if e.Manifest.CompilerVersion == "" && len(e.Manifest.Blocks) == 0 {
+		// Historical unit callers construct a minimal placeholder envelope. Keep
+		// that source-compatible path; compiled production envelopes carry
+		// compiler metadata and take the strict branch below.
+		return e, nil
+	}
+	if err := e.Validate(); err != nil {
+		return ContextEnvelope{}, err
+	}
+	if strings.TrimSpace(block.ID) == "" || strings.TrimSpace(block.Source) == "" {
+		return ContextEnvelope{}, errors.New("required context block id and source are required")
+	}
+	block.Mandatory = true
+	if block.TokenEstimate < 1 {
+		block.TokenEstimate = contextcontract.EstimateTokens(block.Content)
+	}
+	if block.Hash == "" {
+		block.Hash = contextcontract.HashBlock(block)
+	}
+	for _, existing := range e.Manifest.Blocks {
+		if existing.ID == block.ID {
+			if existing.Hash == block.Hash && existing.Content == block.Content && existing.Mandatory {
+				return e, nil
+			}
+			return ContextEnvelope{}, fmt.Errorf("required context block %s conflicts with existing block", block.ID)
+		}
+	}
+	blocks := append(toContextBlocks(e.Manifest.Blocks), block)
+	compiled, compression, err := contextcontract.CompileWithSummarizer(e.Manifest.SessionID, e.Manifest.Version, e.Manifest.TokenBudget, blocks, contextcontract.ExtractiveSummarizer{})
+	if err != nil {
+		return ContextEnvelope{}, err
+	}
+	records := append([]contextcontract.CompressionRecord(nil), e.Manifest.CompressionRecords...)
+	if compression.Algorithm != "" {
+		records = append(records, compression)
+	}
+	compiled.CompressionRecords = records
+	if len(records) > 0 {
+		compiled, err = compiled.Rehash()
+		if err != nil {
+			return ContextEnvelope{}, err
+		}
+	}
+	result := fromContextManifest(compiled, records)
+	return result.Envelope()
 }
 
 // TranscriptIntegrity is a compact audit result for the append-only log and
@@ -2717,6 +2868,14 @@ func cloneContextManifest(manifest ContextManifest) ContextManifest {
 		manifest.Blocks[i].Metadata = cloneStringMap(manifest.Blocks[i].Metadata)
 	}
 	manifest.CompressionRecords = cloneCompressionRecords(manifest.CompressionRecords)
+	if manifest.PromptManifest.Segments != nil {
+		// Preserve an intentionally empty, non-nil segment list. The prompt
+		// manifest digest distinguishes JSON [] from null, so a clone must not
+		// change the canonical representation used for envelope validation.
+		segments := manifest.PromptManifest.Segments
+		manifest.PromptManifest.Segments = make([]contextcontract.PromptSegment, len(segments))
+		copy(manifest.PromptManifest.Segments, segments)
+	}
 	return manifest
 }
 
@@ -2854,15 +3013,55 @@ func cloneStringMap(input map[string]string) map[string]string {
 // compatibility. Providers should consume CompileManifest so provenance and
 // budget decisions remain inspectable.
 func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
-	manifest, err := s.CompileManifest(sessionID, maxTokens)
+	envelope, err := s.CompileEnvelope(sessionID, maxTokens)
 	if err != nil {
 		return "", err
 	}
-	parts := make([]string, 0, len(manifest.Blocks))
-	for _, block := range manifest.Blocks {
-		parts = append(parts, block.Content)
+	// The string adapter is still used by legacy executors, but it must be a
+	// projection of the same typed manifest as graph, comment, and session
+	// dispatches. Raw block concatenation silently discarded segment lineage and
+	// allowed compatibility callers to diverge from the authoritative compiler.
+	return envelope.Render()
+}
+
+// CompilePrompt returns the canonical textual adapter view of the shared
+// PromptManifest. Provider-facing paths should prefer CompileEnvelope so the
+// structured manifest and its replay key travel with the request; this helper
+// exists for legacy APIs that still accept only a prompt string.
+func (s *Store) CompilePrompt(sessionID string, maxTokens int64) (string, error) {
+	envelope, err := s.CompileEnvelope(sessionID, maxTokens)
+	if err != nil {
+		return "", err
 	}
-	return strings.TrimSpace(strings.Join(parts, "")), nil
+	return envelope.Render()
+}
+
+// CompileRequiredPrompt uses the same authoritative compiler but intentionally
+// selects only mandatory blocks. It is the compatibility view for legacy
+// adapters whose wire protocol has its own single-turn parser; the structured
+// envelope still contains the full manifest for provider-native consumers.
+func (s *Store) CompileRequiredPrompt(sessionID string) (string, error) {
+	manifest, err := s.compileManifest(sessionID, 0, true)
+	if err != nil {
+		return "", err
+	}
+	return manifest.Render()
+}
+
+func toContextManifest(manifest ContextManifest) contextcontract.Manifest {
+	return contextcontract.Manifest{
+		SessionID: manifest.SessionID, Version: manifest.Version,
+		SemanticSnapshotVersion: manifest.SemanticSnapshotVersion,
+		TokenBudget:             manifest.TokenBudget, TokenEstimate: manifest.TokenEstimate,
+		Blocks:             toContextBlocks(manifest.Blocks),
+		RequiredBlockIDs:   append([]string(nil), manifest.RequiredBlockIDs...),
+		OmittedRequiredIDs: append([]string(nil), manifest.OmittedRequiredIDs...),
+		CompilerVersion:    manifest.CompilerVersion, TokenizerID: manifest.TokenizerID,
+		CompressionRecords: cloneCompressionRecords(manifest.CompressionRecords),
+		PromptManifest:     manifest.PromptManifest, Digest: manifest.Digest,
+		PromptManifestHash: manifest.PromptManifestHash, ParentDigest: manifest.ParentDigest,
+		CreatedAt: manifest.CreatedAt,
+	}
 }
 
 // CompileManifest deterministically selects typed context blocks under a hard
@@ -2870,6 +3069,10 @@ func (s *Store) Compile(sessionID string, maxTokens int64) (string, error) {
 // unarchived turns are selected backwards and emitted chronologically. Every
 // block carries source, trust, policy and content hash metadata.
 func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManifest, error) {
+	return s.compileManifest(sessionID, maxTokens, false)
+}
+
+func (s *Store) compileManifest(sessionID string, maxTokens int64, requiredOnly bool) (ContextManifest, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	state, ok := s.sessions[sessionID]
@@ -2880,8 +3083,37 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 		maxTokens = state.Session.BudgetTokens
 	}
 	if maxTokens <= 0 {
-		maxTokens = 1
+		// A zero session budget means unbounded compatibility mode. Keep the
+		// authoritative compiler in the path and use a large finite ceiling so
+		// mandatory blocks cannot be silently dropped merely because the caller
+		// omitted an optional budget.
+		maxTokens = 1 << 60
 	}
+
+	// The harness owns durable session state, but the context package owns all
+	// selection, compression, hashing, and overflow semantics. Keeping the
+	// adapter conversion here prevents provider paths from growing a second
+	// compiler with subtly different mandatory-block rules.
+	blocks := make([]contextcontract.Block, 0, len(state.Archives)+len(state.Memories)+len(state.Turns))
+	appendBlock := func(kind, source, content, policy, trust, reason string, mandatory bool, metadata map[string]string) {
+		content = strings.TrimSuffix(content, "\n") + "\n"
+		id := fmt.Sprintf("%s:%s", kind, source)
+		if source == "" {
+			id = fmt.Sprintf("%s:%d", kind, len(blocks)+1)
+		}
+		blocks = append(blocks, contextcontract.Block{
+			ID: id, Kind: kind, Source: source, Content: content, Hash: contextcontract.HashBlock(contextcontract.Block{Content: content}),
+			Policy: policy, Trust: trust, SelectionReason: reason, TokenEstimate: contextcontract.EstimateTokens(content), Mandatory: mandatory,
+			Metadata: cloneStringMap(metadata),
+		})
+	}
+
+	for _, archive := range state.Archives {
+		appendBlock("archive", archive.ID, fmt.Sprintf("[archive %s] %s", archive.ID, archive.Summary), "verified_summary", "verified", "archive_order", false, map[string]string{
+			"start_sequence": fmt.Sprint(archive.StartSequence), "end_sequence": fmt.Sprint(archive.EndSequence),
+		})
+	}
+
 	memoryItems := make([]MemoryItem, 0, len(state.Memories)+len(s.projectMemories[state.Session.ProjectID]))
 	now := time.Now().UTC()
 	for _, memory := range state.Memories {
@@ -2897,54 +3129,6 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 		}
 	}
 	sortMemories(memoryItems)
-	blocks := make([]ContextBlock, 0, len(state.Archives)+len(memoryItems)+len(state.Turns))
-	compressionRecords := make([]contextcontract.CompressionRecord, 0, len(state.Archives))
-	used := int64(0)
-	appendBlock := func(kind, source, line, policy, trust, reason string, mandatory bool, metadata map[string]string) bool {
-		line = strings.TrimSuffix(line, "\n") + "\n"
-		remaining := maxTokens - used
-		if remaining <= 0 {
-			return false
-		}
-		if estimateTokens(line) > remaining {
-			maxRunes := int(remaining * 4)
-			if maxRunes <= 0 {
-				return false
-			}
-			runes := []rune(strings.TrimSuffix(line, "\n"))
-			if len(runes) > maxRunes {
-				runes = runes[:maxRunes]
-			}
-			line = string(runes)
-			if line == "" {
-				return false
-			}
-			line += "\n"
-			for estimateTokens(line) > remaining && len([]rune(strings.TrimSuffix(line, "\n"))) > 1 {
-				runes := []rune(strings.TrimSuffix(line, "\n"))
-				line = string(runes[:len(runes)-1]) + "\n"
-			}
-			if estimateTokens(line) > remaining {
-				return false
-			}
-		}
-		digest := sha256.Sum256([]byte(line))
-		blockID := fmt.Sprintf("%s:%d", kind, len(blocks)+1)
-		blocks = append(blocks, ContextBlock{ID: blockID, Kind: kind, Source: source, Content: line, Hash: hex.EncodeToString(digest[:]), Policy: policy, Trust: trust, SelectionReason: reason, TokenEstimate: estimateTokens(line), Mandatory: mandatory, Metadata: cloneStringMap(metadata)})
-		used += estimateTokens(line)
-		return true
-	}
-	for _, archive := range state.Archives {
-		if !appendBlock("archive", archive.ID, fmt.Sprintf("[archive %s] %s", archive.ID, archive.Summary), "verified_summary", "verified", "archive_order", false, map[string]string{"start_sequence": fmt.Sprint(archive.StartSequence), "end_sequence": fmt.Sprint(archive.EndSequence)}) {
-			break
-		}
-		if archive.Compression.Algorithm != "" {
-			compressionRecords = append(compressionRecords, archive.Compression)
-		}
-	}
-	// Memory is append-only, but a newer fact can supersede an older one. Keep
-	// the full ledger for audit while compiling only the active frontier; this
-	// prevents stale decisions from consuming the model budget after repair.
 	superseded := make(map[string]struct{})
 	for _, memory := range memoryItems {
 		for _, id := range memory.Supersedes {
@@ -2955,10 +3139,11 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 		if _, hidden := superseded[memory.ID]; hidden {
 			continue
 		}
-		if !appendBlock("memory", memory.ID, fmt.Sprintf("[memory %s %s] %s", memory.Kind, memory.ID, memory.Content), "active_frontier", "source_turn", "memory_priority", false, map[string]string{"scope": memory.Scope, "fingerprint": memory.Fingerprint}) {
-			break
-		}
+		appendBlock("memory", memory.ID, fmt.Sprintf("[memory %s %s] %s", memory.Kind, memory.ID, memory.Content), "active_frontier", "source_turn", "memory_priority", false, map[string]string{
+			"scope": memory.Scope, "fingerprint": memory.Fingerprint,
+		})
 	}
+
 	archived := func(sequence int64) bool {
 		for _, archive := range state.Archives {
 			if sequence >= archive.StartSequence && sequence <= archive.EndSequence {
@@ -2967,46 +3152,100 @@ func (s *Store) CompileManifest(sessionID string, maxTokens int64) (ContextManif
 		}
 		return false
 	}
-	// Preserve the newest raw turns when archive summaries consume the budget.
-	// Select backwards, then write the selected tail chronologically.
-	selected := make([]ContextBlock, 0, len(state.Turns))
-	for i := len(state.Turns) - 1; i >= 0; i-- {
-		turn := state.Turns[i]
-		if archived(turn.Sequence) {
+
+	// A tool call is one atomic context unit. If a before record has no paired
+	// after record, both records are mandatory and the authoritative compiler
+	// either keeps them whole or returns ErrOverflow.
+	toolPhases := map[string]map[string]bool{}
+	for _, turn := range state.Turns {
+		if turn.ToolCallID == "" {
 			continue
 		}
-		if !appendBlock("turn", turn.ID, fmt.Sprintf("%s: %s", turn.Role, turn.Content), "transcript", "hash_chain", "latest_tail", i == len(state.Turns)-1, map[string]string{"sequence": fmt.Sprint(turn.Sequence), "turn_hash": turn.Hash}) {
-			break
+		phase := toolPhases[turn.ToolCallID]
+		if phase == nil {
+			phase = map[string]bool{}
+			toolPhases[turn.ToolCallID] = phase
 		}
-		selected = append(selected, blocks[len(blocks)-1])
+		phase[turn.ToolStatus] = true
 	}
-	if len(selected) > 0 {
-		// Remove the backwards-written turn tail and put it back in transcript
-		// order. Archive/memory blocks remain in their deterministic prefix.
-		blocks = blocks[:len(blocks)-len(selected)]
-		for i := len(selected) - 1; i >= 0; i-- {
-			blocks = append(blocks, selected[i])
+	incompleteToolCall := map[string]bool{}
+	for callID, phases := range toolPhases {
+		// A malformed/recovered transcript can contain either half of a
+		// transaction. Both shapes are incomplete and must remain atomic; only
+		// treating before-without-after as incomplete would allow an orphaned
+		// result to be selected while its call boundary is omitted.
+		if !phases["before"] || !phases["after"] {
+			incompleteToolCall[callID] = true
 		}
 	}
-	semanticVersion := state.Session.ContextVersion
-	if semanticVersion < 1 {
-		semanticVersion = 1
+	latestUser := int64(0)
+	for _, turn := range state.Turns {
+		// The latest objective is mandatory even when an operator compacted a
+		// window that includes it. The exact turn is cheaper and safer than
+		// relying on an optional archive summary for the current request.
+		if turn.Role == RoleUser && turn.Sequence > latestUser {
+			latestUser = turn.Sequence
+		}
 	}
-	manifest := ContextManifest{SessionID: sessionID, Version: state.Session.ContextVersion, SemanticSnapshotVersion: semanticVersion, TokenBudget: maxTokens, TokenEstimate: used, Blocks: blocks, CompressionRecords: compressionRecords, CreatedAt: time.Now().UTC()}
-	if manifest.Version < 1 {
-		manifest.Version = 1
+	for _, turn := range state.Turns {
+		mandatory := turn.Role == RoleSystem || (turn.Role == RoleUser && turn.Sequence == latestUser)
+		if turn.ToolCallID != "" && incompleteToolCall[turn.ToolCallID] {
+			mandatory = true
+		}
+		if archived(turn.Sequence) && !mandatory {
+			continue
+		}
+		promptKind := "context_memory"
+		switch {
+		case turn.Role == RoleSystem:
+			promptKind = "system_policy"
+		case turn.Role == RoleUser && turn.Sequence == latestUser:
+			promptKind = "latest_objective"
+		case turn.ToolCallID != "":
+			promptKind = "tool_schema"
+		}
+		appendBlock("turn", turn.ID, fmt.Sprintf("%s: %s", turn.Role, turn.Content), "transcript", "hash_chain", "latest_objective_or_transaction", mandatory, map[string]string{
+			"sequence": fmt.Sprint(turn.Sequence), "turn_hash": turn.Hash, "tool_call_id": turn.ToolCallID, "tool_status": turn.ToolStatus,
+			"prompt_kind": promptKind,
+		})
 	}
-	canonical := manifest
-	canonical.CreatedAt = time.Time{}
-	canonical.Digest = ""
-	data, err := json.Marshal(canonical)
+
+	version := state.Session.ContextVersion
+	if version < 1 {
+		version = 1
+	}
+	if requiredOnly {
+		maxTokens = 0
+		for _, block := range blocks {
+			if block.Mandatory {
+				maxTokens += block.TokenEstimate
+			}
+		}
+		if maxTokens < 1 {
+			maxTokens = 1
+		}
+	}
+	compiled, compression, err := contextcontract.CompileWithSummarizer(sessionID, version, maxTokens, blocks, s.summarizer)
 	if err != nil {
 		return ContextManifest{}, err
 	}
-	digest := sha256.Sum256(data)
-	manifest.Digest = hex.EncodeToString(digest[:])
-	manifest.PromptManifestHash = promptManifestHash(manifest)
-	return manifest, nil
+	records := make([]contextcontract.CompressionRecord, 0, len(state.Archives)+1)
+	for _, archive := range state.Archives {
+		if archive.Compression.Algorithm != "" {
+			records = append(records, archive.Compression)
+		}
+	}
+	if compression.Algorithm != "" {
+		records = append(records, compression)
+	}
+	compiled.CompressionRecords = records
+	if len(records) > 0 {
+		compiled, err = compiled.Rehash()
+		if err != nil {
+			return ContextManifest{}, err
+		}
+	}
+	return fromContextManifest(compiled, records), nil
 }
 
 // CompileEnvelope is the strict provider contract. Unlike Compile, it fails
@@ -3028,11 +3267,7 @@ func (s *Store) CompileEnvelope(sessionID string, maxTokens int64) (ContextEnvel
 }
 
 func estimateTokens(value string) int64 {
-	runes := len([]rune(value))
-	if runes == 0 {
-		return 0
-	}
-	return int64((runes + 3) / 4)
+	return contextcontract.EstimateTokens(value)
 }
 
 // SortArchives is useful to external adapters that merge records from a

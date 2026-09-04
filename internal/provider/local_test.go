@@ -125,6 +125,30 @@ func TestLocalProviderRecordsExecutorTimeout(t *testing.T) {
 	}
 }
 
+func TestLocalProviderExecutorTimeoutKillsProcessGroup(t *testing.T) {
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "40ms")
+	root := t.TempDir()
+	// The background child inherits stdout. Killing only the shell would keep
+	// the output pipe open and make cmd.Wait block until the child exits.
+	p := NewLocalProvider("/bin/sh", []string{"-c", "sleep 30 & wait"}, root, newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "timeout-process-group", Title: "deadline process group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "long-running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("executor timeout took too long: %s", elapsed)
+	}
+	if snapshot.Status != "timed_out" || snapshot.Error != "executor deadline exceeded" {
+		t.Fatalf("timeout snapshot=%+v", snapshot)
+	}
+}
+
 func TestLocalProviderRepairReusesSessionAndWorkdir(t *testing.T) {
 	p := NewLocalProvider("/usr/bin/printf", []string{"{input}"}, t.TempDir(), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "work-2", Title: "repairable task"})
@@ -413,6 +437,72 @@ func TestLocalProviderRecordsUncommittedChanges(t *testing.T) {
 	snapshot := waitSnapshot(t, p, binding.ID)
 	if !snapshot.WorkspaceDirty || len(snapshot.ChangedFiles) != 1 || snapshot.ChangedFiles[0] != "changed.txt" {
 		t.Fatalf("uncommitted changes missing: %+v", snapshot)
+	}
+	if snapshot.OutputSHA256 == "" || snapshot.SourceDiffSHA256 == "" || snapshot.WorktreeSHA256 == "" || snapshot.ToolEventsSHA256 == "" {
+		t.Fatalf("workdir evidence hashes missing: %+v", snapshot)
+	}
+	if snapshot.SourceDiffSHA256 == sha256Bytes(nil) {
+		t.Fatalf("dirty worktree recorded an empty diff hash: %+v", snapshot)
+	}
+}
+
+func TestLocalProviderShutdownCancelsAndDrainsActiveProcess(t *testing.T) {
+	p := NewLocalProvider("/bin/sleep", []string{"30"}, t.TempDir(), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "shutdown-item", Title: "shutdown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "long-running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := p.GetRun(context.Background(), binding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Status != "cancelled" || snapshot.FinishedAt == nil || snapshot.OutputSHA256 == "" || snapshot.WorktreeSHA256 == "" {
+		t.Fatalf("shutdown did not persist a cancelled terminal snapshot: %+v", snapshot)
+	}
+	if _, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "after shutdown"}); err == nil || !strings.Contains(err.Error(), "shutting down") {
+		t.Fatalf("provider accepted a run after shutdown: %v", err)
+	}
+}
+
+func TestLocalProviderCancelRecordsSingleLedgerEvent(t *testing.T) {
+	p := NewLocalProvider("/bin/sleep", []string{"30"}, t.TempDir(), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "cancel-ledger-item", Title: "cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.CancelRun(context.Background(), binding.ID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := p.GetRun(context.Background(), binding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, event := range snapshot.Ledger {
+		if event.Type == "run.cancelled" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("run.cancelled ledger events=%d want=1 ledger=%+v", count, snapshot.Ledger)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 

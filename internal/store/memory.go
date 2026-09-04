@@ -794,6 +794,24 @@ func (m *Memory) ListComments(workspaceID, targetType, targetID, cursor string, 
 	return items[start:end], next
 }
 
+// CountCommentTriggerOutcomes aggregates directly from retained comments.
+// Metrics must not infer global totals from ListComments pages because that
+// API intentionally caps a single response at 250 items.
+func (m *Memory) CountCommentTriggerOutcomes(workspaceID string) map[string]int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	counts := make(map[string]int)
+	for _, comment := range m.comments {
+		if workspaceID != "" && comment.WorkspaceID != workspaceID {
+			continue
+		}
+		for _, outcome := range comment.TriggerOutcomes {
+			counts[outcome.Status]++
+		}
+	}
+	return counts
+}
+
 func normalizeCommentMentions(mentions []string) []string {
 	seen := make(map[string]struct{}, len(mentions))
 	result := make([]string, 0, len(mentions))
@@ -876,6 +894,27 @@ func (m *Memory) ListRequirements(workspaceID, status, cursor string, limit int)
 	}
 	return all[start:end], next
 }
+
+// CountRequirements aggregates directly from the retained store instead of
+// paging through ListRequirements. Metrics and diagnostics must remain exact
+// when the number of requirements exceeds the API page ceiling.
+func (m *Memory) CountRequirements(workspaceID, status string) (total int, byStatus map[domain.RequirementStatus]int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	byStatus = make(map[domain.RequirementStatus]int)
+	for _, requirement := range m.requirements {
+		if workspaceID != "" && requirement.WorkspaceID != workspaceID {
+			continue
+		}
+		if status != "" && string(requirement.Status) != status {
+			continue
+		}
+		total++
+		byStatus[requirement.Status]++
+	}
+	return total, byStatus
+}
+
 func (m *Memory) UpdateRequirement(r domain.Requirement, expectedVersion int64) (domain.Requirement, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

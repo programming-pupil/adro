@@ -385,13 +385,13 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 	if err != nil {
 		return run, fmt.Errorf("persist harness dispatch turn: %w", err)
 	}
-	dispatchPrompt, err := s.compiledHarnessPrompt(run.SessionID, prompt)
-	if err != nil {
-		return run, err
-	}
-	contextEnvelope, err := s.compiledHarnessEnvelope(run.SessionID)
+	dispatchPrompt, contextEnvelope, err := s.compiledHarnessDispatch(run.SessionID, prompt)
 	if err != nil {
 		return run, fmt.Errorf("compile pipeline context envelope: %w", err)
+	}
+	contextVersion := contextEnvelope.Manifest.Version
+	if contextVersion < 1 {
+		return run, errors.New("compiled pipeline context has no version")
 	}
 	graphScope, err := compat.PipelineDispatchScope(run, turnKey)
 	if err != nil {
@@ -425,12 +425,12 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 			ExpectedSessionID: run.ParentSessionID, ExpectedWorkDir: run.ProviderWorkDir, IdempotencyKey: turnKey,
 			ContextEnvelope: contextEnvelope, ExpectedRevision: run.Version, LegacyAdapterVersion: compat.LegacyAdapterVersion,
 		}
-		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, Continuation: &continuation, ContextEnvelope: contextEnvelope}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: issueID, ContextVersion: contextVersion, Continuation: &continuation, ContextEnvelope: contextEnvelope}
 		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
 			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
 		}
-		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
+		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, contextVersion, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
 			return run, err
 		}
 		if !dispatchClaimed {
@@ -461,7 +461,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 				provenance.ProviderTaskID = binding.ProviderRunID
 				provenance.ProviderSessionID = binding.SessionID
 				provenance.ProviderWorkDir = binding.WorkDir
-				provenance.ContextVersion = run.Version
+				provenance.ContextVersion = contextVersion
 				provenance.ProviderIdempotencyKey = turnKey
 				if provenanceErr := s.Store.SaveProvenance(provenance); provenanceErr != nil {
 					_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
@@ -530,14 +530,14 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 		command := provider.StartRunCommand{
 			PlanID: graphScope.PlanID, NodeID: graphScope.NodeID, AttemptID: graphScope.AttemptID,
 			WorkItemID: item.ID, ProviderIssueID: item.ProviderIssueID, AgentBindingID: agentID, ProviderAssigneeID: agentID,
-			Input: dispatchPrompt, ContextID: "pipeline-" + run.ID, ContextVersion: run.Version, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: compat.LegacyAdapterVersion, SessionID: run.SessionID, IdempotencyKey: turnKey,
+			Input: dispatchPrompt, ContextID: "pipeline-" + run.ID, ContextVersion: contextVersion, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: compat.LegacyAdapterVersion, SessionID: run.SessionID, IdempotencyKey: turnKey,
 		}
-		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, Command: command, ContextEnvelope: contextEnvelope}
+		intent := providerDispatchIntent{PipelineID: run.ID, ExpectedVersion: run.Version, Stage: run.PipelineStage, AgentID: agentID, TurnHash: turn.Hash, PipelineWorkItemID: run.PipelineWorkItemID, ProviderIssueID: item.ProviderIssueID, RepositoryID: repositoryID, ContextVersion: contextVersion, Command: command, ContextEnvelope: contextEnvelope}
 		dispatchEvent, dispatchClaimed, err = s.enqueueAndClaimProviderDispatch(run, turnKey, intent)
 		if err != nil {
 			return run, fmt.Errorf("persist provider dispatch intent: %w", err)
 		}
-		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
+		if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectBefore, turn.Hash, contextVersion, []string{dispatchEvent.ID}, nil, "provider dispatch pending"); err != nil {
 			return run, err
 		}
 		if !dispatchClaimed {
@@ -567,7 +567,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 			provenanceErr := s.Store.SaveProvenance(domain.Provenance{
 				WorkItemID: run.PipelineWorkItemID, RequirementID: run.RequirementID, AgentBindingID: agentID,
 				Provider: "local", ProviderTaskID: binding.ProviderRunID, ProviderSessionID: binding.SessionID,
-				ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: turnKey, RepositoryID: repositoryID, ContextVersion: run.Version,
+				ProviderWorkDir: binding.WorkDir, ProviderIdempotencyKey: turnKey, RepositoryID: repositoryID, ContextVersion: contextVersion,
 			})
 			if provenanceErr != nil {
 				_ = s.Harness.NackOutbox(run.SessionID, dispatchEvent.ID, providerDispatchOwner, time.Now().UTC().Add(time.Second))
@@ -575,7 +575,7 @@ func (s *Server) dispatchPipeline(run domain.PipelineRun) (returned domain.Pipel
 			}
 		}
 	}
-	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, turn.Hash, run.Version, []string{dispatchEvent.ID}, nil, "provider dispatch recorded"); err != nil {
+	if err := s.saveHarnessCheckpoint(run.SessionID, harness.CheckpointEffectAfter, turn.Hash, contextVersion, []string{dispatchEvent.ID}, nil, "provider dispatch recorded"); err != nil {
 		return run, err
 	}
 	run.ActiveAgentID, run.Status = agentID, domain.PipelineWaiting
@@ -1175,26 +1175,13 @@ func originalDevelopmentIssue(run domain.PipelineRun) string {
 	return ""
 }
 
-// compiledHarnessPrompt is the single dispatch boundary for bounded sessions.
-// The complete prompt remains in the transcript; providers receive the
-// deterministic archive/memory/tail view only when a positive budget is set.
+// compiledHarnessPrompt is the compatibility wrapper for callers that still
+// accept only a string. The underlying dispatch path compiles exactly one
+// immutable envelope before rendering the text projection.
 func (s *Server) compiledHarnessPrompt(sessionID, fallback string) (string, error) {
-	if s == nil || s.Harness == nil {
-		return fallback, nil
-	}
-	session, err := s.Harness.GetSession(sessionID)
-	if err != nil {
-		return fallback, nil
-	}
-	if session.BudgetTokens <= 0 {
-		return fallback, nil
-	}
-	compiled, err := s.Harness.Compile(sessionID, session.BudgetTokens)
+	compiled, _, err := s.compiledHarnessDispatch(sessionID, fallback)
 	if err != nil {
 		return "", fmt.Errorf("compile bounded harness context: %w", err)
-	}
-	if strings.TrimSpace(compiled) == "" {
-		return fallback, nil
 	}
 	return compiled, nil
 }

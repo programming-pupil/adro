@@ -74,6 +74,201 @@ func TestCompileEnvelopeCarriesReplaySelection(t *testing.T) {
 	}
 }
 
+func TestContextEnvelopeWithRequiredBlockUsesTheSameCompiler(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "keep the newest objective intact"}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := store.CompileEnvelope("session-1", 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := contextcontract.Block{
+		ID: "graph-node-contract:plan:node", Kind: "plan_node_contract", Source: "graph:plan:node",
+		Content: `{"plan_id":"plan","node_id":"node","contract":"execute"}`,
+		Policy:  "frozen_plan", Trust: "plan_snapshot", SelectionReason: "mandatory_graph_node_contract",
+		Metadata: map[string]string{"prompt_kind": "plan_node_contract", "atomic": "true"},
+	}
+	extended, err := envelope.WithRequiredBlock(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extended.Validate(); err != nil {
+		t.Fatalf("extended envelope is invalid: %v", err)
+	}
+	if extended.ReplayKey == envelope.ReplayKey || extended.Manifest.Digest == envelope.Manifest.Digest {
+		t.Fatal("adding a mandatory node contract must produce a new immutable selection")
+	}
+	foundContract, foundObjective := false, false
+	for _, segment := range extended.Manifest.PromptManifest.Segments {
+		foundContract = foundContract || segment.Kind == "plan_node_contract"
+		foundObjective = foundObjective || segment.Kind == "latest_objective"
+	}
+	if !foundContract || !foundObjective {
+		t.Fatalf("authoritative prompt manifest lost required layers: %+v", extended.Manifest.PromptManifest)
+	}
+	if _, err := envelope.WithRequiredBlock(contextcontract.Block{
+		ID: "graph-node-contract:plan:oversized", Kind: "plan_node_contract", Source: "graph:plan:oversized",
+		Content: strings.Repeat("x", 512), Policy: "frozen_plan", Trust: "plan_snapshot", SelectionReason: "mandatory_graph_node_contract",
+	}); !errors.Is(err, contextcontract.ErrOverflow) {
+		t.Fatalf("mandatory node contract overflow must fail closed, got %v", err)
+	}
+}
+
+func TestContextEnvelopeLegacyInputUsesCompiledLatestObjective(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	prompt := "pipeline_stage: 2\nrun the focused repair"
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: prompt, IdempotencyKey: "latest-objective"}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := store.CompileEnvelope("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := envelope.LatestObjective()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != prompt {
+		t.Fatalf("latest objective changed while adapting compiled envelope: got=%q want=%q", latest, prompt)
+	}
+	if _, err := store.CompileEnvelope("session-1", 1); !errors.Is(err, contextcontract.ErrOverflow) {
+		t.Fatalf("latest objective overflow must fail closed, got %v", err)
+	}
+}
+
+func TestCompileEnvelopePreservesEmptyPromptManifestSegments(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	envelope, err := store.CompileEnvelope("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Manifest.PromptManifest.Segments == nil {
+		t.Fatal("empty prompt manifest segments must remain a non-nil JSON array")
+	}
+	if err := envelope.Validate(); err != nil {
+		t.Fatalf("cloned empty prompt manifest must validate: %v", err)
+	}
+}
+
+func TestCompileCompatibilityAdapterUsesAuthoritativePromptManifest(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "harness.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "compat-prompt", TenantID: "tenant-1", WorkspaceID: "workspace-1", BudgetTokens: 64}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurn("compat-prompt", Turn{Role: RoleUser, Content: "preserve the latest objective", IdempotencyKey: "compat-objective"}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := store.Compile("compat-prompt", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "[ADRO_PROMPT_SEGMENT kind=latest_objective") {
+		t.Fatalf("compatibility prompt bypassed prompt manifest: %s", prompt)
+	}
+	if !strings.Contains(prompt, "preserve the latest objective") {
+		t.Fatalf("compatibility prompt lost objective: %s", prompt)
+	}
+	required, err := store.CompileRequiredPrompt("compat-prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if required != prompt {
+		t.Fatalf("required compatibility prompt diverged from authoritative selection:\ncompile=%s\nrequired=%s", prompt, required)
+	}
+}
+
+func TestCompileManifestKeepsArchivedSystemAndLatestObjectiveMandatory(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	first, err := store.AppendTurn("session-1", Turn{Role: RoleSystem, Content: "Never drop the release policy."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "Ship the current objective exactly."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Compact("session-1", CompactRequest{StartSequence: first.Sequence, EndSequence: latest.Sequence, Summary: "old transcript summary", RetainedTail: 0, Reason: "regression"}); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := store.CompileManifest("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ContextBlock{}
+	for _, block := range manifest.Blocks {
+		byID[block.ID] = block
+	}
+	for _, turn := range []Turn{first, latest} {
+		block, ok := byID["turn:"+turn.ID]
+		if !ok || !block.Mandatory || !strings.Contains(block.Content, turn.Content) {
+			t.Fatalf("archived mandatory turn was omitted or changed: turn=%+v block=%+v manifest=%+v", turn, block, manifest)
+		}
+	}
+}
+
+func TestCompileManifestTreatsOrphanedToolResultAsMandatoryAtomicTransaction(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "Continue after the tool result."}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: `{"exit_code":1,"stderr":"failed"}`, ToolCallID: "orphan-call", ToolStatus: "after"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := store.CompileManifest("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, block := range manifest.Blocks {
+		if block.ID == "turn:"+result.ID {
+			found = true
+			if !block.Mandatory || block.Metadata["tool_call_id"] != "orphan-call" {
+				t.Fatalf("orphaned tool result was not mandatory: %+v", block)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("orphaned tool result was omitted: %+v", manifest)
+	}
+	if _, err := store.CompileManifest("session-1", resultHashBudget(manifest, result.ID)); !errors.Is(err, contextcontract.ErrOverflow) {
+		t.Fatalf("budget below mandatory orphaned transaction must fail closed, got %v", err)
+	}
+}
+
+func resultHashBudget(manifest ContextManifest, resultID string) int64 {
+	for _, block := range manifest.Blocks {
+		if block.ID == "turn:"+resultID {
+			return block.TokenEstimate - 1
+		}
+	}
+	return 1
+}
+
+func TestCompilePromptWithZeroSessionBudgetStillUsesAuthoritativeCompiler(t *testing.T) {
+	store, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(Session{ID: "unbounded-session", TenantID: "tenant-1", WorkspaceID: "workspace-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurn("unbounded-session", Turn{Role: RoleUser, Content: "preserve the latest objective"}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := store.CompilePrompt("unbounded-session", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "kind=latest_objective") || !strings.Contains(prompt, "preserve the latest objective") {
+		t.Fatalf("zero-budget prompt bypassed the authoritative compiler: %s", prompt)
+	}
+}
+
 func TestPersistentStoreRejectsStaleWriterAndFaultsBeforeRename(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "harness.json")
 	first := newTestSession(t, path)
@@ -640,14 +835,47 @@ func TestCompileIncludesMemoryAndHonorsBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	compiled, err := store.Compile("session-1", 5)
+	if !errors.Is(err, contextcontract.ErrOverflow) {
+		t.Fatalf("latest mandatory objective must fail closed when it cannot fit: compiled=%q err=%v", compiled, err)
+	}
+}
+
+func TestCompileKeepsLatestObjectiveAndUnfinishedToolTransaction(t *testing.T) {
+	store := newTestSession(t, "")
+	old, err := store.AppendTurn("session-1", Turn{Role: RoleAssistant, Content: strings.Repeat("historical context ", 20)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if estimateTokens(compiled) > 5 {
-		t.Fatalf("compiled context exceeded budget: tokens=%d context=%q", estimateTokens(compiled), compiled)
+	if _, err := store.AddMemory(MemoryItem{SessionID: "session-1", Kind: "decision", Content: strings.Repeat("optional memory ", 20), SourceIDs: []string{old.ID}, Confidence: 0.9}); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(compiled, "memory") {
-		t.Fatalf("compiled context omitted durable memory: %q", compiled)
+	latest, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "最新目标：保留完整 JSON {\"status\":\"pass\"}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.AppendTurn("session-1", Turn{Role: RoleTool, Content: "{\"command\":\"go test ./...\"}", ToolCallID: "call-incomplete", ToolStatus: "before"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := estimateTokens("user: "+latest.Content+"\n") + estimateTokens("tool: "+before.Content+"\n")
+	manifest, err := store.CompileManifest("session-1", budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestFound, beforeFound := false, false
+	for _, block := range manifest.Blocks {
+		if block.Source == latest.ID {
+			latestFound = block.Content == "user: "+latest.Content+"\n" && block.Mandatory
+		}
+		if block.Source == before.ID {
+			beforeFound = block.Content == "tool: "+before.Content+"\n" && block.Mandatory
+		}
+	}
+	if !latestFound || !beforeFound {
+		t.Fatalf("mandatory blocks were omitted or changed: latest=%v before=%v manifest=%+v", latestFound, beforeFound, manifest)
+	}
+	if _, err := store.CompileManifest("session-1", budget-1); !errors.Is(err, contextcontract.ErrOverflow) {
+		t.Fatalf("mandatory context underflow must fail closed, got %v", err)
 	}
 }
 
