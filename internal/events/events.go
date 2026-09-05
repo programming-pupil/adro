@@ -856,6 +856,29 @@ func (b *Bus) CountByType(eventType string) int {
 	return count
 }
 
+// HasEvent reports whether a scoped event with the supplied dedupe key was
+// already committed. It is used by render-only projections whose retry must
+// not rebroadcast the same immutable comment revision.
+func (b *Bus) HasEvent(eventType, aggregateID, dedupeKey string) bool {
+	if b == nil {
+		return false
+	}
+	if b.statePath != "" {
+		_ = b.Reload()
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, event := range b.events {
+		if event.EventType != eventType || event.AggregateID != aggregateID {
+			continue
+		}
+		if value, ok := event.Payload["dedupe_key"].(string); ok && value == dedupeKey {
+			return true
+		}
+	}
+	return false
+}
+
 // ListChecked is the fail-closed cursor variant used by API/replay callers.
 // An unknown cursor is never treated as an instruction to replay from the
 // beginning, which would otherwise hide retention gaps or stale clients.

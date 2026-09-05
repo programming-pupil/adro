@@ -18,6 +18,7 @@ mkdir -p "$REPORT_DIR"
 COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 GO_VERSION=""
 CODEX_VERSION=""
+GO_ROOT=""
 
 log() { printf '[ADRO REAL GRAPH E2E] %s\n' "$*"; }
 fail() { log "ERROR: $*" >&2; exit 1; }
@@ -113,8 +114,36 @@ executor="${ADRO_EXECUTOR:-}"
 [ -n "$executor" ] || fail "Codex is required; install codex or set ADRO_EXECUTOR"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "real graph suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
-CODEX_VERSION="$("$executor" --version 2>&1 || true)"
-GO_VERSION="$(go version 2>/dev/null || true)"
+real_executor="$executor"
+CODEX_VERSION="$("$real_executor" --version 2>&1 || true)"
+go_bin="${ADRO_GO_BIN:-}"
+if [ -z "$go_bin" ] || [ ! -x "$go_bin" ]; then
+  if [ -x "/Users/shareit/.gvm/gos/go1.24.1/bin/go" ]; then
+    go_bin="/Users/shareit/.gvm/gos/go1.24.1/bin/go"
+  else
+    go_bin="$(command -v go 2>/dev/null || true)"
+  fi
+fi
+[ -n "$go_bin" ] || fail "Go is required for real graph evidence"
+GO_ROOT="$($go_bin env GOROOT 2>/dev/null || true)"
+GO_VERSION="$($go_bin version 2>/dev/null || true)"
+[ -n "$GO_ROOT" ] || fail "could not resolve Go GOROOT for real graph evidence"
+# Provider commands run through login shells, which may reorder PATH. Export
+# the resolved root so the go executable and compiler/assembler stay paired.
+export GOROOT="$GO_ROOT"
+# The API starts provider commands in a separate process and the local Codex
+# client may sanitize inherited environment variables. Keep the toolchain
+# pairing explicit at the final executor boundary as well.
+codex_wrapper="$RUN_ROOT/codex"
+go_root_quoted="$(printf '%q' "$GO_ROOT")"
+executor_quoted="$(printf '%q' "$real_executor")"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf 'export GOROOT=%s\n' "$go_root_quoted"
+  printf 'exec %s "$@"\n' "$executor_quoted"
+} >"$codex_wrapper"
+chmod 700 "$codex_wrapper"
+executor="$codex_wrapper"
 printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
 
 SOURCE_CODEX_HOME="${CODEX_HOME:-}"
@@ -203,9 +232,10 @@ create_agent() {
   curl -fsS -X POST "$API/api/v1/workspaces/$WORKSPACE/agents" "${headers[@]}" -d "$body"
 }
 create_agent architect 'Graph Architect' architect 'In the checkout, inspect the small Go calculator and write a plan in your response only. Do not modify files and do not call tools after inspection. Finish with exactly one ADRO_RESULT_JSON marker: outcome pass, reason_code architect_plan, summary architect plan recorded, evidence_ids [architect-plan-1], fields {}.' >"$REPORT_DIR/agent-architect.json"
-create_agent developer 'Graph Developer' developer 'Read the ADRO_GRAPH_NODE_JSON line in your prompt to determine attempt_no. Work in the checkout. On attempt_no 1, implement the requested Add function but intentionally leave one reproducible defect by changing Add to return a-b; do not hide the defect and finish with outcome pass only after the source is changed. On attempt_no 2 or later, inspect the current source, fix Add to return a+b, run go test ./..., and finish with outcome pass only when it exits zero. Always include a concise summary and evidence_ids. Do not edit ADRO state outside the checkout.' >"$REPORT_DIR/agent-developer.json"
-create_agent unit 'Graph Unit Gate' unit 'Run go test ./... in the checkout and report the real exit status. If the test command fails, finish with exactly one ADRO_RESULT_JSON marker using outcome failure, reason_code unit_failure_injected, summary containing the observed failure, evidence_ids [unit-failure-1], and fields including the command and exit status. If it passes, finish with outcome pass, reason_code unit_reverified, evidence_ids [unit-pass-2], and fields including the command and exit status. Do not edit source files.' >"$REPORT_DIR/agent-unit.json"
-create_agent qa 'Graph QA Gate' qa 'Read the ADRO_GRAPH_NODE_JSON line in your prompt. On attempt_no 1, run go test ./... and then inject a real QA regression by changing Add to return a-b in the checkout; finish with outcome bug, reason_code qa_bug_injected, evidence_ids [qa-bug-1], and fields recording both commands. On later attempts, run go test ./... without changing source and finish with outcome pass, reason_code qa_reverified, evidence_ids [qa-pass-2], and fields including the command and exit status. Do not edit ADRO state outside the checkout.' >"$REPORT_DIR/agent-qa.json"
+go_test_command="env GOROOT=$(printf '%q' "$GO_ROOT") go test ./..."
+create_agent developer 'Graph Developer' developer "Read the ADRO_GRAPH_NODE_JSON line in your prompt to determine attempt_no. Work in the checkout. On attempt_no 1, implement the requested Add function but intentionally leave one reproducible defect by changing Add to return a-b; do not hide the defect and finish with outcome pass only after the source is changed. On attempt_no 2 or later, inspect the current source, fix Add to return a+b, run $go_test_command, and finish with outcome pass only when it exits zero. Always include a concise summary and evidence_ids. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-developer.json"
+create_agent unit 'Graph Unit Gate' unit "Run $go_test_command in the checkout and report the real exit status. If the test command fails, finish with exactly one ADRO_RESULT_JSON marker using outcome failure, reason_code unit_failure_injected, summary containing the observed failure, evidence_ids [unit-failure-1], and fields including the command and exit status. If it passes, finish with outcome pass, reason_code unit_reverified, evidence_ids [unit-pass-2], and fields including the command and exit status. Do not edit source files." >"$REPORT_DIR/agent-unit.json"
+create_agent qa 'Graph QA Gate' qa "Read the ADRO_GRAPH_NODE_JSON line in your prompt. On attempt_no 1, run $go_test_command and then inject a real QA regression by changing Add to return a-b in the checkout; finish with outcome bug, reason_code qa_bug_injected, evidence_ids [qa-bug-1], and fields recording both commands. On later attempts, run $go_test_command without changing source and finish with outcome pass, reason_code qa_reverified, evidence_ids [qa-pass-2], and fields including the command and exit status. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-qa.json"
 
 session_body="$(WORKSPACE="$WORKSPACE" ruby -rjson -e 'puts JSON.generate(workspace_id: ENV.fetch("WORKSPACE"), budget_tokens: 32768, auto_compaction: false)')"
 session_json="$(curl -fsS -X POST "$API/api/v1/sessions" "${headers[@]}" -d "$session_body")"
@@ -276,7 +306,12 @@ ruby -rjson -e '
   counts = Hash.new(0)
   attempts.each { |a| counts[a.fetch("node_id")] += 1 }
   abort("attempt ids are not immutable") unless attempts.map { |a| a.fetch("id") }.uniq.length == attempts.length
-  attempts.each { |a| abort("missing attempt provenance") if [a["run_id"], a["session_id"], a["workdir"]].any? { |v| v.to_s.empty? } }
+  attempts.each do |a|
+    # Repair nodes are durable scheduler decisions, not provider executions;
+    # their lifecycle is validated through repair_plans below.
+    next if a["node_id"] == "repair"
+    abort("missing attempt provenance") if [a["run_id"], a["session_id"], a["workdir"]].any? { |v| v.to_s.empty? }
+  end
   decisions = projection.fetch("decisions", [])
   terminal = projection["terminal_outcome"]
   if terminal == "succeeded"

@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e test-expert verify run local
+.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e test-expert verify run local
 
 test:
 	go test ./...
@@ -11,6 +11,9 @@ vet:
 
 build:
 	go build ./...
+
+coverage-ledger:
+	ruby scripts/coverage-ledger.rb --check
 
 contracts:
 	bash -n start.sh
@@ -33,6 +36,7 @@ contracts:
 	./scripts/orchestration-guard.sh
 	node scripts/check-html.mjs
 	ruby scripts/openapi-contract.rb
+	ruby scripts/coverage-ledger.rb --check
 	ruby -rjson -e 'require "yaml"; YAML.load_file("openapi/openapi.yaml"); YAML.load_file("deploy/compose/docker-compose.yml"); YAML.load_file("charts/adro/Chart.yaml"); YAML.load_file("charts/adro/values.yaml"); JSON.parse(File.read("charts/adro/values.schema.json")); JSON.parse(File.read("release/dependencies.json")); JSON.parse(File.read("SBOM"))'
 	bash -n examples/three-repo-feign/run.sh
 

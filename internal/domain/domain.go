@@ -151,6 +151,7 @@ type CommentTriggerOutcome struct {
 	TargetType        string `json:"target_type"`
 	TargetID          string `json:"target_id"`
 	Status            string `json:"status"`
+	Broadcast         bool   `json:"broadcast,omitempty"`
 	ReasonCode        string `json:"reason_code"`
 	Reason            string `json:"reason,omitempty"`
 	AuthoritySnapshot string `json:"authority_snapshot,omitempty"`

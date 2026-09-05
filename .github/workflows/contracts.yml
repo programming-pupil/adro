@@ -34,6 +34,7 @@ jobs:
       - run: ./scripts/orchestration-guard.sh
       - run: node scripts/check-html.mjs
       - run: ruby scripts/openapi-contract.rb
+      - run: ruby scripts/coverage-ledger.rb --check
       - run: ruby -e 'require "yaml"; require "json"; YAML.load_file("openapi/openapi.yaml"); YAML.load_file("deploy/compose/docker-compose.yml"); YAML.load_file("charts/adro/values.yaml"); JSON.parse(File.read("charts/adro/values.schema.json")); JSON.parse(File.read("release/dependencies.json")); JSON.parse(File.read("SBOM"))'
       - run: bash -n examples/three-repo-feign/run.sh
       - run: bash -n start.sh

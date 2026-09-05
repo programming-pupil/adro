@@ -32,6 +32,7 @@ run_step go_test "$GO_BIN" test ./... -count=1
 run_step go_race "$GO_BIN" test -race ./... -count=1 -p 1
 run_step go_vet "$GO_BIN" vet ./...
 run_step go_build "$GO_BIN" build ./...
+run_step coverage_ledger ruby scripts/coverage-ledger.rb --check
 run_step contracts make contracts
 run_step supply_chain make supply-chain
 run_step fault_matrix make fault-matrix

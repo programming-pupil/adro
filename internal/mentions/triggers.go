@@ -16,6 +16,10 @@ const (
 	StatusCoalesced OutcomeStatus = "coalesced"
 	StatusDeferred  OutcomeStatus = "deferred"
 	StatusBlocked   OutcomeStatus = "blocked"
+	// StatusBroadcast records a render/notification-only @all mention. It is
+	// intentionally distinct from queued so callers cannot mistake a
+	// broadcast projection for a provider dispatch.
+	StatusBroadcast OutcomeStatus = "broadcast"
 )
 
 type Target struct {
@@ -51,6 +55,7 @@ type TriggerOutcome struct {
 	TargetType        TargetType    `json:"target_type"`
 	TargetID          string        `json:"target_id"`
 	Status            OutcomeStatus `json:"status"`
+	Broadcast         bool          `json:"broadcast,omitempty"`
 	ReasonCode        string        `json:"reason_code"`
 	Reason            string        `json:"reason,omitempty"`
 	AuthoritySnapshot string        `json:"authority_snapshot,omitempty"`
@@ -59,8 +64,9 @@ type TriggerOutcome struct {
 	ParentTaskID      string        `json:"parent_task_id,omitempty"`
 }
 type TriggerPlan struct {
-	Parser   ParseResult      `json:"parser"`
-	Outcomes []TriggerOutcome `json:"trigger_outcomes"`
+	Parser    ParseResult      `json:"parser"`
+	Broadcast bool             `json:"broadcast,omitempty"`
+	Outcomes  []TriggerOutcome `json:"trigger_outcomes"`
 }
 
 const MaxTargetsPerComment = 32
@@ -105,13 +111,11 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 			continue
 		}
 		if m.TargetType == TargetAll {
-			if !in.UserCanInvoke {
-				o.Status, o.ReasonCode, o.Reason = StatusBlocked, "invoke_forbidden", "caller is not allowed to invoke @all"
-			} else if !in.RuntimeHealthy {
-				o.Status, o.ReasonCode, o.Reason = StatusDeferred, "runtime_unavailable", "runtime health check is unavailable"
-			} else {
-				o.Status, o.ReasonCode = StatusQueued, "explicit_all"
-			}
+			// @all is a render-only/broadcast reference. It must remain usable
+			// when invocation permission or the execution provider is unavailable,
+			// and it must never become an implicit provider fan-out.
+			o.Status, o.Broadcast, o.ReasonCode = StatusBroadcast, true, "broadcast_only"
+			out.Broadcast = true
 			out.Outcomes = append(out.Outcomes, o)
 			continue
 		}

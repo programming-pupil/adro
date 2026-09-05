@@ -141,6 +141,34 @@ test('posts a structured mention comment with an attachment and reply', async ({
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('renders @all as a broadcast-only outcome without a follow-up receipt', async ({ page }) => {
+  await page.locator('.nav-item[data-view="repositories"]').click();
+  await page.locator('#newResource').click();
+  await page.locator('#resourceFields input[name="name"]').fill('broadcast-evidence-service');
+  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/broadcast-evidence.git');
+  await page.locator('#resourceForm button[type="submit"]').click();
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('#newRequirement').click();
+  await page.locator('#requirementForm input[name="title"]').fill('Broadcast-only comment acceptance');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Exercise the render-only all mention path.');
+  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The comment is broadcast without starting an Agent follow-up.');
+  await page.locator('#requirementRepository').selectOption({ label: 'broadcast-evidence-service' });
+  await page.locator('#requirementAssignee').selectOption({ index: 0 });
+  await page.locator('#requirementForm button[type="submit"]').click();
+
+  const row = page.locator('tr[data-requirement-id]').filter({ hasText: 'Broadcast-only comment acceptance' }).first();
+  await row.click();
+  await expect(page.locator('#commentInput')).toBeVisible();
+  await page.locator('#commentInput').fill('公告 [@all](mention://all/all)');
+  await page.locator('#commentPreviewButton').click();
+  await expect(page.locator('#commentPreview')).toContainText('仅广播');
+  await page.locator('#commentComposer button[type="submit"]').click();
+  await expect(page.locator('#commentThread')).toContainText('仅广播');
+  await expect(page.locator('.comment-receipt')).toHaveCount(0);
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('captures the screenshot delivery path through ArtifactStore and provider', async ({ page }) => {
   await page.locator('.nav-item[data-view="artifacts"]').click();
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');

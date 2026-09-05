@@ -66,6 +66,27 @@ func TestTriggerOutcomes(t *testing.T) {
 	}
 }
 
+func TestAllMentionIsBroadcastOnly(t *testing.T) {
+	plan, err := ComputeTriggers(nil, TriggerInput{
+		WorkspaceID:     "w",
+		CommentID:       "comment-all",
+		CommentRevision: 1,
+		Content:         `公告 [@all](mention://all/all)`,
+		UserCanInvoke:   false,
+		RuntimeHealthy:  false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Broadcast || len(plan.Outcomes) != 1 {
+		t.Fatalf("broadcast plan=%+v", plan)
+	}
+	outcome := plan.Outcomes[0]
+	if !outcome.Broadcast || outcome.Status != StatusBroadcast || outcome.ReasonCode != "broadcast_only" {
+		t.Fatalf("broadcast outcome=%+v", outcome)
+	}
+}
+
 func TestTargetPermissionIsRequiredEvenForPrivilegedCaller(t *testing.T) {
 	const id = "550e8400-e29b-41d4-a716-446655440000"
 	plan, err := ComputeTriggers(nil, TriggerInput{WorkspaceID: "w", CommentID: "c", Content: `[@x](mention://agent/` + id + `)`, Targets: []Target{{Type: TargetAgent, ID: id, WorkspaceID: "w", Active: true, CanInvoke: false}}, UserCanInvoke: true, RuntimeHealthy: true})

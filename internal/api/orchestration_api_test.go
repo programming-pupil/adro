@@ -130,6 +130,83 @@ func TestMentionPreviewRoute(t *testing.T) {
 	}
 }
 
+func TestAllMentionPublishesBroadcastWithoutProviderFollowUp(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-comment-all", WorkspaceID: "w1", Title: "broadcast", Description: "broadcast comments", AcceptanceCriteria: []string{"does not fan out"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := `公告 [@all](mention://all/all)`
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"content": content}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var response struct {
+		Comment         domain.Comment            `json:"comment"`
+		TriggerOutcomes []mentions.TriggerOutcome `json:"trigger_outcomes"`
+		FollowUp        map[string]any            `json:"follow_up"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.TriggerOutcomes) != 1 || !response.TriggerOutcomes[0].Broadcast || response.TriggerOutcomes[0].Status != mentions.StatusBroadcast {
+		t.Fatalf("trigger outcomes=%+v body=%s", response.TriggerOutcomes, created.Body.String())
+	}
+	if len(s.Store.ListCommentFollowUps(response.Comment.ID)) != 0 {
+		t.Fatalf("@all created provider follow-ups: %+v", s.Store.ListCommentFollowUps(response.Comment.ID))
+	}
+	if got := s.Events.CountByType("comment.broadcast.v1"); got != 1 {
+		t.Fatalf("broadcast event count=%d", got)
+	}
+	if response.FollowUp["requested"] != false {
+		t.Fatalf("unexpected legacy follow-up=%+v", response.FollowUp)
+	}
+	retried := request(t, s.Routes(), http.MethodPost, "/api/v1/comments/"+response.Comment.ID+"/trigger-retry", `{}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer", "Idempotency-Key": "broadcast-retry"})
+	if retried.Code != http.StatusAccepted || len(s.Store.ListCommentFollowUps(response.Comment.ID)) != 0 {
+		t.Fatalf("broadcast retry status=%d follow-ups=%+v body=%s", retried.Code, s.Store.ListCommentFollowUps(response.Comment.ID), retried.Body.String())
+	}
+	if got := s.Events.CountByType("comment.broadcast.v1"); got != 1 {
+		t.Fatalf("broadcast retry duplicated event count=%d", got)
+	}
+}
+
+func TestAllAndExplicitAgentMentionOnlyDispatchesAgent(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-comment-all-agent", WorkspaceID: "w1", Title: "mixed mention", Description: "broadcast plus explicit target", AcceptanceCriteria: []string{"only explicit target runs"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := "550e8400-e29b-41d4-a716-446655440000"
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	content := `公告 [@all](mention://all/all) [@reviewer](mention://agent/` + agentID + `)`
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"content": content}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var response struct {
+		Comment         domain.Comment            `json:"comment"`
+		TriggerOutcomes []mentions.TriggerOutcome `json:"trigger_outcomes"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.TriggerOutcomes) != 2 {
+		t.Fatalf("trigger outcomes=%+v body=%s", response.TriggerOutcomes, created.Body.String())
+	}
+	if len(s.Store.ListCommentFollowUps(response.Comment.ID)) != 1 {
+		t.Fatalf("mixed mention follow-ups=%+v", s.Store.ListCommentFollowUps(response.Comment.ID))
+	}
+	followUps := s.Store.ListCommentFollowUps(response.Comment.ID)
+	if followUps[0].DispatchTargetID != agentID {
+		t.Fatalf("explicit target was not dispatched: %+v", followUps[0])
+	}
+	if got := s.Events.CountByType("comment.broadcast.v1"); got != 1 {
+		t.Fatalf("broadcast event count=%d", got)
+	}
+}
+
 func TestCommentTriggerRetryRecomputesRosterAndDispatches(t *testing.T) {
 	s := testServer(t)
 	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-trigger-retry", WorkspaceID: "w1", Title: "retry mention", Description: "retry after roster change", AcceptanceCriteria: []string{"dispatches"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
