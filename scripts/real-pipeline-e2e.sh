@@ -15,11 +15,14 @@ WORKSPACE="adro-real-e2e"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 REPORT_DIR="$ROOT_DIR/var/test-report/real-codex/$RUN_ID"
 mkdir -p "$REPORT_DIR"
+COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 pipeline_id=""
 requirement_id=""
 bug_id=""
 repair_json=""
 final_pipeline=""
+CODEX_VERSION=""
+GO_VERSION=""
 
 # Keep the model-backed test independent from the parent Codex runtime. The
 # parent exports CODEX_* session variables and skills for this coding run; if
@@ -59,11 +62,32 @@ cleanup() {
 	local exit_status=$?
 	if [ -n "$final_pipeline" ]; then printf '%s\n' "$final_pipeline" >"$REPORT_DIR/pipeline.json"; fi
 	[ -n "$repair_json" ] && printf '%s\n' "$repair_json" >"$REPORT_DIR/repair.json"
-	[ -n "$LOG" ] && [ -f "$LOG" ] && cp "$LOG" "$REPORT_DIR/start.log" 2>/dev/null || true
-	RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" ruby -rjson -rdigest -e '
+	if [ -n "$LOG" ] && [ -f "$LOG" ]; then
+		# Evidence may be uploaded to a shared CI store. Keep diagnostics useful
+		# without leaking the operator home, temporary run root, or token-shaped
+		# values emitted by an upstream client.
+		sed -E \
+			-e "s#${HOME:-}#<home>#g" \
+			-e "s#${RUN_ROOT}#<run-root>#g" \
+			-e 's/(sk-[A-Za-z0-9_-]{10,})/<redacted-secret>/g' \
+			"$LOG" >"$REPORT_DIR/start.log" 2>/dev/null || true
+	fi
+	RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" PIPELINE_ID="$pipeline_id" REQUIREMENT_ID="$requirement_id" BUG_ID="$bug_id" ruby -rjson -rdigest -e '
 		dir = ENV.fetch("REPORT_DIR")
 		files = Dir[File.join(dir, "*")].sort
-		report = {"status" => ENV.fetch("EXIT_STATUS").to_i == 0 ? "passed" : "failed", "exit_status" => ENV.fetch("EXIT_STATUS").to_i, "run_id" => ENV.fetch("RUN_ID"), "evidence_files" => files.map { |path| {"path" => File.basename(path), "sha256" => Digest::SHA256.file(path).hexdigest} }}
+		report = {
+			"status" => ENV.fetch("EXIT_STATUS").to_i == 0 ? "passed" : "failed",
+			"exit_status" => ENV.fetch("EXIT_STATUS").to_i,
+			"run_id" => ENV.fetch("RUN_ID"),
+			"commit_sha" => ENV.fetch("COMMIT_SHA"),
+			"command" => "ADRO_REQUIRE_CODEX=1 bash scripts/real-pipeline-e2e.sh",
+			"codex_version" => ENV.fetch("CODEX_VERSION"),
+			"go_version" => ENV.fetch("GO_VERSION"),
+			"pipeline_id" => ENV.fetch("PIPELINE_ID"),
+			"requirement_id" => ENV.fetch("REQUIREMENT_ID"),
+			"bug_id" => ENV.fetch("BUG_ID"),
+			"evidence_files" => files.map { |path| {"path" => File.basename(path), "sha256" => Digest::SHA256.file(path).hexdigest} }
+		}
 		["pipeline", "requirement", "repair"].each do |name|
 			path = File.join(dir, "#{name}.json")
 			if File.file?(path)
@@ -93,6 +117,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
 
 json_field() {
   local path="$1"
@@ -138,6 +163,8 @@ fi
 [ -n "$executor" ] || fail "install claude/codex/claude-code and authenticate it, or set ADRO_EXECUTOR"
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 "$executor" --version >/dev/null 2>&1 || fail "coding client is not executable: $executor"
+CODEX_VERSION="$("$executor" --version 2>&1 || true)"
+GO_VERSION="$(go version 2>/dev/null || true)"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
 	case "$(basename "$executor")" in
 		codex)

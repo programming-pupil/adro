@@ -10,11 +10,47 @@ RUN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adro-system-e2e.XXXXXX")"
 STATE_HOME="$RUN_ROOT/state"
 LOG="$RUN_ROOT/start.log"
 API="http://127.0.0.1:$API_PORT"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+REPORT_DIR="$ROOT_DIR/var/test-report/real-codex/$RUN_ID"
+COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+CODEX_VERSION=""
+GO_VERSION=""
+mkdir -p "$REPORT_DIR"
 
 log() { printf '[ADRO SYSTEM E2E] %s\n' "$*"; }
 fail() { printf '[ADRO SYSTEM E2E] ERROR: %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
+  local exit_status=$?
+  if [ -f "$LOG" ]; then
+    # Release evidence is retained by CI. Redact local paths and token-shaped
+    # values before the log is uploaded with the rest of the manifest.
+    sed -E \
+      -e "s#${HOME:-}#<home>#g" \
+      -e "s#${RUN_ROOT}#<run-root>#g" \
+      -e 's/(sk-[A-Za-z0-9_-]{10,})/<redacted-secret>/g' \
+      "$LOG" >"$REPORT_DIR/start.log" 2>/dev/null || true
+  fi
+  [ -n "$CODEX_VERSION" ] && printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
+  RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" CHAT_ID="${chat_id:-}" REQUIREMENT_A_ID="${req_a_id:-}" REQUIREMENT_B_ID="${req_b_id:-}" TEMPLATE_ID="${template_id:-}" ruby -rjson -rdigest -e '
+    dir = ENV.fetch("REPORT_DIR")
+    files = Dir[File.join(dir, "*")].sort
+    report = {
+      "status" => ENV.fetch("EXIT_STATUS").to_i == 0 ? "passed" : "failed",
+      "exit_status" => ENV.fetch("EXIT_STATUS").to_i,
+      "run_id" => ENV.fetch("RUN_ID"),
+      "commit_sha" => ENV.fetch("COMMIT_SHA"),
+      "command" => "ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh",
+      "codex_version" => ENV.fetch("CODEX_VERSION"),
+      "go_version" => ENV.fetch("GO_VERSION"),
+      "workspace_ids" => ["adro-system-e2e-a", "adro-system-e2e-b"],
+      "chat_id" => ENV.fetch("CHAT_ID"),
+      "requirement_ids" => [ENV.fetch("REQUIREMENT_A_ID"), ENV.fetch("REQUIREMENT_B_ID")].reject(&:empty?),
+      "template_id" => ENV.fetch("TEMPLATE_ID"),
+      "evidence_files" => files.map { |path| {"path" => File.basename(path), "sha256" => Digest::SHA256.file(path).hexdigest} }
+    }
+    File.write(File.join(dir, "manifest.json"), JSON.pretty_generate(report) + "\n")
+  ' || true
   ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_PORT" \
     "$ROOT_DIR/start.sh" --stop --no-open >/dev/null 2>&1 || true
   if [ "${ADRO_E2E_KEEP:-0}" = "1" ]; then
@@ -24,6 +60,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
 
 json_field() {
   local path="$1"
@@ -50,6 +87,9 @@ case "$(basename "$executor")" in
   *) fail "real system suite requires Codex, got $(basename "$executor"); refusing to substitute another client" ;;
 esac
 "$executor" --version >/dev/null 2>&1 || fail "Codex executable is not runnable: $executor"
+CODEX_VERSION="$("$executor" --version 2>&1 || true)"
+GO_VERSION="$(go version 2>/dev/null || true)"
+printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   codex_config_flag=""
   if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
