@@ -259,6 +259,39 @@ func TestCompilerKeepsToolTransactionTogether(t *testing.T) {
 	}
 }
 
+func FuzzCompilerPreservesMandatoryBoundaries(f *testing.F) {
+	f.Add("目标 ✅ 保留完整 JSON {\"attempt\":1}", `{"command":"go test ./..."}`, `{"exit_code":1,"stderr":"failed"}`)
+	f.Add("中文 e\u0301 newline\nacceptance", `{"path":"src/main.go","args":["--check"]}`, `{"exit_code":0}`)
+	f.Fuzz(func(t *testing.T, objective, toolCall, toolResult string) {
+		if strings.TrimSpace(objective) == "" || strings.TrimSpace(toolCall) == "" || strings.TrimSpace(toolResult) == "" {
+			t.Skip()
+		}
+		objectiveTokens := tokenEstimate(objective)
+		callTokens := tokenEstimate(toolCall)
+		resultTokens := tokenEstimate(toolResult)
+		if objectiveTokens < 1 || callTokens < 1 || resultTokens < 1 {
+			t.Skip()
+		}
+		objectiveBlock := Block{ID: "objective", Kind: "turn", Source: "user:latest", Content: objective, Policy: "mandatory", Trust: "source", SelectionReason: "latest_objective", TokenEstimate: objectiveTokens, Mandatory: true}
+		callBlock := Block{ID: "tool-call", Kind: "tool_call", Source: "tool:fuzz", Content: toolCall, Policy: "transaction", Trust: "provider", SelectionReason: "unfinished_tool", TokenEstimate: callTokens, Mandatory: true, Metadata: map[string]string{"tool_call_id": "fuzz", "tool_status": "before"}}
+		resultBlock := Block{ID: "tool-result", Kind: "tool_result", Source: "tool:fuzz", Content: toolResult, Policy: "transaction", Trust: "provider", SelectionReason: "unfinished_tool", TokenEstimate: resultTokens, Mandatory: true, Metadata: map[string]string{"tool_call_id": "fuzz", "tool_status": "after"}}
+
+		manifest, _, err := Compile("fuzz", 1, objectiveTokens+callTokens+resultTokens, []Block{objectiveBlock, callBlock, resultBlock})
+		if err != nil {
+			t.Fatalf("mandatory boundary overflowed an exact budget: %v", err)
+		}
+		objectiveSelected, ok := findBlock(manifest, objectiveBlock.ID)
+		if !ok || objectiveSelected.Content != objective {
+			t.Fatalf("mandatory objective was omitted or altered: selected=%#v original=%q", objectiveSelected, objective)
+		}
+		_, callSelected := findBlock(manifest, callBlock.ID)
+		_, resultSelected := findBlock(manifest, resultBlock.ID)
+		if callSelected != resultSelected {
+			t.Fatalf("tool transaction was split: call=%t result=%t blocks=%+v", callSelected, resultSelected, manifest.Blocks)
+		}
+	})
+}
+
 func TestManifestRejectsTokenAndMandatorySetDrift(t *testing.T) {
 	manifest, err := NewManifest("integrity", 1, 32, []Block{
 		{ID: "objective", Kind: "turn", Source: "user:latest", Content: "preserve the objective", Policy: "mandatory", Trust: "source", SelectionReason: "latest_objective", TokenEstimate: 6, Mandatory: true},

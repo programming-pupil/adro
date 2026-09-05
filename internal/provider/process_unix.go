@@ -24,3 +24,10 @@ func cancelLocalCommand(cmd *exec.Cmd) error {
 	}
 	return cmd.Process.Kill()
 }
+
+// terminateLocalCommand is used after a provider has emitted a committed
+// terminal result. It intentionally uses the same process-group kill as the
+// deadline path: a leaked MCP descendant must not keep the output pipe open.
+func terminateLocalCommand(cmd *exec.Cmd) error {
+	return cancelLocalCommand(cmd)
+}

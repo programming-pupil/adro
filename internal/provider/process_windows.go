@@ -12,3 +12,7 @@ func cancelLocalCommand(cmd *exec.Cmd) error {
 	}
 	return cmd.Process.Kill()
 }
+
+func terminateLocalCommand(cmd *exec.Cmd) error {
+	return cancelLocalCommand(cmd)
+}

@@ -751,6 +751,53 @@ func TestLocalProviderCodexExecClosesStdin(t *testing.T) {
 	}
 }
 
+func TestLocalProviderCodexTerminalResultStopsLeakedProcess(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	nativeSession := "66666666-6666-4666-8666-666666666666"
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"66666666-6666-4666-8666-666666666666"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"outcome\":\"pass\",\"reason_code\":\"done\",\"summary\":\"done\",\"evidence_ids\":[\"done\"],\"fields\":{}}"}}'
+printf '%s\n' '{"type":"turn.completed"}'
+sleep 30
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2s")
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-terminal", Title: "codex terminal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("terminal result waited for leaked child: %s", elapsed)
+	}
+	if snapshot.Status != "completed" || snapshot.Error != "" || snapshot.SessionID != nativeSession {
+		t.Fatalf("terminal result was not accepted: %+v", snapshot)
+	}
+}
+
+func TestCodexTerminalOutputRequiresResultAndTurnCompletion(t *testing.T) {
+	nativeSession := "77777777-7777-4777-8777-777777777777"
+	result := `{"type":"item.completed","item":{"type":"agent_message","text":"ADRO_RESULT_JSON={\"outcome\":\"pass\"}"}}`
+	if codexTerminalOutput([]byte(result + "\n")) {
+		t.Fatal("result marker without turn completion was accepted")
+	}
+	completed := result + `
+{"type":"turn.completed"}
+`
+	if !codexTerminalOutput([]byte(completed)) {
+		t.Fatalf("terminal result was not recognized: session=%s", nativeSession)
+	}
+}
+
 func TestProviderSessionIDExtractsCodexThread(t *testing.T) {
 	want := "22222222-2222-4222-8222-222222222222"
 	output := []byte("warning\n{\"type\":\"thread.started\",\"thread_id\":\"" + want + "\"}\n")

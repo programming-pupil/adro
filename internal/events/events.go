@@ -239,13 +239,14 @@ func (b *Bus) persistLocked() error {
 			if err := validatePersistedEvents(disk.events); err != nil {
 				return err
 			}
-			b.events = mergeEvents(disk.events, b.events)
-			// Events created by this process may have been assigned a tentative
-			// sequence before a peer committed. Rebase only those uncommitted
-			// records onto the peer tail; never rewrite an event already present on
-			// disk, because that would conceal persisted corruption.
-			if err := rebasePeerEvents(b.events, disk.events, localEvents); err != nil {
-				return err
+			// A local event may have been assigned a tentative sequence before a
+			// peer committed. Rebase only those uncommitted records onto the peer
+			// tail. Persisted events are an immutable prefix: their sequence,
+			// previous_hash, and envelope_hash must survive a peer merge exactly.
+			var mergeErr error
+			b.events, mergeErr = mergePeerEventsPreservingCommitted(disk.events, localEvents)
+			if mergeErr != nil {
+				return mergeErr
 			}
 			if b.acks == nil {
 				b.acks = make(map[string]string)
@@ -256,7 +257,6 @@ func (b *Bus) persistLocked() error {
 			rebuildSeen(b)
 			b.revision = disk.revision
 		}
-		rebuildEventChain(b.events)
 		if err := validatePersistedEvents(b.events); err != nil {
 			return err
 		}
@@ -312,41 +312,51 @@ func (b *Bus) persistLocked() error {
 	})
 }
 
-func rebasePeerEvents(merged, disk, local []Envelope) error {
-	if len(disk) == 0 || len(local) == 0 {
-		return nil
+// mergePeerEventsPreservingCommitted treats the peer snapshot as the committed
+// prefix and appends only events that are not already present there. The local
+// process may have calculated a provisional sequence/hash before discovering a
+// peer write; those new tail events are resealed after rebasing. Existing
+// committed events are never resealed, so their hashes remain suitable for
+// audit references and external evidence archives.
+func mergePeerEventsPreservingCommitted(committed, local []Envelope) ([]Envelope, error) {
+	merged := make([]Envelope, 0, len(committed)+len(local))
+	seen := make(map[string]struct{}, len(committed)+len(local))
+	for _, event := range committed {
+		if event.EventID == "" {
+			return nil, errors.New("committed event has empty event_id")
+		}
+		if _, exists := seen[event.EventID]; exists {
+			return nil, fmt.Errorf("duplicate committed event id %s", event.EventID)
+		}
+		seen[event.EventID] = struct{}{}
+		merged = append(merged, cloneEnvelope(event))
 	}
-	diskIDs := make(map[string]struct{}, len(disk))
-	for _, event := range disk {
-		diskIDs[event.EventID] = struct{}{}
+	sequence := maxSequence(committed)
+	previousHash := ""
+	if len(committed) > 0 {
+		previousHash = committed[len(committed)-1].EnvelopeHash
 	}
-	max := maxSequence(disk)
-	for i := range merged {
-		if _, onDisk := diskIDs[merged[i].EventID]; onDisk {
+	for _, event := range local {
+		if event.EventID == "" {
+			return nil, errors.New("local event has empty event_id")
+		}
+		if _, exists := seen[event.EventID]; exists {
 			continue
 		}
-		max++
-		merged[i].Sequence = max
-	}
-	return nil
-}
-
-// rebuildEventChain recalculates hashes in sequence order after peer histories
-// have been merged. Sequence rebasing changes an envelope's authenticated
-// fields, so retaining its old previous_hash would either break replay or leave
-// the merged tail outside the append-only chain.
-func rebuildEventChain(items []Envelope) {
-	for i := range items {
-		items[i].PayloadHash = payloadHash(items[i].Payload)
-		if i == 0 {
-			if items[i].Sequence <= 1 {
-				items[i].PreviousHash = ""
-			}
-		} else {
-			items[i].PreviousHash = items[i-1].EnvelopeHash
+		sequence++
+		event = cloneEnvelope(event)
+		event.Sequence = sequence
+		event.PreviousHash = previousHash
+		event.PayloadHash = payloadHash(event.Payload)
+		if event.PayloadHash == "" {
+			return nil, fmt.Errorf("local event %s payload is not JSON encodable", event.EventID)
 		}
-		items[i].EnvelopeHash = envelopeHash(items[i])
+		event.EnvelopeHash = envelopeHash(event)
+		merged = append(merged, event)
+		seen[event.EventID] = struct{}{}
+		previousHash = event.EnvelopeHash
 	}
+	return merged, nil
 }
 
 // Reload refreshes a persistent bus from a peer process. Subscribers are not
@@ -510,22 +520,6 @@ func maxSequence(items []Envelope) int64 {
 		}
 	}
 	return max
-}
-
-func mergeEvents(primary, secondary []Envelope) []Envelope {
-	result := make([]Envelope, 0, len(primary)+len(secondary))
-	seen := make(map[string]struct{}, len(primary)+len(secondary))
-	for _, event := range append(append([]Envelope(nil), primary...), secondary...) {
-		if event.EventID == "" {
-			continue
-		}
-		if _, ok := seen[event.EventID]; ok {
-			continue
-		}
-		seen[event.EventID] = struct{}{}
-		result = append(result, cloneEnvelope(event))
-	}
-	return result
 }
 
 func rebuildSeen(b *Bus) {

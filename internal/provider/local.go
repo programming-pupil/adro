@@ -41,6 +41,46 @@ type localRun struct {
 	fencingToken int64
 }
 
+// localOutput serializes stdout/stderr capture and recognizes the only safe
+// early-completion signal for a one-shot Codex process. Codex can emit a
+// complete turn while an auxiliary MCP worker is still draining; waiting for
+// that worker would turn a committed result into a false executor timeout.
+// The callback is invoked only after both a valid ADRO_RESULT_JSON payload and
+// a turn.completed event have been observed.
+type localOutput struct {
+	mu         sync.Mutex
+	data       bytes.Buffer
+	terminal   bool
+	onTerminal func()
+}
+
+func (o *localOutput) Write(data []byte) (int, error) {
+	o.mu.Lock()
+	_, writeErr := o.data.Write(data)
+	shouldStop := !o.terminal && codexTerminalOutput(o.data.Bytes())
+	if shouldStop {
+		o.terminal = true
+	}
+	stop := o.onTerminal
+	o.mu.Unlock()
+	if shouldStop && stop != nil {
+		stop()
+	}
+	return len(data), writeErr
+}
+
+func (o *localOutput) Bytes() []byte {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]byte(nil), o.data.Bytes()...)
+}
+
+func (o *localOutput) Terminal() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.terminal
+}
+
 type localWorkItem struct {
 	RepositoryPath string `json:"repository_path,omitempty"`
 	CloneURL       string `json:"clone_url,omitempty"`
@@ -490,9 +530,17 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		if stdinErr != nil {
 			runErr = stdinErr
 		} else {
-			var outputBuffer bytes.Buffer
-			cmd.Stdout = &outputBuffer
-			cmd.Stderr = &outputBuffer
+			outputCapture := &localOutput{}
+			if codexOneShot {
+				outputCapture.onTerminal = func() {
+					// The structured turn result is already committed to the pipe.
+					// Kill the whole process group so MCP descendants cannot keep
+					// stdout/stderr open and delay Wait indefinitely.
+					_ = terminateLocalCommand(cmd)
+				}
+			}
+			cmd.Stdout = outputCapture
+			cmd.Stderr = outputCapture
 			p.mu.Lock()
 			run := p.runs[runID]
 			var pending []Interaction
@@ -547,6 +595,13 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 					}
 				}
 				runErr = cmd.Wait()
+				output = outputCapture.Bytes()
+				if runErr != nil && outputCapture.Terminal() {
+					// A deliberately terminated process is successful only when the
+					// provider emitted both terminal evidence markers. Without those
+					// markers the normal process error/timeout path remains intact.
+					runErr = nil
+				}
 			}
 			if startErr != nil && run != nil {
 				close(run.started)
@@ -557,7 +612,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			if devNull != nil {
 				_ = devNull.Close()
 			}
-			output = outputBuffer.Bytes()
+			if output == nil {
+				output = outputCapture.Bytes()
+			}
 		}
 	} else {
 		runErr = pathErr
@@ -968,6 +1025,82 @@ func providerSessionID(output []byte, kind string) string {
 		}
 	}
 	return ""
+}
+
+// codexTerminalOutput returns true only after a JSONL stream contains both a
+// valid ADRO result marker and Codex's terminal turn event. A result marker
+// alone is insufficient: a provider may mention the marker in an intermediate
+// message, and stopping then could cut off a later tool call or patch.
+func codexTerminalOutput(output []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 2<<20)
+	completed, result := false, false
+	for scanner.Scan() {
+		var value any
+		if json.Unmarshal(scanner.Bytes(), &value) != nil {
+			continue
+		}
+		completed = completed || codexValueHasTurnCompleted(value)
+		result = result || codexValueHasResultMarker(value)
+		if completed && result {
+			return true
+		}
+	}
+	return false
+}
+
+func codexValueHasTurnCompleted(value any) bool {
+	switch item := value.(type) {
+	case map[string]any:
+		if typ, ok := item["type"].(string); ok && (typ == "turn.completed" || typ == "turn_completed") {
+			return true
+		}
+		for _, child := range item {
+			if codexValueHasTurnCompleted(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range item {
+			if codexValueHasTurnCompleted(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func codexValueHasResultMarker(value any) bool {
+	switch item := value.(type) {
+	case string:
+		const marker = "ADRO_RESULT_JSON="
+		index := strings.LastIndex(item, marker)
+		if index < 0 {
+			return false
+		}
+		var payload map[string]any
+		if json.Unmarshal([]byte(strings.TrimSpace(item[index+len(marker):])), &payload) != nil {
+			return false
+		}
+		for _, key := range []string{"outcome", "final_outcome", "adro_outcome"} {
+			if candidate, ok := payload[key].(string); ok && strings.TrimSpace(candidate) != "" {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, child := range item {
+			if codexValueHasResultMarker(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range item {
+			if codexValueHasResultMarker(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newLocalSessionID() string {

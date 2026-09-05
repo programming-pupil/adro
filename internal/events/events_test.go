@@ -276,6 +276,61 @@ func TestPersistentBusMergesPeerWritersAndReloads(t *testing.T) {
 	}
 }
 
+func TestPersistentBusPeerMergePreservesCommittedHashes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	first, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstEvent := New("immutable.first.v1", "run", "r1", "tenant", "workspace", 1, map[string]any{"source": "first"})
+	if err := first.Publish(context.Background(), firstEvent); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	committed, _ := first.List("r1", "", 10)
+	if len(committed) != 1 {
+		t.Fatalf("initial committed history=%+v", committed)
+	}
+	committedSequence := committed[0].Sequence
+	committedPreviousHash := committed[0].PreviousHash
+	committedEnvelopeHash := committed[0].EnvelopeHash
+
+	peerEvent := New("immutable.peer.v1", "run", "r2", "tenant", "workspace", 1, map[string]any{"source": "peer"})
+	middleEvent := New("immutable.middle.v1", "run", "r3", "tenant", "workspace", 1, map[string]any{"source": "middle"})
+	if err := first.Publish(context.Background(), middleEvent); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Publish(context.Background(), peerEvent); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := first.List("", "", 10)
+	if len(items) != 3 {
+		t.Fatalf("peer history=%+v", items)
+	}
+	if items[0].Sequence != committedSequence || items[0].PreviousHash != committedPreviousHash || items[0].EnvelopeHash != committedEnvelopeHash {
+		t.Fatalf("committed event was resealed during peer merge: before=(%d,%q,%q) after=(%d,%q,%q)", committedSequence, committedPreviousHash, committedEnvelopeHash, items[0].Sequence, items[0].PreviousHash, items[0].EnvelopeHash)
+	}
+	if items[1].EventID != middleEvent.EventID || items[2].EventID != peerEvent.EventID {
+		t.Fatalf("peer merge changed committed order: %+v", items)
+	}
+	if items[2].PreviousHash != items[1].EnvelopeHash {
+		t.Fatalf("new tail did not link to the committed prefix: %+v", items)
+	}
+	if _, err := NewPersistentBus(path); err != nil {
+		t.Fatalf("merged immutable history cannot be reopened: %v", err)
+	}
+}
+
 func TestPersistentBusFaultBeforeRenameDoesNotExposeEvent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.json")
 	b, err := NewPersistentBus(path)
