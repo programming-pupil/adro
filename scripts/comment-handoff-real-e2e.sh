@@ -49,7 +49,7 @@ cleanup() {
       report["comment_ids"] = evidence["comments"].map { |item| item.dig("comment", "id") }
       report["root_id"] = evidence.dig("comments", 0, "comment", "root_id")
       report["follow_up_statuses"] = evidence["comments"].map { |item| item.dig("follow_up", "follow_up", "status") || item.dig("follow_up", "status") }
-      report["session_ids"] = evidence["comments"].map { |item| item.dig("receipt", "harness_session_id") }.compact.uniq
+      report["session_ids"] = evidence["comments"].map { |item| item.dig("receipt", "harness_session_id") || item.dig("receipt", "session_id") }.compact.uniq
       report["run_ids"] = evidence["runs"].map { |run| run["id"] || run.dig("run", "id") }.compact
     end
     File.write(File.join(dir, "manifest.json"), JSON.pretty_generate(report) + "\n")
@@ -150,18 +150,28 @@ upsert_comment_evidence() {
   local response="$2"
   local follow_up="${3:-}"
   local receipt="${4:-}"
-  comments="$(INDEX="$index" RESPONSE="$response" FOLLOW_UP="$follow_up" RECEIPT="$receipt" ITEMS="$comments" ruby -rjson -e '
+  local retries="${5:-[]}"
+  comments="$(INDEX="$index" RESPONSE="$response" FOLLOW_UP="$follow_up" RECEIPT="$receipt" RETRIES="$retries" ITEMS="$comments" ruby -rjson -e '
     items = JSON.parse(ENV.fetch("ITEMS", "[]"))
     item = {"index" => ENV.fetch("INDEX"), "comment" => JSON.parse(ENV.fetch("RESPONSE")) ["comment"]}
     follow_up = ENV.fetch("FOLLOW_UP", "")
     item["follow_up"] = JSON.parse(follow_up) unless follow_up.empty?
     receipt = ENV.fetch("RECEIPT", "")
     item["receipt"] = JSON.parse(receipt) unless receipt.empty?
+    retries = JSON.parse(ENV.fetch("RETRIES", "[]"))
+    item["retry_responses"] = retries unless retries.empty?
     items.reject! { |candidate| candidate["index"] == item["index"] }
     items << item
     puts JSON.generate(items)
   ')"
   persist_evidence
+}
+capture_run_evidence() {
+  local index="$1"
+  local run_id="$2"
+  local attempt="$3"
+  curl -sS "$API/api/v1/runs/$run_id" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index-attempt-$attempt.json" || true
+  curl -sS "$API/api/v1/runs/$run_id/events?limit=250" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index-attempt-$attempt-events.json" || true
 }
 for index in 0 1 2; do
   role="${role:-}"
@@ -187,15 +197,27 @@ for index in 0 1 2; do
   esac
   previous_id="$comment_id"
   follow_up=''
+  retry_attempt=0
+  retry_responses='[]'
   upsert_comment_evidence "$index" "$response"
   deadline=$(( $(date +%s) + 1500 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     follow_up="$(api_json "$API/api/v1/comments/$comment_id/follow-up" -H 'X-Workspace-ID: local')"
-    upsert_comment_evidence "$index" "$response" "$follow_up"
+    upsert_comment_evidence "$index" "$response" "$follow_up" "" "$retry_responses"
     status="$(printf '%s' "$follow_up" | json_field follow_up.status 2>/dev/null || true)"
+    run_id="$(printf '%s' "$follow_up" | json_field follow_up.provider_run_id 2>/dev/null || true)"
     case "$status" in
       completed) break ;;
       blocked|failed|cancelled|timed_out)
+        if [ "$retry_attempt" -lt "${ADRO_COMMENT_HANDOFF_MAX_RETRIES:-1}" ] && [ -n "$run_id" ]; then
+          capture_run_evidence "$index" "$run_id" "$retry_attempt"
+          retry_attempt=$((retry_attempt + 1))
+          retry_response="$(api_json -X POST "$API/api/v1/comments/$comment_id/trigger-retry" "${headers[@]}" -H 'X-Member-ID: handoff-owner' -H "Idempotency-Key: comment-handoff-retry-$index-$retry_attempt" -d '{}')"
+          retry_responses="$(RESPONSE="$retry_response" ITEMS="$retry_responses" ruby -rjson -e 'items=JSON.parse(ENV.fetch("ITEMS", "[]")); items << JSON.parse(ENV.fetch("RESPONSE")); puts JSON.generate(items)')"
+          printf '%s' "$retry_response" >"$REPORT_DIR/trigger-retry-$index-$retry_attempt.json"
+          upsert_comment_evidence "$index" "$response" "$follow_up" "" "$retry_responses"
+          continue
+        fi
         printf '%s' "$follow_up" >"$REPORT_DIR/follow-up-$index.json"
         fail "$role follow-up ended $status"
         ;;
@@ -208,11 +230,16 @@ for index in 0 1 2; do
     fail "$role follow-up did not complete: $status"
   fi
   receipt="$(printf '%s' "$follow_up" | ruby -rjson -e 'v=JSON.parse(STDIN.read); puts JSON.generate(v.fetch("follow_up"))')"
-  upsert_comment_evidence "$index" "$response" "$follow_up" "$receipt"
+  upsert_comment_evidence "$index" "$response" "$follow_up" "$receipt" "$retry_responses"
   run_id="$(printf '%s' "$follow_up" | json_field follow_up.provider_run_id 2>/dev/null || true)"
   if [ -n "$run_id" ]; then
-    curl -sS "$API/api/v1/runs/$run_id" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index.json" || true
-    curl -sS "$API/api/v1/runs/$run_id/events?limit=250" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index-events.json" || true
+    capture_run_evidence "$index" "$run_id" final
+    run_file="$REPORT_DIR/run-$index-attempt-final.json"
+    run_status="$(json_field status <"$run_file" 2>/dev/null || true)"
+    [ "$run_status" = completed ] || fail "$role run evidence did not reach completed: $run_status"
+    [ -s "$REPORT_DIR/run-$index-attempt-final-events.json" ] || fail "$role run event evidence is empty"
+  else
+    fail "$role follow-up completed without provider run id"
   fi
 done
 
