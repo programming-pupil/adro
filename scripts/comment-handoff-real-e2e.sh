@@ -136,7 +136,7 @@ previous_id=""
 persist_evidence() {
   OUT="$comments_file" REPORT_DIR="$REPORT_DIR" REQUIREMENT_ID="$requirement_id" COMMENTS="$comments" ruby -rjson -e '
     dir = ENV.fetch("REPORT_DIR")
-    runs = Dir[File.join(dir, "run-*.json")].filter_map { |path| JSON.parse(File.read(path)) rescue nil }
+    runs = Dir[File.join(dir, "run-*.json")].map { |path| JSON.parse(File.read(path)) rescue nil }.compact
     evidence = {
       "requirement_id" => ENV.fetch("REQUIREMENT_ID"),
       "comments" => JSON.parse(ENV.fetch("COMMENTS", "[]")),
