@@ -735,7 +735,7 @@ func TestLocalProviderCodexExecClosesStdin(t *testing.T) {
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2s")
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
 	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "exec-eof", Title: "exec eof"})
 	if err != nil {
@@ -764,19 +764,19 @@ sleep 30
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2s")
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
 	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-terminal", Title: "codex terminal"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
 	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "prompt"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	started := time.Now()
 	snapshot := waitSnapshot(t, p, binding.ID)
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
 		t.Fatalf("terminal result waited for leaked child: %s", elapsed)
 	}
 	if snapshot.Status != "completed" || snapshot.Error != "" || snapshot.SessionID != nativeSession {

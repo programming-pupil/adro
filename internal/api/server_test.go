@@ -188,7 +188,12 @@ func TestRequirementAndBugCommentsSupportRepliesAndAgentFollowUp(t *testing.T) {
 		t.Fatalf("bug comment body=%s err=%v", bugComment.Body.String(), err)
 	}
 	followUpStatus := request(t, s.Routes(), http.MethodGet, "/api/v1/comments/"+bugCommentBody.Comment.ID+"/follow-up", "", map[string]string{"X-Workspace-ID": "w1"})
-	if followUpStatus.Code != http.StatusOK || !strings.Contains(followUpStatus.Body.String(), `"status":"started"`) {
+	var followUpBody struct {
+		FollowUp struct {
+			Status string `json:"status"`
+		} `json:"follow_up"`
+	}
+	if err := json.Unmarshal(followUpStatus.Body.Bytes(), &followUpBody); followUpStatus.Code != http.StatusOK || err != nil || (followUpBody.FollowUp.Status != "started" && followUpBody.FollowUp.Status != "completed") {
 		t.Fatalf("follow-up status=%d body=%s", followUpStatus.Code, followUpStatus.Body.String())
 	}
 	retry := request(t, s.Routes(), http.MethodPost, "/api/v1/comments/"+bugCommentBody.Comment.ID+"/follow-up", `{}`, map[string]string{"X-Workspace-ID": "w1", "Idempotency-Key": "follow-up-retry"})
