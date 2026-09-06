@@ -3999,10 +3999,28 @@ func (s *Server) runBelongsToWorkspace(run provider.RunSnapshot, workspaceID str
 		return false
 	}
 	item, err := s.Store.GetWorkItem(run.WorkItemID)
-	if err != nil {
+	if err == nil {
+		return s.workItemBelongsToWorkspace(item, workspaceID)
+	}
+	// Comment follow-ups can start before a durable WorkItem exists. The local
+	// provider still carries the synthetic comment work-item id, while ADRO's
+	// provenance record retains the requirement/bug ownership boundary. Resolve
+	// that lineage instead of making an otherwise authorized run look missing.
+	provenance, found := s.Store.FindProvenance(run.WorkItemID)
+	if !found {
 		return false
 	}
-	return s.workItemBelongsToWorkspace(item, workspaceID)
+	if provenance.RequirementID != "" {
+		if requirement, requirementErr := s.Store.GetRequirement(provenance.RequirementID); requirementErr == nil {
+			return strings.TrimSpace(requirement.WorkspaceID) == workspaceID
+		}
+	}
+	if provenance.BugID != "" {
+		if bug, bugErr := s.Store.GetBug(provenance.BugID); bugErr == nil {
+			return strings.TrimSpace(bug.WorkspaceID) == workspaceID
+		}
+	}
+	return false
 }
 
 func (s *Server) workItemBelongsToWorkspace(item domain.WorkItem, workspaceID string) bool {

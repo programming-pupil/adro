@@ -133,6 +133,36 @@ done
 comments_file="$REPORT_DIR/comment-handoff-evidence.json"
 comments='[]'
 previous_id=""
+persist_evidence() {
+  OUT="$comments_file" REPORT_DIR="$REPORT_DIR" REQUIREMENT_ID="$requirement_id" COMMENTS="$comments" ruby -rjson -e '
+    dir = ENV.fetch("REPORT_DIR")
+    runs = Dir[File.join(dir, "run-*.json")].filter_map { |path| JSON.parse(File.read(path)) rescue nil }
+    evidence = {
+      "requirement_id" => ENV.fetch("REQUIREMENT_ID"),
+      "comments" => JSON.parse(ENV.fetch("COMMENTS", "[]")),
+      "runs" => runs
+    }
+    File.write(ENV.fetch("OUT"), JSON.pretty_generate(evidence) + "\n")
+  '
+}
+upsert_comment_evidence() {
+  local index="$1"
+  local response="$2"
+  local follow_up="${3:-}"
+  local receipt="${4:-}"
+  comments="$(INDEX="$index" RESPONSE="$response" FOLLOW_UP="$follow_up" RECEIPT="$receipt" ITEMS="$comments" ruby -rjson -e '
+    items = JSON.parse(ENV.fetch("ITEMS", "[]"))
+    item = {"index" => ENV.fetch("INDEX"), "comment" => JSON.parse(ENV.fetch("RESPONSE")) ["comment"]}
+    follow_up = ENV.fetch("FOLLOW_UP", "")
+    item["follow_up"] = JSON.parse(follow_up) unless follow_up.empty?
+    receipt = ENV.fetch("RECEIPT", "")
+    item["receipt"] = JSON.parse(receipt) unless receipt.empty?
+    items.reject! { |candidate| candidate["index"] == item["index"] }
+    items << item
+    puts JSON.generate(items)
+  ')"
+  persist_evidence
+}
 for index in 0 1 2; do
   role="${role:-}"
   case "$index" in
@@ -157,26 +187,34 @@ for index in 0 1 2; do
   esac
   previous_id="$comment_id"
   follow_up=''
+  upsert_comment_evidence "$index" "$response"
   deadline=$(( $(date +%s) + 1500 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     follow_up="$(api_json "$API/api/v1/comments/$comment_id/follow-up" -H 'X-Workspace-ID: local')"
+    upsert_comment_evidence "$index" "$response" "$follow_up"
     status="$(printf '%s' "$follow_up" | json_field follow_up.status 2>/dev/null || true)"
     case "$status" in
       completed) break ;;
-      blocked|failed|cancelled|timed_out) printf '%s' "$follow_up" >"$REPORT_DIR/follow-up-$index.json"; fail "$role follow-up ended $status" ;;
+      blocked|failed|cancelled|timed_out)
+        printf '%s' "$follow_up" >"$REPORT_DIR/follow-up-$index.json"
+        fail "$role follow-up ended $status"
+        ;;
     esac
     sleep 1
   done
   status="$(printf '%s' "$follow_up" | json_field follow_up.status 2>/dev/null || true)"
-  [ "$status" = completed ] || { printf '%s' "$follow_up" >"$REPORT_DIR/follow-up-$index.json"; fail "$role follow-up did not complete: $status"; }
+  if [ "$status" != completed ]; then
+    printf '%s' "$follow_up" >"$REPORT_DIR/follow-up-$index.json"
+    fail "$role follow-up did not complete: $status"
+  fi
   receipt="$(printf '%s' "$follow_up" | ruby -rjson -e 'v=JSON.parse(STDIN.read); puts JSON.generate(v.fetch("follow_up"))')"
-  comments="$(RESPONSE="$response" FOLLOW_UP="$follow_up" RECEIPT="$receipt" ITEMS="$comments" ruby -rjson -e 'items=JSON.parse(ENV.fetch("ITEMS", "[]")); items << {"comment" => JSON.parse(ENV.fetch("RESPONSE"))["comment"], "follow_up" => JSON.parse(ENV.fetch("FOLLOW_UP")), "receipt" => JSON.parse(ENV.fetch("RECEIPT"))}; puts JSON.generate(items)')"
+  upsert_comment_evidence "$index" "$response" "$follow_up" "$receipt"
   run_id="$(printf '%s' "$follow_up" | json_field follow_up.provider_run_id 2>/dev/null || true)"
   if [ -n "$run_id" ]; then
-    api_json "$API/api/v1/runs/$run_id" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index.json" || true
-    api_json "$API/api/v1/runs/$run_id/events?limit=250" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index-events.json" || true
+    curl -sS "$API/api/v1/runs/$run_id" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index.json" || true
+    curl -sS "$API/api/v1/runs/$run_id/events?limit=250" -H 'X-Workspace-ID: local' >"$REPORT_DIR/run-$index-events.json" || true
   fi
 done
 
-  OUT="$comments_file" REPORT_DIR="$REPORT_DIR" REQUIREMENT_ID="$requirement_id" COMMENTS="$comments" ruby -rjson -e 'dir=ENV.fetch("REPORT_DIR"); e={requirement_id: ENV.fetch("REQUIREMENT_ID"), comments: JSON.parse(ENV.fetch("COMMENTS")), runs: Dir[File.join(dir, "run-*.json")].filter_map { |path| JSON.parse(File.read(path)) rescue nil }}; File.write(ENV.fetch("OUT"), JSON.pretty_generate(e) + "\n")'
+persist_evidence
 log "PASS: three real Codex comment handoffs preserved one root, parent chain, receipts, session and workdir lineage"

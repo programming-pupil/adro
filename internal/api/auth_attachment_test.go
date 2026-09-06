@@ -389,6 +389,36 @@ func TestInteractiveWorkspaceIsolationForRunsEvidenceAndAudit(t *testing.T) {
 	}
 }
 
+func TestInteractiveWorkspaceIsolationForSyntheticCommentRuns(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{
+		WorkspaceID: "w1", Title: "Synthetic comment run", Description: "comment follow-up ownership",
+		AcceptanceCriteria: []string{"run remains visible to its workspace"}, AssigneeMemberIDs: []string{"member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const syntheticWorkItemID = "comment-follow-up"
+	binding, err := s.Provider.StartRun(context.Background(), provider.StartRunCommand{WorkItemID: syntheticWorkItemID, Input: "follow up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.SaveProvenance(domain.Provenance{
+		WorkItemID: syntheticWorkItemID, RequirementID: requirement.ID, ProviderTaskID: binding.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	local := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+binding.ID, "", map[string]string{"X-Workspace-ID": "w1"})
+	if local.Code != http.StatusOK {
+		t.Fatalf("synthetic comment run status=%d body=%s", local.Code, local.Body.String())
+	}
+	foreign := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+binding.ID, "", map[string]string{"X-Workspace-ID": "w2"})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("synthetic comment run escaped workspace boundary: status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+}
+
 func TestRequirementAndBugAttachmentsAreEntityLinked(t *testing.T) {
 	s := testServer(t)
 	requirementResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", `{"workspace_id":"local","title":"Attachment requirement","description":"verify entity files","acceptance_criteria":["file is listed"],"assignee_member_ids":["member-1"],"repository_ids":["repo-1"]}`, nil)
