@@ -22,6 +22,8 @@ contracts:
 	bash -n scripts/release-system-e2e.sh
 	bash -n scripts/real-pipeline-e2e.sh
 	bash -n scripts/real-graph-orchestration-e2e.sh
+	bash -n scripts/browser-graph-real-e2e.sh
+	bash -n scripts/comment-handoff-real-e2e.sh
 	bash -n scripts/lib/real-codex.sh
 	bash -n scripts/test-real-codex-config.sh
 	./scripts/test-real-codex-config.sh
@@ -31,7 +33,9 @@ contracts:
 	node --check e2e/workbench.spec.js
 	node --check e2e/visuals.spec.js
 	node --check e2e/platform-matrix.spec.js
+	node --check e2e/graph-browser.spec.js
 	node --check playwright.matrix.config.js
+	node --check playwright.real-graph.config.js
 	node --check scripts/release-assets.mjs
 	node --check scripts/fault-matrix.mjs
 	bash -n scripts/test-release-signing.sh
