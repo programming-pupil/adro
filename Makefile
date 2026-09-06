@@ -18,6 +18,7 @@ coverage-ledger:
 contracts:
 	bash -n start.sh
 	bash -n scripts/lib/env-file.sh
+	bash -n scripts/lib/go-toolchain.sh
 	bash -n scripts/test-start-permissions.sh
 	bash -n scripts/release-system-e2e.sh
 	bash -n scripts/real-pipeline-e2e.sh

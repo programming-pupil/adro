@@ -4,6 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/real-codex.sh
 source "$ROOT_DIR/scripts/lib/real-codex.sh"
+# shellcheck source=scripts/lib/go-toolchain.sh
+source "$ROOT_DIR/scripts/lib/go-toolchain.sh"
 API_PORT="${ADRO_API_PORT:-18082}"
 WEB_PORT="${ADRO_WEB_PORT:-18083}"
 TIMEOUT_SECONDS="${ADRO_REAL_E2E_TIMEOUT:-1800}"
@@ -127,7 +129,7 @@ fi
 # executor allows environment propagation; the fixture also embeds the
 # resolved path because Codex command sandboxes may strip custom variables.
 export ADRO_GO_BIN="$GO_BIN"
-GO_ROOT="$($GO_BIN env GOROOT 2>/dev/null || true)"
+GO_ROOT="$(resolve_go_root "$GO_BIN" || true)"
 GO_VERSION="$($GO_BIN version 2>/dev/null || true)"
 [ -n "$GO_ROOT" ] || fail "could not resolve Go GOROOT for real pipeline evidence"
 export GOROOT="$GO_ROOT"

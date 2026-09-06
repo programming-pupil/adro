@@ -4,6 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/real-codex.sh
 source "$ROOT_DIR/scripts/lib/real-codex.sh"
+# shellcheck source=scripts/lib/go-toolchain.sh
+source "$ROOT_DIR/scripts/lib/go-toolchain.sh"
 API_PORT="${ADRO_GRAPH_API_PORT:-18084}"
 WEB_PORT="${ADRO_GRAPH_WEB_PORT:-18085}"
 TIMEOUT_SECONDS="${ADRO_GRAPH_E2E_TIMEOUT:-1800}"
@@ -127,7 +129,7 @@ if [ -z "$go_bin" ] || [ ! -x "$go_bin" ]; then
   fi
 fi
 [ -n "$go_bin" ] || fail "Go is required for real graph evidence"
-GO_ROOT="$($go_bin env GOROOT 2>/dev/null || true)"
+GO_ROOT="$(resolve_go_root "$go_bin" || true)"
 GO_VERSION="$($go_bin version 2>/dev/null || true)"
 [ -n "$GO_ROOT" ] || fail "could not resolve Go GOROOT for real graph evidence"
 # Provider commands run through login shells, which may reorder PATH. Export
