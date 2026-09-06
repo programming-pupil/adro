@@ -136,6 +136,7 @@ export GOROOT="$GO_ROOT"
 # pairing explicit at the final executor boundary as well.
 codex_wrapper="$RUN_ROOT/codex"
 go_root_quoted="$(printf '%q' "$GO_ROOT")"
+go_bin_quoted="$(printf '%q' "$go_bin")"
 executor_quoted="$(printf '%q' "$real_executor")"
 {
   printf '%s\n' '#!/bin/sh'
@@ -162,7 +163,7 @@ if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   # relay accidentally. The flag only skips config.toml; auth.json remains
   # isolated and is still required for the real provider call.
   codex_config_flag=""
-  if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
+  if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-1}" = "1" ]; then
     codex_config_flag="--ignore-user-config"
   fi
   export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
@@ -232,7 +233,7 @@ create_agent() {
   curl -fsS -X POST "$API/api/v1/workspaces/$WORKSPACE/agents" "${headers[@]}" -d "$body"
 }
 create_agent architect 'Graph Architect' architect 'In the checkout, inspect the small Go calculator and write a plan in your response only. Do not modify files and do not call tools after inspection. Finish with exactly one ADRO_RESULT_JSON marker: outcome pass, reason_code architect_plan, summary architect plan recorded, evidence_ids [architect-plan-1], fields {}.' >"$REPORT_DIR/agent-architect.json"
-go_test_command="env GOROOT=$(printf '%q' "$GO_ROOT") go test ./..."
+go_test_command="env GOROOT=$go_root_quoted $go_bin_quoted test ./..."
 create_agent developer 'Graph Developer' developer "Read the ADRO_GRAPH_NODE_JSON line in your prompt to determine attempt_no. Work in the checkout. On attempt_no 1, implement the requested Add function but intentionally leave one reproducible defect by changing Add to return a-b; do not hide the defect and finish with outcome pass only after the source is changed. On attempt_no 2 or later, inspect the current source, fix Add to return a+b, run $go_test_command, and finish with outcome pass only when it exits zero. Always include a concise summary and evidence_ids. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-developer.json"
 create_agent unit 'Graph Unit Gate' unit "Run $go_test_command in the checkout and report the real exit status. If the test command fails, finish with exactly one ADRO_RESULT_JSON marker using outcome failure, reason_code unit_failure_injected, summary containing the observed failure, evidence_ids [unit-failure-1], and fields including the command and exit status. If it passes, finish with outcome pass, reason_code unit_reverified, evidence_ids [unit-pass-2], and fields including the command and exit status. Do not edit source files." >"$REPORT_DIR/agent-unit.json"
 create_agent qa 'Graph QA Gate' qa "Read the ADRO_GRAPH_NODE_JSON line in your prompt. On attempt_no 1, run $go_test_command and then inject a real QA regression by changing Add to return a-b in the checkout; finish with outcome bug, reason_code qa_bug_injected, evidence_ids [qa-bug-1], and fields recording both commands. On later attempts, run $go_test_command without changing source and finish with outcome pass, reason_code qa_reverified, evidence_ids [qa-pass-2], and fields including the command and exit status. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-qa.json"
@@ -312,11 +313,14 @@ ruby -rjson -e '
     next if a["node_id"] == "repair"
     abort("missing attempt provenance") if [a["run_id"], a["session_id"], a["workdir"]].any? { |v| v.to_s.empty? }
   end
-  decisions = projection.fetch("decisions", [])
+  decisions = projection.fetch("decisions", []) || []
+  traversals = projection.fetch("traversals", {}) || {}
   terminal = projection["terminal_outcome"]
   if terminal == "succeeded"
     {"architect" => 1, "developer" => 3, "unit" => 2, "qa" => 2, "repair" => 2}.each { |node, n| abort("#{node} attempts=#{counts[node]} expected_at_least=#{n}") unless counts[node] >= n }
-    abort("feedback edge missing") unless decisions.any? { |d| d["edge_id"] == "unit-failure-feedback" } && decisions.any? { |d| d["edge_id"] == "qa-bug-feedback" } && decisions.any? { |d| d["edge_id"] == "repair-developer" }
+    abort("unit failure feedback edge missing") unless traversals.fetch("unit-failure-feedback", 0) >= 1
+    abort("QA bug feedback edge missing") unless traversals.fetch("qa-bug-feedback", 0) >= 1
+    abort("repair developer edge missing") unless decisions.any? { |d| d["edge_id"] == "repair-developer" }
     repairs = projection.fetch("repair_plans", {}).values
     abort("repair plan missing") unless repairs.length == 1
     repair = repairs.fetch(0)
@@ -324,7 +328,6 @@ ruby -rjson -e '
     expected_states = %w[planned dispatched patched verifying verified]
     abort("repair lifecycle history incomplete: #{repair["state_history"].inspect}") unless expected_states.all? { |state| repair.fetch("state_history", []).include?(state) }
   end
-  traversals = projection.fetch("traversals", {})
   abort("loop bound exceeded") if traversals.fetch("unit-failure-feedback", 0) > 2 || traversals.fetch("qa-bug-feedback", 0) > 2 || traversals.fetch("repair-developer", 0) > 2
   File.write(ARGV.fetch(1), JSON.pretty_generate(counts: counts, terminal_outcome: terminal, attempt_count: attempts.length, decision_count: decisions.length, traversals: traversals) + "\n")
 ' "$REPORT_DIR/projection.json" "$REPORT_DIR/lineage-validation.json" || validation_status=$?
