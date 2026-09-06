@@ -738,16 +738,49 @@ func repairPlanForDispatch(projection PlanProjection, graph WorkflowGraph, nodeI
 	sort.Strings(ids)
 	for _, id := range ids {
 		repair := projection.RepairPlans[id]
-		if repair.TargetNodeID == nodeID && repair.State == RepairPlanned && repair.TargetAttemptID == "" && repairReadyFrom(projection, graph, nodeID, repair.RepairNodeID, repair.ID, false) {
+		targetRetry := repair.TargetNodeID == nodeID && repair.State == RepairDispatched && retryableRepairProviderAttempt(projection, repair.TargetAttemptID)
+		if repair.TargetNodeID == nodeID && ((repair.State == RepairPlanned && repair.TargetAttemptID == "") || targetRetry) && (targetRetry || repairReadyFrom(projection, graph, nodeID, repair.RepairNodeID, repair.ID, false)) {
 			return id, RepairDispatched
 		}
+		verificationAttemptID := ""
+		if repair.VerificationAttempts != nil {
+			verificationAttemptID = repair.VerificationAttempts[nodeID]
+		}
+		verificationRetry := contains(repair.VerificationNodeIDs, nodeID) && (repair.State == RepairPatched || repair.State == RepairVerifying) && repair.TargetAttemptID != "" && retryableRepairProviderAttempt(projection, verificationAttemptID)
 		if contains(repair.VerificationNodeIDs, nodeID) && (repair.State == RepairPatched || repair.State == RepairVerifying) && repair.TargetAttemptID != "" && repairReadyFrom(projection, graph, nodeID, repair.TargetNodeID, repair.ID, true) {
-			if repair.VerificationAttempts == nil || repair.VerificationAttempts[nodeID] == "" {
+			if verificationAttemptID == "" || verificationRetry {
 				return id, RepairVerifying
 			}
 		}
+		if verificationRetry {
+			return id, RepairVerifying
+		}
 	}
 	return "", ""
+}
+
+// A transient provider failure should consume the node retry budget, not a
+// repair round. The latter represents a new semantic patch/verification
+// cycle; advancing it for an unavailable upstream provider can strand the
+// repair plan in a live-but-unverifiable state.
+func isRetryableRepairProviderFailure(attempt NodeAttempt) bool {
+	if (attempt.Status != AttemptFailed && attempt.Status != AttemptTimedOut) || attempt.FailureReason == nil || !attempt.FailureReason.Retryable {
+		return false
+	}
+	switch attempt.FailureReason.Code {
+	case "provider_failed", "provider_timeout", "upstream_error", "timeout", "lease_expired":
+		return true
+	default:
+		return false
+	}
+}
+
+func retryableRepairProviderAttempt(projection PlanProjection, attemptID string) bool {
+	if attemptID == "" {
+		return false
+	}
+	attempt, ok := projection.Attempts[attemptID]
+	return ok && isRetryableRepairProviderFailure(attempt)
 }
 
 // repairReadyFrom proves that the node was opened by the repair contract's
@@ -829,6 +862,12 @@ func advanceRepairAttemptState(projection *PlanProjection, attempt NodeAttempt) 
 	repair, ok := projection.RepairPlans[attempt.RepairPlanID]
 	if !ok {
 		return attempt.RepairState, fmt.Errorf("%w: repair plan %s is missing", ErrInvalidTransition, attempt.RepairPlanID)
+	}
+	if isRetryableRepairProviderFailure(attempt) {
+		// Keep the active repair lifecycle in place. The ordinary node retry path
+		// will reopen this exact target or verification attempt with new lineage.
+		projection.RepairPlans[repair.ID] = repair
+		return attempt.RepairState, nil
 	}
 	switch attempt.RepairState {
 	case RepairDispatched:
