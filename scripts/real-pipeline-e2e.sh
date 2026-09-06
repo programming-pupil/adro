@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/real-codex.sh
+source "$ROOT_DIR/scripts/lib/real-codex.sh"
 API_PORT="${ADRO_API_PORT:-18082}"
 WEB_PORT="${ADRO_WEB_PORT:-18083}"
 TIMEOUT_SECONDS="${ADRO_REAL_E2E_TIMEOUT:-1800}"
@@ -23,6 +25,7 @@ repair_json=""
 final_pipeline=""
 CODEX_VERSION=""
 GO_VERSION=""
+GO_ROOT=""
 
 # Keep the model-backed test independent from the parent Codex runtime. The
 # parent exports CODEX_* session variables and skills for this coding run; if
@@ -31,29 +34,9 @@ GO_VERSION=""
 # operator's real auth and provider configuration in an isolated home so a
 # configured OpenAI-compatible relay (for example a custom model_provider)
 # remains active without sharing the parent session database.
-SOURCE_CODEX_HOME="${CODEX_HOME:-}"
-CODEX_AUTH_FILE=""
-if [ -f "$SOURCE_CODEX_HOME/auth.json" ]; then
-  CODEX_AUTH_FILE="$SOURCE_CODEX_HOME/auth.json"
-elif [ -f "${HOME:-}/.codex/auth.json" ]; then
-  CODEX_AUTH_FILE="${HOME}/.codex/auth.json"
-fi
 CODEX_RUN_HOME="$RUN_ROOT/codex-home"
-mkdir -p "$CODEX_RUN_HOME"
-if [ -n "$CODEX_AUTH_FILE" ]; then
-  ln -s "$CODEX_AUTH_FILE" "$CODEX_RUN_HOME/auth.json"
-fi
-CODEX_CONFIG_FILE=""
-if [ -f "$SOURCE_CODEX_HOME/config.toml" ]; then
-  CODEX_CONFIG_FILE="$SOURCE_CODEX_HOME/config.toml"
-elif [ -f "${HOME:-}/.codex/config.toml" ]; then
-  CODEX_CONFIG_FILE="${HOME}/.codex/config.toml"
-fi
-if [ -n "$CODEX_CONFIG_FILE" ]; then
-  install -m 600 "$CODEX_CONFIG_FILE" "$CODEX_RUN_HOME/config.toml"
-fi
-export CODEX_HOME="$CODEX_RUN_HOME"
-unset CODEX_SESSION_ID CODEX_THREAD_ID CODEX_CI
+prepare_real_codex_home "$CODEX_RUN_HOME"
+trust_real_codex_project "$CODEX_RUN_HOME" "$STATE_HOME"
 
 log() { printf '[ADRO REAL E2E] %s\n' "$*"; }
 fail() { printf '[ADRO REAL E2E] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -134,12 +117,32 @@ json_field() {
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v ruby >/dev/null 2>&1 || fail "ruby is required"
-command -v go >/dev/null 2>&1 || [ -x "${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}" ] || fail "go is required"
+GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
+if [ ! -x "$GO_BIN" ]; then
+  GO_BIN="$(command -v go 2>/dev/null || true)"
+fi
+[ -n "$GO_BIN" ] && [ -x "$GO_BIN" ] || fail "go is required"
 # Keep the API build and the fixture's verification command on one Go
 # toolchain. The child Codex process inherits this explicit setting when the
-# executor allows environment propagation; the fixture still falls back to
-# PATH for portable CI images.
-export ADRO_GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
+# executor allows environment propagation; the fixture also embeds the
+# resolved path because Codex command sandboxes may strip custom variables.
+export ADRO_GO_BIN="$GO_BIN"
+GO_ROOT="$($GO_BIN env GOROOT 2>/dev/null || true)"
+GO_VERSION="$($GO_BIN version 2>/dev/null || true)"
+[ -n "$GO_ROOT" ] || fail "could not resolve Go GOROOT for real pipeline evidence"
+export GOROOT="$GO_ROOT"
+# Codex command execution may remove ADRO_* variables and a login shell may
+# reorder PATH. Keep a tracked fixture-local wrapper so every real stage can
+# invoke the same Go toolchain with an explicit, auditable command.
+TOOLCHAIN_DIR="$RUN_ROOT/toolchain"
+mkdir -p "$TOOLCHAIN_DIR"
+cat >"$TOOLCHAIN_DIR/go" <<EOF
+#!/usr/bin/env sh
+set -eu
+exec env GOROOT=$(printf '%q' "$GO_ROOT") $(printf '%q' "$GO_BIN") "\$@"
+EOF
+chmod 700 "$TOOLCHAIN_DIR/go"
+export PATH="$TOOLCHAIN_DIR:$GO_ROOT/bin:$PATH"
 
 executor="${ADRO_EXECUTOR:-}"
 if [ -z "$executor" ] && [ -n "${ADRO_EXECUTOR_COMMAND:-}" ]; then
@@ -164,15 +167,10 @@ fi
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 "$executor" --version >/dev/null 2>&1 || fail "coding client is not executable: $executor"
 CODEX_VERSION="$("$executor" --version 2>&1 || true)"
-GO_VERSION="$(go version 2>/dev/null || true)"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
 	case "$(basename "$executor")" in
 		codex)
-			codex_config_flag=""
-			if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
-				codex_config_flag="--ignore-user-config"
-			fi
-			export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+			configure_real_codex_command "$executor"
 			;;
 		*)
 			export ADRO_EXECUTOR_COMMAND="$executor --dangerously-skip-permissions --output-format json --permission-mode acceptEdits {input}"
@@ -181,6 +179,8 @@ if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
 fi
 
 mkdir -p "$FIXTURE"
+mkdir -p "$FIXTURE/.adro-tools"
+cp "$TOOLCHAIN_DIR/go" "$FIXTURE/.adro-tools/go"
 cat > "$FIXTURE/go.mod" <<'EOF'
 module example.com/adro-real-e2e
 
@@ -204,22 +204,23 @@ func TestAdd(t *testing.T) {
 	}
 }
 EOF
-cat > "$FIXTURE/integration-check.sh" <<'EOF'
+cat > "$FIXTURE/integration-check.sh" <<EOF
 #!/usr/bin/env sh
 set -eu
 # Codex command sandboxes may strip orchestration-only environment variables;
-# retain an explicit override while keeping the fixture deterministic there.
-counter_path="${ADRO_E2E_INTEGRATION_COUNTER:-.adro-e2e-integration-counter}"
-if [ ! -f "$counter_path" ]; then
-  : > "$counter_path"
+# retain an explicit path in the fixture while keeping an environment override
+# available for portable CI images.
+counter_path="\${ADRO_E2E_INTEGRATION_COUNTER:-.adro-e2e-integration-counter}"
+if [ ! -f "\$counter_path" ]; then
+  : > "\$counter_path"
   printf '%s\n' 'intentional first integration failure' >&2
   exit 1
 fi
-go_bin="${ADRO_GO_BIN:-}"
-if [ -x "$go_bin" ] || [ -f "$go_bin" ]; then
-  "$go_bin" test ./...
+go_bin="\${ADRO_GO_BIN:-./.adro-tools/go}"
+if [ -x "\$go_bin" ] || [ -f "\$go_bin" ]; then
+  "\$go_bin" test ./...
 else
-  go test ./...
+  "$TOOLCHAIN_DIR/go" test ./...
 fi
 EOF
 chmod +x "$FIXTURE/integration-check.sh"
@@ -236,6 +237,16 @@ export ADRO_WEB_PORT="$WEB_PORT"
 export ADRO_EXECUTOR="$executor"
 export ADRO_AUTH_MODE=optional
 export ADRO_E2E_INTEGRATION_COUNTER="$INTEGRATION_COUNTER"
+# Bound a single real provider attempt so an upstream relay stall produces a
+# durable failed snapshot before the suite-level timeout expires. Keep the
+# default generous enough for a real coding turn while preserving evidence.
+if [ -z "${ADRO_EXECUTOR_TIMEOUT:-}" ]; then
+  executor_timeout=$((TIMEOUT_SECONDS / 3))
+  [ "$executor_timeout" -lt 120 ] && executor_timeout=120
+  [ "$executor_timeout" -gt 900 ] && executor_timeout=900
+  export ADRO_EXECUTOR_TIMEOUT="${executor_timeout}s"
+fi
+export ADRO_PIPELINE_WATCH_TIMEOUT="${ADRO_PIPELINE_WATCH_TIMEOUT:-$((TIMEOUT_SECONDS + 120))s}"
 "$ROOT_DIR/start.sh" --no-open >"$LOG" 2>&1 || {
   cat "$LOG" >&2
   fail "local ADRO did not start"
@@ -248,11 +259,13 @@ repo_body="$(WORKSPACE="$WORKSPACE" FIXTURE="$FIXTURE" ruby -rjson -e 'puts JSON
 repo_json="$(curl -fsS -X POST "$API/api/v1/repositories" "${headers[@]}" -d "$repo_body")"
 repo_id="$(printf '%s' "$repo_json" | json_field id)"
 
-requirement_body="$(WORKSPACE="$WORKSPACE" REPO_ID="$repo_id" ruby -rjson -e '
+GO_COMMAND="./.adro-tools/go"
+requirement_body="$(WORKSPACE="$WORKSPACE" REPO_ID="$repo_id" GO_COMMAND="$GO_COMMAND" ruby -rjson -e '
+  go_command = ENV.fetch("GO_COMMAND")
   puts JSON.generate(
     workspace_id: ENV.fetch("WORKSPACE"),
     title: "Implement Multiply with an audited repair loop",
-    description: "Implement Multiply(a,b) in calculator.go and add unit coverage. Run go test ./... in stage 3. In stage 4 run ./integration-check.sh; it intentionally fails exactly once using ADRO_E2E_INTEGRATION_COUNTER. Treat that failure as a real bug, preserve the original development session and worktree, repair the code incrementally, then rerun unit and integration checks.",
+    description: "Implement Multiply(a,b) in calculator.go and add unit coverage. The checkout contains #{go_command}, a pinned Go wrapper. Never invoke bare go; use #{go_command} for every Go command. Run #{go_command} test ./... in stage 3. In stage 4 run ./integration-check.sh; it intentionally fails exactly once using ADRO_E2E_INTEGRATION_COUNTER. Treat that failure as a real bug, preserve the original development session and worktree, repair the code incrementally, then rerun unit and integration checks.",
     acceptance_criteria: ["Multiply is implemented and tested", "the intentional integration failure is recorded", "the same provider session and workdir are used for repair", "the final report contains test evidence"],
     assignee_member_ids: ["real-e2e-product"],
     repository_ids: [ENV.fetch("REPO_ID")],

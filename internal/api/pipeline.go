@@ -652,19 +652,20 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 			}
 			result, ok := pipelineResultFromSnapshot(current, snapshot)
 			if !ok {
-				// A completed client that did not emit the marker can still be
-				// completed by an explicit plugin callback. Do not invent evidence.
+				// A provider terminal state without a recognized result must never
+				// leave the pipeline waiting forever. The explicit result endpoint
+				// remains available for adapters that do not expose snapshots, but a
+				// local snapshot is already the durable execution boundary.
+				s.suspendPipelineWatch(pipelineID, taskID, fmt.Sprintf("local provider returned terminal status %q without a valid pipeline result", snapshot.Status))
 				return
 			}
 			advanced, _, advanceErr := s.advancePipeline(current, result)
 			if advanceErr != nil {
-				// Invalid process evidence must be visible and terminal rather
-				// than leaving an operator staring at an eternal waiting state.
-				current.Status = domain.PipelineSuspended
-				current.SuspendReason = advanceErr.Error()
-				current.UpdatedAt = time.Now().UTC()
-				current.Version++
-				_, _ = s.Store.UpdatePipeline(current, current.Version-1)
+				// Invalid process evidence must be visible rather than leaving an
+				// operator staring at an eternal waiting state. Re-read under the
+				// same lock used by advancePipeline so a late callback cannot be
+				// overwritten by this failure projection.
+				s.suspendPipelineWatch(pipelineID, taskID, advanceErr.Error())
 				return
 			}
 			if advanced.Status != domain.PipelineWaiting || advanced.ActiveProviderTaskID == "" {
@@ -673,6 +674,31 @@ func (s *Server) watchLocalPipelineRun(run domain.PipelineRun) {
 			taskID = advanced.ActiveProviderTaskID
 		}
 	}(run.ID, run.ActiveProviderTaskID)
+}
+
+func (s *Server) suspendPipelineWatch(pipelineID, taskID, reason string) {
+	s.pipelineAdvanceMu.Lock()
+	defer s.pipelineAdvanceMu.Unlock()
+	current, err := s.Store.GetPipeline(pipelineID)
+	if err != nil || current.Status != domain.PipelineWaiting || current.ActiveProviderTaskID != taskID {
+		return
+	}
+	current.Status = domain.PipelineSuspended
+	current.SuspendReason = strings.TrimSpace(reason)
+	if current.SuspendReason == "" {
+		current.SuspendReason = "local provider watcher rejected the terminal snapshot"
+	}
+	current.UpdatedAt = time.Now().UTC()
+	current.Version++
+	updated, updateErr := s.Store.UpdatePipeline(current, current.Version-1)
+	if updateErr != nil {
+		return
+	}
+	if s.Events != nil {
+		_ = s.Events.Publish(context.Background(), events.New("pipeline.suspended.v1", "pipeline", updated.ID, updated.WorkspaceID, "", updated.Version, map[string]any{
+			"pipeline_id": updated.ID, "provider_task_id": taskID, "reason": updated.SuspendReason,
+		}))
+	}
 }
 
 // refreshLocalProviderProvenance records provider-native continuity discovered
@@ -749,25 +775,7 @@ func (s *Server) handlePipelineWatchDeadline(pipelineID, taskID string, timeout 
 
 	// Re-read immediately before writing so an explicit callback that won the
 	// race cannot be overwritten by the watchdog.
-	s.pipelineAdvanceMu.Lock()
-	defer s.pipelineAdvanceMu.Unlock()
-	latest, latestErr := s.Store.GetPipeline(pipelineID)
-	if latestErr != nil || latest.Status != domain.PipelineWaiting || latest.ActiveProviderTaskID != taskID {
-		return
-	}
-	latest.Status = domain.PipelineSuspended
-	latest.SuspendReason = reason
-	latest.UpdatedAt = time.Now().UTC()
-	latest.Version++
-	updated, updateErr := s.Store.UpdatePipeline(latest, latest.Version-1)
-	if updateErr != nil {
-		return
-	}
-	if s.Events != nil {
-		_ = s.Events.Publish(context.Background(), events.New("pipeline.suspended.v1", "pipeline", updated.ID, updated.WorkspaceID, "", updated.Version, map[string]any{
-			"pipeline_id": updated.ID, "provider_task_id": taskID, "reason": reason,
-		}))
-	}
+	s.suspendPipelineWatch(pipelineID, taskID, reason)
 }
 
 func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSnapshot) (domain.PipelineStepResult, bool) {

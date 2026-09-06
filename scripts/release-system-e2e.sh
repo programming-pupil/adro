@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/real-codex.sh
+source "$ROOT_DIR/scripts/lib/real-codex.sh"
 API_PORT="${ADRO_SYSTEM_E2E_API_PORT:-18180}"
 WEB_PORT="${ADRO_SYSTEM_E2E_WEB_PORT:-18181}"
 WORKSPACE_A="adro-system-e2e-a"
@@ -90,12 +92,10 @@ esac
 CODEX_VERSION="$("$executor" --version 2>&1 || true)"
 GO_VERSION="$(go version 2>/dev/null || true)"
 printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
+prepare_real_codex_home "$RUN_ROOT/codex-home"
+trust_real_codex_project "$RUN_ROOT/codex-home" "$STATE_HOME"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
-  codex_config_flag=""
-  if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
-    codex_config_flag="--ignore-user-config"
-  fi
-  export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+  configure_real_codex_command "$executor"
 fi
 
 mkdir -p "$STATE_HOME"

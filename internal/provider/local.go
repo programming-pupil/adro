@@ -35,6 +35,7 @@ type localRun struct {
 	cancel       context.CancelFunc
 	input        string
 	stdin        io.WriteCloser
+	oneShot      bool
 	pending      []Interaction
 	inputMu      sync.Mutex
 	started      chan struct{}
@@ -400,6 +401,7 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// executor deadline, whichever comes first.
 	runCtx, cancel := localExecutionContext(ctx)
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, TraceParent: traceParent, TraceState: traceState, StartedAt: &now}
+	oneShot := p.executorKind() == "codex" && codexExecMode(p.commandArgs(input, sessionID, reused))
 	fencingToken := int64(0)
 	var runtimeScope runtimekernel.Scope
 	if p.runtime != nil {
@@ -412,7 +414,7 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 		fencingToken = lease.FencingToken
 	}
 	p.mu.Lock()
-	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, started: make(chan struct{}), fencingToken: fencingToken}
+	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, oneShot: oneShot, started: make(chan struct{}), fencingToken: fencingToken}
 	p.runs[id] = run
 	appendRuntimeEventLocked(run, "run.started", map[string]any{"work_item_id": workItemID, "session_id": sessionID, "work_dir": workDir, "input_sha256": sha256Hex(input)})
 	runKey := strings.TrimSpace(idempotencyKey)
@@ -505,28 +507,15 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		cmd.WaitDelay = 250 * time.Millisecond
 		cmd.Dir = workDir
 		cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
-		// Codex `exec` consumes its prompt from argv and is explicitly one-shot.
-		// Do not create a live pipe for it: even a prompt-less child can inherit a
-		// descriptor whose close races process startup and wait forever for EOF.
-		// Leaving Stdin nil makes os/exec attach /dev/null, giving one-shot
-		// providers deterministic EOF without relying on a copy goroutine to
-		// close an intermediate pipe. Interactive providers retain a pipe for
-		// AppendInput.
+		// Codex `exec` reads its prompt from stdin when no prompt argv is given.
+		// This is required by some OpenAI-compatible relays and keeps prompts out
+		// of process arguments. The pipe is closed immediately after the initial
+		// prompt is written because exec is one-shot; interactive providers retain
+		// stdin for AppendInput.
 		codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
 		var stdin io.WriteCloser
 		var stdinErr error
-		var devNull *os.File
-		if codexOneShot {
-			// os/exec documents nil stdin as /dev/null, but on some PTY-backed
-			// test runners the inherited descriptor can remain open. Bind an
-			// explicit descriptor so one-shot commands always observe EOF.
-			devNull, stdinErr = os.Open(os.DevNull)
-			if stdinErr == nil {
-				cmd.Stdin = devNull
-			}
-		} else {
-			stdin, stdinErr = cmd.StdinPipe()
-		}
+		stdin, stdinErr = cmd.StdinPipe()
 		if stdinErr != nil {
 			runErr = stdinErr
 		} else {
@@ -557,34 +546,40 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 				if run != nil {
 					close(run.started)
 					run.inputMu.Lock()
-					for _, interaction := range pending {
-						var writeErr error
-						if stdin == nil {
-							writeErr = errors.New("executor is not interactive")
-						} else {
-							_, writeErr = io.WriteString(stdin, interaction.Input+"\n")
+					if codexOneShot {
+						_, writeErr := io.WriteString(stdin, input)
+						if writeErr != nil {
+							runErr = fmt.Errorf("write codex prompt: %w", writeErr)
 						}
-						p.mu.Lock()
-						if current := p.runs[runID]; current != nil {
-							status, eventType := "sent", "interaction.sent"
-							if writeErr != nil {
-								status, eventType = "failed", "interaction.failed"
+					} else {
+						for _, interaction := range pending {
+							var writeErr error
+							if stdin == nil {
+								writeErr = errors.New("executor is not interactive")
+							} else {
+								_, writeErr = io.WriteString(stdin, interaction.Input+"\n")
 							}
-							previous := current.snapshot
-							if updateInteractionLocked(current, interaction.ID, status) {
-								appendRuntimeEventLocked(current, eventType, map[string]any{"interaction_id": interaction.ID})
-								if err := p.persistLocked(); err != nil {
-									current.snapshot = previous
+							p.mu.Lock()
+							if current := p.runs[runID]; current != nil {
+								status, eventType := "sent", "interaction.sent"
+								if writeErr != nil {
+									status, eventType = "failed", "interaction.failed"
+								}
+								previous := current.snapshot
+								if updateInteractionLocked(current, interaction.ID, status) {
+									appendRuntimeEventLocked(current, eventType, map[string]any{"interaction_id": interaction.ID})
+									if err := p.persistLocked(); err != nil {
+										current.snapshot = previous
+									}
 								}
 							}
+							p.mu.Unlock()
 						}
-						p.mu.Unlock()
 					}
 					run.inputMu.Unlock()
-					// `codex exec` is a one-shot command. Keeping its stdin pipe
-					// open makes the CLI wait forever for additional input after the
-					// prompt argument has been consumed. Interactive providers can
-					// retain stdin for AppendInput; exec mode must receive EOF.
+					// `codex exec` is a one-shot command. Closing stdin after the
+					// initial prompt is part of its protocol and gives the relay a
+					// complete request boundary.
 					if codexOneShot && stdin != nil {
 						_ = stdin.Close()
 						p.mu.Lock()
@@ -608,9 +603,6 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			}
 			if stdin != nil {
 				_ = stdin.Close()
-			}
-			if devNull != nil {
-				_ = devNull.Close()
 			}
 			if output == nil {
 				output = outputCapture.Bytes()
@@ -866,9 +858,9 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 		return args
 	case "codex":
 		if resumed && uuidPattern.MatchString(sessionID) {
-			return []string{"exec", "resume", "--json", sessionID, input}
+			return []string{"exec", "resume", "--json", sessionID}
 		}
-		return []string{"exec", "--json", input}
+		return []string{"exec", "--json"}
 	default:
 		return []string{input}
 	}
@@ -905,7 +897,7 @@ func (p *LocalProvider) executorKind() string {
 	return name
 }
 
-func (p *LocalProvider) withCodexSessionArgs(args []string, input, sessionID string, resumed bool) []string {
+func (p *LocalProvider) withCodexSessionArgs(args []string, _ string, sessionID string, resumed bool) []string {
 	expanded := make([]string, 0, len(args)+3)
 	promptIndex := -1
 	for _, arg := range args {
@@ -915,12 +907,15 @@ func (p *LocalProvider) withCodexSessionArgs(args []string, input, sessionID str
 		}
 		if strings.Contains(arg, "{input}") {
 			promptIndex = len(expanded)
+			if arg == "{input}" {
+				continue
+			}
+			arg = strings.ReplaceAll(arg, "{input}", "")
 		}
-		expanded = append(expanded, strings.ReplaceAll(arg, "{input}", input))
+		expanded = append(expanded, arg)
 	}
 	if promptIndex < 0 {
-		expanded = append(expanded, input)
-		promptIndex = len(expanded) - 1
+		promptIndex = len(expanded)
 	}
 	if !resumed || !uuidPattern.MatchString(sessionID) {
 		expanded, _ = ensureCodexJSON(expanded, promptIndex, -1, -1)
@@ -1172,6 +1167,10 @@ func (p *LocalProvider) appendInput(ctx context.Context, runID, input, key strin
 	if run.snapshot.Status != "running" {
 		p.mu.Unlock()
 		return errors.New("run is not running")
+	}
+	if run.oneShot {
+		p.mu.Unlock()
+		return errors.New("executor is not interactive")
 	}
 	key = strings.TrimSpace(key)
 	var interaction Interaction

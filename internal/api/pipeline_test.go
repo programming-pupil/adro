@@ -32,6 +32,11 @@ type snapshotMockProvider struct {
 	*provider.MockProvider
 }
 
+type terminalSnapshotProvider struct {
+	*provider.MockProvider
+	status string
+}
+
 func (p snapshotMockProvider) Capabilities(ctx context.Context) (provider.Capabilities, error) {
 	caps, err := p.MockProvider.Capabilities(ctx)
 	if err != nil {
@@ -48,6 +53,30 @@ func (p snapshotMockProvider) StartRun(ctx context.Context, cmd provider.StartRu
 	}
 	binding.WorkDir = "mock-workdir"
 	return binding, nil
+}
+
+func (p terminalSnapshotProvider) Capabilities(context.Context) (provider.Capabilities, error) {
+	return provider.Capabilities{Provider: "local", Features: []string{"run.snapshot.v1"}}, nil
+}
+
+func (p terminalSnapshotProvider) StartRun(ctx context.Context, cmd provider.StartRunCommand) (provider.RunBinding, error) {
+	binding, err := p.MockProvider.StartRun(ctx, cmd)
+	if err != nil {
+		return provider.RunBinding{}, err
+	}
+	binding.WorkDir = "terminal-workdir"
+	return binding, nil
+}
+
+func (p terminalSnapshotProvider) GetRun(ctx context.Context, runID string) (provider.RunSnapshot, error) {
+	snapshot, err := p.MockProvider.GetRun(ctx, runID)
+	if err != nil {
+		return provider.RunSnapshot{}, err
+	}
+	snapshot.Status = p.status
+	now := time.Now().UTC()
+	snapshot.FinishedAt = &now
+	return snapshot, nil
 }
 
 func (p startFailProvider) StartRun(context.Context, provider.StartRunCommand) (provider.RunBinding, error) {
@@ -582,6 +611,57 @@ func TestPipelineWatchDeadlineCancelsProviderAndSuspends(t *testing.T) {
 	snapshot, err := local.GetRun(context.Background(), initial.ActiveProviderTaskID)
 	if err != nil || snapshot.Status != "cancelled" {
 		t.Fatalf("provider was not cancelled: snapshot=%+v err=%v", snapshot, err)
+	}
+}
+
+func TestPipelineWatcherSuspendsUnknownTerminalSnapshot(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	control := store.NewMemory()
+	requirement, err := control.CreateRequirement(domain.Requirement{
+		WorkspaceID: "workspace", Title: "unknown terminal snapshot", Description: "fail closed on provider state drift",
+		AcceptanceCriteria: []string{"unknown terminal states cannot wait forever"}, AssigneeMemberIDs: []string{"member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := terminalSnapshotProvider{MockProvider: provider.NewMockProvider(bus), status: "provider_error"}
+	server := New(control, local, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	create := pipelineRequest(t, server, http.MethodPost, "/api/v1/pipelines", map[string]any{
+		"requirement_id": requirement.ID,
+		"roles": map[string]any{
+			"designer_agent_id":   "11111111-1111-1111-1111-111111111111",
+			"developer_agent_id":  "22222222-2222-2222-2222-222222222222",
+			"tester_agent_id":     "33333333-3333-3333-3333-333333333333",
+			"arbitrator_agent_id": "44444444-4444-4444-4444-444444444444",
+		},
+		"max_retries": 2, "coverage_threshold": 80,
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", create.Code, create.Body.String())
+	}
+	var initial domain.PipelineRun
+	if err := json.Unmarshal(create.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var final domain.PipelineRun
+	for time.Now().Before(deadline) {
+		final, err = control.GetPipeline(initial.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if final.Status == domain.PipelineSuspended {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if final.Status != domain.PipelineSuspended || !strings.Contains(final.SuspendReason, "provider_error") {
+		t.Fatalf("unknown terminal snapshot was not surfaced: status=%s reason=%q", final.Status, final.SuspendReason)
 	}
 }
 

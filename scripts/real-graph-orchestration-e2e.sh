@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/real-codex.sh
+source "$ROOT_DIR/scripts/lib/real-codex.sh"
 API_PORT="${ADRO_GRAPH_API_PORT:-18084}"
 WEB_PORT="${ADRO_GRAPH_WEB_PORT:-18085}"
 TIMEOUT_SECONDS="${ADRO_GRAPH_E2E_TIMEOUT:-1800}"
@@ -147,26 +149,16 @@ chmod 700 "$codex_wrapper"
 executor="$codex_wrapper"
 printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
 
-SOURCE_CODEX_HOME="${CODEX_HOME:-}"
 CODEX_RUN_HOME="$RUN_ROOT/codex-home"
-mkdir -p "$CODEX_RUN_HOME"
-if [ -f "$SOURCE_CODEX_HOME/auth.json" ]; then ln -s "$SOURCE_CODEX_HOME/auth.json" "$CODEX_RUN_HOME/auth.json"; fi
-if [ -f "$SOURCE_CODEX_HOME/config.toml" ]; then install -m 600 "$SOURCE_CODEX_HOME/config.toml" "$CODEX_RUN_HOME/config.toml"; fi
-if [ ! -f "$CODEX_RUN_HOME/auth.json" ] && [ -f "${HOME:-}/.codex/auth.json" ]; then ln -s "${HOME}/.codex/auth.json" "$CODEX_RUN_HOME/auth.json"; fi
-if [ ! -f "$CODEX_RUN_HOME/config.toml" ] && [ -f "${HOME:-}/.codex/config.toml" ]; then install -m 600 "${HOME}/.codex/config.toml" "$CODEX_RUN_HOME/config.toml"; fi
-export CODEX_HOME="$CODEX_RUN_HOME"
-unset CODEX_SESSION_ID CODEX_THREAD_ID CODEX_CI
+prepare_real_codex_home "$CODEX_RUN_HOME"
+trust_real_codex_project "$CODEX_RUN_HOME" "$STATE_HOME"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   # The parent coding runtime may intentionally use an OpenAI-compatible relay
   # in its config.toml. Real release evidence must be able to select the
   # operator's authenticated default Codex endpoint without inheriting that
   # relay accidentally. The flag only skips config.toml; auth.json remains
   # isolated and is still required for the real provider call.
-  codex_config_flag=""
-  if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-1}" = "1" ]; then
-    codex_config_flag="--ignore-user-config"
-  fi
-  export ADRO_EXECUTOR_COMMAND="$executor exec $codex_config_flag --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+  configure_real_codex_command "$executor"
 fi
 export ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_PORT" ADRO_EXECUTOR="$executor" ADRO_AUTH_MODE=optional
 # Keep the child-process deadline inside the suite deadline. A real Codex

@@ -22,6 +22,9 @@ contracts:
 	bash -n scripts/release-system-e2e.sh
 	bash -n scripts/real-pipeline-e2e.sh
 	bash -n scripts/real-graph-orchestration-e2e.sh
+	bash -n scripts/lib/real-codex.sh
+	bash -n scripts/test-real-codex-config.sh
+	./scripts/test-real-codex-config.sh
 	./scripts/test-start-permissions.sh
 	node --check apps/web/enhancements.js
 	node --check e2e/static-server.js

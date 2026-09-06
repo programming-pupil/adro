@@ -2,7 +2,7 @@
 
 版本：`v0.4.0`（加入广播语义和机器生成 coverage ledger；以测试执行时检出的提交为准）
 编写日期：2026-09-05
-源码复核基线：以 `ruby scripts/coverage-ledger.rb --check` 输出的 `source_sha` 为准；本次审计起点为 `b3e0c119db39aa1d32dce0a574ef49b6c4f3ab52`；文档提交目标：`main`
+源码复核基线：以每次执行 `ruby scripts/coverage-ledger.rb --check` 输出并写入报告的 `source_sha` 为准；文档不固化历史 SHA，避免测试计划与源码提交再次漂移。文档提交目标：`main`
 适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
 
 ## 1. 目的与执行边界
@@ -57,7 +57,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 2. 使用独立临时 `ADRO_STATE_FILE`、`ADRO_ARTIFACT_ROOT`、`ADRO_RUNTIME_JOURNAL`，目录权限为仅执行用户可读写；验证重启后文件仍可读取。
 3. 通过 `./start.sh` 或 `go run ./cmd/adro-api` 启动单进程服务；记录 `/healthz`、`/readyz` 返回和监听地址。
 4. 浏览器执行前运行 `npm ci`、`npx playwright install --with-deps chromium firefox webkit`，静态服务器和 API base URL 写入报告。
-5. 最新 main 通过 `ADRO_REQUIRE_CODEX=1`、`ADRO_EXECUTOR=codex` 和 `ADRO_EXECUTOR_COMMAND` 选择真实本地 Codex；`scripts/release-system-e2e.sh`/`scripts/real-pipeline-e2e.sh` 会检查 `codex --version`、PID、工作目录、权限、marker 和真实输出。缺少二进制、凭据或 self-hosted runner 时必须 `BLOCKED/FAIL`，任何阶段都禁止以 mock、stub 或“伪造事件”代替。
+5. 最新 main 通过 `ADRO_REQUIRE_CODEX=1`、`ADRO_EXECUTOR=codex` 和 `ADRO_EXECUTOR_COMMAND` 选择真实本地 Codex。三套真实套件支持 `ADRO_CODEX_HOME` 显式选择本机 Codex home，支持 `ADRO_CODEX_BASE_URL` 覆盖 OpenAI-compatible relay（必须填写 Codex 配置所需的准确 base URL；当前 CC Switch 配置为 `https://code.apipod.ai`，不能盲目追加 `/v1`），并在临时隔离 home 中只读复用 auth/config，再为本次临时 checkout 写入精确的 trusted project 条目；会检查 `codex --version`、PID、工作目录、权限、marker 和真实输出。缺少二进制、凭据或 self-hosted runner 时必须 `BLOCKED/FAIL`，任何阶段都禁止以 mock、stub 或“伪造事件”代替。
 
 ### 3.2 固定测试数据
 

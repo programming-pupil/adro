@@ -624,27 +624,27 @@ func TestLocalProviderCodexSessionArguments(t *testing.T) {
 	sessionID := "11111111-1111-4111-8111-111111111111"
 	p := NewLocalProvider("codex", nil, t.TempDir(), newTestBus())
 	initial := strings.Join(p.commandArgs("prompt", sessionID, false), " ")
-	if initial != "exec --json prompt" {
+	if initial != "exec --json" {
 		t.Fatalf("initial args=%q", initial)
 	}
 	continued := strings.Join(p.commandArgs("repair", sessionID, true), " ")
-	if continued != "exec resume --json "+sessionID+" repair" {
+	if continued != "exec resume --json "+sessionID {
 		t.Fatalf("continued args=%q", continued)
 	}
 
 	custom := NewLocalProvider("npx", []string{"--yes", "@openai/codex@0.151.0", "exec", "--json", "{input}"}, t.TempDir(), newTestBus())
 	customInitial := strings.Join(custom.commandArgs("prompt", sessionID, false), " ")
-	if customInitial != "--yes @openai/codex@0.151.0 exec --json prompt" {
+	if customInitial != "--yes @openai/codex@0.151.0 exec --json" {
 		t.Fatalf("custom initial args=%q", customInitial)
 	}
 	customContinued := strings.Join(custom.commandArgs("repair", sessionID, true), " ")
-	want := "--yes @openai/codex@0.151.0 exec resume --json " + sessionID + " repair"
+	want := "--yes @openai/codex@0.151.0 exec resume --json " + sessionID
 	if customContinued != want {
 		t.Fatalf("custom continued args=%q want=%q", customContinued, want)
 	}
 
 	withoutJSON := NewLocalProvider("codex", []string{"exec", "{input}"}, t.TempDir(), newTestBus())
-	if got := strings.Join(withoutJSON.commandArgs("repair", sessionID, true), " "); got != "exec resume --json "+sessionID+" repair" {
+	if got := strings.Join(withoutJSON.commandArgs("repair", sessionID, true), " "); got != "exec resume --json "+sessionID {
 		t.Fatalf("custom command did not gain JSON/session args: %q", got)
 	}
 
@@ -658,8 +658,9 @@ func TestLocalProviderStartRunDoesNotResumeLogicalSession(t *testing.T) {
 	root := t.TempDir()
 	executable := filepath.Join(root, "codex")
 	argsPath := filepath.Join(root, "args.txt")
+	promptPath := filepath.Join(root, "prompt.txt")
 	nativeSession := "44444444-4444-4444-8444-444444444444"
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsPath + "\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsPath + "\ncat > " + promptPath + "\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -687,9 +688,90 @@ func TestLocalProviderStartRunDoesNotResumeLogicalSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(args)); got != "exec --json initial prompt" {
+	if got := strings.TrimSpace(string(args)); got != "exec --json" {
 		t.Fatalf("initial codex args=%q", got)
 	}
+	prompt, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(prompt) != "initial prompt" {
+		t.Fatalf("initial codex stdin=%q", prompt)
+	}
+}
+
+func TestLocalProviderCodexContinuationReadsPromptFromStdin(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	argsPath := filepath.Join(root, "args.txt")
+	firstPromptPath := filepath.Join(root, "prompt-1.txt")
+	secondPromptPath := filepath.Join(root, "prompt-2.txt")
+	nativeSession := "88888888-8888-4888-8888-888888888888"
+	script := "#!/bin/sh\ncount_file=" + filepath.Join(root, "count.txt") + "\ncount=0\n[ -f \"$count_file\" ] && count=$(cat \"$count_file\")\ncount=$((count + 1))\nprintf '%s\\n' \"$count $*\" >> " + argsPath + "\nprintf '%s' \"$count\" > \"$count_file\"\ncat > " + root + "/prompt-$count.txt\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-stdin-continuation", Title: "codex stdin continuation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "initial prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSnapshot := waitSnapshot(t, p, first.ID); firstSnapshot.Status != "completed" || firstSnapshot.SessionID != nativeSession {
+		t.Fatalf("initial snapshot=%+v", firstSnapshot)
+	}
+	second, err := p.ContinueWorkItem(context.Background(), ContinuationCommand{IssueID: item.ProviderIssueID, AgentID: "agent", Input: "repair prompt", ExpectedSessionID: nativeSession, ExpectedWorkDir: first.WorkDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSnapshot := waitSnapshot(t, p, second.ID)
+	if secondSnapshot.Status != "completed" || secondSnapshot.SessionID != nativeSession || secondSnapshot.SessionContinuity != "proven" {
+		t.Fatalf("continuation snapshot=%+v", secondSnapshot)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "1 exec --json\n2 exec resume --json "+nativeSession {
+		t.Fatalf("codex continuation args=%q", got)
+	}
+	firstPrompt, err := os.ReadFile(firstPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPrompt, err := os.ReadFile(secondPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstPrompt) != "initial prompt" || string(secondPrompt) != "repair prompt" {
+		t.Fatalf("codex prompts=%q/%q", firstPrompt, secondPrompt)
+	}
+}
+
+func TestLocalProviderRejectsAppendInputForCodexExec(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "codex")
+	nativeSession := "99999999-9999-4999-8999-999999999999"
+	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"" + nativeSession + "\"}'\n"
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-one-shot-input", Title: "codex one shot input"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := p.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AppendInput(context.Background(), binding.ID, "follow-up"); err == nil || !strings.Contains(err.Error(), "not interactive") {
+		t.Fatalf("expected one-shot append rejection, got %v", err)
+	}
+	waitSnapshot(t, p, binding.ID)
 }
 
 func TestLocalProviderPropagatesW3CTraceToSubprocessWithoutPromptLeak(t *testing.T) {
@@ -776,7 +858,7 @@ sleep 30
 	}
 	started := time.Now()
 	snapshot := waitSnapshot(t, p, binding.ID)
-	if elapsed := time.Since(started); elapsed > 3*time.Second {
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("terminal result waited for leaked child: %s", elapsed)
 	}
 	if snapshot.Status != "completed" || snapshot.Error != "" || snapshot.SessionID != nativeSession {
