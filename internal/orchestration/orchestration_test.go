@@ -1322,6 +1322,43 @@ func TestAutomaticRetryBackoffAndLineage(t *testing.T) {
 	}
 }
 
+func TestFailedExitTerminalizesWhenRepairVerificationIsPending(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "failed-exit-with-pending-repair", Version: 1,
+		EntryNodeIDs: []string{"qa"}, ExitNodeIDs: []string{"qa"},
+		Nodes: []WorkflowNode{{ID: "qa", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "qa-agent", Revision: 1}, RetryPolicy: RetryPolicy{MaxAttempts: 1}}},
+	}
+	plan, err := (RequirementExecutionPlan{ID: "failed-exit-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.RepairPlans["repair-1"] = RepairPlan{ID: "repair-1", PlanID: plan.ID, RepairNodeID: "repair", RepairAttemptID: "repair-attempt", TargetNodeID: "developer", VerificationNodeIDs: []string{"unit"}, MaxRounds: 1, Round: 1, State: RepairPlanned, StateHistory: []RepairLifecycle{RepairPlanned}}
+	now := time.Now().UTC()
+	attempt, err := projection.StartAttempt(plan, "qa", "qa-attempt", 1, Lease{FencingToken: 1, ExpiresAt: now.Add(time.Minute)}, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: 1, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished, err := projection.FinishAttempt(plan, attempt.ID, TransitionInput{
+		PlanRevision: plan.Revision,
+		AttemptID:    attempt.ID,
+		LeaseToken:   attempt.Lease.FencingToken,
+		Event:        "failure",
+		Result:       StructuredResult{Outcome: "failure", Summary: "provider exhausted retries", EvidenceIDs: []string{"qa-provider-failure"}},
+		Failure:      &FailureReason{Code: "provider_failed", Message: "provider exhausted retries", Retryable: true},
+		Now:          now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != AttemptFailed || projection.Status != PlanTerminal || projection.TerminalOutcome != "failed" {
+		t.Fatalf("failed exit was stranded: attempt=%+v status=%s outcome=%q", finished, projection.Status, projection.TerminalOutcome)
+	}
+}
+
 func TestHumanGateWaitsUntilApproval(t *testing.T) {
 	g := WorkflowGraph{ID: "human", Version: 1, EntryNodeIDs: []string{"gate"}, ExitNodeIDs: []string{"next"}, Nodes: []WorkflowNode{{ID: "gate", Kind: NodeHuman}, {ID: "next", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "a", Revision: 1}}}, Edges: []WorkflowEdge{{ID: "approved", From: "gate", To: "next", On: EdgeApproval}}}
 	plan, err := (RequirementExecutionPlan{ID: "human-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: g, Status: PlanDraft}).Freeze()

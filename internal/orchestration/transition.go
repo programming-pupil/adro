@@ -1175,7 +1175,14 @@ func (p *PlanProjection) route(plan RequirementExecutionPlan, a NodeAttempt, inp
 				return ErrEvidenceRequired
 			}
 			if !allRepairsVerified(*p) {
-				if repairVerificationPending(*p) {
+				// A successful exit may be observed before every declared
+				// verification branch has completed, so keep the plan live in
+				// that case. A failed/timed-out/cancelled exit is different: if
+				// there is no matching failure edge, the graph has exhausted its
+				// configured recovery path and must fail closed. Leaving it in
+				// running merely because an older repair plan is still planned
+				// strands the watcher forever after provider retry exhaustion.
+				if a.Status == AttemptPassed && repairVerificationPending(*p) {
 					// Multiple verification nodes may be exits in a fan-out graph.
 					// Keep the plan live until every declared verification attempt has
 					// completed instead of failing at the first passing exit.
