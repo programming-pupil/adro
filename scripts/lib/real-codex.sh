@@ -10,6 +10,7 @@ prepare_real_codex_home() {
   local source_home="${ADRO_CODEX_HOME:-${CODEX_HOME:-}}"
   local auth_file=""
   local config_file=""
+  local uses_experimental_bearer="false"
 
   if [ -n "${ADRO_CODEX_HOME:-}" ] && [ ! -d "$source_home" ]; then
     printf '%s\n' "ADRO_CODEX_HOME does not exist: $source_home" >&2
@@ -25,9 +26,16 @@ prepare_real_codex_home() {
   elif [ -f "${HOME:-}/.codex/config.toml" ]; then
     config_file="${HOME}/.codex/config.toml"
   fi
+  if [ -n "$config_file" ] && grep -Eq '^[[:space:]]*experimental_bearer_token[[:space:]]*=' "$config_file"; then
+    uses_experimental_bearer="true"
+  fi
 
   mkdir -p "$run_home"
-  if [ -n "$auth_file" ]; then
+  # A CC Switch/OpenAI-compatible profile with an explicit experimental bearer
+  # is self-authenticating. Do not symlink the user's ChatGPT auth database into
+  # the run: an expired refresh token would trigger refresh attempts and a
+  # concurrent real suite could invalidate the shared token for every runner.
+  if [ -n "$auth_file" ] && [ "$uses_experimental_bearer" != "true" ]; then
     ln -s "$auth_file" "$run_home/auth.json"
   fi
   if [ -n "$config_file" ]; then
@@ -61,6 +69,7 @@ trust_real_codex_project() {
 real_codex_config_flags() {
   local flags=""
   local base_url="${ADRO_CODEX_BASE_URL:-}"
+  local use_relay_bearer="${ADRO_CODEX_USE_RELAY_BEARER:-auto}"
 
   if [ "${ADRO_CODEX_IGNORE_USER_CONFIG:-0}" = "1" ]; then
     flags=" --ignore-user-config"
@@ -77,6 +86,13 @@ real_codex_config_flags() {
     # so keep this override as two whitespace-delimited arguments. The quotes
     # around the TOML string are intentional and are passed to Codex.
     flags="$flags -c model_providers.custom.base_url=\"$base_url\""
+  fi
+  if [ "$use_relay_bearer" = "1" ] || {
+    [ "$use_relay_bearer" = "auto" ] &&
+      [ -f "${CODEX_HOME:-}/config.toml" ] &&
+      grep -Eq '^[[:space:]]*experimental_bearer_token[[:space:]]*=' "${CODEX_HOME}/config.toml";
+  }; then
+    flags="$flags -c model_providers.custom.requires_openai_auth=false"
   fi
   printf '%s' "$flags"
 }

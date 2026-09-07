@@ -30,4 +30,16 @@ if ADRO_CODEX_BASE_URL='not-a-url' real_codex_config_flags >/dev/null; then
   exit 1
 fi
 
+mkdir -p "$run_root/bearer-source"
+printf '%s\n' '{"auth":"redacted-test-fixture"}' >"$run_root/bearer-source/auth.json"
+printf '%s\n' '[model_providers.custom]' 'experimental_bearer_token = "redacted-test-fixture"' >"$run_root/bearer-source/config.toml"
+ADRO_CODEX_HOME="$run_root/bearer-source" prepare_real_codex_home "$run_root/bearer-run"
+[ ! -e "$run_root/bearer-run/auth.json" ]
+ADRO_CODEX_IGNORE_USER_CONFIG=0 ADRO_CODEX_BASE_URL=https://code.apipod.ai \
+  configure_real_codex_command /usr/local/bin/codex
+case "$ADRO_EXECUTOR_COMMAND" in
+  *'-c model_providers.custom.requires_openai_auth=false --json'*) ;;
+  *) printf '%s\n' 'relay bearer profile did not disable ChatGPT auth' >&2; exit 1 ;;
+esac
+
 printf '%s\n' 'real Codex configuration helper passed'
