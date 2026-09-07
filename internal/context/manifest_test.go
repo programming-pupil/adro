@@ -41,6 +41,58 @@ func TestManifestEnvelopeAndDeterministicCompile(t *testing.T) {
 	}
 }
 
+func TestModelAwareTokenizerIsRecordedAndUsedForBudgeting(t *testing.T) {
+	tokenizer, err := NewModelAwareTokenizer("codex-mini-test", func(value string) int64 {
+		if strings.TrimSpace(value) == "" {
+			return 0
+		}
+		return int64(len([]rune(value)))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := Block{ID: "objective", Source: "user", Content: "中文目标", Policy: "mandatory", Trust: "source", SelectionReason: "latest_objective", Mandatory: true, TokenEstimate: 1}
+	manifest, _, err := CompileWithTokenizer("model-aware", 1, 4, []Block{block}, tokenizer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.TokenizerID != "model-aware-v1:codex-mini-test" || manifest.TokenEstimate != 4 {
+		t.Fatalf("model tokenizer metadata or estimate drifted: tokenizer=%q estimate=%d", manifest.TokenizerID, manifest.TokenEstimate)
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := CompileWithTokenizer("model-aware", 1, 3, []Block{block}, tokenizer); !errors.Is(err, ErrOverflow) {
+		t.Fatalf("model-aware budget was not enforced: %v", err)
+	}
+}
+
+func TestModelAwareTokenizerFallbackCountsWordsAndPunctuation(t *testing.T) {
+	tokenizer, err := NewModelAwareTokenizer("provider-model", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tokenizer.Estimate("ship ✅ now"); got != 3 {
+		t.Fatalf("unexpected fallback model estimate: %d", got)
+	}
+}
+
+func TestManifestRejectsTokenizerMismatchAtProviderBoundary(t *testing.T) {
+	manifest, _, err := CompileWithTokenizer("mismatch", 1, 32, []Block{{
+		ID: "objective", Source: "user", Content: "keep the objective", Policy: "mandatory", Trust: "source", SelectionReason: "latest_objective", Mandatory: true,
+	}}, Rune4Tokenizer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	modelTokenizer, err := NewModelAwareTokenizer("different-model", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.ValidateWithTokenizer(modelTokenizer); err == nil || !strings.Contains(err.Error(), "tokenizer mismatch") {
+		t.Fatalf("tokenizer mismatch was accepted: %v", err)
+	}
+}
+
 func TestPromptManifestCanonicalOrderAndTamperDetection(t *testing.T) {
 	blocks := []Block{
 		{ID: "memory", Kind: "memory", Source: "memory", Content: "prior fact", Hash: HashBlock(Block{Content: "prior fact"}), Policy: "optional", Trust: "reviewed", SelectionReason: "memory", TokenEstimate: 3},

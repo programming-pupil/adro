@@ -3,7 +3,9 @@ package domain
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -115,36 +117,53 @@ type Requirement struct {
 // requirement or bug. Replies point at ParentID and RootID makes it possible
 // to render a complete thread without depending on provider-native comments.
 type Comment struct {
-	ID              string                  `json:"id"`
-	WorkspaceID     string                  `json:"workspace_id"`
-	TargetType      string                  `json:"target_type"`
-	TargetID        string                  `json:"target_id"`
-	ParentID        string                  `json:"parent_id,omitempty"`
-	RootID          string                  `json:"root_id"`
-	AuthorID        string                  `json:"author_id"`
-	AuthorType      string                  `json:"author_type"`
-	Content         string                  `json:"content"`
-	Mentions        []string                `json:"mentions,omitempty"`
-	AttachmentIDs   []string                `json:"attachment_ids,omitempty"`
-	Revision        int64                   `json:"revision"`
-	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
-	CreatedAt       time.Time               `json:"created_at"`
-	UpdatedAt       time.Time               `json:"updated_at"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	TargetType  string `json:"target_type"`
+	TargetID    string `json:"target_id"`
+	ParentID    string `json:"parent_id,omitempty"`
+	RootID      string `json:"root_id"`
+	AuthorID    string `json:"author_id"`
+	AuthorType  string `json:"author_type"`
+	// Originator fields are server-derived authorization lineage. They are
+	// deliberately separate from AuthorID because an Agent reply may continue
+	// a human-originated thread without becoming its authority.
+	OriginatorID          string                  `json:"originator_user_id,omitempty"`
+	OriginatorType        string                  `json:"originator_type,omitempty"`
+	OriginatorSource      string                  `json:"originator_source,omitempty"`
+	DelegatedFromTaskID   string                  `json:"delegated_from_task_id,omitempty"`
+	AutopilotCreatorID    string                  `json:"autopilot_creator_id,omitempty"`
+	PreviousOriginatorID  string                  `json:"previous_originator_user_id,omitempty"`
+	OriginatorLineageHash string                  `json:"originator_lineage_hash,omitempty"`
+	Content               string                  `json:"content"`
+	Mentions              []string                `json:"mentions,omitempty"`
+	AttachmentIDs         []string                `json:"attachment_ids,omitempty"`
+	Revision              int64                   `json:"revision"`
+	TriggerOutcomes       []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	CreatedAt             time.Time               `json:"created_at"`
+	UpdatedAt             time.Time               `json:"updated_at"`
 }
 
 // CommentRevision is an immutable snapshot of one committed comment version.
 // Trigger outcomes may be attached after the content transaction commits, but
 // content, mention AST targets and attachment membership never change in place.
 type CommentRevision struct {
-	CommentID       string                  `json:"comment_id"`
-	Revision        int64                   `json:"revision"`
-	Content         string                  `json:"content"`
-	Mentions        []string                `json:"mentions,omitempty"`
-	AttachmentIDs   []string                `json:"attachment_ids,omitempty"`
-	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
-	EditorID        string                  `json:"editor_id"`
-	EditorType      string                  `json:"editor_type"`
-	CreatedAt       time.Time               `json:"created_at"`
+	CommentID             string                  `json:"comment_id"`
+	Revision              int64                   `json:"revision"`
+	Content               string                  `json:"content"`
+	Mentions              []string                `json:"mentions,omitempty"`
+	AttachmentIDs         []string                `json:"attachment_ids,omitempty"`
+	TriggerOutcomes       []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	EditorID              string                  `json:"editor_id"`
+	EditorType            string                  `json:"editor_type"`
+	OriginatorID          string                  `json:"originator_user_id,omitempty"`
+	OriginatorType        string                  `json:"originator_type,omitempty"`
+	OriginatorSource      string                  `json:"originator_source,omitempty"`
+	DelegatedFromTaskID   string                  `json:"delegated_from_task_id,omitempty"`
+	AutopilotCreatorID    string                  `json:"autopilot_creator_id,omitempty"`
+	PreviousOriginatorID  string                  `json:"previous_originator_user_id,omitempty"`
+	OriginatorLineageHash string                  `json:"originator_lineage_hash,omitempty"`
+	CreatedAt             time.Time               `json:"created_at"`
 }
 
 type CommentTriggerOutcome struct {
@@ -158,6 +177,10 @@ type CommentTriggerOutcome struct {
 	DedupeKey         string `json:"dedupe_key"`
 	SourceCommentID   string `json:"source_comment_id"`
 	ParentTaskID      string `json:"parent_task_id,omitempty"`
+	OriginatorID      string `json:"originator_user_id,omitempty"`
+	OriginatorType    string `json:"originator_type,omitempty"`
+	OriginatorSource  string `json:"originator_source,omitempty"`
+	LineageHash       string `json:"originator_lineage_hash,omitempty"`
 }
 
 // CommentFollowUp is the durable execution receipt for a discussion comment.
@@ -189,9 +212,48 @@ type CommentFollowUp struct {
 	Mode               string    `json:"mode,omitempty"`
 	Status             string    `json:"status"`
 	Reason             string    `json:"reason,omitempty"`
+	OriginatorID       string    `json:"originator_user_id,omitempty"`
+	OriginatorType     string    `json:"originator_type,omitempty"`
+	OriginatorSource   string    `json:"originator_source,omitempty"`
+	LineageHash        string    `json:"originator_lineage_hash,omitempty"`
 	Attempts           int       `json:"attempts"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// CommentLineageHash binds the originator authorization to the immutable
+// comment identity and revision. It is an integrity marker, not an identity
+// claim: callers cannot choose the originator because the API derives these
+// fields from the authenticated actor or an existing parent/root comment.
+func CommentLineageHash(c Comment) string {
+	payload := struct {
+		WorkspaceID          string `json:"workspace_id"`
+		TargetType           string `json:"target_type"`
+		TargetID             string `json:"target_id"`
+		CommentID            string `json:"comment_id"`
+		RootID               string `json:"root_id"`
+		Revision             int64  `json:"revision"`
+		AuthorID             string `json:"author_id"`
+		AuthorType           string `json:"author_type"`
+		OriginatorID         string `json:"originator_user_id"`
+		OriginatorType       string `json:"originator_type"`
+		OriginatorSource     string `json:"originator_source"`
+		DelegatedFromTaskID  string `json:"delegated_from_task_id,omitempty"`
+		AutopilotCreatorID   string `json:"autopilot_creator_id,omitempty"`
+		PreviousOriginatorID string `json:"previous_originator_user_id,omitempty"`
+	}{
+		WorkspaceID: c.WorkspaceID, TargetType: c.TargetType, TargetID: c.TargetID,
+		CommentID: c.ID, RootID: c.RootID, Revision: c.Revision, AuthorID: c.AuthorID,
+		AuthorType: c.AuthorType, OriginatorID: c.OriginatorID, OriginatorType: c.OriginatorType,
+		OriginatorSource: c.OriginatorSource, DelegatedFromTaskID: c.DelegatedFromTaskID,
+		AutopilotCreatorID: c.AutopilotCreatorID, PreviousOriginatorID: c.PreviousOriginatorID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func (f CommentFollowUp) Validate() error {

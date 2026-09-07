@@ -554,6 +554,7 @@ type Store struct {
 	projectMemories map[string][]MemoryItem
 	revision        int64
 	summarizer      contextcontract.Summarizer
+	tokenizer       contextcontract.Tokenizer
 }
 
 const harnessStateVersion = 4
@@ -570,7 +571,7 @@ func (s *Store) Durable() bool {
 }
 
 func New(path string) (*Store, error) {
-	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}, projectMemories: map[string][]MemoryItem{}, summarizer: contextcontract.ExtractiveSummarizer{}}
+	s := &Store{path: strings.TrimSpace(path), sessions: map[string]sessionState{}, projectMemories: map[string][]MemoryItem{}, summarizer: contextcontract.ExtractiveSummarizer{}, tokenizer: contextcontract.Rune4Tokenizer{}}
 	if s.path != "" {
 		s.transcriptPath = transcriptPath(s.path)
 	}
@@ -687,6 +688,21 @@ func (s *Store) SetContextSummarizer(summarizer contextcontract.Summarizer) {
 		summarizer = contextcontract.ExtractiveSummarizer{}
 	}
 	s.summarizer = summarizer
+}
+
+// SetContextTokenizer installs the provider/model token accounting adapter.
+// The selected ID is persisted into each compiled manifest so replay can
+// reject a tokenizer mismatch instead of silently changing context selection.
+func (s *Store) SetContextTokenizer(tokenizer contextcontract.Tokenizer) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tokenizer == nil || strings.TrimSpace(tokenizer.ID()) == "" {
+		tokenizer = contextcontract.Rune4Tokenizer{}
+	}
+	s.tokenizer = tokenizer
 }
 
 func (s *Store) Flush() error {
@@ -1185,7 +1201,7 @@ func (s *Store) AppendTurn(sessionID string, turn Turn) (Turn, error) {
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
-	_, _, autoCompactErr := autoCompactLocked(&state, s.summarizer)
+	_, _, autoCompactErr := autoCompactLocked(&state, s.summarizer, s.tokenizer)
 	if autoCompactErr != nil {
 		s.sessions[sessionID] = original
 		return Turn{}, fmt.Errorf("auto compact turn: %w", autoCompactErr)
@@ -1237,7 +1253,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if contextVersion <= 0 {
 		return nil, errors.New("context version must be positive")
 	}
-	before, beforeAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"}, s.summarizer)
+	before, beforeAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: beforeContent, ToolName: name, ToolCallID: callID, ToolStatus: "before", IdempotencyKey: "tool:" + callID + ":before"}, s.summarizer, s.tokenizer)
 	if err != nil {
 		return nil, err
 	}
@@ -1245,7 +1261,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	if err != nil {
 		return nil, err
 	}
-	after, afterAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"}, s.summarizer)
+	after, afterAdded, err := appendTurnLocked(&candidate, sessionID, Turn{Role: RoleTool, Content: afterContent, ToolName: name, ToolCallID: callID, ToolStatus: "after", IdempotencyKey: "tool:" + callID + ":after"}, s.summarizer, s.tokenizer)
 	if err != nil {
 		return nil, err
 	}
@@ -1276,7 +1292,7 @@ func (s *Store) RecordToolCall(sessionID, callID, name, input, output string, co
 	return []Checkpoint{beforeCheckpoint, afterCheckpoint}, nil
 }
 
-func appendTurnLocked(state *sessionState, sessionID string, turn Turn, summarizer contextcontract.Summarizer) (Turn, bool, error) {
+func appendTurnLocked(state *sessionState, sessionID string, turn Turn, summarizer contextcontract.Summarizer, tokenizer contextcontract.Tokenizer) (Turn, bool, error) {
 	if state == nil || state.Session.ID != sessionID {
 		return Turn{}, false, ErrNotFound
 	}
@@ -1316,7 +1332,7 @@ func appendTurnLocked(state *sessionState, sessionID string, turn Turn, summariz
 	turn.Hash = hashTurn(turn)
 	state.Turns = append(state.Turns, cloneTurn(turn))
 	state.Session.UpdatedAt = turn.CreatedAt
-	if _, _, err := autoCompactLocked(state, summarizer); err != nil {
+	if _, _, err := autoCompactLocked(state, summarizer, tokenizer); err != nil {
 		return Turn{}, false, fmt.Errorf("auto compact turn: %w", err)
 	}
 	return cloneTurn(turn), true, nil
@@ -1604,7 +1620,7 @@ func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, 
 // deterministic and provenance-preserving; callers can still replace it with
 // a higher-quality model summary through Compact because the full transcript
 // remains intact for audit and replay.
-func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarizer) (ArchiveWindow, bool, error) {
+func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarizer, tokenizer contextcontract.Tokenizer) (ArchiveWindow, bool, error) {
 	if state == nil || !state.Session.AutoCompaction || state.Session.BudgetTokens <= 0 || len(state.Turns) == 0 {
 		return ArchiveWindow{}, false, nil
 	}
@@ -1613,10 +1629,13 @@ func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarize
 		threshold = 0.80
 	}
 	budget := state.Session.BudgetTokens
+	if tokenizer == nil || strings.TrimSpace(tokenizer.ID()) == "" {
+		tokenizer = contextcontract.Rune4Tokenizer{}
+	}
 	var total int64
 	for _, turn := range state.Turns {
 		if !turnArchived(state.Archives, turn.Sequence) {
-			total += estimateTokens(turn.Content)
+			total += tokenizer.Estimate(turn.Content)
 		}
 	}
 	if float64(total) <= float64(budget)*threshold {
@@ -1646,7 +1665,7 @@ func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarize
 	selected := active[:len(active)-retain]
 	var selectedTokens int64
 	for _, turn := range selected {
-		selectedTokens += estimateTokens(turn.Content)
+		selectedTokens += tokenizer.Estimate(turn.Content)
 	}
 	// A tiny window is cheaper and more faithful when left as-is. The bounded
 	// compiler will truncate it if the caller chose an unusually small budget.
@@ -1658,7 +1677,7 @@ func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarize
 	}
 	blocks := make([]contextcontract.Block, 0, len(selected))
 	for _, turn := range selected {
-		blocks = append(blocks, contextcontract.Block{ID: turn.ID, Kind: "turn", Source: turn.ID, Content: turn.Content, Policy: "transcript", Trust: "hash_chain", SelectionReason: "automatic_compaction", TokenEstimate: estimateTokens(turn.Content)})
+		blocks = append(blocks, contextcontract.Block{ID: turn.ID, Kind: "turn", Source: turn.ID, Content: turn.Content, Policy: "transcript", Trust: "hash_chain", SelectionReason: "automatic_compaction", TokenEstimate: tokenizer.Estimate(turn.Content)})
 	}
 	target := selectedTokens / 3
 	if target < 16 {
@@ -1667,14 +1686,14 @@ func autoCompactLocked(state *sessionState, summarizer contextcontract.Summarize
 	if budget > 0 && target > budget/2 {
 		target = budget / 2
 	}
-	semantic, summaryErr := summarizer.Summarize(contextcontract.SummaryRequest{Blocks: blocks, TargetTokens: target})
+	semantic, summaryErr := summarizer.Summarize(contextcontract.SummaryRequest{Blocks: blocks, TargetTokens: target, TokenizerID: tokenizer.ID(), Estimate: tokenizer.Estimate})
 	summary := strings.TrimSpace(semantic.Content)
-	record := contextcontract.CompressionRecord{SourceBlockIDs: turnIDs(selected), Algorithm: "semantic-extractive", Version: "v1", TargetTokens: estimateTokens(summary), RetainedFacts: append([]string(nil), semantic.RetainedFacts...), DroppedFacts: append([]string(nil), semantic.DroppedFacts...), QualityScore: semantic.QualityScore}
-	if summaryErr != nil || summary == "" || semantic.QualityScore < 0.60 || estimateTokens(summary) >= selectedTokens {
+	record := contextcontract.CompressionRecord{SourceBlockIDs: turnIDs(selected), Algorithm: "semantic-extractive", Version: "v1", TargetTokens: tokenizer.Estimate(summary), RetainedFacts: append([]string(nil), semantic.RetainedFacts...), DroppedFacts: append([]string(nil), semantic.DroppedFacts...), QualityScore: semantic.QualityScore}
+	if summaryErr != nil || summary == "" || semantic.QualityScore < 0.60 || tokenizer.Estimate(summary) >= selectedTokens {
 		summary = automaticSummary(selected, budget)
 		record.Algorithm = "deterministic-extractive-fallback"
 		record.Version = "v1"
-		record.TargetTokens = estimateTokens(summary)
+		record.TargetTokens = tokenizer.Estimate(summary)
 		record.QualityScore = summaryCoverage(selected, CompactRequest{StartSequence: start, EndSequence: end, Summary: summary})
 		if summaryErr != nil {
 			record.FallbackReason = "summarizer_failed: " + summaryErr.Error()
@@ -3225,7 +3244,7 @@ func (s *Store) compileManifest(sessionID string, maxTokens int64, requiredOnly 
 			maxTokens = 1
 		}
 	}
-	compiled, compression, err := contextcontract.CompileWithSummarizer(sessionID, version, maxTokens, blocks, s.summarizer)
+	compiled, compression, err := contextcontract.CompileWithTokenizerAndSummarizer(sessionID, version, maxTokens, blocks, s.tokenizer, s.summarizer)
 	if err != nil {
 		return ContextManifest{}, err
 	}

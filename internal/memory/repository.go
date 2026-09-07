@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 type Status string
@@ -107,6 +108,56 @@ type QueryInput struct {
 	IncludeUnconfirmed bool
 }
 
+// RetrievalScorer is the repository-owned ranking hook. Callers provide a
+// query, never an authoritative per-item score; the repository or an attached
+// versioned index is responsible for producing the ranking signal.
+type RetrievalScorer interface {
+	Score(query string, item Item) (float64, error)
+}
+
+// VersionedRetrievalScorer identifies the index/model snapshot that produced
+// ranking scores. A score without this identity cannot be compared across
+// replayed context builds or quality reports.
+type VersionedRetrievalScorer interface {
+	RetrievalScorer
+	Version() string
+}
+
+// EmbeddingProvider is intentionally small so a production adapter can use a
+// local model, a hosted model, or a test fixture without moving provider
+// credentials into this repository. The repository still owns ranking and
+// never accepts a caller-provided final score from QueryInput.
+type EmbeddingProvider interface {
+	ModelID() string
+	Embed(string) ([]float64, error)
+}
+
+type RetrievalEvaluationCase struct {
+	Query            string
+	ExpectedIDs      []string
+	ExpectedSourceID map[string][]string
+	Limit            int
+}
+
+type RetrievalCaseResult struct {
+	Query        string   `json:"query"`
+	ReturnedIDs  []string `json:"returned_ids"`
+	Precision    float64  `json:"precision"`
+	Recall       float64  `json:"recall"`
+	Faithfulness float64  `json:"faithfulness"`
+	Pollution    float64  `json:"pollution"`
+}
+
+type RetrievalEvaluation struct {
+	ScorerVersion string                `json:"scorer_version,omitempty"`
+	Cases         int                   `json:"cases"`
+	Precision     float64               `json:"precision"`
+	Recall        float64               `json:"recall"`
+	Faithfulness  float64               `json:"faithfulness"`
+	Pollution     float64               `json:"pollution"`
+	Results       []RetrievalCaseResult `json:"results"`
+}
+
 type AuditEvent struct {
 	ID           string    `json:"id"`
 	ItemID       string    `json:"item_id"`
@@ -128,14 +179,42 @@ type persisted struct {
 }
 
 type Repository struct {
-	mu       sync.RWMutex
-	path     string
-	revision int64
-	items    map[string]Item
-	audit    []AuditEvent
+	mu            sync.RWMutex
+	path          string
+	revision      int64
+	items         map[string]Item
+	audit         []AuditEvent
+	scorer        RetrievalScorer
+	scorerVersion string
 }
 
 func NewRepository() *Repository { return &Repository{items: map[string]Item{}} }
+
+func NewRepositoryWithScorer(scorer RetrievalScorer) *Repository {
+	r := NewRepository()
+	r.setScorerLocked(scorer)
+	return r
+}
+
+func (r *Repository) SetScorer(scorer RetrievalScorer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.setScorerLocked(scorer)
+}
+
+func (r *Repository) setScorerLocked(scorer RetrievalScorer) {
+	r.scorer = scorer
+	r.scorerVersion = ""
+	if versioned, ok := scorer.(VersionedRetrievalScorer); ok {
+		r.scorerVersion = strings.TrimSpace(versioned.Version())
+	}
+}
+
+func (r *Repository) ScorerVersion() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.scorerVersion
+}
 
 func NewPersistentRepository(path string) (*Repository, error) {
 	r := NewRepository()
@@ -311,29 +390,175 @@ func (r *Repository) Query(input QueryInput) []Item {
 	if input.IncludeUnconfirmed {
 		status = ""
 	}
-	items := r.List(input.Scope, status, time.Now().UTC())
 	needle := strings.ToLower(strings.TrimSpace(input.Claim))
-	sort.SliceStable(items, func(i, j int) bool {
-		score := items[i].EmbeddingScore + items[i].LexicalScore
-		other := items[j].EmbeddingScore + items[j].LexicalScore
-		if score == other {
-			return items[i].ID < items[j].ID
-		}
-		return score > other
-	})
-	if needle != "" {
+	items := r.List(input.Scope, status, time.Now().UTC())
+	r.mu.RLock()
+	scorer := r.scorer
+	r.mu.RUnlock()
+	// A repository-owned scorer may be semantic/embedding based and therefore
+	// must be allowed to rank items whose literal text does not contain the
+	// query. The lexical fallback is the only path that uses lexical filtering.
+	if needle != "" && scorer == nil {
 		filtered := items[:0]
 		for _, item := range items {
-			if strings.Contains(strings.ToLower(item.Claim), needle) || strings.Contains(strings.ToLower(item.Content), needle) {
+			if lexicalMatch(needle, item) {
 				filtered = append(filtered, item)
 			}
 		}
 		items = filtered
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		score := r.retrievalScore(scorer, needle, items[i])
+		other := r.retrievalScore(scorer, needle, items[j])
+		if score == other {
+			return items[i].ID < items[j].ID
+		}
+		return score > other
+	})
 	if len(items) > input.Limit {
 		items = items[:input.Limit]
 	}
 	return items
+}
+
+// Evaluate runs a small, deterministic retrieval quality corpus against the
+// repository-owned scorer. It reports precision/recall, source faithfulness,
+// and pollution rather than treating a successful query as proof of quality.
+// ExpectedSourceID is optional; when present, each returned item must cite at
+// least one source in the expected set to count as faithful.
+func (r *Repository) Evaluate(input Scope, cases []RetrievalEvaluationCase) RetrievalEvaluation {
+	report := RetrievalEvaluation{ScorerVersion: r.ScorerVersion(), Cases: len(cases), Results: make([]RetrievalCaseResult, 0, len(cases))}
+	if len(cases) == 0 {
+		return report
+	}
+	for _, testCase := range cases {
+		limit := testCase.Limit
+		if limit <= 0 {
+			limit = len(testCase.ExpectedIDs)
+			if limit <= 0 {
+				limit = 10
+			}
+		}
+		items := r.Query(QueryInput{Scope: input, Claim: testCase.Query, Limit: limit})
+		expected := make(map[string]struct{}, len(testCase.ExpectedIDs))
+		for _, id := range testCase.ExpectedIDs {
+			expected[strings.TrimSpace(id)] = struct{}{}
+		}
+		hits := 0
+		faithful := 0
+		returnedIDs := make([]string, 0, len(items))
+		for _, item := range items {
+			returnedIDs = append(returnedIDs, item.ID)
+			if _, ok := expected[item.ID]; ok {
+				hits++
+			}
+			allowedSources, constrained := testCase.ExpectedSourceID[item.ID]
+			if !constrained {
+				if _, ok := expected[item.ID]; ok {
+					faithful++
+				}
+				continue
+			}
+			if intersects(item.SourceIDs, allowedSources) {
+				faithful++
+			}
+		}
+		precision := float64(hits) / float64(maxInt(len(items), 1))
+		recall := 0.0
+		if len(expected) > 0 {
+			recall = float64(hits) / float64(len(expected))
+		}
+		faithfulness := float64(faithful) / float64(maxInt(len(items), 1))
+		pollution := 1 - precision
+		result := RetrievalCaseResult{Query: testCase.Query, ReturnedIDs: returnedIDs, Precision: precision, Recall: recall, Faithfulness: faithfulness, Pollution: pollution}
+		report.Results = append(report.Results, result)
+		report.Precision += precision
+		report.Recall += recall
+		report.Faithfulness += faithfulness
+		report.Pollution += pollution
+	}
+	divider := float64(len(report.Results))
+	report.Precision /= divider
+	report.Recall /= divider
+	report.Faithfulness /= divider
+	report.Pollution /= divider
+	return report
+}
+
+func intersects(left, right []string) bool {
+	set := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		set[strings.TrimSpace(value)] = struct{}{}
+	}
+	for _, value := range left {
+		if _, ok := set[strings.TrimSpace(value)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func (r *Repository) retrievalScore(scorer RetrievalScorer, query string, item Item) float64 {
+	if scorer != nil {
+		if score, err := scorer.Score(query, item); err == nil {
+			return score
+		}
+	}
+	return lexicalScore(query, item)
+}
+
+func lexicalMatch(query string, item Item) bool {
+	if query == "" {
+		return true
+	}
+	return lexicalScore(query, item) > 0
+}
+
+func lexicalScore(query string, item Item) float64 {
+	queryTokens := tokenSet(query)
+	if len(queryTokens) == 0 {
+		return 0
+	}
+	textTokens := tokenSet(item.Claim + " " + item.Content)
+	matched := 0
+	for token := range queryTokens {
+		if _, ok := textTokens[token]; ok {
+			matched++
+		}
+	}
+	score := float64(matched) / float64(len(queryTokens))
+	if strings.Contains(strings.ToLower(item.Claim), query) {
+		score += 0.25
+	}
+	return score
+}
+
+func tokenSet(value string) map[string]struct{} {
+	tokens := make(map[string]struct{})
+	var builder strings.Builder
+	flush := func() {
+		if builder.Len() == 0 {
+			return
+		}
+		tokens[strings.ToLower(builder.String())] = struct{}{}
+		builder.Reset()
+	}
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			builder.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return tokens
 }
 
 func (r *Repository) Transition(scope Scope, id string, to Status, actor, reason string) (Item, error) {

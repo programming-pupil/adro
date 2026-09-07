@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type Block struct {
@@ -80,6 +81,75 @@ const (
 	CompilerVersion       = "adro-context-v2"
 	TokenizerID           = "rune4-v1"
 )
+
+// Tokenizer is the provider-facing token accounting contract. The old
+// rune4 estimate remains the compatibility default, while model-aware
+// adapters can carry the exact model/tokenizer identity through the immutable
+// manifest and use the same estimator for selection and compression.
+type Tokenizer interface {
+	ID() string
+	Estimate(string) int64
+}
+
+type Rune4Tokenizer struct{}
+
+func (Rune4Tokenizer) ID() string                    { return TokenizerID }
+func (Rune4Tokenizer) Estimate(content string) int64 { return tokenEstimate(content) }
+
+// ModelAwareTokenizer is a deterministic local adapter for a provider's
+// tokenizer. Integrations should supply EstimateFunc from their model SDK;
+// the word/punctuation fallback is deliberately identified as an estimate so
+// it cannot be mistaken for an opaque model default in evidence.
+type ModelAwareTokenizer struct {
+	ModelID      string
+	EstimateFunc func(string) int64
+}
+
+func NewModelAwareTokenizer(modelID string, estimate func(string) int64) (ModelAwareTokenizer, error) {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return ModelAwareTokenizer{}, errors.New("model tokenizer id is required")
+	}
+	return ModelAwareTokenizer{ModelID: modelID, EstimateFunc: estimate}, nil
+}
+
+func (t ModelAwareTokenizer) ID() string {
+	return "model-aware-v1:" + strings.TrimSpace(t.ModelID)
+}
+
+func (t ModelAwareTokenizer) Estimate(content string) int64 {
+	if t.EstimateFunc != nil {
+		if estimate := t.EstimateFunc(content); estimate > 0 {
+			return estimate
+		}
+		return 0
+	}
+	return modelAwareEstimate(content)
+}
+
+func modelAwareEstimate(content string) int64 {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return 0
+	}
+	var count int64
+	inWord := false
+	for _, r := range content {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			if !inWord {
+				count++
+			}
+			inWord = true
+		case unicode.IsSpace(r):
+			inWord = false
+		default:
+			count++
+			inWord = false
+		}
+	}
+	return count
+}
 
 var promptSegmentRanks = map[string]int{
 	"system_policy": 10, "workspace_policy": 20, "agent_role": 30,
@@ -241,6 +311,8 @@ type CompressionRecord struct {
 type SummaryRequest struct {
 	Blocks       []Block
 	TargetTokens int64
+	TokenizerID  string
+	Estimate     func(string) int64
 }
 
 type SummaryResult struct {
@@ -307,7 +379,11 @@ func (ExtractiveSummarizer) Summarize(request SummaryRequest) (SummaryResult, er
 	selected := make([]summaryFact, 0)
 	var used int64
 	for _, fact := range ordered {
-		cost := tokenEstimate(fact.Text + "\n")
+		estimate := request.Estimate
+		if estimate == nil {
+			estimate = tokenEstimate
+		}
+		cost := estimate(fact.Text + "\n")
 		if cost < 1 || used+cost > request.TargetTokens {
 			continue
 		}
@@ -349,8 +425,30 @@ func HashBlock(b Block) string {
 	return hex.EncodeToString(h[:])
 }
 func NewManifest(session string, version, budget int64, blocks []Block) (Manifest, error) {
+	return newManifest(session, version, budget, blocks, TokenizerID)
+}
+
+// NewManifestWithTokenizer recompiles block budgets using the supplied
+// tokenizer identity. Existing callers should continue using NewManifest;
+// provider adapters that know the target model must use this constructor so
+// the budget and the recorded tokenizer cannot drift apart.
+func NewManifestWithTokenizer(session string, version, budget int64, blocks []Block, tokenizer Tokenizer) (Manifest, error) {
+	if tokenizer == nil || strings.TrimSpace(tokenizer.ID()) == "" {
+		return Manifest{}, errors.New("tokenizer is required")
+	}
+	cp := append([]Block(nil), blocks...)
+	for i := range cp {
+		cp[i].TokenEstimate = tokenizer.Estimate(cp[i].Content)
+	}
+	return newManifest(session, version, budget, cp, tokenizer.ID())
+}
+
+func newManifest(session string, version, budget int64, blocks []Block, tokenizerID string) (Manifest, error) {
 	if strings.TrimSpace(session) == "" || version < 1 || budget < 1 {
 		return Manifest{}, errors.New("session, positive version and token budget are required")
+	}
+	if strings.TrimSpace(tokenizerID) == "" {
+		return Manifest{}, errors.New("tokenizer id is required")
 	}
 	cp := append([]Block(nil), blocks...)
 	if cp == nil {
@@ -378,7 +476,7 @@ func NewManifest(session string, version, budget int64, blocks []Block) (Manifes
 	if err != nil {
 		return Manifest{}, err
 	}
-	m := Manifest{SessionID: session, Version: version, SemanticSnapshotVersion: version, TokenBudget: budget, TokenEstimate: total, Blocks: cp, RequiredBlockIDs: required, CompilerVersion: CompilerVersion, TokenizerID: TokenizerID, PromptManifest: prompt, CreatedAt: time.Now().UTC()}
+	m := Manifest{SessionID: session, Version: version, SemanticSnapshotVersion: version, TokenBudget: budget, TokenEstimate: total, Blocks: cp, RequiredBlockIDs: required, CompilerVersion: CompilerVersion, TokenizerID: tokenizerID, PromptManifest: prompt, CreatedAt: time.Now().UTC()}
 	m.Digest = manifestDigest(m)
 	m.PromptManifestHash = promptManifestHash(m)
 	return m, nil
@@ -389,6 +487,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.CompilerVersion == "" || m.TokenizerID == "" {
 		return errors.New("context compiler metadata is required")
+	}
+	if strings.HasPrefix(m.TokenizerID, "model-aware-v1:") && strings.TrimPrefix(m.TokenizerID, "model-aware-v1:") == "" {
+		return errors.New("model-aware tokenizer id is incomplete")
 	}
 	if err := m.PromptManifest.Validate(); err != nil {
 		return fmt.Errorf("prompt manifest: %w", err)
@@ -443,6 +544,22 @@ func (m Manifest) Validate() error {
 	return nil
 }
 
+// ValidateWithTokenizer is the provider/replay boundary for model-aware
+// context. A valid manifest is not enough when the receiving adapter uses a
+// different tokenizer: the same budget could select a different block set.
+func (m Manifest) ValidateWithTokenizer(tokenizer Tokenizer) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if tokenizer == nil || strings.TrimSpace(tokenizer.ID()) == "" {
+		return errors.New("tokenizer is required")
+	}
+	if m.TokenizerID != tokenizer.ID() {
+		return fmt.Errorf("tokenizer mismatch: manifest=%s provider=%s", m.TokenizerID, tokenizer.ID())
+	}
+	return nil
+}
+
 // validatePromptManifestBindings makes the typed prompt layer a projection of
 // the exact selected blocks, rather than a second independently editable list.
 // Without this check a caller could preserve a valid manifest digest while
@@ -485,6 +602,20 @@ func (m Manifest) Envelope() (Envelope, error) {
 	sel := hex.EncodeToString(h[:])
 	return Envelope{Manifest: m, SelectionDigest: sel, ReplayKey: fmt.Sprintf("%s:%d:%s", m.SessionID, m.Version, sel)}, nil
 }
+
+func (e Envelope) ValidateWithTokenizer(tokenizer Tokenizer) error {
+	if err := e.Manifest.ValidateWithTokenizer(tokenizer); err != nil {
+		return err
+	}
+	derived, err := e.Manifest.Envelope()
+	if err != nil {
+		return err
+	}
+	if e.SelectionDigest != derived.SelectionDigest || e.ReplayKey != derived.ReplayKey {
+		return errors.New("context envelope selection mismatch")
+	}
+	return nil
+}
 func manifestDigest(m Manifest) string {
 	cp := m
 	cp.Digest = ""
@@ -515,6 +646,25 @@ func Compile(session string, version, budget int64, blocks []Block) (Manifest, C
 	return CompileWithSummarizer(session, version, budget, blocks, ExtractiveSummarizer{})
 }
 
+// CompileWithTokenizer uses one tokenizer for mandatory selection, semantic
+// compression and the resulting manifest. A caller-supplied Block estimate is
+// intentionally ignored in this path because accepting it would recreate the
+// budget drift the provider contract is meant to prevent.
+func CompileWithTokenizer(session string, version, budget int64, blocks []Block, tokenizer Tokenizer) (Manifest, CompressionRecord, error) {
+	return CompileWithTokenizerAndSummarizer(session, version, budget, blocks, tokenizer, ExtractiveSummarizer{})
+}
+
+func CompileWithTokenizerAndSummarizer(session string, version, budget int64, blocks []Block, tokenizer Tokenizer, summarizer Summarizer) (Manifest, CompressionRecord, error) {
+	if tokenizer == nil || strings.TrimSpace(tokenizer.ID()) == "" {
+		return Manifest{}, CompressionRecord{}, errors.New("tokenizer is required")
+	}
+	cp := append([]Block(nil), blocks...)
+	for i := range cp {
+		cp[i].TokenEstimate = tokenizer.Estimate(cp[i].Content)
+	}
+	return compileWithSummarizer(session, version, budget, cp, summarizer, tokenizer)
+}
+
 // RenderManifest is the canonical textual adapter for callers that can carry
 // the typed prompt contract. Legacy wire formats may still use the raw block
 // view from their adapter, but they must obtain those blocks from the same
@@ -527,7 +677,11 @@ func RenderManifest(manifest Manifest) (string, error) {
 }
 
 func CompileWithSummarizer(session string, version, budget int64, blocks []Block, summarizer Summarizer) (Manifest, CompressionRecord, error) {
-	m, err := NewManifest(session, version, budget, blocks)
+	return compileWithSummarizer(session, version, budget, blocks, summarizer, Rune4Tokenizer{})
+}
+
+func compileWithSummarizer(session string, version, budget int64, blocks []Block, summarizer Summarizer, tokenizer Tokenizer) (Manifest, CompressionRecord, error) {
+	m, err := newManifest(session, version, budget, blocks, tokenizer.ID())
 	if err == nil {
 		return m, CompressionRecord{}, nil
 	}
@@ -596,9 +750,9 @@ func CompileWithSummarizer(session string, version, budget int64, blocks []Block
 		summarizer = ExtractiveSummarizer{}
 	}
 	if remaining > 0 && len(semanticOptional) > 0 {
-		summary, summaryErr := summarizer.Summarize(SummaryRequest{Blocks: semanticOptional, TargetTokens: remaining})
+		summary, summaryErr := summarizer.Summarize(SummaryRequest{Blocks: semanticOptional, TargetTokens: remaining, TokenizerID: tokenizer.ID(), Estimate: tokenizer.Estimate})
 		if summaryErr == nil && strings.TrimSpace(summary.Content) != "" && summary.QualityScore >= 0.60 {
-			summaryBlock := Block{ID: "summary:" + sourceHash[:16], Kind: "summary", Source: "compression:" + sourceHash, Content: strings.TrimSpace(summary.Content), Policy: "summarize", Trust: "derived", SelectionReason: "semantic_compaction", TokenEstimate: tokenEstimate(summary.Content), Metadata: map[string]string{"source_hash": sourceHash, "algorithm": "semantic-extractive", "version": "v1"}}
+			summaryBlock := Block{ID: "summary:" + sourceHash[:16], Kind: "summary", Source: "compression:" + sourceHash, Content: strings.TrimSpace(summary.Content), Policy: "summarize", Trust: "derived", SelectionReason: "semantic_compaction", TokenEstimate: tokenizer.Estimate(summary.Content), Metadata: map[string]string{"source_hash": sourceHash, "algorithm": "semantic-extractive", "version": "v1", "tokenizer_id": tokenizer.ID()}}
 			if summaryBlock.TokenEstimate > 0 && summaryBlock.TokenEstimate <= remaining {
 				summaryBlock.Hash = HashBlock(summaryBlock)
 				selected = append(selected, summaryBlock)
@@ -642,7 +796,7 @@ func CompileWithSummarizer(session string, version, budget int64, blocks []Block
 		}
 		record.DroppedFacts = append(record.DroppedFacts, "block:"+b.ID)
 	}
-	m, err = NewManifest(session, version, budget, selected)
+	m, err = newManifest(session, version, budget, selected, tokenizer.ID())
 	if err != nil {
 		record.OverflowReason = "compression_failed"
 		return Manifest{}, record, err

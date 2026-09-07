@@ -433,8 +433,26 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 		if comment.RootID == "" {
 			comment.RootID = parent.ID
 		}
+		// A reply keeps the root authorization lineage even when the immediate
+		// author is an Agent.
+		comment.OriginatorID = parent.OriginatorID
+		comment.OriginatorType = parent.OriginatorType
+		comment.OriginatorSource = parent.OriginatorSource
+		comment.DelegatedFromTaskID = parent.DelegatedFromTaskID
+		comment.AutopilotCreatorID = parent.AutopilotCreatorID
+		comment.PreviousOriginatorID = parent.PreviousOriginatorID
+		if comment.OriginatorID == "" {
+			comment.OriginatorID = parent.AuthorID
+			comment.OriginatorType = parent.AuthorType
+			comment.OriginatorSource = "legacy_parent_author"
+		}
 	} else {
 		comment.RootID = comment.ID
+		if comment.OriginatorID == "" {
+			comment.OriginatorID = comment.AuthorID
+			comment.OriginatorType = comment.AuthorType
+			comment.OriginatorSource = "authenticated_actor"
+		}
 	}
 	if comment.ID == "" {
 		comment.ID = domain.NewID()
@@ -457,6 +475,7 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	now := time.Now().UTC()
 	comment.CreatedAt, comment.UpdatedAt = now, now
 	comment.Revision = 1
+	comment.OriginatorLineageHash = domain.CommentLineageHash(comment)
 	m.comments[comment.ID] = cloneComment(comment)
 	m.commentRevisions[comment.ID] = []domain.CommentRevision{commentRevisionSnapshot(comment, comment.AuthorID, comment.AuthorType)}
 	if err := m.persistLocked(); err != nil {
@@ -495,8 +514,34 @@ func (m *Memory) UpdateComment(id string, expectedRevision int64, content string
 			}
 		}
 	}
+	if strings.TrimSpace(editorID) == "" {
+		editorID = "system"
+	}
+	if strings.TrimSpace(editorType) == "" {
+		editorType = "system"
+	}
+	if old.AuthorID == editorID && old.AuthorType == editorType {
+		// The author may revise their own comment without transferring the
+		// human authorization chain. The digest still changes with revision.
+		if updated.OriginatorID == "" {
+			updated.OriginatorID = old.AuthorID
+			updated.OriginatorType = old.AuthorType
+			updated.OriginatorSource = "author_edit"
+		}
+	} else {
+		// A privileged editor must not silently inherit the old originator.
+		// Re-sign the revision under the authenticated editor and retain only
+		// the previous ID for an auditable administrative handoff.
+		updated.PreviousOriginatorID = firstNonEmpty(old.OriginatorID, old.AuthorID)
+		updated.OriginatorID = editorID
+		updated.OriginatorType = editorType
+		updated.OriginatorSource = "admin_edit"
+		updated.DelegatedFromTaskID = ""
+		updated.AutopilotCreatorID = ""
+	}
 	updated.Revision++
 	updated.UpdatedAt = time.Now().UTC()
+	updated.OriginatorLineageHash = domain.CommentLineageHash(updated)
 	m.comments[id] = updated
 	previousRevisions := append([]domain.CommentRevision(nil), m.commentRevisions[id]...)
 	m.commentRevisions[id] = append(m.commentRevisions[id], commentRevisionSnapshot(updated, editorID, editorType))
@@ -520,6 +565,17 @@ func (m *Memory) SetCommentTriggerOutcomes(id string, revision int64, outcomes [
 	}
 	updated := cloneComment(old)
 	updated.TriggerOutcomes = append([]domain.CommentTriggerOutcome(nil), outcomes...)
+	for index := range updated.TriggerOutcomes {
+		if updated.TriggerOutcomes[index].OriginatorID == "" {
+			updated.TriggerOutcomes[index].OriginatorID = old.OriginatorID
+			updated.TriggerOutcomes[index].OriginatorType = old.OriginatorType
+			updated.TriggerOutcomes[index].OriginatorSource = old.OriginatorSource
+			updated.TriggerOutcomes[index].LineageHash = old.OriginatorLineageHash
+		}
+		if updated.TriggerOutcomes[index].LineageHash != "" && updated.TriggerOutcomes[index].LineageHash != old.OriginatorLineageHash {
+			return domain.Comment{}, ErrConflict
+		}
+	}
 	updated.UpdatedAt = time.Now().UTC()
 	m.comments[id] = updated
 	previousRevisions := append([]domain.CommentRevision(nil), m.commentRevisions[id]...)
@@ -589,6 +645,39 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 	if comment.WorkspaceID != followUp.WorkspaceID || comment.TargetType != followUp.TargetType || comment.TargetID != followUp.TargetID {
 		return domain.CommentFollowUp{}, ErrConflict
 	}
+	lineageComment := comment
+	if followUp.CommentRevision > 0 && followUp.CommentRevision != comment.Revision {
+		for _, revision := range m.commentRevisions[comment.ID] {
+			if revision.Revision != followUp.CommentRevision {
+				continue
+			}
+			lineageComment.Revision = revision.Revision
+			lineageComment.Content = revision.Content
+			lineageComment.Mentions = append([]string(nil), revision.Mentions...)
+			lineageComment.AttachmentIDs = append([]string(nil), revision.AttachmentIDs...)
+			lineageComment.OriginatorID = revision.OriginatorID
+			lineageComment.OriginatorType = revision.OriginatorType
+			lineageComment.OriginatorSource = revision.OriginatorSource
+			lineageComment.DelegatedFromTaskID = revision.DelegatedFromTaskID
+			lineageComment.AutopilotCreatorID = revision.AutopilotCreatorID
+			lineageComment.PreviousOriginatorID = revision.PreviousOriginatorID
+			lineageComment.OriginatorLineageHash = revision.OriginatorLineageHash
+			break
+		}
+	}
+	expectedLineage := lineageComment.OriginatorLineageHash
+	if expectedLineage == "" {
+		expectedLineage = domain.CommentLineageHash(lineageComment)
+	}
+	if followUp.LineageHash != "" && followUp.LineageHash != expectedLineage {
+		return domain.CommentFollowUp{}, ErrConflict
+	}
+	if followUp.LineageHash == "" {
+		followUp.LineageHash = expectedLineage
+		followUp.OriginatorID = lineageComment.OriginatorID
+		followUp.OriginatorType = lineageComment.OriginatorType
+		followUp.OriginatorSource = lineageComment.OriginatorSource
+	}
 	if existing, exists := m.commentFollowUps[key]; exists {
 		// Callers persist partial progress after every handoff. Merge omitted
 		// fields so a retry or recovery update cannot erase the provider
@@ -628,6 +717,18 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 		}
 		if followUp.Mode == "" {
 			followUp.Mode = existing.Mode
+		}
+		if followUp.OriginatorID == "" {
+			followUp.OriginatorID = existing.OriginatorID
+		}
+		if followUp.OriginatorType == "" {
+			followUp.OriginatorType = existing.OriginatorType
+		}
+		if followUp.OriginatorSource == "" {
+			followUp.OriginatorSource = existing.OriginatorSource
+		}
+		if followUp.LineageHash == "" {
+			followUp.LineageHash = existing.LineageHash
 		}
 		if followUp.Status == "" || followUpStatusRegresses(existing.Status, followUp.Status) {
 			followUp.Status = existing.Status
@@ -832,6 +933,15 @@ func normalizeCommentMentions(mentions []string) []string {
 	return result
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func cloneComment(comment domain.Comment) domain.Comment {
 	comment.Mentions = append([]string(nil), comment.Mentions...)
 	comment.AttachmentIDs = append([]string(nil), comment.AttachmentIDs...)
@@ -844,7 +954,11 @@ func commentRevisionSnapshot(comment domain.Comment, editorID, editorType string
 		CommentID: comment.ID, Revision: comment.Revision, Content: comment.Content,
 		Mentions: append([]string(nil), comment.Mentions...), AttachmentIDs: append([]string(nil), comment.AttachmentIDs...),
 		TriggerOutcomes: append([]domain.CommentTriggerOutcome(nil), comment.TriggerOutcomes...),
-		EditorID:        strings.TrimSpace(editorID), EditorType: strings.TrimSpace(editorType), CreatedAt: comment.UpdatedAt,
+		EditorID:        strings.TrimSpace(editorID), EditorType: strings.TrimSpace(editorType),
+		OriginatorID: comment.OriginatorID, OriginatorType: comment.OriginatorType,
+		OriginatorSource: comment.OriginatorSource, DelegatedFromTaskID: comment.DelegatedFromTaskID,
+		AutopilotCreatorID: comment.AutopilotCreatorID, PreviousOriginatorID: comment.PreviousOriginatorID,
+		OriginatorLineageHash: comment.OriginatorLineageHash, CreatedAt: comment.UpdatedAt,
 	}
 }
 

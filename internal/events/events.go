@@ -6,6 +6,7 @@ package events
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,23 +78,35 @@ type RetentionPolicy struct {
 	MaxAge    time.Duration `json:"max_age,omitempty"`
 }
 
+// Delivery is the consumer-facing at-least-once projection of an immutable
+// event. The event itself remains the ACK identity; AckToken adds a small
+// integrity check so a client cannot accidentally acknowledge an event from a
+// different consumer stream.
+type Delivery struct {
+	Event       Envelope `json:"event"`
+	AckToken    string   `json:"ack_token"`
+	Attempt     int      `json:"attempt"`
+	Redelivered bool     `json:"redelivered"`
+}
+
 var ErrInvalidCursor = errors.New("event cursor is invalid or expired")
 
 // Bus provides synchronous publication and replay-friendly history for the
 // local profile. Subscribers receive a copy so a slow consumer cannot mutate
 // the event retained by the bus.
 type Bus struct {
-	mu           sync.RWMutex
-	statePath    string
-	events       []Envelope
-	seen         map[string]struct{}
-	seenProvider map[string]struct{}
-	subscribers  map[int]chan Envelope
-	dropped      map[int]streamGap
-	nextSubID    int
-	revision     int64
-	acks         map[string]string
-	retention    RetentionPolicy
+	mu               sync.RWMutex
+	statePath        string
+	events           []Envelope
+	seen             map[string]struct{}
+	seenProvider     map[string]struct{}
+	subscribers      map[int]chan Envelope
+	dropped          map[int]streamGap
+	nextSubID        int
+	revision         int64
+	acks             map[string]string
+	deliveryAttempts map[string]int
+	retention        RetentionPolicy
 }
 
 type streamGap struct {
@@ -107,14 +120,15 @@ type streamGap struct {
 }
 
 type persistedEvents struct {
-	Revision  int64             `json:"revision"`
-	Events    []Envelope        `json:"events"`
-	Acks      map[string]string `json:"acks,omitempty"`
-	Retention RetentionPolicy   `json:"retention,omitempty"`
+	Revision         int64             `json:"revision"`
+	Events           []Envelope        `json:"events"`
+	Acks             map[string]string `json:"acks,omitempty"`
+	DeliveryAttempts map[string]int    `json:"delivery_attempts,omitempty"`
+	Retention        RetentionPolicy   `json:"retention,omitempty"`
 }
 
 func NewBus() *Bus {
-	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope), dropped: make(map[int]streamGap), acks: make(map[string]string)}
+	return &Bus{seen: make(map[string]struct{}), seenProvider: make(map[string]struct{}), subscribers: make(map[int]chan Envelope), dropped: make(map[int]streamGap), acks: make(map[string]string), deliveryAttempts: make(map[string]int)}
 }
 
 func NewPersistentBus(path string) (*Bus, error) {
@@ -136,9 +150,13 @@ func NewPersistentBus(path string) (*Bus, error) {
 		stored = persisted.Events
 		b.revision = persisted.Revision
 		b.acks = persisted.Acks
+		b.deliveryAttempts = persisted.DeliveryAttempts
 		b.retention = persisted.Retention
 		if b.acks == nil {
 			b.acks = make(map[string]string)
+		}
+		if b.deliveryAttempts == nil {
+			b.deliveryAttempts = make(map[string]int)
 		}
 	} else if err := json.Unmarshal(data, &stored); err != nil {
 		return nil, fmt.Errorf("decode event state: %w", err)
@@ -254,6 +272,14 @@ func (b *Bus) persistLocked() error {
 			for consumer, cursor := range disk.acks {
 				b.acks[consumer] = cursor
 			}
+			if b.deliveryAttempts == nil {
+				b.deliveryAttempts = make(map[string]int)
+			}
+			for key, attempts := range disk.deliveryAttempts {
+				if attempts > b.deliveryAttempts[key] {
+					b.deliveryAttempts[key] = attempts
+				}
+			}
 			rebuildSeen(b)
 			b.revision = disk.revision
 		}
@@ -264,7 +290,7 @@ func (b *Bus) persistLocked() error {
 		if eventsCopy == nil {
 			eventsCopy = []Envelope{}
 		}
-		next := persistedEvents{Revision: b.revision + 1, Events: eventsCopy, Acks: b.acks, Retention: b.retention}
+		next := persistedEvents{Revision: b.revision + 1, Events: eventsCopy, Acks: b.acks, DeliveryAttempts: b.deliveryAttempts, Retention: b.retention}
 		data, err := json.Marshal(next)
 		if err != nil {
 			return err
@@ -381,6 +407,10 @@ func (b *Bus) reloadLocked() error {
 	for consumer, cursor := range persisted.acks {
 		b.acks[consumer] = cursor
 	}
+	b.deliveryAttempts = make(map[string]int, len(persisted.deliveryAttempts))
+	for key, attempts := range persisted.deliveryAttempts {
+		b.deliveryAttempts[key] = attempts
+	}
 	b.revision = persisted.revision
 	b.retention = persisted.retention
 	if err := validatePersistedEvents(b.events); err != nil {
@@ -390,11 +420,25 @@ func (b *Bus) reloadLocked() error {
 	return nil
 }
 
+func ackToken(consumerID, eventID string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(consumerID) + "\x00" + strings.TrimSpace(eventID)))
+	return eventID + "." + hex.EncodeToString(sum[:])
+}
+
+func verifyAckToken(consumerID, token string) (string, error) {
+	parts := strings.SplitN(strings.TrimSpace(token), ".", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || ackToken(consumerID, parts[0]) != token {
+		return "", ErrInvalidCursor
+	}
+	return parts[0], nil
+}
+
 func readPersistedEvents(path string) (*struct {
-	revision  int64
-	events    []Envelope
-	acks      map[string]string
-	retention RetentionPolicy
+	revision         int64
+	events           []Envelope
+	acks             map[string]string
+	deliveryAttempts map[string]int
+	retention        RetentionPolicy
 }, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -406,22 +450,24 @@ func readPersistedEvents(path string) (*struct {
 	var persisted persistedEvents
 	if err := json.Unmarshal(data, &persisted); err == nil && persisted.Events != nil {
 		return &struct {
-			revision  int64
-			events    []Envelope
-			acks      map[string]string
-			retention RetentionPolicy
-		}{persisted.Revision, persisted.Events, persisted.Acks, persisted.Retention}, nil
+			revision         int64
+			events           []Envelope
+			acks             map[string]string
+			deliveryAttempts map[string]int
+			retention        RetentionPolicy
+		}{persisted.Revision, persisted.Events, persisted.Acks, persisted.DeliveryAttempts, persisted.Retention}, nil
 	}
 	var events []Envelope
 	if err := json.Unmarshal(data, &events); err != nil {
 		return nil, fmt.Errorf("decode event state: %w", err)
 	}
 	return &struct {
-		revision  int64
-		events    []Envelope
-		acks      map[string]string
-		retention RetentionPolicy
-	}{0, events, nil, RetentionPolicy{}}, nil
+		revision         int64
+		events           []Envelope
+		acks             map[string]string
+		deliveryAttempts map[string]int
+		retention        RetentionPolicy
+	}{0, events, nil, nil, RetentionPolicy{}}, nil
 }
 
 func payloadHash(payload map[string]any) string {
@@ -569,16 +615,110 @@ func (b *Bus) Ack(consumerID, eventID string) error {
 		}
 	}
 	previous := b.acks[consumerID]
+	previousDelivery, hadDelivery := 0, false
+	if b.deliveryAttempts != nil {
+		previousDelivery, hadDelivery = b.deliveryAttempts[deliveryKey(consumerID, eventID)]
+	}
 	b.acks[consumerID] = eventID
+	if b.deliveryAttempts != nil {
+		delete(b.deliveryAttempts, deliveryKey(consumerID, eventID))
+	}
 	if err := b.persistLocked(); err != nil {
 		if previous == "" {
 			delete(b.acks, consumerID)
 		} else {
 			b.acks[consumerID] = previous
 		}
+		if b.deliveryAttempts != nil {
+			if hadDelivery {
+				b.deliveryAttempts[deliveryKey(consumerID, eventID)] = previousDelivery
+			} else {
+				delete(b.deliveryAttempts, deliveryKey(consumerID, eventID))
+			}
+		}
 		return fmt.Errorf("persist event acknowledgement: %w", err)
 	}
 	return nil
+}
+
+// Deliver returns a replay window as explicit at-least-once deliveries. If a
+// client does not ACK, calling Deliver again returns the same event with a
+// larger Attempt and Redelivered=true. This is intentionally synchronous for
+// the local bus; a durable adapter can implement the same contract with its
+// broker lease/visibility timeout.
+func (b *Bus) Deliver(consumerID, aggregateID, cursor string, limit int) ([]Delivery, string, error) {
+	consumerID = strings.TrimSpace(consumerID)
+	if consumerID == "" {
+		return nil, "", errors.New("consumer_id is required")
+	}
+	items, next, err := b.Replay(consumerID, aggregateID, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	return b.recordDeliveries(consumerID, items, next)
+}
+
+func (b *Bus) DeliverScoped(consumerID, tenantID, workspaceID, aggregateID, cursor string, limit int) ([]Delivery, string, error) {
+	if strings.TrimSpace(consumerID) == "" {
+		return nil, "", errors.New("consumer_id is required")
+	}
+	items, next, err := b.ReplayScoped(consumerID, tenantID, workspaceID, aggregateID, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	return b.recordDeliveries(scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID), items, next)
+}
+
+func (b *Bus) recordDeliveries(consumerID string, items []Envelope, next string) ([]Delivery, string, error) {
+	if len(items) == 0 {
+		return []Delivery{}, next, nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.deliveryAttempts == nil {
+		b.deliveryAttempts = make(map[string]int)
+	}
+	previous := make(map[string]int, len(items))
+	deliveries := make([]Delivery, 0, len(items))
+	for _, event := range items {
+		key := deliveryKey(consumerID, event.EventID)
+		previous[key] = b.deliveryAttempts[key]
+		attempt := previous[key] + 1
+		b.deliveryAttempts[key] = attempt
+		deliveries = append(deliveries, Delivery{Event: cloneEnvelope(event), AckToken: ackToken(consumerID, event.EventID), Attempt: attempt, Redelivered: attempt > 1})
+	}
+	if err := b.persistLocked(); err != nil {
+		for key, attempt := range previous {
+			if attempt == 0 {
+				delete(b.deliveryAttempts, key)
+			} else {
+				b.deliveryAttempts[key] = attempt
+			}
+		}
+		return nil, "", fmt.Errorf("persist event delivery: %w", err)
+	}
+	return deliveries, next, nil
+}
+
+func (b *Bus) AckDelivery(consumerID, token string) error {
+	eventID, err := verifyAckToken(strings.TrimSpace(consumerID), token)
+	if err != nil {
+		return err
+	}
+	return b.Ack(consumerID, eventID)
+}
+
+func (b *Bus) AckDeliveryScoped(consumerID, tenantID, workspaceID, aggregateID, token string) error {
+	scopedConsumer := scopedConsumerID(consumerID, tenantID, workspaceID, aggregateID)
+	eventID, err := verifyAckToken(scopedConsumer, token)
+	if err != nil {
+		return err
+	}
+	return b.AckScoped(consumerID, tenantID, workspaceID, aggregateID, eventID)
+}
+
+func deliveryKey(consumerID, eventID string) string {
+	return consumerID + "\x00" + eventID
 }
 
 // Replay returns events after the consumer's durable acknowledgement. An

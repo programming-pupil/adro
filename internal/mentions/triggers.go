@@ -37,19 +37,23 @@ type PendingTask struct {
 	TargetID   string     `json:"target_id"`
 }
 type TriggerInput struct {
-	WorkspaceID      string
-	RequirementID    string
-	CommentID        string
-	CommentRevision  int64
-	Content          string
-	ParentThreadID   string
-	EditingCommentID string
-	SuppressAgentIDs []string
-	UserCanInvoke    bool
-	Targets          []Target
-	Pending          []PendingTask
-	RuntimeHealthy   bool
-	PlanVersion      string
+	WorkspaceID       string
+	RequirementID     string
+	CommentID         string
+	CommentRevision   int64
+	Content           string
+	ParentThreadID    string
+	EditingCommentID  string
+	SuppressAgentIDs  []string
+	UserCanInvoke     bool
+	Targets           []Target
+	Pending           []PendingTask
+	RuntimeHealthy    bool
+	PlanVersion       string
+	OriginatorID      string
+	OriginatorType    string
+	OriginatorSource  string
+	OriginatorLineage string
 }
 type TriggerOutcome struct {
 	TargetType        TargetType    `json:"target_type"`
@@ -62,6 +66,10 @@ type TriggerOutcome struct {
 	DedupeKey         string        `json:"dedupe_key"`
 	SourceCommentID   string        `json:"source_comment_id"`
 	ParentTaskID      string        `json:"parent_task_id,omitempty"`
+	OriginatorID      string        `json:"originator_user_id,omitempty"`
+	OriginatorType    string        `json:"originator_type,omitempty"`
+	OriginatorSource  string        `json:"originator_source,omitempty"`
+	LineageHash       string        `json:"originator_lineage_hash,omitempty"`
 }
 type TriggerPlan struct {
 	Parser    ParseResult      `json:"parser"`
@@ -102,6 +110,7 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 		key := string(m.TargetType) + ":" + m.TargetID
 		t, ok := targets[key]
 		o := TriggerOutcome{TargetType: m.TargetType, TargetID: m.TargetID, ReasonCode: "explicit_mention", SourceCommentID: in.CommentID, ParentTaskID: strings.TrimSpace(in.ParentThreadID), DedupeKey: fmt.Sprintf("%s:%s:%s:%s:%d", in.CommentID, m.TargetType, m.TargetID, in.PlanVersion, in.CommentRevision)}
+		o.OriginatorID, o.OriginatorType, o.OriginatorSource, o.LineageHash = in.OriginatorID, in.OriginatorType, in.OriginatorSource, in.OriginatorLineage
 		o.AuthoritySnapshot = authoritySnapshot(in, t, ok)
 		if tooMany || index >= MaxTargetsPerComment {
 			o.Status = StatusBlocked
@@ -187,7 +196,7 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 }
 
 func authoritySnapshot(in TriggerInput, target Target, found bool) string {
-	payload := map[string]any{"workspace_id": in.WorkspaceID, "target_type": target.Type, "target_id": target.ID, "found": found, "active": target.Active, "version": target.Version, "leader_id": target.LeaderID, "can_invoke": target.CanInvoke, "runtime_healthy": in.RuntimeHealthy}
+	payload := map[string]any{"workspace_id": in.WorkspaceID, "target_type": target.Type, "target_id": target.ID, "found": found, "active": target.Active, "version": target.Version, "leader_id": target.LeaderID, "can_invoke": target.CanInvoke, "runtime_healthy": in.RuntimeHealthy, "originator_user_id": in.OriginatorID, "originator_type": in.OriginatorType, "originator_source": in.OriginatorSource, "originator_lineage_hash": in.OriginatorLineage}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return ""
@@ -220,5 +229,5 @@ func ImplicitOutcome(in TriggerInput, agentID string) (TriggerOutcome, bool) {
 			}
 		}
 	}
-	return TriggerOutcome{TargetType: TargetAgent, TargetID: agentID, Status: StatusQueued, ReasonCode: "implicit_route", SourceCommentID: in.CommentID, DedupeKey: fmt.Sprintf("%s:agent:%s:%s:%d", in.CommentID, agentID, in.PlanVersion, in.CommentRevision)}, true
+	return TriggerOutcome{TargetType: TargetAgent, TargetID: agentID, Status: StatusQueued, ReasonCode: "implicit_route", SourceCommentID: in.CommentID, DedupeKey: fmt.Sprintf("%s:agent:%s:%s:%d", in.CommentID, agentID, in.PlanVersion, in.CommentRevision), OriginatorID: in.OriginatorID, OriginatorType: in.OriginatorType, OriginatorSource: in.OriginatorSource, LineageHash: in.OriginatorLineage}, true
 }

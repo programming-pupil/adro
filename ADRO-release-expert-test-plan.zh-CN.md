@@ -1,6 +1,6 @@
 # ADRO 发布前专家级测试用例规范
 
-版本：`v0.4.0`（加入广播语义和机器生成 coverage ledger；以测试执行时检出的提交为准）
+版本：`v0.5.0`（加入广播语义、机器生成 coverage ledger、模型 tokenizer、检索质量和至少一次事件投递契约；以测试执行时检出的提交为准）
 编写日期：2026-09-05
 源码复核基线：以每次执行 `ruby scripts/coverage-ledger.rb --check` 输出并写入报告的 `source_sha` 为准；文档不固化历史 SHA，避免测试计划与源码提交再次漂移。文档提交目标：`main`
 适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
@@ -14,6 +14,9 @@
 - Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，最新 main 共 19 个视图（含 `chats`）。
 - API 契约在 `openapi/openapi.yaml` 中定义；当前 checkout 按 YAML 解析得到 177 个 method/path operation，旧的 112/113/152 只作为历史对照，不能作为当前发布基线。`scripts/coverage-ledger.rb` 为每项生成稳定 `operation_id`（若 YAML 缺少 `operationId` 会标记 `operation_id_source=derived`），并同时生成 19 个菜单和 DOM button/action inventory。当前已知的代码/契约漂移仍需作为 S1 单独验收：MCP 按 ID 的部分入口、`POST /api/v1/sessions/{id}/memory` 和评论触发相关入口；不能把 YAML 文本行数当成 operation 数。
 - Go 单元/集成测试位于 `internal/**`；浏览器测试位于 `e2e/**`；最新 main 已提供 `scripts/release-system-e2e.sh`、`scripts/real-pipeline-e2e.sh` 和 `make real-e2e`，但真实执行仍必须在受控 Codex runner 产生证据。
+- Context 编译器默认保持 `rune4-v1` 兼容估算，同时提供 `context.Tokenizer`/`ModelAwareTokenizer` 与 `harness.Store.SetContextTokenizer`；模型 tokenizer ID、预算和压缩记录必须进入 immutable manifest，不能只在运行日志中声明。
+- Memory repository 的默认查询由仓库侧 deterministic scorer/index 负责排序；可注入的 `VersionedRetrievalScorer` 和 `Repository.Evaluate` 输出 scorer/index 版本、precision、recall、faithfulness 与 pollution，`AddInput` 中的历史分数不得作为最终排序依据。
+- StreamEvents 本地总线提供 `Deliver`/`DeliverScoped` 的至少一次投递视图、attempt/redelivered 标记和完整性校验 ack token；既有 ACK、cursor、retention、gap 和 replay 仍必须单独留存证据。
 - `make verify` 组合 Go、契约、构建、依赖和浏览器检查；`.github/workflows/real-e2e.yml` 仅在带 `adro-codex` 标签的 self-hosted runner 上执行真实 Codex，不能把普通 CI 的静态/Mock 结果写成真实链路通过。
 
 明确不纳入本次单机发布门禁的能力：PostgreSQL/Redis/NATS 等生产 adapter、多副本跨节点 conformance。它们必须作为后续发布档案中的 `out of scope / blocked` 记录，不得被单机测试结果替代。
@@ -475,6 +478,8 @@ COMMENT-002 是用户给出的“方案 Agent 完成后，人类在评论下 @�
 | CTX-008 | Memory 写入短期/长期/事实/摘要 tier；质量评分为空、负数、超范围、重复事实 | 生命周期、来源、置信度、TTL 和删除策略符合契约；低质量记忆不得污染后续 context |
 | CTX-009 | 用户删除/导出记忆，workspace 隔离，重启恢复 | 删除后不可被检索或拼入 prompt；导出完整可审计；权限严格隔离 |
 | CTX-010 | 同一上下文 repair/rerun；原 run 完成、失败、取消三种状态 | 允许的状态才可续跑；session reuse 标记和 context lineage 正确；禁止把取消 run 当成功基线 |
+| CTX-011 | 为同一 session 配置 model-aware tokenizer，改变模型 ID 或估算器后重新编译 | manifest 的 `tokenizer_id`、token estimate、selection digest、replay key 一致；预算选择不接受调用方旧估算；tokenizer mismatch fail-closed |
+| CTX-012 | 运行固定 retrieval quality corpus，覆盖正确记忆、干扰记忆、错误 source、过期和跨 scope | report 固定 scorer/index version；分别计算 precision、recall、faithfulness、pollution；低质量结果不得被历史 `EmbeddingScore`/`LexicalScore` 劫持 |
 
 ## 8. StreamEvents、顺序、一致性、幂等、租约和 outbox
 
@@ -489,6 +494,9 @@ COMMENT-002 是用户给出的“方案 Agent 完成后，人类在评论下 @�
 | EVT-007 | lease 获取、续租、过期、持有者错误释放、两个 worker 竞争 | 单一 owner；过期可接管且 fencing token 单调；旧 owner 写入被拒绝；释放幂等 |
 | EVT-008 | 状态写入、outbox、audit、event publish 中任一步失败 | 事务边界符合源码设计；重试不重复副作用；outbox 可补发，诊断能定位阶段 |
 | EVT-009 | 同一 Run 同时 cancel/complete/repair；工具 start/finish 乱序 | 终态只允许一次；非法转移 fail-closed；open tool、未授权 tool、重复 finish 被拒绝 |
+| EVT-010 | 同一 consumer 首次 Deliver、不 ACK 再 Deliver、ACK 后再次 Deliver | 未确认事件原样重投，`attempt` 单调递增且 `redelivered=true`；ack token 不能跨 consumer 使用；ACK 后不再重投 |
+| EVT-011 | Deliver/ACK 后进程重启；在 retention 窗口边界重连 | delivery attempt 和 ACK 持久化；过期 cursor 返回明确 `ErrInvalidCursor`，不得从头静默重放 |
+| EVT-012 | 慢订阅者造成 live buffer 溢出并用 sequence range 修复 | 发送 gap 事件但不丢 durable history；`ReplayRange` 对不完整保留区间 fail-closed；projection 可从 canonical events 重建 |
 
 ## 9. API 全量操作矩阵
 
@@ -798,6 +806,8 @@ tests/
 | Squad/小队 | 17/17 | SQUAD-001..017；当前缺少实体/入口时必须 BLOCKED/S1 |
 | 双向反馈/回退 | 25/25 | BIDI-001..025；当前缺少反馈边模型/调度入口时全部 BLOCKED/S1 |
 | 评论线程与 Agent/Squad mention | 16/16 | COMMENT-001..016；结构化 mention/预览/小队路由缺失时必须 BLOCKED/S1，不得以普通 `@token` 或显式 binding 冒充 |
+| StreamEvents、顺序、一致性、幂等、租约和 outbox | 100% | EVT-001..012；重放、重复、ACK/redelivery、gap、retention、lease、outbox 均有原始事件证据 |
+| Context/Memory 质量 | 100% | CTX-011..012；manifest tokenizer/index version 与质量 report 可重放 |
 | 故障注入 | 10/10 | FI-001..010，包含恢复后的数据一致性 |
 | 并发隔离 | 4 类 | 同用户双需求、跨用户、同资源竞争、事件重放 |
 | 真实链路 | 4/4 | E2E-REAL-001..004，真实 Provider/Codex evidence 完整；self-hosted runner/Codex 缺失时为 BLOCKED |

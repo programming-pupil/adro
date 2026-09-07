@@ -74,6 +74,33 @@ func TestCompileEnvelopeCarriesReplaySelection(t *testing.T) {
 	}
 }
 
+func TestCompileEnvelopeUsesConfiguredModelTokenizer(t *testing.T) {
+	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
+	tokenizer, err := contextcontract.NewModelAwareTokenizer("codex-mini-test", func(value string) int64 {
+		if strings.TrimSpace(value) == "" {
+			return 0
+		}
+		return int64(len([]rune(value)))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetContextTokenizer(tokenizer)
+	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "中文目标"}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := store.CompileEnvelope("session-1", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Manifest.TokenizerID != "model-aware-v1:codex-mini-test" {
+		t.Fatalf("compiled envelope lost tokenizer identity: %+v", envelope.Manifest)
+	}
+	if err := envelope.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestContextEnvelopeWithRequiredBlockUsesTheSameCompiler(t *testing.T) {
 	store := newTestSession(t, filepath.Join(t.TempDir(), "harness.json"))
 	if _, err := store.AppendTurn("session-1", Turn{Role: RoleUser, Content: "keep the newest objective intact"}); err != nil {

@@ -176,6 +176,62 @@ func TestReplayScopedDoesNotReuseCursorAcrossStreams(t *testing.T) {
 	}
 }
 
+func TestDeliverRedeliversUnacknowledgedEventsWithIntegrityToken(t *testing.T) {
+	b := NewBus()
+	event := New("delivery.v1", "run", "run-1", "tenant", "workspace", 1, map[string]any{"state": "ready"})
+	if err := b.Publish(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	first, _, err := b.Deliver("consumer", "run-1", "", 10)
+	if err != nil || len(first) != 1 || first[0].Attempt != 1 || first[0].Redelivered {
+		t.Fatalf("first delivery=%+v err=%v", first, err)
+	}
+	second, _, err := b.Deliver("consumer", "run-1", "", 10)
+	if err != nil || len(second) != 1 || second[0].Attempt != 2 || !second[0].Redelivered || second[0].AckToken != first[0].AckToken {
+		t.Fatalf("redelivery=%+v err=%v", second, err)
+	}
+	if err := b.AckDelivery("other-consumer", first[0].AckToken); !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("ack token crossed consumer scope: %v", err)
+	}
+	if err := b.AckDelivery("consumer", first[0].AckToken); err != nil {
+		t.Fatal(err)
+	}
+	third, _, err := b.Deliver("consumer", "run-1", "", 10)
+	if err != nil || len(third) != 0 {
+		t.Fatalf("acked event was delivered again: %+v err=%v", third, err)
+	}
+}
+
+func TestPersistentDeliveryAttemptAndAckSurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.json")
+	b, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := New("delivery.persist.v1", "run", "run-1", "tenant", "workspace", 1, nil)
+	if err := b.Publish(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	delivery, _, err := b.Deliver("consumer", "run-1", "", 10)
+	if err != nil || len(delivery) != 1 {
+		t.Fatalf("delivery=%+v err=%v", delivery, err)
+	}
+	restarted, err := NewPersistentBus(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redelivery, _, err := restarted.Deliver("consumer", "run-1", "", 10)
+	if err != nil || len(redelivery) != 1 || redelivery[0].Attempt != 2 || !redelivery[0].Redelivered {
+		t.Fatalf("restart lost delivery attempt=%+v err=%v", redelivery, err)
+	}
+	if err := restarted.AckDelivery("consumer", redelivery[0].AckToken); err != nil {
+		t.Fatal(err)
+	}
+	if items, _, err := restarted.Replay("consumer", "run-1", "", 10); err != nil || len(items) != 0 {
+		t.Fatalf("restart lost durable ack items=%+v err=%v", items, err)
+	}
+}
+
 func TestReplayScopedFiltersWorkspaceBeforeApplyingPagination(t *testing.T) {
 	b := NewBus()
 	a := New("scope.v1", "run", "a", "tenant", "workspace-a", 1, map[string]any{"id": "a"})

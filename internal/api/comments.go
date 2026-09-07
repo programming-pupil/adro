@@ -84,7 +84,13 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 			pending = append(pending, mentions.PendingTask{DedupeKey: followUp.DedupeKey, TargetType: mentions.TargetType(followUp.DispatchTargetType), TargetID: followUp.DispatchTargetID})
 		}
 	}
-	return mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{WorkspaceID: comment.WorkspaceID, RequirementID: comment.TargetID, CommentID: comment.ID, CommentRevision: comment.Revision, Content: comment.Content, ParentThreadID: comment.RootID, EditingCommentID: comment.ID, Targets: targets, Pending: pending, UserCanInvoke: userCanInvoke, RuntimeHealthy: runtimeHealthy})
+	return mentions.ComputeTriggers(r.Context(), mentions.TriggerInput{
+		WorkspaceID: comment.WorkspaceID, RequirementID: comment.TargetID, CommentID: comment.ID,
+		CommentRevision: comment.Revision, Content: comment.Content, ParentThreadID: comment.RootID,
+		EditingCommentID: comment.ID, Targets: targets, Pending: pending, UserCanInvoke: userCanInvoke,
+		RuntimeHealthy: runtimeHealthy, OriginatorID: comment.OriginatorID, OriginatorType: comment.OriginatorType,
+		OriginatorSource: comment.OriginatorSource, OriginatorLineage: comment.OriginatorLineageHash,
+	})
 }
 
 func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commentID string) {
@@ -155,7 +161,7 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 		s.triggerMu.Unlock()
 		updated.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
 		for _, outcome := range plan.Outcomes {
-			updated.TriggerOutcomes = append(updated.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
+			updated.TriggerOutcomes = append(updated.TriggerOutcomes, domainTriggerOutcome(outcome))
 		}
 		if saved, saveErr := s.Store.SetCommentTriggerOutcomes(updated.ID, updated.Revision, updated.TriggerOutcomes); saveErr == nil {
 			updated = saved
@@ -273,7 +279,7 @@ func (s *Server) commentTriggerRetryRoute(w http.ResponseWriter, r *http.Request
 	s.triggerMu.Unlock()
 	converted := make([]domain.CommentTriggerOutcome, 0, len(plan.Outcomes))
 	for _, outcome := range plan.Outcomes {
-		converted = append(converted, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
+		converted = append(converted, domainTriggerOutcome(outcome))
 	}
 	_, _ = s.Store.SetCommentTriggerOutcomes(commentID, comment.Revision, converted)
 	followUps := s.dispatchStructuredMentions(r, comment, plan.Outcomes)
@@ -384,7 +390,7 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 			s.triggerMu.Unlock()
 			comment.TriggerOutcomes = make([]domain.CommentTriggerOutcome, 0, len(triggerOutcomes))
 			for _, outcome := range triggerOutcomes {
-				comment.TriggerOutcomes = append(comment.TriggerOutcomes, domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID})
+				comment.TriggerOutcomes = append(comment.TriggerOutcomes, domainTriggerOutcome(outcome))
 			}
 			if saved, saveErr := s.Store.SetCommentTriggerOutcomes(comment.ID, comment.Revision, comment.TriggerOutcomes); saveErr == nil {
 				comment = saved
@@ -485,11 +491,15 @@ func appendUniqueString(values []string, additions ...string) []string {
 }
 
 func invalidMentionOutcome(comment domain.Comment, err error) domain.CommentTriggerOutcome {
-	return domain.CommentTriggerOutcome{TargetType: "unknown", TargetID: "", Status: string(mentions.StatusBlocked), ReasonCode: "invalid_mention_syntax", Reason: err.Error(), DedupeKey: comment.ID + ":invalid:" + fmt.Sprint(comment.Revision), SourceCommentID: comment.ID}
+	return domain.CommentTriggerOutcome{TargetType: "unknown", TargetID: "", Status: string(mentions.StatusBlocked), ReasonCode: "invalid_mention_syntax", Reason: err.Error(), DedupeKey: comment.ID + ":invalid:" + fmt.Sprint(comment.Revision), SourceCommentID: comment.ID, OriginatorID: comment.OriginatorID, OriginatorType: comment.OriginatorType, OriginatorSource: comment.OriginatorSource, LineageHash: comment.OriginatorLineageHash}
 }
 
 func toMentionOutcome(outcome domain.CommentTriggerOutcome) mentions.TriggerOutcome {
-	return mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID}
+	return mentions.TriggerOutcome{TargetType: mentions.TargetType(outcome.TargetType), TargetID: outcome.TargetID, Status: mentions.OutcomeStatus(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID, OriginatorID: outcome.OriginatorID, OriginatorType: outcome.OriginatorType, OriginatorSource: outcome.OriginatorSource, LineageHash: outcome.LineageHash}
+}
+
+func domainTriggerOutcome(outcome mentions.TriggerOutcome) domain.CommentTriggerOutcome {
+	return domain.CommentTriggerOutcome{TargetType: string(outcome.TargetType), TargetID: outcome.TargetID, Status: string(outcome.Status), Broadcast: outcome.Broadcast, ReasonCode: outcome.ReasonCode, Reason: outcome.Reason, AuthoritySnapshot: outcome.AuthoritySnapshot, DedupeKey: outcome.DedupeKey, SourceCommentID: outcome.SourceCommentID, ParentTaskID: outcome.ParentTaskID, OriginatorID: outcome.OriginatorID, OriginatorType: outcome.OriginatorType, OriginatorSource: outcome.OriginatorSource, LineageHash: outcome.LineageHash}
 }
 
 // commentFollowUpRoute exposes status polling and an explicit retry/dispatch
@@ -563,6 +573,10 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 		receipt.DispatchTargetID = dispatchTargetID
 		receipt.DedupeKey = dedupeKey
 		receipt.CommentRevision = comment.Revision
+		receipt.OriginatorID = comment.OriginatorID
+		receipt.OriginatorType = comment.OriginatorType
+		receipt.OriginatorSource = comment.OriginatorSource
+		receipt.LineageHash = comment.OriginatorLineageHash
 		if _, err := s.Store.SaveCommentFollowUp(receipt); err != nil && s.Logger != nil {
 			s.Logger.Error("persist comment follow-up receipt", "error", err, "comment_id", comment.ID)
 		}
@@ -749,6 +763,15 @@ func (s *Server) commentFollowUpPrompt(comment domain.Comment) string {
 }
 
 func (s *Server) refreshCommentFollowUp(r *http.Request, followUp domain.CommentFollowUp) domain.CommentFollowUp {
+	if s != nil && s.Store != nil {
+		if comment, err := s.Store.GetComment(followUp.CommentID); err == nil {
+			if followUp.CommentRevision > 0 && followUp.CommentRevision < comment.Revision && followUp.LineageHash != comment.OriginatorLineageHash {
+				followUp.Status = "stale"
+				followUp.Reason = "comment revision was superseded; late provider result is fail-closed"
+				return followUp
+			}
+		}
+	}
 	if s == nil || s.Provider == nil || strings.TrimSpace(followUp.ProviderRunID) == "" {
 		return followUp
 	}

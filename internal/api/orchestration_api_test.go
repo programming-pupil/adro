@@ -2,13 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/store"
 )
 
 func TestExecutionPlanGraphValidationRoute(t *testing.T) {
@@ -278,6 +281,82 @@ func TestCommentBodyCannotSpoofAuthorIdentity(t *testing.T) {
 	}
 	if payload.Comment.AuthorID == "spoofed" || payload.Comment.AuthorType == "agent" {
 		t.Fatalf("comment accepted body identity: %+v", payload.Comment)
+	}
+}
+
+func TestCommentRepliesPreserveOriginatorAndLateReceiptsFailClosed(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-comment-lineage", WorkspaceID: "w1", Title: "comment lineage", Description: "preserve originator", AcceptanceCriteria: []string{"late results are rejected"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"content":"human request"}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "human-owner"})
+	if rootResponse.Code != http.StatusCreated {
+		t.Fatalf("root status=%d body=%s", rootResponse.Code, rootResponse.Body.String())
+	}
+	var rootPayload struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if err := json.Unmarshal(rootResponse.Body.Bytes(), &rootPayload); err != nil {
+		t.Fatal(err)
+	}
+	if rootPayload.Comment.OriginatorID != "human-owner" || rootPayload.Comment.OriginatorType != "member" || rootPayload.Comment.OriginatorLineageHash == "" {
+		t.Fatalf("root originator=%+v", rootPayload.Comment)
+	}
+	if want := domain.CommentLineageHash(rootPayload.Comment); want != rootPayload.Comment.OriginatorLineageHash {
+		t.Fatalf("root lineage hash=%q want=%q", rootPayload.Comment.OriginatorLineageHash, want)
+	}
+
+	replyResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"parent_id": rootPayload.Comment.ID, "content": "agent handoff"}), map[string]string{"X-Workspace-ID": "w1", "X-Agent-ID": "agent-1"})
+	if replyResponse.Code != http.StatusCreated {
+		t.Fatalf("reply status=%d body=%s", replyResponse.Code, replyResponse.Body.String())
+	}
+	var replyPayload struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if err := json.Unmarshal(replyResponse.Body.Bytes(), &replyPayload); err != nil {
+		t.Fatal(err)
+	}
+	if replyPayload.Comment.AuthorID != "agent-1" || replyPayload.Comment.AuthorType != "agent" || replyPayload.Comment.OriginatorID != "human-owner" || replyPayload.Comment.OriginatorLineageHash == "" {
+		t.Fatalf("reply lineage=%+v", replyPayload.Comment)
+	}
+
+	oldReceipt, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: replyPayload.Comment.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, DispatchTargetType: "agent", DispatchTargetID: "agent-1", CommentRevision: replyPayload.Comment.Revision, Status: "started", ProviderRunID: "old-run", LineageHash: replyPayload.Comment.OriginatorLineageHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := request(t, s.Routes(), http.MethodPatch, "/api/v1/comments/"+replyPayload.Comment.ID, mustJSON(map[string]any{"content": "admin correction", "expected_revision": replyPayload.Comment.Revision}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "admin-owner"})
+	if edited.Code != http.StatusOK {
+		t.Fatalf("edit status=%d body=%s", edited.Code, edited.Body.String())
+	}
+	var editedPayload struct {
+		Comment domain.Comment `json:"comment"`
+	}
+	if err := json.Unmarshal(edited.Body.Bytes(), &editedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if editedPayload.Comment.OriginatorID != "admin-owner" || editedPayload.Comment.OriginatorSource != "admin_edit" || editedPayload.Comment.PreviousOriginatorID != "human-owner" || editedPayload.Comment.OriginatorLineageHash == oldReceipt.LineageHash {
+		t.Fatalf("admin edit did not re-sign lineage: %+v old=%+v", editedPayload.Comment, oldReceipt)
+	}
+
+	stale := s.refreshCommentFollowUp(httptest.NewRequest(http.MethodGet, "/", nil), oldReceipt)
+	if stale.Status != "stale" || !strings.Contains(stale.Reason, "superseded") {
+		t.Fatalf("late receipt was not fail-closed: %+v", stale)
+	}
+	if _, err := s.Store.SaveCommentFollowUp(domain.CommentFollowUp{CommentID: replyPayload.Comment.ID, WorkspaceID: "w1", TargetType: "requirement", TargetID: requirement.ID, DispatchTargetType: "agent", DispatchTargetID: "agent-1", CommentRevision: editedPayload.Comment.Revision, Status: "started", LineageHash: "forged"}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("forged current lineage was accepted: %v", err)
+	}
+}
+
+func TestCommentLineageFieldsCannotBeInjectedFromBody(t *testing.T) {
+	s := testServer(t)
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-comment-lineage-body", WorkspaceID: "w1", Title: "lineage body", Description: "reject spoofed lineage", AcceptanceCriteria: []string{"body cannot set authority"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", `{"content":"spoof","originator_user_id":"admin"}`, map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "real-author"})
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_json") {
+		t.Fatalf("lineage body injection status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
