@@ -90,6 +90,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 		EditingCommentID: comment.ID, Targets: targets, Pending: pending, UserCanInvoke: userCanInvoke,
 		RuntimeHealthy: runtimeHealthy, OriginatorID: comment.OriginatorID, OriginatorType: comment.OriginatorType,
 		OriginatorSource: comment.OriginatorSource, OriginatorLineage: comment.OriginatorLineageHash,
+		OriginatorRequired: true,
 	})
 }
 

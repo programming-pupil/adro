@@ -90,11 +90,31 @@ func validate(kind TargetType, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("target id is required")
 	}
-	if strings.ContainsAny(id, "/?# ") {
-		return errors.New("target id contains invalid characters")
+	if kind != TargetAll {
+		if err := ValidateCanonicalTargetID(id); err != nil {
+			return err
+		}
 	}
 	return nil
 }
+
+// ValidateCanonicalTargetID is shared by the parser and trigger planner.  A
+// mention target is an entity identity, not a display name or URL segment.
+// Keep the UUID version nibble open for future RFC 9562 versions (for example
+// UUIDv7) while still requiring the canonical shape and RFC variant bits.
+func ValidateCanonicalTargetID(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("target id is required")
+	}
+	if !canonicalTargetIDPattern.MatchString(id) {
+		return errors.New("target id must be a canonical UUID")
+	}
+	return nil
+}
+
+var canonicalTargetIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
 func (p ParseResult) Targets() []Mention {
 	seen := map[string]bool{}
 	out := make([]Mention, 0, len(p.Mentions))

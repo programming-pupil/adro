@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -54,6 +53,10 @@ type TriggerInput struct {
 	OriginatorType    string
 	OriginatorSource  string
 	OriginatorLineage string
+	// OriginatorRequired is set by persisted API paths. Keeping it explicit
+	// lets pure unit callers exercise routing without inventing an identity,
+	// while provider dispatch paths fail closed when lineage is absent.
+	OriginatorRequired bool
 }
 type TriggerOutcome struct {
 	TargetType        TargetType    `json:"target_type"`
@@ -78,8 +81,6 @@ type TriggerPlan struct {
 }
 
 const MaxTargetsPerComment = 32
-
-var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // ComputeTriggers is the sole trigger decision function for preview, create,
 // and edit. It performs no side effects and returns one independent outcome
@@ -128,10 +129,10 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 			out.Outcomes = append(out.Outcomes, o)
 			continue
 		}
-		if !uuidPattern.MatchString(m.TargetID) && m.TargetType != TargetAll {
+		if err := ValidateCanonicalTargetID(m.TargetID); err != nil && m.TargetType != TargetAll {
 			o.Status = StatusBlocked
 			o.ReasonCode = "invalid_target_id"
-			o.Reason = "target id must be a UUID"
+			o.Reason = err.Error()
 			out.Outcomes = append(out.Outcomes, o)
 			continue
 		}
@@ -160,6 +161,13 @@ func ComputeTriggers(_ context.Context, in TriggerInput) (TriggerPlan, error) {
 			o.Status = StatusBlocked
 			o.ReasonCode = "invoke_forbidden"
 			o.Reason = "caller is not allowed to invoke target"
+			out.Outcomes = append(out.Outcomes, o)
+			continue
+		}
+		if in.OriginatorRequired && (strings.TrimSpace(in.OriginatorID) == "" || strings.TrimSpace(in.OriginatorType) == "" || strings.TrimSpace(in.OriginatorLineage) == "") {
+			o.Status = StatusBlocked
+			o.ReasonCode = "originator_lineage_missing"
+			o.Reason = "invocation requires authenticated originator lineage"
 			out.Outcomes = append(out.Outcomes, o)
 			continue
 		}

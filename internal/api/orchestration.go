@@ -528,10 +528,18 @@ func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, req
 	if revision < 1 {
 		revision = 1
 	}
+	actorID, actorType := commentActor(r)
+	preview := domain.Comment{
+		ID: commentID, WorkspaceID: requirement.WorkspaceID, TargetType: "requirement", TargetID: requirementID,
+		AuthorID: actorID, AuthorType: actorType, OriginatorID: actorID, OriginatorType: actorType,
+		OriginatorSource: "authenticated_preview", Content: input.Content, Revision: revision,
+	}
+	preview.RootID = preview.ID
+	preview.OriginatorLineageHash = domain.CommentLineageHash(preview)
 	// Preview resolves the same persisted roster and runtime health used by
 	// create/edit/retry. Client-supplied targets and health are intentionally
 	// ignored so a preview cannot claim a route that creation would block.
-	plan, err := s.computeCommentTriggers(r, domain.Comment{ID: commentID, WorkspaceID: requirement.WorkspaceID, TargetType: "requirement", TargetID: requirementID, Content: input.Content, Revision: revision})
+	plan, err := s.computeCommentTriggers(r, preview)
 	if err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "trigger_preview_failed", err.Error(), nil)
 		return

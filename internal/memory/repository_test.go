@@ -2,6 +2,9 @@ package memory
 
 import (
 	"errors"
+	"math"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,6 +17,28 @@ type fixedRetrievalScorer struct {
 func (s fixedRetrievalScorer) Version() string { return s.version }
 func (s fixedRetrievalScorer) Score(_ string, item Item) (float64, error) {
 	return s.scores[item.ID], nil
+}
+
+type fixedEmbeddingProvider struct {
+	modelID string
+	err     error
+}
+
+func (p *fixedEmbeddingProvider) ModelID() string { return p.modelID }
+
+func (p *fixedEmbeddingProvider) Embed(value string) ([]float64, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	value = strings.ToLower(value)
+	switch {
+	case strings.Contains(value, "deployment approval"), strings.Contains(value, "release readiness"), strings.Contains(value, "green light"):
+		return []float64{1, 0}, nil
+	case strings.Contains(value, "maintenance"), strings.Contains(value, "unrelated"):
+		return []float64{0, 1}, nil
+	default:
+		return []float64{0.5, 0.5}, nil
+	}
 }
 
 func TestEvidenceLifecycleAndScopeIsolation(t *testing.T) {
@@ -152,6 +177,128 @@ func TestRepositoryOwnedSemanticScorerCanRankWithoutLexicalMatch(t *testing.T) {
 	items := r.Query(QueryInput{Scope: scope, Claim: "release readiness", Limit: 1})
 	if len(items) != 1 || items[0].ID != "semantic" {
 		t.Fatalf("semantic scorer was blocked by lexical prefilter: %+v", items)
+	}
+}
+
+func TestRepositoryOwnedEmbeddingRanksSemanticMatchesAndIgnoresCallerScores(t *testing.T) {
+	scope := Scope{TenantID: "tenant", WorkspaceID: "workspace"}
+	provider := &fixedEmbeddingProvider{modelID: "codex-embed-v1"}
+	r, err := NewRepositoryWithEmbeddingProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []AddInput{
+		{ID: "semantic", Scope: scope, Claim: "deployment approval", Content: "green light", SourceIDs: []string{"source-a"}, EmbeddingScore: 0, LexicalScore: 0},
+		{ID: "caller-score-winner", Scope: scope, Claim: "maintenance note", Content: "unrelated detail", SourceIDs: []string{"source-b"}, EmbeddingScore: 1, LexicalScore: 1},
+	} {
+		item, addErr := r.Add(input)
+		if addErr != nil {
+			t.Fatal(addErr)
+		}
+		if _, addErr = r.Transition(scope, item.ID, Quarantined, "reviewer", "quality review"); addErr != nil {
+			t.Fatal(addErr)
+		}
+		if _, addErr = r.Confirm(scope, item.ID, "reviewer", "quality review"); addErr != nil {
+			t.Fatal(addErr)
+		}
+	}
+	items := r.Query(QueryInput{Scope: scope, Claim: "release readiness", Limit: 1})
+	if len(items) != 1 || items[0].ID != "semantic" {
+		t.Fatalf("embedding provider did not rank semantic result: %+v", items)
+	}
+	if items[0].EmbeddingModelID != "codex-embed-v1" || len(items[0].Embedding) != 2 {
+		t.Fatalf("embedding identity was not persisted: %+v", items[0])
+	}
+	if got := r.ScorerVersion(); got != "embedding-v1:codex-embed-v1" {
+		t.Fatalf("scorer version=%q", got)
+	}
+}
+
+func TestEmbeddingProviderFailsClosedOnQueryAndInvalidVectors(t *testing.T) {
+	scope := Scope{TenantID: "tenant", WorkspaceID: "workspace"}
+	provider := &fixedEmbeddingProvider{modelID: "codex-embed-v1"}
+	r, err := NewRepositoryWithEmbeddingProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.err = errors.New("embedding service unavailable")
+	if items := r.Query(QueryInput{Scope: scope, Claim: "anything"}); items != nil {
+		t.Fatalf("provider query error returned results: %+v", items)
+	}
+
+	for name, vector := range map[string][]float64{
+		"empty": nil,
+		"nan":   {math.NaN()},
+		"inf":   {math.Inf(1)},
+	} {
+		bad := &fixedEmbeddingProvider{modelID: "bad-" + name}
+		bad.err = nil
+		original := bad.Embed
+		_ = original
+		// Keep the test provider's normal mapping out of this branch and
+		// override the returned vector with a small local adapter.
+		badProvider := embeddingFuncProvider{modelID: bad.modelID, vector: vector}
+		badRepo, createErr := NewRepositoryWithEmbeddingProvider(badProvider)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if _, addErr := badRepo.Add(AddInput{ID: name, Scope: scope, Claim: "claim", Content: "content", SourceIDs: []string{"source"}}); addErr == nil {
+			t.Fatalf("invalid %s embedding was accepted", name)
+		}
+	}
+}
+
+type embeddingFuncProvider struct {
+	modelID string
+	vector  []float64
+}
+
+func (p embeddingFuncProvider) ModelID() string { return p.modelID }
+func (p embeddingFuncProvider) Embed(string) ([]float64, error) {
+	return append([]float64(nil), p.vector...), nil
+}
+
+func TestEmbeddingProviderRejectsTypedNilAndPersistsIndexIdentity(t *testing.T) {
+	var typedNil *fixedEmbeddingProvider
+	if _, err := NewRepositoryWithEmbeddingProvider(typedNil); err == nil {
+		t.Fatal("typed nil embedding provider was accepted")
+	}
+
+	scope := Scope{TenantID: "tenant", WorkspaceID: "workspace"}
+	path := filepath.Join(t.TempDir(), "memory.json")
+	provider := &fixedEmbeddingProvider{modelID: "codex-embed-v1"}
+	r, err := NewPersistentRepository(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetEmbeddingProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	item, err := r.Add(AddInput{ID: "persisted", Scope: scope, Claim: "deployment approval", Content: "green light", SourceIDs: []string{"source"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Transition(scope, item.ID, Quarantined, "reviewer", "quality review"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Confirm(scope, item.ID, "reviewer", "quality review"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewPersistentRepository(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.SetEmbeddingProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Query(QueryInput{Scope: scope, Claim: "release readiness", Limit: 1}); len(got) != 1 || got[0].ID != item.ID {
+		t.Fatalf("reloaded embedding index did not retrieve item: %+v", got)
+	}
+	if err := reopened.SetEmbeddingProvider(&fixedEmbeddingProvider{modelID: "different-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Query(QueryInput{Scope: scope, Claim: "release readiness", Limit: 1}); got != nil && len(got) != 0 {
+		t.Fatalf("different embedding index mixed old vectors: %+v", got)
 	}
 }
 

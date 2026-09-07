@@ -41,6 +41,35 @@ func TestInvalidMention(t *testing.T) {
 	}
 }
 
+func TestCanonicalTargetIDAcceptsFutureUUIDVersions(t *testing.T) {
+	if err := ValidateCanonicalTargetID("018f4b6e-2d3a-7abc-8def-0123456789ab"); err != nil {
+		t.Fatalf("uuidv7-shaped target rejected: %v", err)
+	}
+	if _, err := Parse("[@x](mention://agent/018f4b6e-2d3a-7abc-8def-0123456789ab)"); err != nil {
+		t.Fatalf("parser rejected canonical future UUID: %v", err)
+	}
+}
+
+func TestCanonicalTargetIDRejectsDisplayNamesAndNonCanonicalIDs(t *testing.T) {
+	for _, id := range []string{"agent-name", "550e8400-e29b-41d4-a716-446655440000/extra", "550e8400e29b41d4a716446655440000"} {
+		if err := ValidateCanonicalTargetID(id); err == nil {
+			t.Fatalf("accepted non-canonical target %q", id)
+		}
+	}
+}
+
+func TestProviderTriggerCanRequireOriginatorLineage(t *testing.T) {
+	const id = "550e8400-e29b-41d4-a716-446655440000"
+	plan, err := ComputeTriggers(nil, TriggerInput{
+		WorkspaceID: "w", CommentID: "lineage-required", Content: "[@x](mention://agent/" + id + ")",
+		Targets:       []Target{{Type: TargetAgent, ID: id, WorkspaceID: "w", Active: true, CanInvoke: true}},
+		UserCanInvoke: true, RuntimeHealthy: true, OriginatorRequired: true,
+	})
+	if err != nil || len(plan.Outcomes) != 1 || plan.Outcomes[0].ReasonCode != "originator_lineage_missing" {
+		t.Fatalf("missing lineage was not fail-closed: plan=%+v err=%v", plan, err)
+	}
+}
+
 func TestInvalidMentionMarkerCannotBeHiddenByAnotherValidMention(t *testing.T) {
 	const id = "550e8400-e29b-41d4-a716-446655440000"
 	content := `[@ok](mention://agent/` + id + `) mention://agent/not-a-markdown-link`

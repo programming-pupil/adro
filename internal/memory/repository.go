@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -71,6 +73,8 @@ type Item struct {
 	ConflictPackage  []string   `json:"conflict_package,omitempty"`
 	EmbeddingScore   float64    `json:"embedding_score,omitempty"`
 	LexicalScore     float64    `json:"lexical_score,omitempty"`
+	Embedding        []float64  `json:"embedding,omitempty"`
+	EmbeddingModelID string     `json:"embedding_model_id,omitempty"`
 	Reviewer         string     `json:"reviewer,omitempty"`
 	Status           Status     `json:"status"`
 	Reason           string     `json:"reason,omitempty"`
@@ -186,6 +190,8 @@ type Repository struct {
 	audit         []AuditEvent
 	scorer        RetrievalScorer
 	scorerVersion string
+	embedding     EmbeddingProvider
+	indexVersion  string
 }
 
 func NewRepository() *Repository { return &Repository{items: map[string]Item{}} }
@@ -194,6 +200,17 @@ func NewRepositoryWithScorer(scorer RetrievalScorer) *Repository {
 	r := NewRepository()
 	r.setScorerLocked(scorer)
 	return r
+}
+
+// NewRepositoryWithEmbeddingProvider wires a repository-owned embedding/index
+// adapter. Query callers still provide only a claim; they cannot inject the
+// final ranking score or bypass the versioned index identity.
+func NewRepositoryWithEmbeddingProvider(provider EmbeddingProvider) (*Repository, error) {
+	r := NewRepository()
+	if err := r.SetEmbeddingProvider(provider); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func (r *Repository) SetScorer(scorer RetrievalScorer) {
@@ -213,7 +230,25 @@ func (r *Repository) setScorerLocked(scorer RetrievalScorer) {
 func (r *Repository) ScorerVersion() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if r.scorerVersion == "" {
+		return r.indexVersion
+	}
 	return r.scorerVersion
+}
+
+func (r *Repository) SetEmbeddingProvider(provider EmbeddingProvider) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if invalidEmbeddingProvider(provider) {
+		return errors.New("embedding provider with model id is required")
+	}
+	modelID := strings.TrimSpace(provider.ModelID())
+	if modelID == "" {
+		return errors.New("embedding provider with model id is required")
+	}
+	r.embedding = provider
+	r.indexVersion = "embedding-v1:" + modelID
+	return nil
 }
 
 func NewPersistentRepository(path string) (*Repository, error) {
@@ -302,7 +337,24 @@ func (r *Repository) addLocked(input AddInput, now time.Time) (Item, error) {
 	if input.EmbeddingScore < 0 || input.EmbeddingScore > 1 || input.LexicalScore < 0 || input.LexicalScore > 1 {
 		return Item{}, errors.New("memory evidence scores must be between 0 and 1")
 	}
-	item := Item{ID: input.ID, Scope: input.Scope, Kind: strings.TrimSpace(input.Kind), Claim: input.Claim, Content: input.Content, Fingerprint: input.Fingerprint, SourceIDs: append([]string(nil), input.SourceIDs...), EvidenceHash: input.EvidenceHash, Sensitivity: input.Sensitivity, PollutionLineage: append([]string(nil), input.PollutionLineage...), EmbeddingScore: input.EmbeddingScore, LexicalScore: input.LexicalScore, Status: Candidate, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	var embedding []float64
+	embeddingModelID := ""
+	if r.embedding != nil {
+		modelID := strings.TrimSpace(r.embedding.ModelID())
+		if modelID == "" || r.indexVersion != "embedding-v1:"+modelID {
+			return Item{}, errors.New("embedding provider model identity changed")
+		}
+		value, err := r.embedding.Embed(input.Claim + "\n" + input.Content)
+		if err != nil {
+			return Item{}, fmt.Errorf("embed memory item: %w", err)
+		}
+		if err := validateEmbedding(value); err != nil {
+			return Item{}, err
+		}
+		embedding = append([]float64(nil), value...)
+		embeddingModelID = modelID
+	}
+	item := Item{ID: input.ID, Scope: input.Scope, Kind: strings.TrimSpace(input.Kind), Claim: input.Claim, Content: input.Content, Fingerprint: input.Fingerprint, SourceIDs: append([]string(nil), input.SourceIDs...), EvidenceHash: input.EvidenceHash, Sensitivity: input.Sensitivity, PollutionLineage: append([]string(nil), input.PollutionLineage...), EmbeddingScore: input.EmbeddingScore, LexicalScore: input.LexicalScore, Embedding: embedding, EmbeddingModelID: embeddingModelID, Status: Candidate, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	if input.ExpiresAt != nil {
 		expiry := input.ExpiresAt.UTC()
 		if !expiry.After(now) {
@@ -394,11 +446,35 @@ func (r *Repository) Query(input QueryInput) []Item {
 	items := r.List(input.Scope, status, time.Now().UTC())
 	r.mu.RLock()
 	scorer := r.scorer
+	embeddingProvider := r.embedding
+	indexVersion := r.indexVersion
 	r.mu.RUnlock()
+	var queryEmbedding []float64
+	providerModelID := strings.TrimPrefix(indexVersion, "embedding-v1:")
+	if scorer == nil && embeddingProvider != nil && needle != "" {
+		if invalidEmbeddingProvider(embeddingProvider) || providerModelID == "" {
+			return nil
+		}
+		value, err := embeddingProvider.Embed(input.Claim)
+		if err != nil || validateEmbedding(value) != nil {
+			// A configured semantic index must fail closed. Falling back to a
+			// lexical result after an embedding outage would silently change
+			// retrieval semantics and can reintroduce stale or unsafe context.
+			return nil
+		}
+		queryEmbedding = value
+		filtered := items[:0]
+		for _, item := range items {
+			if item.EmbeddingModelID == providerModelID {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	// A repository-owned scorer may be semantic/embedding based and therefore
 	// must be allowed to rank items whose literal text does not contain the
 	// query. The lexical fallback is the only path that uses lexical filtering.
-	if needle != "" && scorer == nil {
+	if needle != "" && scorer == nil && embeddingProvider == nil {
 		filtered := items[:0]
 		for _, item := range items {
 			if lexicalMatch(needle, item) {
@@ -408,8 +484,8 @@ func (r *Repository) Query(input QueryInput) []Item {
 		items = filtered
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		score := r.retrievalScore(scorer, needle, items[i])
-		other := r.retrievalScore(scorer, needle, items[j])
+		score := r.retrievalScore(scorer, needle, items[i], queryEmbedding, providerModelID)
+		other := r.retrievalScore(scorer, needle, items[j], queryEmbedding, providerModelID)
 		if score == other {
 			return items[i].ID < items[j].ID
 		}
@@ -505,13 +581,57 @@ func maxInt(left, right int) int {
 	return right
 }
 
-func (r *Repository) retrievalScore(scorer RetrievalScorer, query string, item Item) float64 {
+func (r *Repository) retrievalScore(scorer RetrievalScorer, query string, item Item, queryEmbedding []float64, providerModelID string) float64 {
 	if scorer != nil {
 		if score, err := scorer.Score(query, item); err == nil {
 			return score
 		}
 	}
+	if len(queryEmbedding) > 0 && len(item.Embedding) == len(queryEmbedding) && item.EmbeddingModelID == providerModelID {
+		return cosineSimilarity(queryEmbedding, item.Embedding)
+	}
 	return lexicalScore(query, item)
+}
+
+func invalidEmbeddingProvider(provider EmbeddingProvider) bool {
+	if provider == nil {
+		return true
+	}
+	value := reflect.ValueOf(provider)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func validateEmbedding(value []float64) error {
+	if len(value) == 0 {
+		return errors.New("embedding must not be empty")
+	}
+	for _, component := range value {
+		if math.IsNaN(component) || math.IsInf(component, 0) {
+			return errors.New("embedding contains a non-finite value")
+		}
+	}
+	return nil
+}
+
+func cosineSimilarity(left, right []float64) float64 {
+	if len(left) == 0 || len(left) != len(right) {
+		return 0
+	}
+	var dot, leftNorm, rightNorm float64
+	for i := range left {
+		dot += left[i] * right[i]
+		leftNorm += left[i] * left[i]
+		rightNorm += right[i] * right[i]
+	}
+	if leftNorm == 0 || rightNorm == 0 {
+		return 0
+	}
+	return dot / math.Sqrt(leftNorm*rightNorm)
 }
 
 func lexicalMatch(query string, item Item) bool {
@@ -768,6 +888,14 @@ func (r *Repository) Verify() error {
 		if id == "" || item.ID != id || !item.Scope.valid() || item.EvidenceHash != evidenceHash(item.Scope, item.Claim, item.Content, item.SourceIDs) || !validStatus(item.Status) {
 			return fmt.Errorf("invalid memory item %s", id)
 		}
+		if len(item.Embedding) > 0 {
+			if item.EmbeddingModelID == "" {
+				return fmt.Errorf("memory item %s has an embedding without a model id", id)
+			}
+			if err := validateEmbedding(item.Embedding); err != nil {
+				return fmt.Errorf("memory item %s: %w", id, err)
+			}
+		}
 	}
 	return nil
 }
@@ -853,6 +981,7 @@ func clone(item Item) Item {
 	item.PollutionLineage = append([]string(nil), item.PollutionLineage...)
 	item.ConflictPackage = append([]string(nil), item.ConflictPackage...)
 	item.Supersedes = append([]string(nil), item.Supersedes...)
+	item.Embedding = append([]float64(nil), item.Embedding...)
 	if item.ExpiresAt != nil {
 		expiry := *item.ExpiresAt
 		item.ExpiresAt = &expiry
