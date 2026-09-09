@@ -768,7 +768,7 @@ func isRetryableRepairProviderFailure(attempt NodeAttempt) bool {
 		return false
 	}
 	switch attempt.FailureReason.Code {
-	case "provider_failed", "provider_timeout", "provider_result_missing", "upstream_error", "timeout", "lease_expired":
+	case "provider_failed", "provider_timeout", "provider_result_missing", "provider_tool_evidence_missing", "upstream_error", "timeout", "lease_expired":
 		return true
 	default:
 		return false

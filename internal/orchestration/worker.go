@@ -148,6 +148,13 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 				// current node so a transient truncated/invalid Codex turn does not
 				// consume a repair round or strand the graph before feedback starts.
 				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: true}
+			} else if !hasCommandExecutionEvidence(snapshot) {
+				// A model marker is not proof that the requested work happened. A
+				// malformed or tool-less Codex turn must be retried as a provider
+				// protocol failure; otherwise a fabricated bug/failure marker can
+				// advance a semantic feedback edge and consume a repair round.
+				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_tool_evidence_missing", Summary: "provider completed without a matched command_execution before/after pair", Fields: mergeProviderFields(usage, map[string]any{"provider_output_sha256": snapshot.OutputSHA256, "tool_event_count": len(snapshot.ToolEvents)}), EvidenceIDs: []string{"provider-run:" + runID + ":missing-tool-evidence"}}
+				failure = &FailureReason{Code: "provider_tool_evidence_missing", Message: result.Summary, Retryable: true}
 				break
 			}
 			event, result = "success", StructuredResult{Outcome: "pass", ReasonCode: providerReason, Summary: providerSummary, Fields: usage, EvidenceIDs: providerEvidence}
@@ -192,6 +199,43 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		finished = append(finished, item)
 	}
 	return finished, nil
+}
+
+// hasCommandExecutionEvidence proves that a completed provider turn opened
+// and closed the terminal tool call it claims to have performed. The marker
+// parser intentionally accepts only agent-message text, but that still is not
+// enough to advance a graph: a real Codex command_execution pair is required
+// before a semantic pass/failure/bug result can reach graph routing.
+func hasCommandExecutionEvidence(snapshot provider.RunSnapshot) bool {
+	if !strings.Contains(strings.ToLower(snapshot.Output), "command_execution") {
+		return false
+	}
+	pairs := make(map[string]map[string]bool)
+	for _, event := range snapshot.ToolEvents {
+		if !isCommandExecutionName(event.Name) || strings.TrimSpace(event.CallID) == "" {
+			continue
+		}
+		phases := pairs[event.CallID]
+		if phases == nil {
+			phases = map[string]bool{}
+			pairs[event.CallID] = phases
+		}
+		switch strings.ToLower(strings.TrimSpace(event.Phase)) {
+		case "before", "after":
+			phases[strings.ToLower(strings.TrimSpace(event.Phase))] = true
+		}
+	}
+	for _, phases := range pairs {
+		if phases["before"] && phases["after"] {
+			return true
+		}
+	}
+	return false
+}
+
+func isCommandExecutionName(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "_", ""))
+	return normalized == "commandexecution"
 }
 
 // providerOutcome accepts only explicit structured output emitted by an

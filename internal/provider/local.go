@@ -800,6 +800,9 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 	itemType, _ := item["type"].(string)
 	callID := firstString(item, "call_id", "tool_call_id", "id")
 	name := firstString(item, "name", "tool_name")
+	if name == "" {
+		name = itemType
+	}
 	phase := ""
 	lower := strings.ToLower(typ + " " + itemType)
 	switch {

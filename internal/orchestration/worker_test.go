@@ -94,6 +94,21 @@ func TestProviderOutcomeReadsNestedCodexAgentMessageContent(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionEvidenceRequiresMatchedBeforeAfterPair(t *testing.T) {
+	base := provider.RunSnapshot{Output: `{"type":"item.completed","item":{"type":"command_execution"}}`}
+	if hasCommandExecutionEvidence(base) {
+		t.Fatal("command_execution text without tool events was accepted")
+	}
+	base.ToolEvents = []provider.ToolEvent{{CallID: "call-1", Name: "command_execution", Phase: "before"}}
+	if hasCommandExecutionEvidence(base) {
+		t.Fatal("unpaired command_execution event was accepted")
+	}
+	base.ToolEvents = append(base.ToolEvents, provider.ToolEvent{CallID: "call-1", Name: "command_execution", Phase: "after"})
+	if !hasCommandExecutionEvidence(base) {
+		t.Fatal("matched command_execution before/after pair was rejected")
+	}
+}
+
 func TestMissingProviderResultIsRetryableForRepairLifecycle(t *testing.T) {
 	attempt := NodeAttempt{
 		Status: AttemptFailed,
