@@ -409,7 +409,12 @@ ruby -rjson -e '
       tool_events = run.fetch("tool_events", []) || []
       requires_terminal = attempt["status"] == "passed" || attempt.dig("result", "outcome").to_s == "bug" || attempt.dig("result", "reason_code").to_s == "unit_failure_injected"
       next unless requires_terminal
-      abort("#{attempt["node_id"]}##{attempt["attempt_no"]} lacks real command_execution") unless output.include?("\"type\":\"command_execution\"")
+      # Native Codex app-server emits camelCase commandExecution items;
+      # legacy JSONL adapters may emit command_execution. Normalize only the
+      # type spelling here, while the matched before/after pair below remains
+      # grounded in the provider parsed tool events.
+      normalized_output = output.downcase.delete("_")
+      abort("#{attempt["node_id"]}##{attempt["attempt_no"]} lacks real command_execution") unless normalized_output.include?("\"type\":\"commandexecution\"")
       abort("#{attempt["node_id"]}##{attempt["attempt_no"]} lacks command tool event pair") unless tool_events.any? { |event| event["phase"] == "before" } && tool_events.any? { |event| event["phase"] == "after" }
       if attempt["node_id"] == "unit" && attempt.dig("result", "reason_code") == "unit_failure_injected"
         # unit-step deliberately reports the test status while returning zero
