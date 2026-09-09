@@ -119,6 +119,11 @@ export ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_POR
 export ADRO_AUTH_MODE=required ADRO_ADMIN_USERNAME=admin ADRO_ADMIN_PASSWORD=AdminPass123!
 export ADRO_EXECUTOR="$executor" ADRO_ARTIFACT_ROOT="$STATE_HOME/artifacts" ADRO_WORK_ROOT="$STATE_HOME/workspaces"
 export ADRO_ALLOWED_ORIGINS="$WEB,http://localhost:$WEB_PORT,http://[::1]:$WEB_PORT"
+# A browser-created graph is a real-Codex acceptance case. A marker without a
+# terminal command is protocol failure, never semantic graph success.
+export ADRO_CODEX_REQUIRE_TERMINAL=1
+export ADRO_CODEX_ATTEMPT_TIMEOUT="${ADRO_GRAPH_BROWSER_CODEX_ATTEMPT_TIMEOUT:-120}"
+export ADRO_CODEX_MAX_RETRIES="${ADRO_GRAPH_BROWSER_CODEX_RETRIES:-2}"
 export ADRO_GRAPH_WATCH_TIMEOUT="${ADRO_GRAPH_WATCH_TIMEOUT:-30m}" ADRO_GRAPH_WATCH_INTERVAL="${ADRO_GRAPH_WATCH_INTERVAL:-100ms}"
 
 "$ROOT_DIR/start.sh" --no-open >"$START_LOG" 2>&1 || { cat "$START_LOG" >&2; fail "ADRO did not start"; }

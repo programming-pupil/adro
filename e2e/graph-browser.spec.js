@@ -58,7 +58,8 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await page.locator('#agentForm input[name="name"]').fill('Browser Real Graph Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill([
     'You are the real Codex executor for a browser-created ADRO graph.',
-    'Do not modify files. Return exactly one ADRO_RESULT_JSON marker after inspecting the request.',
+    'Use the terminal immediately and run exactly pwd in the provided checkout. Do not modify files or use another tool.',
+    'Return exactly one ADRO_RESULT_JSON marker after the terminal command completes.',
     'The marker must be valid JSON with outcome pass, reason_code browser_graph_real, summary browser graph real execution passed, evidence_ids [browser-graph-real-1], and fields {browser_created_graph:true}.',
   ].join('\n'));
   await page.locator('#agentForm input[name="role"]').fill('browser-real-graph');

@@ -245,6 +245,12 @@ export ADRO_WEB_PORT="$WEB_PORT"
 export ADRO_EXECUTOR="$executor"
 export ADRO_AUTH_MODE=optional
 export ADRO_E2E_INTEGRATION_COUNTER="$INTEGRATION_COUNTER"
+# Pipeline acceptance is also L3 real-Codex evidence. Require a matched
+# command_execution before the provider result can advance a stage, and retry
+# tool-less relay turns through the same local Codex binary.
+export ADRO_CODEX_REQUIRE_TERMINAL=1
+export ADRO_CODEX_ATTEMPT_TIMEOUT="${ADRO_REAL_PIPELINE_CODEX_ATTEMPT_TIMEOUT:-120}"
+export ADRO_CODEX_MAX_RETRIES="${ADRO_REAL_PIPELINE_CODEX_RETRIES:-2}"
 # Bound a single real provider attempt so an upstream relay stall produces a
 # durable failed snapshot before the suite-level timeout expires. Keep the
 # default generous enough for a real coding turn while preserving evidence.
