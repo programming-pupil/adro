@@ -170,7 +170,7 @@ write_real_codex_wrapper() {
     printf '%s\n' '  attempt=$((attempt + 1))'
     printf '%s\n' '  output_file="$attempt_root/output-$attempt"'
     printf '%s\n' '  status=0'
-    printf '  perl -e '\''alarm shift; exec @ARGV'\'' "$attempt_timeout" %s "$@" <"$prompt_file" >"$output_file" 2>&1 || status=$?\n' "$executor_quoted"
+    printf '  perl -MPOSIX=:sys_wait_h -e '\''my $timeout=shift; my $pid=fork(); die unless defined $pid; if ($pid == 0) { setpgrp(0,0); exec @ARGV; exit 127; } my $stop=sub { kill "TERM", -$pid; waitpid($pid,0); exit 124; }; $SIG{ALRM}=$stop; $SIG{TERM}=$stop; $SIG{INT}=$stop; $SIG{HUP}=$stop; alarm $timeout; waitpid($pid,0); alarm 0; my $status=$?; exit WIFEXITED($status) ? WEXITSTATUS($status) : 128 + WTERMSIG($status);'\'' "$attempt_timeout" %s "$@" <"$prompt_file" >"$output_file" 2>&1 || status=$?\n' "$executor_quoted"
     printf '%s\n' '  has_completion=0'
     printf '%s\n' '  grep -Fq '"'"'"type":"turn.completed"'"'"' "$output_file" && grep -Fq ADRO_RESULT_JSON= "$output_file" && has_completion=1'
     printf '%s\n' '  if [ "$require_terminal" = 1 ] && ! grep -Fq '"'"'"type":"command_execution"'"'"' "$output_file"; then has_completion=0; fi'

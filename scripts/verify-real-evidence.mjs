@@ -33,6 +33,7 @@ assertion(existsSync(reportRoot), `report directory does not exist: ${reportRoot
 const currentSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const manifests = readdirSync(reportRoot, { withFileTypes: true })
   .filter(entry => entry.isDirectory())
+  .filter(entry => /^[0-9]{8}T[0-9]{6}Z-[0-9]+$/.test(entry.name))
   .map(entry => {
     const path = join(reportRoot, entry.name, 'manifest.json');
     return existsSync(path) ? { runId: entry.name, dir: join(reportRoot, entry.name), path, data: readJSON(path) } : null;
