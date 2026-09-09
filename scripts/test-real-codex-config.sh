@@ -29,6 +29,7 @@ trust_real_codex_project "$run_root/run" "$run_root/project"
 grep -Fq "[projects.\"$run_root/project\"]" "$run_root/run/config.toml"
 grep -Fq 'model = "gpt-test"' "$run_root/run/config.toml"
 grep -Fq '[shell_environment_policy]' "$run_root/run/config.toml"
+grep -Fq 'sandbox_mode = "danger-full-access"' "$run_root/run/config.toml"
 ! grep -Fq '[plugins]' "$run_root/run/config.toml"
 ! grep -Fq '[mcp_servers]' "$run_root/run/config.toml"
 

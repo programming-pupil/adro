@@ -67,7 +67,11 @@ write_minimal_codex_config() {
 
   # Keep shell commands deterministic and prevent the model from inheriting
   # unrelated environment values configured for the interactive client.
-  printf '\n[shell_environment_policy]\ninherit = "core"\n' >>"$destination"
+  # Match Multica's per-task Codex policy: on macOS, unknown/older Codex
+  # versions use danger-full-access because Seatbelt workspace-write cannot
+  # reliably combine file mutation with network access. The isolated temp
+  # home and fixture workdir remain the evidence boundary for these suites.
+  printf '\nsandbox_mode = "danger-full-access"\n\n[shell_environment_policy]\ninherit = "core"\n' >>"$destination"
 }
 
 prepare_real_codex_home() {
