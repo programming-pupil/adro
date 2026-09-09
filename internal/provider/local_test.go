@@ -627,11 +627,11 @@ func TestLocalProviderCodexSessionArguments(t *testing.T) {
 	sessionID := "11111111-1111-4111-8111-111111111111"
 	p := NewLocalProvider("codex", nil, t.TempDir(), newTestBus())
 	initial := strings.Join(p.commandArgs("prompt", sessionID, false), " ")
-	if initial != "exec --json" {
+	if initial != "app-server --listen stdio://" {
 		t.Fatalf("initial args=%q", initial)
 	}
 	continued := strings.Join(p.commandArgs("repair", sessionID, true), " ")
-	if continued != "exec resume --json "+sessionID {
+	if continued != "app-server --listen stdio://" {
 		t.Fatalf("continued args=%q", continued)
 	}
 
@@ -667,7 +667,7 @@ func TestLocalProviderStartRunDoesNotResumeLogicalSession(t *testing.T) {
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "logical-session", Title: "logical session"})
 	if err != nil {
 		t.Fatal(err)
@@ -714,7 +714,7 @@ func TestLocalProviderCodexContinuationReadsPromptFromStdin(t *testing.T) {
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-stdin-continuation", Title: "codex stdin continuation"})
 	if err != nil {
 		t.Fatal(err)
@@ -762,7 +762,7 @@ func TestLocalProviderRejectsAppendInputForCodexExec(t *testing.T) {
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-one-shot-input", Title: "codex one shot input"})
 	if err != nil {
 		t.Fatal(err)
@@ -821,7 +821,7 @@ func TestLocalProviderCodexExecClosesStdin(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "exec-eof", Title: "exec eof"})
 	if err != nil {
 		t.Fatal(err)
@@ -850,7 +850,7 @@ sleep 30
 		t.Fatal(err)
 	}
 	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-terminal", Title: "codex terminal"})
 	if err != nil {
 		t.Fatal(err)
@@ -901,7 +901,7 @@ func TestLocalProviderStoresNativeCodexThreadID(t *testing.T) {
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\""+want+"\"}'\n"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-thread", Title: "codex thread"})
 	if err != nil {
 		t.Fatal(err)
@@ -933,7 +933,7 @@ func TestLocalProviderRejectsCodexContinuationWithoutThreadProof(t *testing.T) {
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf 'plain output\\n'\n"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	p := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-no-proof", Title: "codex no proof"})
 	if err != nil {
 		t.Fatal(err)

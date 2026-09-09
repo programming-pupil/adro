@@ -901,9 +901,11 @@ func isJSONLEventStream(output string) bool {
 			continue
 		}
 		var event struct {
-			Type string `json:"type"`
+			Type   string `json:"type"`
+			Method string `json:"method"`
 		}
-		if json.Unmarshal([]byte(line), &event) == nil && strings.TrimSpace(event.Type) != "" {
+		if json.Unmarshal([]byte(line), &event) == nil &&
+			(strings.TrimSpace(event.Type) != "" || strings.TrimSpace(event.Method) != "") {
 			return true
 		}
 	}
@@ -931,18 +933,28 @@ func isCodexAgentMessageType(value string) bool {
 	return normalized == "agentmessage"
 }
 
-// codexAgentMessage extracts assistant text from both Codex JSONL envelopes
-// seen in the wild. Older clients emit item.completed with a lower-case
-// agent_message/text item; current clients wrap item_completed inside an
-// event_msg payload and expose an AgentMessage content array.
+// codexAgentMessage extracts assistant text from the Codex event envelopes
+// used by both the CLI JSONL adapter and the app-server protocol. The
+// app-server's canonical shape is a JSON-RPC notification with
+// params.item; some versions also repeat the final agent message under
+// turn/completed.params.turn.items. Only completed item/turn records are
+// eligible so command output or a model quoting an old marker cannot advance
+// a pipeline.
 func codexAgentMessage(line []byte) (itemType, text string, ok bool) {
 	var event struct {
 		Type    string           `json:"type"`
+		Method  string           `json:"method"`
 		Item    codexMessageItem `json:"item"`
 		Payload struct {
 			Type string           `json:"type"`
 			Item codexMessageItem `json:"item"`
 		} `json:"payload"`
+		Params struct {
+			Item codexMessageItem `json:"item"`
+			Turn struct {
+				Items []codexMessageItem `json:"items"`
+			} `json:"turn"`
+		} `json:"params"`
 	}
 	if json.Unmarshal(line, &event) != nil {
 		return "", "", false
@@ -952,11 +964,34 @@ func codexAgentMessage(line []byte) (itemType, text string, ok bool) {
 		if !isCodexCompletedEvent(event.Type) {
 			return "", "", false
 		}
-	} else {
+	} else if event.Payload.Item.Type != "" {
 		item = event.Payload.Item
 		if item.Type == "" || !isCodexCompletedEvent(event.Payload.Type) {
 			return "", "", false
 		}
+	} else if event.Params.Item.Type != "" {
+		// Native JSON-RPC app-server notification:
+		// {"method":"item/completed","params":{"item":...}}.
+		item = event.Params.Item
+		if !isCodexCompletedEvent(event.Method) && !isCodexCompletedEvent(event.Type) {
+			return "", "", false
+		}
+	} else if isCodexTurnCompletedEvent(event.Method) || isCodexTurnCompletedEvent(event.Type) {
+		// A few Codex releases include the completed turn's item list in the
+		// terminal response instead of emitting a separately consumable item.
+		// Walk backwards because the final agent message is the deliverable.
+		for index := len(event.Params.Turn.Items) - 1; index >= 0; index-- {
+			candidate := event.Params.Turn.Items[index]
+			if isCodexAgentMessageType(candidate.Type) {
+				item = candidate
+				break
+			}
+		}
+		if item.Type == "" {
+			return "", "", false
+		}
+	} else {
+		return "", "", false
 	}
 	if item.Text != "" {
 		return item.Type, item.Text, true
@@ -972,7 +1007,12 @@ func codexAgentMessage(line []byte) (itemType, text string, ok bool) {
 
 func isCodexCompletedEvent(value string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(value))
-	return normalized == "item.completed" || normalized == "item_completed"
+	return normalized == "item.completed" || normalized == "item_completed" || normalized == "item/completed"
+}
+
+func isCodexTurnCompletedEvent(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return normalized == "turn/completed" || normalized == "turn.completed" || normalized == "turn_completed"
 }
 
 type codexMessageItem struct {

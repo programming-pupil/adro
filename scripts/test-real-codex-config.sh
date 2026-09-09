@@ -35,7 +35,7 @@ grep -Fq '[shell_environment_policy]' "$run_root/run/config.toml"
 ADRO_CODEX_IGNORE_USER_CONFIG=0 ADRO_CODEX_BASE_URL=https://code.apipod.ai/v1 \
   configure_real_codex_command /usr/local/bin/codex
 case "$ADRO_EXECUTOR_COMMAND" in
-  '/usr/local/bin/codex exec -c model_providers.custom.base_url="https://code.apipod.ai/v1" -c model_reasoning_effort=low --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
+  '/usr/local/bin/codex app-server --listen stdio:// -c model_providers.custom.base_url="https://code.apipod.ai/v1" -c model_reasoning_effort=low --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
   *) printf '%s\n' "unexpected command: $ADRO_EXECUTOR_COMMAND" >&2; exit 1 ;;
 esac
 for feature in apps plugins multi_agent multi_agent_v2 collaboration_modes browser_use browser_use_external browser_use_full_cdp_access computer_use image_generation in_app_browser in_app_chat in_app_local_automation; do

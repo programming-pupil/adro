@@ -495,119 +495,123 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	var output []byte
 	var runErr error
 	if pathErr == nil {
-		cmd := exec.CommandContext(ctx, path, args...)
-		configureLocalCommand(cmd)
-		// CommandContext kills the direct process by default. A real coding
-		// executor can leave descendants holding output pipes open, so use the
-		// process-group cancellation hook and bound Wait's pipe drain as well.
-		cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
-		// The process group is killed by cmd.Cancel on deadline. Keep only a
-		// short pipe-drain grace period: a long WaitDelay makes a bounded
-		// executor timeout look like a two-second hang even after every child
-		// has been fenced and killed.
-		cmd.WaitDelay = 250 * time.Millisecond
-		cmd.Dir = workDir
-		cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
-		// Codex `exec` reads its prompt from stdin when no prompt argv is given.
-		// This is required by some OpenAI-compatible relays and keeps prompts out
-		// of process arguments. The pipe is closed immediately after the initial
-		// prompt is written because exec is one-shot; interactive providers retain
-		// stdin for AppendInput.
-		codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
-		var stdin io.WriteCloser
-		var stdinErr error
-		stdin, stdinErr = cmd.StdinPipe()
-		if stdinErr != nil {
-			runErr = stdinErr
+		if p.executorKind() == "codex" && !codexExecMode(args) {
+			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed)
 		} else {
-			outputCapture := &localOutput{}
-			if codexOneShot {
-				outputCapture.onTerminal = func() {
-					// The structured turn result is already committed to the pipe.
-					// Kill the whole process group so MCP descendants cannot keep
-					// stdout/stderr open and delay Wait indefinitely.
-					_ = terminateLocalCommand(cmd)
-				}
-			}
-			cmd.Stdout = outputCapture
-			cmd.Stderr = outputCapture
-			p.mu.Lock()
-			run := p.runs[runID]
-			var pending []Interaction
-			if run != nil {
-				run.stdin = stdin
-				pending = append(pending, run.pending...)
-				run.pending = nil
-			}
-			p.mu.Unlock()
-			startErr := cmd.Start()
-			if startErr != nil {
-				runErr = startErr
+			cmd := exec.CommandContext(ctx, path, args...)
+			configureLocalCommand(cmd)
+			// CommandContext kills the direct process by default. A real coding
+			// executor can leave descendants holding output pipes open, so use the
+			// process-group cancellation hook and bound Wait's pipe drain as well.
+			cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
+			// The process group is killed by cmd.Cancel on deadline. Keep only a
+			// short pipe-drain grace period: a long WaitDelay makes a bounded
+			// executor timeout look like a two-second hang even after every child
+			// has been fenced and killed.
+			cmd.WaitDelay = 250 * time.Millisecond
+			cmd.Dir = workDir
+			cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+			// Codex `exec` reads its prompt from stdin when no prompt argv is given.
+			// This is required by some OpenAI-compatible relays and keeps prompts out
+			// of process arguments. The pipe is closed immediately after the initial
+			// prompt is written because exec is one-shot; interactive providers retain
+			// stdin for AppendInput.
+			codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
+			var stdin io.WriteCloser
+			var stdinErr error
+			stdin, stdinErr = cmd.StdinPipe()
+			if stdinErr != nil {
+				runErr = stdinErr
 			} else {
-				executorPID = cmd.Process.Pid
+				outputCapture := &localOutput{}
+				if codexOneShot {
+					outputCapture.onTerminal = func() {
+						// The structured turn result is already committed to the pipe.
+						// Kill the whole process group so MCP descendants cannot keep
+						// stdout/stderr open and delay Wait indefinitely.
+						_ = terminateLocalCommand(cmd)
+					}
+				}
+				cmd.Stdout = outputCapture
+				cmd.Stderr = outputCapture
+				p.mu.Lock()
+				run := p.runs[runID]
+				var pending []Interaction
 				if run != nil {
-					close(run.started)
-					run.inputMu.Lock()
-					if codexOneShot {
-						_, writeErr := io.WriteString(stdin, input)
-						if writeErr != nil {
-							runErr = fmt.Errorf("write codex prompt: %w", writeErr)
-						}
-					} else {
-						for _, interaction := range pending {
-							var writeErr error
-							if stdin == nil {
-								writeErr = errors.New("executor is not interactive")
-							} else {
-								_, writeErr = io.WriteString(stdin, interaction.Input+"\n")
+					run.stdin = stdin
+					pending = append(pending, run.pending...)
+					run.pending = nil
+				}
+				p.mu.Unlock()
+				startErr := cmd.Start()
+				if startErr != nil {
+					runErr = startErr
+				} else {
+					executorPID = cmd.Process.Pid
+					if run != nil {
+						close(run.started)
+						run.inputMu.Lock()
+						if codexOneShot {
+							_, writeErr := io.WriteString(stdin, input)
+							if writeErr != nil {
+								runErr = fmt.Errorf("write codex prompt: %w", writeErr)
 							}
-							p.mu.Lock()
-							if current := p.runs[runID]; current != nil {
-								status, eventType := "sent", "interaction.sent"
-								if writeErr != nil {
-									status, eventType = "failed", "interaction.failed"
+						} else {
+							for _, interaction := range pending {
+								var writeErr error
+								if stdin == nil {
+									writeErr = errors.New("executor is not interactive")
+								} else {
+									_, writeErr = io.WriteString(stdin, interaction.Input+"\n")
 								}
-								previous := current.snapshot
-								if updateInteractionLocked(current, interaction.ID, status) {
-									appendRuntimeEventLocked(current, eventType, map[string]any{"interaction_id": interaction.ID})
-									if err := p.persistLocked(); err != nil {
-										current.snapshot = previous
+								p.mu.Lock()
+								if current := p.runs[runID]; current != nil {
+									status, eventType := "sent", "interaction.sent"
+									if writeErr != nil {
+										status, eventType = "failed", "interaction.failed"
+									}
+									previous := current.snapshot
+									if updateInteractionLocked(current, interaction.ID, status) {
+										appendRuntimeEventLocked(current, eventType, map[string]any{"interaction_id": interaction.ID})
+										if err := p.persistLocked(); err != nil {
+											current.snapshot = previous
+										}
 									}
 								}
+								p.mu.Unlock()
+							}
+						}
+						run.inputMu.Unlock()
+						// `codex exec` is a one-shot command. Closing stdin after the
+						// initial prompt is part of its protocol and gives the relay a
+						// complete request boundary.
+						if codexOneShot && stdin != nil {
+							_ = stdin.Close()
+							p.mu.Lock()
+							if current := p.runs[runID]; current != nil {
+								current.stdin = nil
 							}
 							p.mu.Unlock()
 						}
 					}
-					run.inputMu.Unlock()
-					// `codex exec` is a one-shot command. Closing stdin after the
-					// initial prompt is part of its protocol and gives the relay a
-					// complete request boundary.
-					if codexOneShot && stdin != nil {
-						_ = stdin.Close()
-						p.mu.Lock()
-						if current := p.runs[runID]; current != nil {
-							current.stdin = nil
-						}
-						p.mu.Unlock()
+					runErr = cmd.Wait()
+					output = outputCapture.Bytes()
+					if runErr != nil && outputCapture.Terminal() {
+						// A deliberately terminated process is successful only when the
+						// provider emitted both terminal evidence markers. Without those
+						// markers the normal process error/timeout path remains intact.
+						runErr = nil
 					}
 				}
-				runErr = cmd.Wait()
-				output = outputCapture.Bytes()
-				if runErr != nil && outputCapture.Terminal() {
-					// A deliberately terminated process is successful only when the
-					// provider emitted both terminal evidence markers. Without those
-					// markers the normal process error/timeout path remains intact.
-					runErr = nil
+				if startErr != nil && run != nil {
+					close(run.started)
 				}
-			}
-			if startErr != nil && run != nil {
-				close(run.started)
-			}
-			if stdin != nil {
-				_ = stdin.Close()
-			}
-			if output == nil {
-				output = outputCapture.Bytes()
+				if stdin != nil {
+					_ = stdin.Close()
+				}
+				if output == nil {
+					output = outputCapture.Bytes()
+				}
 			}
 		}
 	} else {
@@ -811,12 +815,12 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 	case strings.Contains(lower, "started") || strings.Contains(lower, "start") || strings.Contains(lower, "tool_use") || strings.Contains(lower, "function_call"):
 		phase = "before"
 	}
-	if callID != "" && phase != "" && (strings.Contains(lower, "tool") || strings.Contains(lower, "function") || itemType == "command_execution") {
+	if callID != "" && phase != "" && (strings.Contains(lower, "tool") || strings.Contains(lower, "function") || itemType == "command_execution" || itemType == "commandExecution" || itemType == "fileChange" || itemType == "mcpToolCall") {
 		payload := firstString(item, "arguments", "input", "output", "aggregated_output", "content")
 		*sequence++
 		*events = append(*events, ToolEvent{CallID: callID, Name: name, Phase: phase, Payload: payload, Sequence: *sequence})
 	}
-	for _, key := range []string{"tool", "content_block", "data"} {
+	for _, key := range []string{"params", "tool", "content_block", "data"} {
 		if child := value[key]; child != nil {
 			collectToolValue(child, events, sequence)
 		}
@@ -848,6 +852,9 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 			args[i] = arg
 		}
 		if p.executorKind() == "codex" {
+			if !codexExecMode(args) {
+				return withCodexAppServerArgs(args)
+			}
 			return p.withCodexSessionArgs(args, input, sessionID, resumed)
 		}
 		for i, arg := range args {
@@ -868,13 +875,24 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 		}
 		return args
 	case "codex":
-		if resumed && uuidPattern.MatchString(sessionID) {
-			return []string{"exec", "resume", "--json", sessionID}
-		}
-		return []string{"exec", "--json"}
+		return []string{"app-server", "--listen", "stdio://"}
 	default:
 		return []string{input}
 	}
+}
+
+func withCodexAppServerArgs(args []string) []string {
+	expanded := make([]string, 0, len(args)+3)
+	for _, arg := range args {
+		if arg == "{input}" {
+			continue
+		}
+		expanded = append(expanded, arg)
+	}
+	if len(expanded) == 0 {
+		return []string{"app-server", "--listen", "stdio://"}
+	}
+	return expanded
 }
 
 func codexExecMode(args []string) bool {
@@ -1026,7 +1044,7 @@ func providerSessionID(output []byte, kind string) string {
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "thread.started" {
 			continue
 		}
-		if uuidPattern.MatchString(event.ThreadID) {
+		if codexNativeThreadPattern.MatchString(event.ThreadID) {
 			return event.ThreadID
 		}
 	}

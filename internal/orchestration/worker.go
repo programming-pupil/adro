@@ -311,7 +311,7 @@ func collectProviderMessageTexts(value any, inMessage bool, candidates *[]string
 		}
 		// Codex currently emits item.completed.item.text; older/current
 		// variants also wrap the same item under event_msg.payload.
-		for _, key := range []string{"item", "payload", "content"} {
+		for _, key := range []string{"item", "params", "payload", "content"} {
 			if child, ok := item[key]; ok {
 				collectProviderMessageTexts(child, message, candidates)
 			}

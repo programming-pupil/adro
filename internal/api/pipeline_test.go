@@ -738,6 +738,30 @@ func TestPipelineResultFromSnapshotParsesCurrentCodexAgentMessageEnvelope(t *tes
 	}
 }
 
+func TestPipelineResultFromSnapshotParsesCodexAppServerItemCompleted(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineDevelopment,
+		Roles:         domain.PipelineAgentRoles{Developer: "developer"},
+	}
+	output := `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"agentMessage","phase":"final_answer","text":"ADRO_RESULT_JSON={\"stage\":2,\"outcome\":\"pass\",\"code_version\":\"real-app-server\"}"}}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.CodeVersion != "real-app-server" {
+		t.Fatalf("app-server item/completed was not parsed: ok=%v result=%+v", ok, result)
+	}
+}
+
+func TestPipelineResultFromSnapshotParsesCodexAppServerTurnItems(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineReport,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed","items":[{"type":"commandExecution","aggregatedOutput":"old marker"},{"type":"agentMessage","phase":"final_answer","text":"ADRO_RESULT_JSON={\"stage\":7,\"outcome\":\"pass\",\"final_report\":\"from turn items\"}"}]}}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "pass" || result.Report != "from turn items" {
+		t.Fatalf("app-server turn/completed items were not parsed: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotAcceptsStructuredCoverageAndErrorLog(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineReport,

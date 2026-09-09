@@ -152,6 +152,9 @@ write_real_codex_wrapper() {
     if [ -n "$go_root" ]; then
       printf 'export GOROOT=%s\n' "$go_root_quoted"
     fi
+    # app-server speaks JSON-RPC on stdin and must not be wrapped in the
+    # one-shot prompt buffering/retry protocol below.
+    printf '%s\n' 'if [ "${1:-}" = app-server ]; then exec '"$executor_quoted"' "$@"; fi'
     # Some real relay turns occasionally emit an invalid optional-tool call
     # instead of opening the shell tool. Buffer those attempts and retry the
     # same prompt through the same local Codex binary. The provider sees only
@@ -241,5 +244,5 @@ configure_real_codex_command() {
   if [ "${ADRO_CODEX_ENABLE_CODE_MODE:-0}" = "1" ]; then
     shell_only_flags=' --enable code_mode_host --enable code_mode_only --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2 --disable collaboration_modes --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access --disable computer_use --disable image_generation --disable in_app_browser --disable in_app_chat --disable in_app_local_automation'
   fi
-  export ADRO_EXECUTOR_COMMAND="$executor exec$flags$shell_only_flags --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
+  export ADRO_EXECUTOR_COMMAND="$executor app-server --listen stdio://$flags$shell_only_flags"
 }

@@ -6,6 +6,7 @@
 /coverage/
 /test-results/
 /node_modules/
+/\.tmp-go-cache*/
 /attachments/
 /.adro/
 /.agent_context/

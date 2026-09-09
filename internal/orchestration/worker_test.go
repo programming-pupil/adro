@@ -86,6 +86,14 @@ func TestProviderOutcomeReadsCodexAgentMessageJSONL(t *testing.T) {
 	}
 }
 
+func TestProviderOutcomeReadsCodexAppServerAgentMessage(t *testing.T) {
+	output := `{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"ADRO_RESULT_JSON={\"outcome\":\"pass\",\"reason_code\":\"design\"}"}}}`
+	outcome, fields := providerOutcome(output)
+	if outcome != "pass" || fields["provider_reason_code"] != "design" {
+		t.Fatalf("app-server agent message was not classified: outcome=%q fields=%v", outcome, fields)
+	}
+}
+
 func TestProviderOutcomeReadsNestedCodexAgentMessageContent(t *testing.T) {
 	output := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"ADRO_RESULT_JSON={\"outcome\":\"bug\",\"reason_code\":\"qa_bug\"}"}]}}}`
 	outcome, fields := providerOutcome(output)
