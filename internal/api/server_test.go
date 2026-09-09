@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,45 @@ func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 	command, ok := mock.LastCommand()
 	if !ok || command.ContextVersion != envelope.Manifest.Version || command.ContextEnvelope.Manifest.Version != envelope.Manifest.Version {
 		t.Fatalf("work-item dispatch context version drift: command=%+v envelope=%d", command, envelope.Manifest.Version)
+	}
+}
+
+func TestBugListRoutePaginatesWithoutDroppingRetainedBugs(t *testing.T) {
+	s := testServer(t)
+	for i := 0; i < 3; i++ {
+		body := fmt.Sprintf(`{"workspace_id":"w1","title":"bug-%d","repository_id":"repo","actual":"failure-%d"}`, i, i)
+		response := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", body, map[string]string{"X-Workspace-ID": "w1"})
+		if response.Code != http.StatusCreated {
+			t.Fatalf("create bug status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	first := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs?limit=2", "", map[string]string{"X-Workspace-ID": "w1"})
+	if first.Code != http.StatusOK {
+		t.Fatalf("first page status=%d body=%s", first.Code, first.Body.String())
+	}
+	var firstPage struct {
+		Items      []domain.Bug `json:"items"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &firstPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(firstPage.Items) != 2 || firstPage.NextCursor == "" {
+		t.Fatalf("first page=%+v", firstPage)
+	}
+	second := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs?limit=2&cursor="+url.QueryEscape(firstPage.NextCursor), "", map[string]string{"X-Workspace-ID": "w1"})
+	if second.Code != http.StatusOK {
+		t.Fatalf("second page status=%d body=%s", second.Code, second.Body.String())
+	}
+	var secondPage struct {
+		Items      []domain.Bug `json:"items"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &secondPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.NextCursor != "" || secondPage.Items[0].ID == firstPage.Items[0].ID {
+		t.Fatalf("second page=%+v first=%+v", secondPage, firstPage)
 	}
 }
 

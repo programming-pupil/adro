@@ -47,9 +47,12 @@ func (s *Server) systemDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"control_plane_durable": os.Getenv("ADRO_STATE_FILE") != "",
 		"events_durable":        os.Getenv("ADRO_EVENT_STATE_FILE") != "",
 		"audit_durable":         os.Getenv("ADRO_AUDIT_STATE_FILE") != "",
+		"auth_durable":          os.Getenv("ADRO_AUTH_STATE_FILE") != "",
 		"provider_durable":      os.Getenv("ADRO_RUN_STATE_FILE") != "",
 		"harness_durable":       s.Harness != nil && s.Harness.Durable(),
 		"plugins_durable":       s.Plugins != nil && s.Plugins.Durable(),
+		"runner_durable":        os.Getenv("ADRO_RUNNER_STATE_FILE") != "",
+		"orchestration_durable": os.Getenv("ADRO_ORCHESTRATION_STATE_FILE") != "",
 		"memory_durable":        s.Memory != nil && strings.TrimSpace(os.Getenv("ADRO_MEMORY_STATE_FILE")) != "",
 	}
 	transcriptValid, compactionRecall := true, true

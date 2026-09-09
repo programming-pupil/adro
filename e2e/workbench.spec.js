@@ -196,19 +196,25 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
 });
 
 test('creates and operates native Agent, Squad, and immutable Plan records', async ({ page }) => {
+  const runSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const repositoryName = `native-orchestration-service-${runSuffix}`;
+  const requirementTitle = `Native orchestration acceptance ${runSuffix}`;
+  const agentName = `Browser Native Agent ${runSuffix}`;
+  const squadName = `Browser Native Squad ${runSuffix}`;
+
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
-  await page.locator('#resourceFields input[name="name"]').fill('native-orchestration-service');
+  await page.locator('#resourceFields input[name="name"]').fill(repositoryName);
   await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/native-orchestration.git');
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('Native orchestration acceptance');
+  await page.locator('#requirementForm input[name="title"]').fill(requirementTitle);
   await page.locator('#requirementForm textarea[name="description"]').fill('Create an immutable plan from a published revisioned squad.');
   await page.locator('#requirementForm textarea[name="acceptance"]').fill('Agent and Squad revisions are frozen\nTimeline and replay are available');
-  await page.locator('#requirementRepository').selectOption({ label: 'native-orchestration-service' });
+  await page.locator('#requirementRepository').selectOption({ label: repositoryName });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
   await expect(page.locator('#requirementDialog')).not.toBeVisible();
@@ -216,13 +222,13 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
   await page.locator('#agentForm input[name="member"]').fill('native-orchestration-owner');
-  await page.locator('#agentForm input[name="name"]').fill('Browser Native Agent');
+  await page.locator('#agentForm input[name="name"]').fill(agentName);
   await page.locator('#agentForm textarea[name="instructions"]').fill('Execute the frozen graph with evidence.');
   await page.locator('#agentForm input[name="role"]').fill('delivery-lead');
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
 
-  const agentRow = page.locator('tr').filter({ hasText: 'Browser Native Agent' }).first();
+  const agentRow = page.locator('tr').filter({ hasText: agentName }).first();
   await expect(agentRow).toContainText('active');
   const agentID = await agentRow.locator('.orchestration-id').textContent();
   await agentRow.locator('[data-orchestration-action="validate"]').click();
@@ -231,29 +237,49 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await expect(page.locator('#orchestrationStatus')).toContainText('capabilities');
 
   await page.locator('#newSquad').click();
-  await page.locator('#squadForm input[name="name"]').fill('Browser Native Squad');
+  await page.locator('#squadForm input[name="name"]').fill(squadName);
   await page.locator('#squadForm textarea[name="description"]').fill('Revision-locked browser acceptance squad');
   await page.locator('#squadLeader').selectOption(agentID.trim());
   await page.locator('#squadForm button[type="submit"]').click();
   await expect(page.locator('#squadDialog')).not.toBeVisible();
 
-  const squadRow = page.locator('tr').filter({ hasText: 'Browser Native Squad' }).first();
+  const squadRow = page.locator('tr').filter({ hasText: squadName }).first();
   await expect(squadRow).toContainText('draft');
   const squadID = (await squadRow.locator('.orchestration-id').textContent()).trim();
+  await squadRow.locator('[data-orchestration-action="edit-graph"]').click();
+  await expect(page.locator('#graphEditorDialog')).toBeVisible();
+  await page.locator('#graphAddGate').click();
+  await page.locator('#graphConnect').click();
+  await page.locator('#graphEditorCanvas [data-graph-node]').nth(0).click();
+  await page.locator('#graphEditorCanvas [data-graph-node]').nth(1).click();
+  await page.locator('#graphConnect').click();
+  await page.locator('#graphEditorCanvas [data-graph-node]').nth(1).click();
+  await page.locator('#graphEditorCanvas [data-graph-node]').nth(0).click();
+  await page.locator('.graph-edge-row [data-edge-field="max_traversals"]').nth(1).fill('1');
+  await page.locator('.graph-edge-row [data-edge-field="max_traversals"]').nth(1).press('Tab');
+  await expect(page.locator('#graphEditorJSON')).toHaveValue(/success/);
+  await page.locator('#graphEditorSave').click();
+  await expect(page.locator('#graphEditorDialog')).not.toBeVisible();
+  await expect(page.locator('#orchestrationStatus')).toContainText('图已保存');
+  const refreshedSquadRow = page.locator('tr').filter({ hasText: squadName }).first();
+  await expect(refreshedSquadRow).toContainText('r2');
+  await refreshedSquadRow.locator('[data-orchestration-action="edit-graph"]').click();
+  await expect(page.locator('#graphEditorJSON')).toHaveValue(/gate/);
+  await page.locator('#closeGraphEditor').click();
   await squadRow.locator('[data-orchestration-action="validate"]').click();
   await expect(page.locator('#orchestrationStatus')).toContainText('validate');
   await squadRow.locator('[data-orchestration-action="dry-run"]').click();
   await expect(page.locator('#orchestrationStatus')).toContainText('dry-run');
   await squadRow.locator('[data-orchestration-action="publish"]').click();
 
-  const publishedSquad = page.locator('tr').filter({ hasText: 'Browser Native Squad' }).first();
+  const publishedSquad = page.locator('tr').filter({ hasText: squadName }).first();
   await expect(publishedSquad).toContainText('published');
   await expect(publishedSquad).toContainText('v1');
 
   await page.locator('#newPlan').click();
-  const requirementOption = page.locator('#nativePlanRequirement option').filter({ hasText: 'Native orchestration acceptance' }).first();
+  const requirementOption = page.locator('#nativePlanRequirement option').filter({ hasText: requirementTitle }).first();
   await page.locator('#nativePlanRequirement').selectOption(await requirementOption.getAttribute('value'));
-  const squadOption = page.locator('#nativePlanTarget option').filter({ hasText: 'Squad · Browser Native Squad' }).first();
+  const squadOption = page.locator('#nativePlanTarget option').filter({ hasText: `Squad · ${squadName}` }).first();
   await page.locator('#nativePlanTarget').selectOption(await squadOption.getAttribute('value'));
   await page.locator('#nativePlanForm button[type="submit"]').click();
   await expect(page.locator('#nativePlanDialog')).not.toBeVisible();

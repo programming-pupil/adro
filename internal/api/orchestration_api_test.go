@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,12 +16,55 @@ import (
 	"github.com/adro-project/adro/internal/store"
 )
 
+func TestConfiguredDurableStateLoadFailureFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orchestration.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"revision":1,"plans":{"broken":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	t.Setenv("ADRO_MEMORY_STATE_FILE", "")
+	t.Setenv("ADRO_ORCHESTRATION_STATE_FILE", path)
+	s := testServer(t)
+	for _, route := range []string{"/readyz", "/api/v1/requirements"} {
+		response := request(t, s.Routes(), http.MethodGet, route, "", nil)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "state_load_failed") {
+			t.Fatalf("route=%s status=%d body=%s", route, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestExecutionPlanGraphValidationRoute(t *testing.T) {
 	s := testServer(t)
 	body := `{"graph":{"id":"g","version":1,"entry_node_ids":["a"],"exit_node_ids":["a"],"nodes":[{"id":"a","kind":"gate"}],"edges":[]}}`
 	r := request(t, s.Routes(), http.MethodPost, "/api/v1/execution-plans/validate", body, map[string]string{"X-Workspace-ID": "w1"})
 	if r.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+}
+
+func TestAgentGraphRoutePersistsVersionedGraphAndPlanUsesIt(t *testing.T) {
+	s := testServer(t)
+	agentID := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents", `{"id":"`+agentID+`","name":"graph agent","status":"active","executor_binding":{"provider_id":"local"},"input_schema":{"id":"in","version":1},"output_schema":{"id":"out","version":1}}`, map[string]string{"X-Workspace-ID": "w1"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create agent status=%d body=%s", created.Code, created.Body.String())
+	}
+	graph := `{"id":"agent-graph","version":1,"entry_node_ids":["dev"],"exit_node_ids":["verify"],"nodes":[{"id":"dev","kind":"agent","agent_ref":{"id":"` + agentID + `","revision":1}},{"id":"verify","kind":"gate"}],"edges":[{"id":"dev-verify","from":"dev","to":"verify","on":"success"}]}`
+	updated := request(t, s.Routes(), http.MethodPut, "/api/v1/workspaces/w1/agents/"+agentID+"/graph", `{"expected_revision":1,"graph":`+graph+`}`, map[string]string{"X-Workspace-ID": "w1"})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update graph status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	got := request(t, s.Routes(), http.MethodGet, "/api/v1/workspaces/w1/agents/"+agentID+"/graph", "", map[string]string{"X-Workspace-ID": "w1"})
+	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "agent-graph") {
+		t.Fatalf("get graph status=%d body=%s", got.Code, got.Body.String())
+	}
+	req, err := s.Store.CreateRequirement(domain.Requirement{ID: "req-agent-graph", WorkspaceID: "w1", Title: "graph plan", Description: "uses agent graph", AcceptanceCriteria: []string{"graph is frozen"}, AssigneeMemberIDs: []string{"member-graph"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+req.ID+"/execution-plan", `{"agent_id":"`+agentID+`","agent_revision":2,"idempotency_key":"agent-graph-plan"}`, map[string]string{"X-Workspace-ID": "w1"})
+	if plan.Code != http.StatusCreated || !strings.Contains(plan.Body.String(), "agent-graph") {
+		t.Fatalf("create plan status=%d body=%s", plan.Code, plan.Body.String())
 	}
 }
 
@@ -94,6 +139,57 @@ func TestSquadGraphForkAndImportExportRoutes(t *testing.T) {
 	}
 }
 
+func TestSquadPublishPersistsLatestGraphRevision(t *testing.T) {
+	s := testServer(t)
+	agentID := "550e8400-e29b-41d4-a716-446655440000"
+	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{
+		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive,
+		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"},
+		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	squad := orchestration.SquadDefinition{
+		ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "publish me",
+		Revision: 1, Status: orchestration.SquadDraft,
+		Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}},
+		Graph: orchestration.WorkflowGraph{
+			ID: "publish-graph", Version: 1, EntryNodeIDs: []string{"agent"}, ExitNodeIDs: []string{"agent"},
+			Nodes: []orchestration.WorkflowNode{{ID: "agent", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}},
+		},
+	}
+	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
+		t.Fatal(err)
+	}
+	graph := squad.Graph
+	graph.Version = 2
+	graph.ID = "publish-graph-v2"
+	updated := request(t, s.Routes(), http.MethodPut, "/api/v1/workspaces/w1/squads/"+squad.ID+"/graph", mustJSON(map[string]any{
+		"expected_revision": 1, "graph": graph,
+	}), map[string]string{"X-Workspace-ID": "w1"})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	published := request(t, s.Routes(), http.MethodPost, "/api/v1/squads/"+squad.ID+"/publish?workspace_id=w1", "", map[string]string{"X-Workspace-ID": "w1"})
+	if published.Code != http.StatusOK {
+		t.Fatalf("publish status=%d body=%s", published.Code, published.Body.String())
+	}
+	var got orchestration.SquadDefinition
+	if err := json.Unmarshal(published.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != orchestration.SquadPublished || got.PublishedVersion != 1 || got.Revision != 3 || got.Graph.ID != "publish-graph-v2" {
+		t.Fatalf("published squad=%+v", got)
+	}
+	latest, err := s.Orchestration.GetSquad("w1", squad.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Status != orchestration.SquadPublished || latest.PublishedVersion != 1 || latest.Revision != 3 {
+		t.Fatalf("latest squad=%+v", latest)
+	}
+}
+
 func TestQuickSquadPersistsIncompleteDraftAndReturnsValidationErrors(t *testing.T) {
 	s := testServer(t)
 	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "quick draft", Description: "draft", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
@@ -128,6 +224,19 @@ func TestMentionPreviewRoute(t *testing.T) {
 	}
 	body := `{"comment_id":"c1","revision":1,"content":"[@agent](mention://agent/550e8400-e29b-41d4-a716-446655440000)"}`
 	r := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/req-0001/comments/trigger-preview", body, map[string]string{"X-Workspace-ID": "w1"})
+	if r.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+}
+
+func TestBugMentionPreviewRoute(t *testing.T) {
+	s := testServer(t)
+	bug, _, err := s.Store.UpsertBug(domain.Bug{ID: "bug-preview", WorkspaceID: "w1", RepositoryID: "repo", Fingerprint: "fingerprint-preview", Title: "preview bug", Actual: "broken"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"comment_id":"bug-comment-preview","revision":1,"content":"[@agent](mention://agent/550e8400-e29b-41d4-a716-446655440000)"}`
+	r := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs/"+bug.ID+"/comments/trigger-preview", body, map[string]string{"X-Workspace-ID": "w1"})
 	if r.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
 	}

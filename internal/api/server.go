@@ -73,6 +73,7 @@ type Server struct {
 	watchedRuns       map[string]struct{}
 	watchedPlans      map[string]struct{}
 	triggerOutcomes   map[string][]mentions.TriggerOutcome
+	startupErr        error
 }
 
 // authenticatedWorkspaceKey marks the workspace selected by the interactive
@@ -165,9 +166,11 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 	if router == nil {
 		router = provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
 	}
+	var startupErr error
 	authService, err := adroauth.NewService(os.Getenv("ADRO_AUTH_STATE_FILE"), os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	if err != nil {
 		logger.Error("load authentication state", "error", err)
+		startupErr = fmt.Errorf("load authentication state: %w", err)
 		authService, _ = adroauth.NewService("", os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	}
 	harnessStore, harnessErr := harness.New("")
@@ -186,10 +189,24 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 			orchestrationRepo = loaded
 		} else {
 			logger.Error("load orchestration state", "error", loadErr, "path", path)
+			if startupErr == nil {
+				startupErr = fmt.Errorf("load orchestration state: %w", loadErr)
+			}
 		}
 	}
 	if orchestrationRepo == nil && strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")) == "" {
 		orchestrationRepo = orchestration.NewMemoryRepository()
+	}
+	runners := runner.NewSupervisor()
+	if path := strings.TrimSpace(os.Getenv("ADRO_RUNNER_STATE_FILE")); path != "" {
+		if loaded, loadErr := runner.NewPersistentSupervisor(path); loadErr == nil {
+			runners = loaded
+		} else {
+			logger.Error("load runner state", "error", loadErr, "path", path)
+			if startupErr == nil {
+				startupErr = fmt.Errorf("load runner state: %w", loadErr)
+			}
+		}
 	}
 	memoryRepo := memory.NewRepository()
 	if path := strings.TrimSpace(os.Getenv("ADRO_MEMORY_STATE_FILE")); path != "" {
@@ -197,9 +214,12 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 			memoryRepo = loaded
 		} else {
 			logger.Error("load memory state", "error", loadErr, "path", path)
+			if startupErr == nil {
+				startupErr = fmt.Errorf("load memory state: %w", loadErr)
+			}
 		}
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runner.NewSupervisor(), Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}}
+	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
@@ -238,6 +258,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer func() { _ = finishSpan("ok", "") }()
+	if s.startupErr != nil {
+		s.problem(w, r, http.StatusServiceUnavailable, "state_load_failed", "configured durable state could not be loaded", nil)
+		return
+	}
 	// Mutating store methods persist their own snapshots. Flushing after every
 	// read (including CORS preflights and the long-lived WebSocket route) turns
 	// a burst of dashboard reads into serialized fsyncs and can stall requests
@@ -524,7 +548,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tail := strings.TrimPrefix(parts[1], "/")
 		s.executionPlanRequirementRoute(w, r, parts[0], tail)
 	case strings.HasPrefix(path, "/api/v1/requirements/") && strings.HasSuffix(path, "/comments/trigger-preview"):
-		s.mentionPreviewRoute(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/requirements/"), "/comments/trigger-preview"))
+		s.mentionPreviewRoute(w, r, "requirement", strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/requirements/"), "/comments/trigger-preview"))
+	case strings.HasPrefix(path, "/api/v1/bugs/") && strings.HasSuffix(path, "/comments/trigger-preview"):
+		s.mentionPreviewRoute(w, r, "bug", strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/bugs/"), "/comments/trigger-preview"))
 	case path == "/api/v1/workflow-templates" || strings.HasPrefix(path, "/api/v1/workflow-templates/"):
 		s.workflowTemplateRoute(w, r, strings.TrimPrefix(path, "/api/v1/workflow-templates"))
 	case path == "/api/v1/chats" || strings.HasPrefix(path, "/api/v1/chats/"):
@@ -1269,7 +1295,8 @@ func (s *Server) applyGate(w http.ResponseWriter, r *http.Request, req domain.Re
 
 func (s *Server) bugs(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		s.writeJSON(w, 200, map[string]any{"items": s.Store.ListBugs(r.Header.Get("X-Workspace-ID"), r.URL.Query().Get("status"))})
+		items, next := s.Store.ListBugsPage(r.Header.Get("X-Workspace-ID"), r.URL.Query().Get("status"), r.URL.Query().Get("cursor"), queryInt(r, "limit", 50))
+		s.writeJSON(w, 200, map[string]any{"items": items, "next_cursor": next})
 		return
 	}
 	if r.Method != http.MethodPost {

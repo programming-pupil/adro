@@ -56,8 +56,17 @@ Environment:
   ADRO_HARNESS_RECOVERY_INTERVAL  Harness recovery worker interval (default: 1s).
   ADRO_HARNESS_DISPATCH_LEASE_TTL  Provider intent claim lease (must exceed executor timeout).
   ADRO_RUNNER_HEARTBEAT_MAX_AGE  Mark runners offline after this heartbeat age (default: 30s).
+  ADRO_STATE_FILE         Durable requirement/Bug control-plane state file.
+  ADRO_EVENT_STATE_FILE   Durable event bus state file.
+  ADRO_AUDIT_STATE_FILE   Durable audit ledger state file.
+  ADRO_AUTH_STATE_FILE    Durable local identity state file.
+  ADRO_RUN_STATE_FILE     Durable provider run/session state file.
   ADRO_HARNESS_STATE_FILE  Durable session/turn/checkpoint state file.
   ADRO_PLUGIN_STATE_FILE   Durable signed plugin installation registry.
+  ADRO_RUNNER_STATE_FILE  Durable runner registration and heartbeat state file.
+  ADRO_ORCHESTRATION_STATE_FILE
+                          Durable Agent/Squad graph, plan, event and outbox state file.
+  ADRO_MEMORY_STATE_FILE   Durable evidence-backed Memory state file.
   ADRO_HOME               Local state directory (default: ./.adro).
   ADRO_API_PORT           API port (default: 8080).
   ADRO_WEB_PORT           WebUI port (default: 8081).
@@ -185,6 +194,9 @@ export ADRO_AUTH_STATE_FILE="${ADRO_AUTH_STATE_FILE:-$STATE_DIR/auth.json}"
 export ADRO_RUN_STATE_FILE="${ADRO_RUN_STATE_FILE:-$STATE_DIR/runs.json}"
 export ADRO_HARNESS_STATE_FILE="${ADRO_HARNESS_STATE_FILE:-$STATE_DIR/harness.json}"
 export ADRO_PLUGIN_STATE_FILE="${ADRO_PLUGIN_STATE_FILE:-$STATE_DIR/plugins.json}"
+export ADRO_RUNNER_STATE_FILE="${ADRO_RUNNER_STATE_FILE:-$STATE_DIR/runners.json}"
+export ADRO_ORCHESTRATION_STATE_FILE="${ADRO_ORCHESTRATION_STATE_FILE:-$STATE_DIR/orchestration.json}"
+export ADRO_MEMORY_STATE_FILE="${ADRO_MEMORY_STATE_FILE:-$STATE_DIR/memory.json}"
 
 log "Starting native ADRO API on :$API_PORT"
 start_background "$API_PID_FILE" "$API_LOG" "$BIN_DIR/adro-api" -addr ":$API_PORT" -artifact-root "$ARTIFACT_ROOT"

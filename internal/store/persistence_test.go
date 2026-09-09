@@ -92,6 +92,44 @@ func TestPersistentMemoryRoundTripsControlPlaneAndContext(t *testing.T) {
 	}
 }
 
+func TestBugPaginationIsStableAcrossPages(t *testing.T) {
+	m := NewMemory()
+	for _, id := range []string{"bug-1", "bug-2", "bug-3"} {
+		if _, _, err := m.UpsertBug(domain.Bug{ID: id, WorkspaceID: "w", RepositoryID: "repo", Fingerprint: "fingerprint-" + id, Title: id, Actual: "failed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, cursor := m.ListBugsPage("w", "", "", 2)
+	if len(first) != 2 || cursor == "" {
+		t.Fatalf("first page=%+v cursor=%q", first, cursor)
+	}
+	second, next := m.ListBugsPage("w", "", cursor, 2)
+	if len(second) != 1 || next != "" || second[0].ID == first[0].ID {
+		t.Fatalf("second page=%+v next=%q first=%+v", second, next, first)
+	}
+}
+
+func TestCommentPaginationIsStableAcrossPages(t *testing.T) {
+	m := NewMemory()
+	requirement, err := m.CreateRequirement(domain.Requirement{ID: "req-comments", WorkspaceID: "w", Title: "comments", Description: "pagination", AcceptanceCriteria: []string{"retained"}, AssigneeMemberIDs: []string{"member"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"first", "second", "third"} {
+		if _, err := m.CreateComment(domain.Comment{WorkspaceID: "w", TargetType: "requirement", TargetID: requirement.ID, AuthorID: "member", AuthorType: "member", Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, cursor := m.ListComments("w", "requirement", requirement.ID, "", 2)
+	if len(first) != 2 || cursor == "" {
+		t.Fatalf("first page=%+v cursor=%q", first, cursor)
+	}
+	second, next := m.ListComments("w", "requirement", requirement.ID, cursor, 2)
+	if len(second) != 1 || next != "" || second[0].ID == first[0].ID || second[0].ID == first[1].ID {
+		t.Fatalf("second page=%+v next=%q first=%+v", second, next, first)
+	}
+}
+
 func TestPersistentMemoryRejectsStaleWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.json")
 	first, err := NewPersistentMemory(path)

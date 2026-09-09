@@ -156,6 +156,50 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 		s.problem(w, r, http.StatusNotFound, "agent_not_found", err.Error(), nil)
 		return
 	}
+	if strings.HasSuffix(id, "/graph") {
+		graph := a.Graph
+		if len(graph.Nodes) == 0 {
+			graph = singleAgentGraph(a)
+		}
+		if r.Method == http.MethodGet {
+			digest, _ := graph.CanonicalHash()
+			s.writeJSON(w, http.StatusOK, map[string]any{"format": "adro.workflow-graph.v1", "graph": graph, "validation_digest": digest, "agent_id": a.ID, "agent_revision": a.Revision})
+			return
+		}
+		if r.Method != http.MethodPut {
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "PUT is required", nil)
+			return
+		}
+		if !s.requireOrchestrationManagePermission(w, r) {
+			return
+		}
+		var input struct {
+			ExpectedRevision int64                       `json:"expected_revision"`
+			Graph            orchestration.WorkflowGraph `json:"graph"`
+		}
+		if err := decodeJSON(r, &input); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+			return
+		}
+		if input.ExpectedRevision == 0 {
+			s.problem(w, r, http.StatusBadRequest, "expected_revision_required", "expected_revision is required", nil)
+			return
+		}
+		if err := orchestration.ValidateGraph(input.Graph); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "graph_validation_failed", err.Error(), map[string]any{"diagnostics": orchestration.DiagnoseGraph(input.Graph)})
+			return
+		}
+		input.Graph.ValidationDigest, _ = input.Graph.CanonicalHash()
+		a.Graph = input.Graph
+		a.Revision++
+		a.UpdatedAt = time.Now().UTC()
+		if err := s.Orchestration.SaveAgent(a, input.ExpectedRevision); err != nil {
+			s.problem(w, r, http.StatusConflict, "agent_graph_update_conflict", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"agent": a, "graph": a.Graph, "validation_digest": a.Graph.ValidationDigest, "diagnostics": orchestration.DiagnoseGraph(a.Graph)})
+		return
+	}
 	if strings.HasSuffix(id, "/validate") {
 		if r.Method != http.MethodPost {
 			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
@@ -543,7 +587,10 @@ func (s *Server) resolveExecutionGraph(workspaceID string, in executionPlanReque
 		}
 		selected = orchestration.VersionedRef{ID: a.ID, Revision: a.Revision}
 		if len(graph.Nodes) == 0 {
-			graph = singleAgentGraph(a)
+			graph = a.Graph
+			if len(graph.Nodes) == 0 {
+				graph = singleAgentGraph(a)
+			}
 		}
 	}
 	if len(graph.Nodes) == 0 {

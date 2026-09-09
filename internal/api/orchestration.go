@@ -496,7 +496,7 @@ func (s *Server) executionPlanApproval(w http.ResponseWriter, r *http.Request, p
 	s.writeJSON(w, http.StatusOK, map[string]any{"attempt": finished, "projection": projection})
 }
 
-func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, requirementID string) {
+func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, targetType, targetID string) {
 	if r.Method != http.MethodPost {
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
@@ -515,9 +515,24 @@ func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, req
 	if workspace == "" {
 		workspace = "local"
 	}
-	requirement, requirementErr := s.Store.GetRequirement(requirementID)
-	if requirementErr != nil || requirement.WorkspaceID != workspace {
-		s.problem(w, r, http.StatusNotFound, "requirement_not_found", "requirement not found", nil)
+	entityWorkspace := ""
+	switch targetType {
+	case "requirement":
+		entity, entityErr := s.Store.GetRequirement(targetID)
+		if entityErr == nil {
+			entityWorkspace = entity.WorkspaceID
+		}
+	case "bug":
+		entity, entityErr := s.Store.GetBug(targetID)
+		if entityErr == nil {
+			entityWorkspace = entity.WorkspaceID
+		}
+	default:
+		s.problem(w, r, http.StatusNotFound, "target_not_found", "comment target not found", nil)
+		return
+	}
+	if entityWorkspace == "" || entityWorkspace != workspace {
+		s.problem(w, r, http.StatusNotFound, "target_not_found", "comment target not found", nil)
 		return
 	}
 	commentID := strings.TrimSpace(input.CommentID)
@@ -530,7 +545,7 @@ func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, req
 	}
 	actorID, actorType := commentActor(r)
 	preview := domain.Comment{
-		ID: commentID, WorkspaceID: requirement.WorkspaceID, TargetType: "requirement", TargetID: requirementID,
+		ID: commentID, WorkspaceID: entityWorkspace, TargetType: targetType, TargetID: targetID,
 		AuthorID: actorID, AuthorType: actorType, OriginatorID: actorID, OriginatorType: actorType,
 		OriginatorSource: "authenticated_preview", Content: input.Content, Revision: revision,
 	}

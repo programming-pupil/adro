@@ -59,6 +59,8 @@
   });
   Object.assign(translations.zh, { reply: '回复', cancelReply: '取消回复', retryTrigger: '重试触发', attachComment: '添加附件', attachmentReady: '附件已准备', commentReplyingTo: '正在回复', commentEmpty: '评论内容不能为空', commentSendFailed: '评论发布失败', commentLoadFailed: '评论加载失败', commentPreview: '触发预览', commentPreviewReady: '预览已更新', commentPreviewNoTargets: '没有可触发的结构化 mention', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: '触发结果', commentFollowUp: '执行收据', commentNoOutcome: '暂无触发结果', outcomeQueued: '已排队', outcomeCoalesced: '已合并', outcomeDeferred: '已延迟', outcomeBlocked: '已阻止', outcomeBroadcast: '仅广播', outcomeStarted: '已启动', outcomeRunning: '运行中', outcomeCompleted: '已完成', outcomeFailed: '失败', outcomeRetrying: '重试中', outcomeCancelled: '已取消', outcomeTimedOut: '已超时', outcomeNotRequested: '未请求', addSquadNode: 'Squad 节点', addMergeNode: 'Merge 节点', addRepairNode: 'Repair 节点', addHumanNode: 'Human 节点', nodeReference: '版本化引用', nodeBudget: 'Token 预算', nodeTimeout: '超时 (ms)', nodeRetry: '最大尝试', edgeEditor: '边配置', edgeEvent: '事件', edgePriority: '优先级', edgeLoop: '循环组', edgeMaxTraversals: '最大遍历', edgePredicate: 'Predicate', edgePredicateField: '字段', edgePredicateOp: '操作', edgePredicateValue: '值', edgeFanOut: '并行分发', planGraph: '计划图', planGraphHelp: '可在提交前用画布编辑 Agent 或 Squad 图。', planGraphLoad: '载入图', planGraphValidate: '校验并预览', planGraphStatus: '提交前检查', planGraphReady: '计划图已通过检查', planGraphInvalid: '计划图校验失败', graphDiagnostics: '节点/边/循环/并发', squadMembers: '成员 Agent', squadMemberHelp: '可选择多个 Agent；Leader 负责路由，其余成员按图中的边执行。', squadMemberRole: '成员角色' });
   Object.assign(translations.en, { reply: 'Reply', cancelReply: 'Cancel reply', retryTrigger: 'Retry trigger', attachComment: 'Attach files', attachmentReady: 'Files attached', commentReplyingTo: 'Replying to', commentEmpty: 'Comment cannot be empty', commentSendFailed: 'Could not post the comment', commentLoadFailed: 'Could not load comments', commentPreview: 'Preview triggers', commentPreviewReady: 'Preview updated', commentPreviewNoTargets: 'No structured mentions to invoke', mentionAgent: 'Agent', mentionSquad: 'Squad', commentOutcome: 'Trigger outcome', commentFollowUp: 'Execution receipt', commentNoOutcome: 'No trigger outcome', outcomeQueued: 'Queued', outcomeCoalesced: 'Coalesced', outcomeDeferred: 'Deferred', outcomeBlocked: 'Blocked', outcomeBroadcast: 'Broadcast only', outcomeStarted: 'Started', outcomeRunning: 'Running', outcomeCompleted: 'Completed', outcomeFailed: 'Failed', outcomeRetrying: 'Retrying', outcomeCancelled: 'Cancelled', outcomeTimedOut: 'Timed out', outcomeNotRequested: 'Not requested', addSquadNode: 'Squad node', addMergeNode: 'Merge node', addRepairNode: 'Repair node', addHumanNode: 'Human node', nodeReference: 'Versioned reference', nodeBudget: 'Token budget', nodeTimeout: 'Timeout (ms)', nodeRetry: 'Max attempts', edgeEditor: 'Edge configuration', edgeEvent: 'Event', edgePriority: 'Priority', edgeLoop: 'Loop group', edgeMaxTraversals: 'Max traversals', edgePredicate: 'Predicate', edgePredicateField: 'Field', edgePredicateOp: 'Operator', edgePredicateValue: 'Value', edgeFanOut: 'Fan out', planGraph: 'Plan graph', planGraphHelp: 'Edit the selected Agent or Squad graph with canvas controls before submitting.', planGraphLoad: 'Load graph', planGraphValidate: 'Validate and preview', planGraphStatus: 'Pre-submit checks', planGraphReady: 'Plan graph passed checks', planGraphInvalid: 'Plan graph validation failed', graphDiagnostics: 'nodes / edges / loops / concurrency', squadMembers: 'Member agents', squadMemberHelp: 'Select multiple agents; the leader routes work and other members execute graph edges.', squadMemberRole: 'Member role' });
+  Object.assign(translations.zh, { joinPolicy: '汇聚策略', joinQuorum: '汇聚数量', joinFailurePolicy: '失败策略', predicateKind: '条件类型', predicateChild: '条件分支', predicateAddChild: '添加条件', predicateRemoveChild: '删除条件', predicateNoChildren: '暂无条件分支', requiredEvidence: '必需证据', failureCode: '失败代码', mergePolicy: '汇聚配置', conflictPolicy: '冲突策略', keyFields: '键字段', requireEvidence: '必须有证据', repairPolicy: '修复配置', repairTarget: '修复目标', verificationNodes: '验证节点', repairRounds: '最大轮次', repairBudget: '修复预算', repairScope: '修复范围', selectNode: '选择节点' });
+  Object.assign(translations.en, { joinPolicy: 'Join policy', joinQuorum: 'Join quorum', joinFailurePolicy: 'Join failure policy', predicateKind: 'Predicate type', predicateChild: 'Predicate branch', predicateAddChild: 'Add condition', predicateRemoveChild: 'Remove condition', predicateNoChildren: 'No predicate branches', requiredEvidence: 'Required evidence', failureCode: 'Failure code', mergePolicy: 'Merge configuration', conflictPolicy: 'Conflict policy', keyFields: 'Key fields', requireEvidence: 'Require evidence', repairPolicy: 'Repair configuration', repairTarget: 'Repair target', verificationNodes: 'Verification nodes', repairRounds: 'Maximum rounds', repairBudget: 'Repair budget', repairScope: 'Repair scope', selectNode: 'Select node' });
 
   let currentUser = null;
   let directory = [];
@@ -76,6 +78,7 @@
   let commentDraftFiles = [];
   let commentMentionRoster = [];
   let commentMentionRosterPromise = null;
+  let activeCommentTargetType = '';
   let activeCommentTargetID = '';
   let activeCommentItems = [];
   let commentActivity = new Map();
@@ -83,8 +86,68 @@
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
     await baseOrchestrationLoadCore(force);
+    await loadAllRequirementPages();
+    await loadAllBugPages();
     if (window.adroCanAccessMenu?.('agents')) await loadOrchestrationData();
   };
+
+  async function loadAllRequirementPages() {
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('requirements')) return;
+    let cursor = '';
+    const seen = new Set();
+    const all = [];
+    while (true) {
+      const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      let response;
+      try {
+        response = await api(`/api/v1/requirements?limit=250${suffix}`);
+      } catch (_) {
+        return;
+      }
+      for (const item of response?.items || []) {
+        if (!item?.id || seen.has(item.id)) continue;
+        seen.add(item.id);
+        all.push(item);
+      }
+      const next = String(response?.next_cursor || '');
+      if (!next || next === cursor || seen.has(next)) break;
+      seen.add(next);
+      cursor = next;
+    }
+    if (all.length !== requirements.length || all.some(item => !requirements.some(existing => existing.id === item.id))) {
+      requirements = all;
+      render();
+    }
+  }
+
+  async function loadAllBugPages() {
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('bugs')) return;
+    let cursor = '';
+    const seen = new Set();
+    const all = [];
+    while (true) {
+      const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      let response;
+      try {
+        response = await api(`/api/v1/bugs?limit=250${suffix}`);
+      } catch (_) {
+        return;
+      }
+      for (const item of response?.items || []) {
+        if (!item?.id || seen.has(item.id)) continue;
+        seen.add(item.id);
+        all.push(item);
+      }
+      const next = String(response?.next_cursor || '');
+      if (!next || next === cursor || seen.has(next)) break;
+      seen.add(next);
+      cursor = next;
+    }
+    if (all.length !== bugs.length || all.some(item => !bugs.some(existing => existing.id === item.id))) {
+      bugs = all;
+      render();
+    }
+  }
 
   async function loadOrchestrationData() {
     const settled = await Promise.allSettled([
@@ -434,7 +497,7 @@
   };
 
   renderBugs = function enhancedBugTable() {
-    const rows = bugs.map(item => `<tr data-bug-id="${escapeHTML(item.id)}"><td class="mono">${escapeHTML((item.id || '').slice(0, 10))}</td><td class="title-cell">${escapeHTML(item.title || '-')}</td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td>${escapeHTML(repositoryLabel(item.repository_id))}</td><td class="muted">${escapeHTML(requirementLabel(item.requirement_id))}</td><td class="muted">${escapeHTML(userLabel(item.assignee_member_id))}</td><td><div class="row-actions">${item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : ''}${item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : ''}${item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : ''}</div></td></tr>`);
+    const rows = bugs.map(item => `<tr data-bug-id="${escapeHTML(item.id)}" tabindex="0"><td class="mono">${escapeHTML((item.id || '').slice(0, 10))}</td><td class="title-cell">${escapeHTML(item.title || '-')}</td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td>${escapeHTML(repositoryLabel(item.repository_id))}</td><td class="muted">${escapeHTML(requirementLabel(item.requirement_id))}</td><td class="muted">${escapeHTML(userLabel(item.assignee_member_id))}</td><td><div class="row-actions">${item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : ''}${item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : ''}${item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : ''}</div></td></tr>`);
     return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('menuOwned'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div><div class="view-grid">${summaryCard(t('openBugs'), bugs.filter(item => item.status === 'OPEN').length, t('needsAttention'))}${summaryCard(t('repairingTitle'), bugs.filter(item => item.status === 'REPAIRING').length, t('repairing'))}${summaryCard(t('escalatedTitle'), bugs.filter(item => item.status === 'HUMAN_TRIAGE_REQUIRED').length, t('escalated'))}</div>${genericTable(t('bugs'), [t('key'), t('title'), t('status'), t('project'), t('requirementRelation'), t('executorColumn'), t('actions')], rows, t('noBugs'))}</div>`;
   };
 
@@ -498,6 +561,95 @@
     }
   }
 
+  function predicateEditorHTML(predicate = {}, path = '', depth = 0) {
+    const p = predicate || {};
+    const kind = p.kind || '';
+    const options = ['', 'field_eq', 'number_cmp', 'contains', 'exists', 'all', 'any', 'not'];
+    const optionMarkup = options.map(value => `<option value="${value}"${kind === value ? ' selected' : ''}>${value || 'none'}</option>`).join('');
+    const children = Array.isArray(p.children) ? p.children : [];
+    const childMarkup = (kind === 'all' || kind === 'any' || kind === 'not')
+      ? `<div class="predicate-children">${children.map((child, index) => `<div class="predicate-child"><div class="predicate-child-head"><span>${escapeHTML(`${t('predicateChild')} ${index + 1}`)}</span><button type="button" class="graph-node-remove" data-predicate-remove="${escapeHTML(path ? `${path}.children.${index}` : `children.${index}`)}" aria-label="${escapeHTML(t('predicateRemoveChild'))}">×</button></div>${predicateEditorHTML(child, path ? `${path}.children.${index}` : `children.${index}`, depth + 1)}</div>`).join('') || `<span class="muted">${escapeHTML(t('predicateNoChildren'))}</span>`}${kind === 'all' || kind === 'any' ? `<button type="button" class="secondary predicate-add" data-predicate-add="${escapeHTML(path)}">+ ${escapeHTML(t('predicateAddChild'))}</button>` : ''}</div>`
+      : '';
+    const scalar = kind && kind !== 'exists' && kind !== 'all' && kind !== 'any' && kind !== 'not';
+    return `<div class="predicate-editor ${depth ? 'predicate-nested' : ''}" data-predicate-path="${escapeHTML(path)}"><label><span>${escapeHTML(t('predicateKind'))}</span><select data-predicate-field="kind" data-predicate-path="${escapeHTML(path)}">${optionMarkup}</select></label>${kind ? `<label><span>${escapeHTML(t('edgePredicateField'))}</span><input data-predicate-field="field" data-predicate-path="${escapeHTML(path)}" value="${escapeHTML(p.field || '')}"></label>` : ''}${scalar ? `<label><span>${escapeHTML(t('edgePredicateOp'))}</span><select data-predicate-field="op" data-predicate-path="${escapeHTML(path)}">${['', 'eq', 'ne', 'lt', 'lte', 'gt', 'gte'].map(op => `<option value="${op}"${p.op === op ? ' selected' : ''}>${op || 'default'}</option>`).join('')}</select></label><label><span>${escapeHTML(t('edgePredicateValue'))}</span><input data-predicate-field="value" data-predicate-path="${escapeHTML(path)}" value="${escapeHTML(p.value == null ? '' : String(p.value))}"></label>` : ''}${childMarkup}</div>`;
+  }
+
+  function predicateAt(root, path) {
+    if (!path) return root;
+    return path.split('.').reduce((current, part) => {
+      if (part === 'children') return current?.children;
+      return Array.isArray(current) ? current[Number(part)] : current?.[part];
+    }, root);
+  }
+
+  function replacePredicateAt(root, path, value) {
+    if (!path) return value;
+    const parts = path.split('.');
+    const index = Number(parts.pop());
+    const parent = predicateAt(root, parts.join('.'));
+    if (Array.isArray(parent) && Number.isInteger(index)) parent[index] = value;
+    else if (parent?.children && Number.isInteger(index)) parent.children[index] = value;
+    return root;
+  }
+
+  function parsePredicateValue(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return undefined;
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    if (raw !== '' && Number.isFinite(Number(raw))) return Number(raw);
+    return raw;
+  }
+
+  function mutatePredicate(root, path, field, value) {
+    const current = predicateAt(root, path) || {};
+    if (field === 'kind') {
+      const next = {kind: value};
+      if (value === 'all' || value === 'any') next.children = [];
+      if (value === 'not') next.children = [{kind: 'exists', field: 'outcome'}];
+      return replacePredicateAt(root, path, next);
+    }
+    if (!current.kind) current.kind = 'field_eq';
+    if (value === '') delete current[field];
+    else current[field] = field === 'value' ? parsePredicateValue(value) : value;
+    return root;
+  }
+
+  function bindPredicateEditor(host, read, write) {
+    host.querySelectorAll('[data-predicate-field]').forEach(input => input.addEventListener('change', () => {
+      const next = mutatePredicate(read(), input.dataset.predicatePath || '', input.dataset.predicateField, input.value);
+      write(next);
+    }));
+    host.querySelectorAll('[data-predicate-add]').forEach(button => button.addEventListener('click', () => {
+      const root = read();
+      const parent = predicateAt(root, button.dataset.predicateAdd || '');
+      if (!parent) return;
+      parent.children = Array.isArray(parent.children) ? parent.children : [];
+      parent.children.push({kind: 'field_eq', field: '', op: 'eq', value: ''});
+      write(root);
+    }));
+    host.querySelectorAll('[data-predicate-remove]').forEach(button => button.addEventListener('click', () => {
+      const root = read();
+      const path = button.dataset.predicateRemove || '';
+      const parts = path.split('.');
+      const index = Number(parts.pop());
+      const parent = predicateAt(root, parts.join('.'));
+      if (Array.isArray(parent) && Number.isInteger(index)) parent.splice(index, 1);
+      else if (parent?.children && Number.isInteger(index)) parent.children.splice(index, 1);
+      write(root);
+    }));
+  }
+
+  function graphNodePolicyHTML(node, graph) {
+    const join = node.join_policy || '';
+    const repair = node.repair_policy || {};
+    const targets = (graph.nodes || []).filter(candidate => candidate.id !== node.id);
+    const targetOptions = targets.map(candidate => `<option value="${escapeHTML(candidate.id)}"${repair.target_node_id === candidate.id ? ' selected' : ''}>${escapeHTML(candidate.id)}</option>`).join('');
+    const verification = Array.isArray(repair.verification_node_ids) ? repair.verification_node_ids : [];
+    const verificationOptions = targets.map(candidate => `<option value="${escapeHTML(candidate.id)}"${verification.includes(candidate.id) ? ' selected' : ''}>${escapeHTML(candidate.id)}</option>`).join('');
+    return `<div class="graph-node-policy" data-graph-node-policy="${escapeHTML(node.id || '')}"><div class="graph-policy-grid"><label><span>${escapeHTML(t('joinPolicy'))}</span><select data-node-field="join_policy"><option value=""${!join ? ' selected' : ''}>default</option><option value="all"${join === 'all' ? ' selected' : ''}>all</option><option value="quorum"${join === 'quorum' ? ' selected' : ''}>quorum</option><option value="first_success"${join === 'first_success' ? ' selected' : ''}>first_success</option></select></label><label><span>${escapeHTML(t('joinQuorum'))}</span><input type="number" min="0" data-node-field="join_quorum" value="${escapeHTML(String(node.join_quorum || ''))}"></label><label><span>${escapeHTML(t('joinFailurePolicy'))}</span><select data-node-field="join_failure_policy"><option value=""${!node.join_failure_policy ? ' selected' : ''}>wait</option><option value="short_circuit"${node.join_failure_policy === 'short_circuit' ? ' selected' : ''}>short_circuit</option></select></label><label><span>${escapeHTML(t('nodeTimeout'))}</span><input type="number" min="0" data-node-field="timeout_ms" value="${escapeHTML(String(node.timeout ? Math.round(Number(node.timeout) / 1000000) : ''))}"></label></div>${node.kind === 'gate' ? `<fieldset><legend>${escapeHTML(t('edgePredicate'))}</legend><div data-node-predicate-editor="${escapeHTML(node.id || '')}">${predicateEditorHTML(node.gate_policy?.predicate || {}, '')}</div><label><span>${escapeHTML(t('requiredEvidence'))}</span><input data-node-field="gate_required_evidence" value="${escapeHTML((node.gate_policy?.required_evidence || []).join(', '))}"></label><label><span>${escapeHTML(t('failureCode'))}</span><input data-node-field="gate_failure_code" value="${escapeHTML(node.gate_policy?.failure_code || '')}"></label></fieldset>` : ''}${node.kind === 'merge' ? `<fieldset><legend>${escapeHTML(t('mergePolicy'))}</legend><label><span>${escapeHTML(t('conflictPolicy'))}</span><select data-node-field="merge_conflict_policy"><option value="collect"${(node.merge_policy?.conflict_policy || 'collect') === 'collect' ? ' selected' : ''}>collect</option><option value="prefer_priority"${node.merge_policy?.conflict_policy === 'prefer_priority' ? ' selected' : ''}>prefer_priority</option><option value="fail"${node.merge_policy?.conflict_policy === 'fail' ? ' selected' : ''}>fail</option></select></label><label><span>${escapeHTML(t('keyFields'))}</span><input data-node-field="merge_key_fields" value="${escapeHTML((node.merge_policy?.key_fields || []).join(', '))}"></label><label class="graph-edge-check"><input type="checkbox" data-node-field="merge_require_evidence"${node.merge_policy?.require_evidence ? ' checked' : ''}><span>${escapeHTML(t('requireEvidence'))}</span></label></fieldset>` : ''}${node.kind === 'repair' ? `<fieldset><legend>${escapeHTML(t('repairPolicy'))}</legend><label><span>${escapeHTML(t('repairTarget'))}</span><select data-node-field="repair_target_node_id"><option value="">${escapeHTML(t('selectNode'))}</option>${targetOptions}</select></label><label><span>${escapeHTML(t('verificationNodes'))}</span><select multiple size="3" data-node-field="repair_verification_node_ids">${verificationOptions}</select></label><div class="graph-policy-grid"><label><span>${escapeHTML(t('repairRounds'))}</span><input type="number" min="0" data-node-field="repair_max_rounds" value="${escapeHTML(String(repair.max_rounds || ''))}"></label><label><span>${escapeHTML(t('repairBudget'))}</span><input type="number" min="0" data-node-field="repair_budget_tokens" value="${escapeHTML(String(repair.budget?.tokens || ''))}"></label></div><label><span>${escapeHTML(t('repairScope'))}</span><input data-node-field="repair_scope" value="${escapeHTML((repair.scope || []).join(', '))}"></label></fieldset>` : ''}</div>`;
+  }
+
   function renderGraphCanvas(graph) {
     const canvas = $('#graphEditorCanvas');
     if (!canvas) return;
@@ -516,7 +668,7 @@
         return `<option value="${escapeHTML(reference.id)}" data-revision="${escapeHTML(String(version || 1))}" ${reference.id === referenceID ? 'selected' : ''}>${escapeHTML(label)}</option>`;
       }).join('');
       const referenceControl = referenceKind ? `<label><span>${escapeHTML(t('nodeReference'))}</span><select data-graph-ref="${escapeHTML(node.id || '')}"><option value="">${escapeHTML(t('noPublishedTarget'))}</option>${referenceOptions}</select></label>` : '';
-      return `<article class="graph-canvas-node graph-kind-${escapeHTML(node.kind || 'agent')}" draggable="true" data-graph-node="${escapeHTML(node.id || '')}"><header><strong>${escapeHTML(node.id || '?')}</strong><button type="button" class="graph-node-remove" data-graph-remove="${escapeHTML(node.id || '')}" aria-label="${escapeHTML(t('removeNode'))}">×</button></header><label><span>${escapeHTML(t('nodeKind'))}</span><select data-graph-kind="${escapeHTML(node.id || '')}"><option value="agent" ${node.kind === 'agent' ? 'selected' : ''}>Agent</option><option value="squad" ${node.kind === 'squad' ? 'selected' : ''}>Squad</option><option value="gate" ${node.kind === 'gate' ? 'selected' : ''}>Gate</option><option value="merge" ${node.kind === 'merge' ? 'selected' : ''}>Merge</option><option value="repair" ${node.kind === 'repair' ? 'selected' : ''}>Repair</option><option value="human" ${node.kind === 'human' ? 'selected' : ''}>Human</option></select></label>${referenceControl}<div class="graph-node-tuning"><label><span>${escapeHTML(t('nodeBudget'))}</span><input type="number" min="0" data-graph-budget="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.budget?.tokens || ''))}"></label><label><span>${escapeHTML(t('nodeRetry'))}</span><input type="number" min="0" data-graph-retry="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.retry_policy?.max_attempts || ''))}"></label></div><small>${escapeHTML(edgeText || t('noOutgoingEdges'))}</small><span class="graph-node-position">${index + 1}</span></article>`;
+      return `<article class="graph-canvas-node graph-kind-${escapeHTML(node.kind || 'agent')}" draggable="true" data-graph-node="${escapeHTML(node.id || '')}"><header><strong>${escapeHTML(node.id || '?')}</strong><button type="button" class="graph-node-remove" data-graph-remove="${escapeHTML(node.id || '')}" aria-label="${escapeHTML(t('removeNode'))}">×</button></header><label><span>${escapeHTML(t('nodeKind'))}</span><select data-graph-kind="${escapeHTML(node.id || '')}"><option value="agent" ${node.kind === 'agent' ? 'selected' : ''}>Agent</option><option value="squad" ${node.kind === 'squad' ? 'selected' : ''}>Squad</option><option value="gate" ${node.kind === 'gate' ? 'selected' : ''}>Gate</option><option value="merge" ${node.kind === 'merge' ? 'selected' : ''}>Merge</option><option value="repair" ${node.kind === 'repair' ? 'selected' : ''}>Repair</option><option value="human" ${node.kind === 'human' ? 'selected' : ''}>Human</option></select></label>${referenceControl}<div class="graph-node-tuning"><label><span>${escapeHTML(t('nodeBudget'))}</span><input type="number" min="0" data-graph-budget="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.budget?.tokens || ''))}"></label><label><span>${escapeHTML(t('nodeRetry'))}</span><input type="number" min="0" data-graph-retry="${escapeHTML(node.id || '')}" value="${escapeHTML(String(node.retry_policy?.max_attempts || ''))}"></label></div>${graphNodePolicyHTML(node, graph)}<small>${escapeHTML(edgeText || t('noOutgoingEdges'))}</small><span class="graph-node-position">${index + 1}</span></article>`;
     }).join('') || `<p class="graph-canvas-empty">${escapeHTML(t('noItems'))}</p>`;
     renderGraphEdgeEditor(graph);
     canvas.querySelectorAll('[data-graph-kind]').forEach(select => select.addEventListener('change', () => {
@@ -531,8 +683,10 @@
       renderGraphCanvas(current);
     }));
     canvas.querySelectorAll('[data-graph-ref]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphRef, node => {
-      const kind = node.kind === 'agent' ? 'agent_ref' : 'squad_ref';
-      node[kind] = {id: input.value.trim(), revision: Number(node[kind]?.revision || 1)};
+      const option = input.selectedOptions?.[0];
+      const revision = Number(option?.dataset.revision || 1);
+      if (node.kind === 'agent') node.agent_ref = {id: input.value.trim(), revision};
+      else node.squad_ref = {id: input.value.trim(), revision: 0, version: revision};
     })));
     canvas.querySelectorAll('[data-graph-budget]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphBudget, node => {
       node.budget = {...(node.budget || {}), tokens: Math.max(0, Number(input.value) || 0)};
@@ -540,6 +694,31 @@
     canvas.querySelectorAll('[data-graph-retry]').forEach(input => input.addEventListener('change', () => updateGraphNode(input.dataset.graphRetry, node => {
       node.retry_policy = {...(node.retry_policy || {}), max_attempts: Math.max(0, Number(input.value) || 0)};
     })));
+    canvas.querySelectorAll('[data-graph-node-policy]').forEach(panel => {
+      const id = panel.dataset.graphNodePolicy;
+      panel.querySelectorAll('[data-node-field]').forEach(input => input.addEventListener('change', () => updateGraphNode(id, node => {
+        const field = input.dataset.nodeField;
+        node.gate_policy = node.gate_policy || {};
+        node.merge_policy = node.merge_policy || {};
+        node.repair_policy = node.repair_policy || {};
+        if (field === 'merge_require_evidence') node.merge_policy.require_evidence = input.checked;
+        else if (field === 'repair_verification_node_ids') node.repair_policy.verification_node_ids = Array.from(input.selectedOptions).map(option => option.value);
+        else if (field === 'gate_required_evidence') node.gate_policy.required_evidence = input.value.split(',').map(value => value.trim()).filter(Boolean);
+        else if (field === 'merge_key_fields') node.merge_policy.key_fields = input.value.split(',').map(value => value.trim()).filter(Boolean);
+        else if (field === 'repair_scope') node.repair_policy.scope = input.value.split(',').map(value => value.trim()).filter(Boolean);
+        else if (field.startsWith('repair_')) {
+          const key = field.slice('repair_'.length);
+          if (key === 'budget_tokens') node.repair_policy.budget = {...(node.repair_policy.budget || {}), tokens: Math.max(0, Number(input.value) || 0)};
+          else if (key === 'max_rounds') node.repair_policy.max_rounds = Math.max(0, Number(input.value) || 0);
+          else node.repair_policy[key] = input.value;
+        } else if (field.startsWith('gate_')) node.gate_policy[field.slice('gate_'.length)] = input.value;
+        else if (field === 'timeout_ms') node.timeout = Math.max(0, Number(input.value) || 0) * 1000000;
+        else if (field === 'join_quorum') node.join_quorum = Math.max(0, Number(input.value) || 0);
+        else node[field] = input.value;
+      })));
+      const predicateHost = panel.querySelector('[data-node-predicate-editor]');
+      if (predicateHost) bindPredicateEditor(predicateHost, () => graphEditorInput()?.nodes?.find(node => node.id === id)?.gate_policy?.predicate || {}, predicate => updateGraphNode(id, node => { node.gate_policy = {...(node.gate_policy || {}), predicate}; }));
+    });
     canvas.querySelectorAll('[data-graph-remove]').forEach(button => button.addEventListener('click', () => removeGraphNode(button.dataset.graphRemove)));
     let draggedNode = '';
     canvas.querySelectorAll('[data-graph-node]').forEach(node => {
@@ -591,11 +770,8 @@
     if (!host) return;
     const edges = Array.isArray(graph?.edges) ? graph.edges : [];
     const events = ['success', 'failure', 'bug', 'timeout', 'approval', 'cancel'];
-    const operators = ['', 'eq', 'ne', 'lt', 'lte', 'gt', 'gte'];
     const rows = edges.map(edge => {
-      const predicate = edge.predicate || {};
       const eventOptions = events.map(event => `<option value="${event}"${edge.on === event ? ' selected' : ''}>${event}</option>`).join('');
-      const operatorOptions = operators.map(op => `<option value="${op}"${predicate.op === op ? ' selected' : ''}>${op || 'default'}</option>`).join('');
       return `<article class="graph-edge-row" data-graph-edge="${escapeHTML(edge.id || '')}">
         <div class="graph-edge-route"><strong>${escapeHTML(edge.from || '?')}</strong><span>→</span><strong>${escapeHTML(edge.to || '?')}</strong></div>
         <label><span>${escapeHTML(t('edgeEvent'))}</span><select data-edge-field="on">${eventOptions}</select></label>
@@ -603,12 +779,7 @@
         <label><span>${escapeHTML(t('edgeMaxTraversals'))}</span><input type="number" min="0" data-edge-field="max_traversals" value="${escapeHTML(String(edge.max_traversals || 0))}"></label>
         <label><span>${escapeHTML(t('edgeLoop'))}</span><input data-edge-field="loop_group" value="${escapeHTML(edge.loop_group || '')}"></label>
         <label class="graph-edge-check"><input type="checkbox" data-edge-field="fan_out"${edge.fan_out ? ' checked' : ''}><span>${escapeHTML(t('edgeFanOut'))}</span></label>
-        <fieldset><legend>${escapeHTML(t('edgePredicate'))}</legend>
-          <label><span>kind</span><select data-edge-predicate="kind"><option value=""${!predicate.kind ? ' selected' : ''}>none</option><option value="field_eq"${predicate.kind === 'field_eq' ? ' selected' : ''}>field_eq</option><option value="number_cmp"${predicate.kind === 'number_cmp' ? ' selected' : ''}>number_cmp</option><option value="contains"${predicate.kind === 'contains' ? ' selected' : ''}>contains</option><option value="exists"${predicate.kind === 'exists' ? ' selected' : ''}>exists</option></select></label>
-          <label><span>${escapeHTML(t('edgePredicateField'))}</span><input data-edge-predicate="field" value="${escapeHTML(predicate.field || '')}"></label>
-          <label><span>${escapeHTML(t('edgePredicateOp'))}</span><select data-edge-predicate="op">${operatorOptions}</select></label>
-          <label><span>${escapeHTML(t('edgePredicateValue'))}</span><input data-edge-predicate="value" value="${escapeHTML(predicate.value == null ? '' : String(predicate.value))}"></label>
-        </fieldset>
+        <fieldset><legend>${escapeHTML(t('edgePredicate'))}</legend><div data-edge-predicate-editor="${escapeHTML(edge.id || '')}">${predicateEditorHTML(edge.predicate || {}, '')}</div></fieldset>
       </article>`;
     }).join('');
     host.innerHTML = `<div class="graph-edge-editor-head"><strong>${escapeHTML(t('edgeEditor'))}</strong><span>${edges.length}</span></div>${rows || `<p class="graph-canvas-empty">${escapeHTML(t('noOutgoingEdges'))}</p>`}`;
@@ -620,12 +791,8 @@
         else if (field === 'priority' || field === 'max_traversals') edge[field] = Math.max(0, Number(input.value) || 0);
         else edge[field] = input.value;
       })));
-      row.querySelectorAll('[data-edge-predicate]').forEach(input => input.addEventListener('change', () => updateGraphEdge(id, edge => {
-        const values = {};
-        row.querySelectorAll('[data-edge-predicate]').forEach(item => { values[item.dataset.edgePredicate] = item.value; });
-        if (!values.kind) delete edge.predicate;
-        else edge.predicate = {kind: values.kind, field: values.field || undefined, op: values.op || undefined, value: values.value || undefined};
-      })));
+      const predicateHost = row.querySelector('[data-edge-predicate-editor]');
+      if (predicateHost) bindPredicateEditor(predicateHost, () => graphEditorInput()?.edges?.find(edge => edge.id === id)?.predicate || {}, predicate => updateGraphEdge(id, edge => { edge.predicate = predicate; }));
     });
   }
 
@@ -692,14 +859,15 @@
     }
   }
 
-  function openGraphEditor(squad) {
-    if (!squad) return;
+  function openGraphEditor(target, targetType = 'squad') {
+    if (!target) return;
     ensureGraphDialog();
-    activeGraphEditor = {id: squad.id, revision: squad.revision, name: squad.name};
-    $('#graphEditorTarget').textContent = `${squad.name || squad.id} · r${squad.revision}`;
-    $('#graphEditorJSON').value = JSON.stringify(squad.graph || {}, null, 2);
-    renderGraphEditorSummary(squad.graph || {});
-    renderGraphCanvas(squad.graph || {});
+    activeGraphEditor = {id: target.id, revision: target.revision, name: target.name, kind: targetType};
+    const graph = targetType === 'agent' ? (target.graph || graphForNativeAgent(target)) : (target.graph || {});
+    $('#graphEditorTarget').textContent = `${target.name || target.id} · ${targetType} · r${target.revision}`;
+    $('#graphEditorJSON').value = JSON.stringify(graph, null, 2);
+    renderGraphEditorSummary(graph);
+    renderGraphCanvas(graph);
     setGraphEditorStatus('');
     $('#graphEditorDialog').showModal();
     setTimeout(() => $('#graphEditorJSON').focus(), 0);
@@ -711,7 +879,8 @@
     if (!(await validateGraphEditor())) return;
     const graph = graphEditorInput();
     try {
-      await api(`/api/v1/workspaces/local/squads/${encodeURIComponent(activeGraphEditor.id)}/graph`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({expected_revision: activeGraphEditor.revision, graph})});
+      const collection = activeGraphEditor.kind === 'agent' ? 'agents' : 'squads';
+      await api(`/api/v1/workspaces/local/${collection}/${encodeURIComponent(activeGraphEditor.id)}/graph`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({expected_revision: activeGraphEditor.revision, graph})});
       $('#graphEditorDialog').close();
       await loadOrchestrationData();
       setOrchestrationStatus(t('graphSaved'));
@@ -837,7 +1006,7 @@
         ? orchestrationAction(agent.id, 'agent', 'disable', 'disable')
         : agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'enable', 'enable', 'accent') : '';
       const archive = agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'archive', 'archive', 'danger') : '';
-      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td>${escapeHTML(agent.role || '-')}</td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td class="mono">r${escapeHTML(String(agent.revision || 0))}</td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
+      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td>${escapeHTML(agent.role || '-')}</td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td class="mono">r${escapeHTML(String(agent.revision || 0))}</td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
     });
     const squadRows = nativeSquads.map(squad => {
       const publish = squad.status === 'draft' ? orchestrationAction(squad.id, 'squad', 'publish', 'publish', 'accent') : '';
@@ -959,6 +1128,10 @@
       }
       if (kind === 'squad' && action === 'edit-graph') {
         openGraphEditor(nativeSquads.find(item => item.id === id));
+        return;
+      }
+      if (kind === 'agent' && action === 'edit-graph') {
+        openGraphEditor(nativeAgents.find(item => item.id === id), 'agent');
         return;
       }
       if (kind === 'squad' && action === 'fork') {
@@ -1347,12 +1520,29 @@
     if (activeCommentTargetID) renderCommentThread();
   }
 
-  async function loadCommentThread(requirementID, initialItems = []) {
-    if (activeCommentTargetID !== requirementID) return;
+  function commentTargetPath(targetType, targetID, suffix = '') {
+    return `/api/v1/${targetType === 'bug' ? 'bugs' : 'requirements'}/${encodeURIComponent(targetID)}${suffix}`;
+  }
+
+  async function loadCommentThread(targetType, targetID, initialItems = []) {
+    if (activeCommentTargetType !== targetType || activeCommentTargetID !== targetID) return;
     try {
-      const response = await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/comments?limit=250`);
-      if (activeCommentTargetID !== requirementID) return;
-      activeCommentItems = response.items || initialItems || [];
+      let cursor = '';
+      const seen = new Set();
+      const items = [];
+      while (true) {
+        const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+        const response = await api(`${commentTargetPath(targetType, targetID, '/comments')}?limit=250${suffix}`);
+        for (const item of response?.items || []) {
+          if (item?.id && !items.some(existing => existing.id === item.id)) items.push(item);
+        }
+        const next = String(response?.next_cursor || '');
+        if (!next || next === cursor || seen.has(next)) break;
+        seen.add(next);
+        cursor = next;
+      }
+      if (activeCommentTargetType !== targetType || activeCommentTargetID !== targetID) return;
+      activeCommentItems = items.length ? items : initialItems || [];
       commentActivity = new Map();
       renderCommentThread();
       await Promise.all(activeCommentItems.map(item => loadCommentActivity(item.id)));
@@ -1367,7 +1557,7 @@
     const status = $('#commentComposerStatus');
     if (!input || !activeCommentTargetID) return;
     try {
-      const response = await api(`/api/v1/requirements/${encodeURIComponent(activeCommentTargetID)}/comments/trigger-preview`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({comment_id: `preview-${idempotencyKey()}`, revision: 1, content: input.value})});
+      const response = await api(commentTargetPath(activeCommentTargetType, activeCommentTargetID, '/comments/trigger-preview'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({comment_id: `preview-${idempotencyKey()}`, revision: 1, content: input.value})});
       renderCommentPreview(response.trigger_outcomes || []);
       if (status) status.textContent = t('commentPreviewReady');
     } catch (_) {
@@ -1408,7 +1598,7 @@
     try {
       const body = {content};
       if (commentReplyParentID) body.parent_id = commentReplyParentID;
-      const created = await api(`/api/v1/requirements/${encodeURIComponent(activeCommentTargetID)}/comments`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      const created = await api(commentTargetPath(activeCommentTargetType, activeCommentTargetID, '/comments'), {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
       let comment = created.comment || created;
       let uploaded = [];
       let uploadFailures = 0;
@@ -1433,7 +1623,7 @@
       hideCommentMentionMenu();
       const preview = $('#commentPreview');
       if (preview) preview.hidden = true;
-      await loadCommentThread(activeCommentTargetID);
+      await loadCommentThread(activeCommentTargetType, activeCommentTargetID);
       if (status) status.textContent = uploadFailures ? t('uploadFailed') : t('commentSent');
     } catch (_) {
       if (status) status.textContent = t('commentSendFailed');
@@ -1442,10 +1632,12 @@
     }
   }
 
-  function renderCommentSection(requirementID, initialItems) {
+  function renderCommentSection(targetType, targetID, initialItems) {
     const body = $('#detailBody');
     if (!body) return;
-    activeCommentTargetID = requirementID;
+    body.querySelector('#commentSection')?.remove();
+    activeCommentTargetType = targetType;
+    activeCommentTargetID = targetID;
     activeCommentItems = initialItems || [];
     commentActivity = new Map();
     commentReplyParentID = '';
@@ -1468,7 +1660,7 @@
     $('#commentPreviewButton').onclick = previewCommentTriggers;
     $('#commentComposer').onsubmit = submitComment;
     loadCommentMentionRoster().then(updateCommentMentionMenu);
-    loadCommentThread(requirementID, initialItems);
+    loadCommentThread(targetType, targetID, initialItems);
   }
 
   const baseOpenRequirement = openRequirement;
@@ -1485,12 +1677,48 @@
         block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${items.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div>`;
         body.appendChild(block);
       }
-      renderCommentSection(id, detail.comments || []);
+      renderCommentSection('requirement', id, detail.comments || []);
     } catch (_) {
       const body = $('#detailBody');
-      if (body) renderCommentSection(id, []);
+      if (body) renderCommentSection('requirement', id, []);
     }
   };
+
+  async function openBug(id) {
+    const local = bugs.find(item => item.id === id);
+    if (!local) return;
+    $('#detailTitle').textContent = local.title || id;
+    $('#detailKey').textContent = id;
+    $('#detailBody').innerHTML = `<div class="detail-grid"><div><div class="detail-block"><h3>${escapeHTML(t('description'))}</h3><p>${escapeHTML(local.actual || local.steps_to_reproduce || '-')}</p></div><div class="detail-block"><h3>${escapeHTML(t('bugSteps'))}</h3><p>${escapeHTML(local.steps_to_reproduce || '-')}</p></div><div class="detail-block"><h3>${escapeHTML(t('bugExpected'))}</h3><p>${escapeHTML(local.expected || '-')}</p></div><div class="detail-block"><h3>${escapeHTML(t('bugLog'))}</h3><p class="mono">${escapeHTML(local.log_excerpt || '-')}</p></div></div><div class="detail-side"><div class="detail-block"><h3>${escapeHTML(t('status'))}</h3><p><span class="status ${statusClass(local.status)}">${escapeHTML(statusLabel(local.status))}</span></p><div class="kpi-row"><span>${escapeHTML(t('version'))}</span><strong>${escapeHTML(String(local.attempt_count || 0))}</strong></div><div class="kpi-row"><span>${escapeHTML(t('repositorySet'))}</span><strong>${escapeHTML(repositoryLabel(local.repository_id))}</strong></div><div class="kpi-row"><span>${escapeHTML(t('requirementRelation'))}</span><strong>${escapeHTML(requirementLabel(local.requirement_id))}</strong></div></div></div></div>`;
+    $('#detailDialog').showModal();
+    try {
+      const detail = await api(`/api/v1/bugs/${encodeURIComponent(id)}`);
+      const body = $('#detailBody');
+      if (body && (detail.attachments || []).length) {
+        const attachments = detail.attachments;
+        body.insertAdjacentHTML('beforeend', `<div class="detail-block"><h3>${escapeHTML(t('attachments'))} · ${attachments.length}</h3><div class="attachment-list">${attachments.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div></div>`);
+      }
+      renderCommentSection('bug', id, detail.comments || []);
+    } catch (_) {
+      renderCommentSection('bug', id, []);
+    }
+  }
+
+  // Bug rows are rendered by both the base page and the enhanced table. Event
+  // delegation keeps the durable detail/comment entry point attached after
+  // every refresh without coupling the two renderers.
+  window.openBug = openBug;
+  document.addEventListener('click', event => {
+    const row = event.target.closest?.('[data-bug-id]');
+    if (row && !event.target.closest('button')) openBug(row.dataset.bugId);
+  });
+  document.addEventListener('keydown', event => {
+    const row = event.target.closest?.('[data-bug-id]');
+    if (row && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      openBug(row.dataset.bugId);
+    }
+  });
 
   function formatBytes(value) {
     if (value < 1024) return `${value} B`;

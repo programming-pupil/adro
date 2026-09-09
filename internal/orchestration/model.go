@@ -87,10 +87,14 @@ type AgentDefinition struct {
 	ConcurrencyBudget Budget          `json:"concurrency_budget"`
 	InputSchema       SchemaRef       `json:"input_schema"`
 	OutputSchema      SchemaRef       `json:"output_schema"`
-	Status            AgentStatus     `json:"status"`
-	CreatedBy         string          `json:"created_by,omitempty"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	// Graph is an optional revisioned routing graph owned by this Agent. A
+	// zero graph keeps the legacy single-node behavior; once present it is
+	// frozen into every execution plan selected through this Agent.
+	Graph     WorkflowGraph `json:"graph,omitempty"`
+	Status    AgentStatus   `json:"status"`
+	CreatedBy string        `json:"created_by,omitempty"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 type SquadStatus string
@@ -498,6 +502,11 @@ func (a AgentDefinition) Validate() error {
 	for i, required := range a.ExecutorBinding.RequiredCaps {
 		if strings.TrimSpace(required) == "" {
 			return fmt.Errorf("agent executor required_caps[%d] is empty", i)
+		}
+	}
+	if len(a.Graph.Nodes) > 0 {
+		if err := ValidateGraph(a.Graph); err != nil {
+			return fmt.Errorf("agent graph: %w", err)
 		}
 	}
 	return nil

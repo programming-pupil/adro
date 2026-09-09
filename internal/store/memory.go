@@ -1206,8 +1206,19 @@ func (m *Memory) GetBug(id string) (domain.Bug, error) {
 	return b, nil
 }
 func (m *Memory) ListBugs(workspaceID, status string) []domain.Bug {
+	items, _ := m.ListBugsPage(workspaceID, status, "", 0)
+	return items
+}
+
+// ListBugsPage returns a stable, cursor-paginated view of retained bugs. The
+// legacy ListBugs method remains available for internal aggregations, while
+// API callers can continue browsing an arbitrarily large durable issue set.
+func (m *Memory) ListBugsPage(workspaceID, status, cursor string, limit int) ([]domain.Bug, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if limit <= 0 || limit > 250 {
+		limit = 50
+	}
 	result := []domain.Bug{}
 	for _, b := range m.bugs {
 		if workspaceID != "" && b.WorkspaceID != workspaceID {
@@ -1218,8 +1229,31 @@ func (m *Memory) ListBugs(workspaceID, status string) []domain.Bug {
 		}
 		result = append(result, b)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
-	return result
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	start := 0
+	for i, bug := range result {
+		if bug.ID == cursor {
+			start = i + 1
+			break
+		}
+	}
+	if start >= len(result) {
+		return []domain.Bug{}, ""
+	}
+	end := start + limit
+	if end > len(result) {
+		end = len(result)
+	}
+	next := ""
+	if end < len(result) {
+		next = result[end-1].ID
+	}
+	return result[start:end], next
 }
 func (m *Memory) UpdateBug(b domain.Bug) error {
 	m.mu.Lock()
