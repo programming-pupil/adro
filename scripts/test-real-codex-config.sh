@@ -35,7 +35,7 @@ grep -Fq '[shell_environment_policy]' "$run_root/run/config.toml"
 ADRO_CODEX_IGNORE_USER_CONFIG=0 ADRO_CODEX_BASE_URL=https://code.apipod.ai/v1 \
   configure_real_codex_command /usr/local/bin/codex
 case "$ADRO_EXECUTOR_COMMAND" in
-  '/usr/local/bin/codex exec -c model_providers.custom.base_url="https://code.apipod.ai/v1" -c model_reasoning_effort=low --enable code_mode_host --enable code_mode_only --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
+  '/usr/local/bin/codex exec -c model_providers.custom.base_url="https://code.apipod.ai/v1" -c model_reasoning_effort=low --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
   *) printf '%s\n' "unexpected command: $ADRO_EXECUTOR_COMMAND" >&2; exit 1 ;;
 esac
 for feature in apps plugins multi_agent multi_agent_v2 collaboration_modes browser_use browser_use_external browser_use_full_cdp_access computer_use image_generation in_app_browser in_app_chat in_app_local_automation; do
@@ -45,8 +45,14 @@ for feature in apps plugins multi_agent multi_agent_v2 collaboration_modes brows
   esac
 done
 case " $ADRO_EXECUTOR_COMMAND " in
-  *' --enable code_mode_host '*) ;;
-  *) printf '%s\n' 'real Codex command did not enable code_mode_host' >&2; exit 1 ;;
+  *' --enable code_mode_host '*) printf '%s\n' 'real Codex command unexpectedly forced code_mode_host' >&2; exit 1 ;;
+  *) ;;
+esac
+ADRO_CODEX_ENABLE_CODE_MODE=1 ADRO_CODEX_BASE_URL=https://code.apipod.ai/v1 \
+  configure_real_codex_command /usr/local/bin/codex
+case " $ADRO_EXECUTOR_COMMAND " in
+  *' --enable code_mode_host --enable code_mode_only --enable unified_exec '*) ;;
+  *) printf '%s\n' 'real Codex command did not honor explicit Code Mode opt-in' >&2; exit 1 ;;
 esac
 if ADRO_CODEX_REASONING_EFFORT=invalid real_codex_config_flags >/dev/null; then
   printf '%s\n' 'invalid reasoning effort was accepted' >&2
@@ -85,7 +91,7 @@ grep -Fq 'experimental_bearer_token = "redacted-test-fixture"' "$run_root/bearer
 ADRO_CODEX_IGNORE_USER_CONFIG=0 ADRO_CODEX_BASE_URL=https://code.apipod.ai \
   configure_real_codex_command /usr/local/bin/codex
 case "$ADRO_EXECUTOR_COMMAND" in
-  *'-c model_providers.custom.requires_openai_auth=false -c model_reasoning_effort=low --enable code_mode_host --enable code_mode_only --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
+  *'-c model_providers.custom.requires_openai_auth=false -c model_reasoning_effort=low --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2'*) ;;
   *) printf '%s\n' 'relay bearer profile did not disable ChatGPT auth' >&2; exit 1 ;;
 esac
 

@@ -237,6 +237,9 @@ configure_real_codex_command() {
   # not the interactive workspace's app/plugin surface. Disable those optional
   # tools at the CLI boundary so a model cannot drift into collaboration or an
   # unrelated app while trying to satisfy a shell-based test contract.
-  local shell_only_flags=' --enable code_mode_host --enable code_mode_only --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2 --disable collaboration_modes --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access --disable computer_use --disable image_generation --disable in_app_browser --disable in_app_chat --disable in_app_local_automation'
+  local shell_only_flags=' --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2 --disable collaboration_modes --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access --disable computer_use --disable image_generation --disable in_app_browser --disable in_app_chat --disable in_app_local_automation'
+  if [ "${ADRO_CODEX_ENABLE_CODE_MODE:-0}" = "1" ]; then
+    shell_only_flags=' --enable code_mode_host --enable code_mode_only --enable unified_exec --disable apps --disable plugins --disable multi_agent --disable multi_agent_v2 --disable collaboration_modes --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access --disable computer_use --disable image_generation --disable in_app_browser --disable in_app_chat --disable in_app_local_automation'
+  fi
   export ADRO_EXECUTOR_COMMAND="$executor exec$flags$shell_only_flags --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox {input}"
 }
