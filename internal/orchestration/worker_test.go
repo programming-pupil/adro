@@ -115,6 +115,15 @@ func TestCommandExecutionEvidenceRequiresMatchedBeforeAfterPair(t *testing.T) {
 	if !hasCommandExecutionEvidence(base) {
 		t.Fatal("matched command_execution before/after pair was rejected")
 	}
+
+	appServer := provider.RunSnapshot{Output: `{"method":"item/completed","params":{"item":{"type":"commandExecution"}}}`}
+	appServer.ToolEvents = []provider.ToolEvent{
+		{CallID: "exec-1", Name: "commandExecution", Phase: "before"},
+		{CallID: "exec-1", Name: "commandExecution", Phase: "after"},
+	}
+	if !hasCommandExecutionEvidence(appServer) {
+		t.Fatal("camelCase app-server commandExecution evidence was rejected")
+	}
 }
 
 func TestMissingProviderResultIsRetryableForRepairLifecycle(t *testing.T) {

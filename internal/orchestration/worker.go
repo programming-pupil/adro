@@ -207,7 +207,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 // enough to advance a graph: a real Codex command_execution pair is required
 // before a semantic pass/failure/bug result can reach graph routing.
 func hasCommandExecutionEvidence(snapshot provider.RunSnapshot) bool {
-	if !strings.Contains(strings.ToLower(snapshot.Output), "command_execution") {
+	// Codex app-server uses the native camelCase item type while legacy JSONL
+	// adapters use snake_case. Normalize both spellings before checking that the
+	// recorded tool events belong to a command execution item.
+	normalizedOutput := strings.ToLower(strings.ReplaceAll(snapshot.Output, "_", ""))
+	if !strings.Contains(normalizedOutput, "commandexecution") {
 		return false
 	}
 	pairs := make(map[string]map[string]bool)
