@@ -94,6 +94,19 @@ func TestProviderOutcomeReadsNestedCodexAgentMessageContent(t *testing.T) {
 	}
 }
 
+func TestMissingProviderResultIsRetryableForRepairLifecycle(t *testing.T) {
+	attempt := NodeAttempt{
+		Status: AttemptFailed,
+		FailureReason: &FailureReason{
+			Code:      "provider_result_missing",
+			Retryable: true,
+		},
+	}
+	if !isRetryableRepairProviderFailure(attempt) {
+		t.Fatal("missing structured provider result must be retryable")
+	}
+}
+
 func TestWorkerCancellationClosesRunningAttemptAndLeavesTerminalProjection(t *testing.T) {
 	plan, err := (RequirementExecutionPlan{
 		ID: "cancel-plan", RequirementID: "req", WorkspaceID: "w",

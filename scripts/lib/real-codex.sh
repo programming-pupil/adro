@@ -23,18 +23,19 @@ select_real_codex() {
     return $?
   fi
 
-  # On macOS the application-bundled binary is the native Codex runtime. A
-  # separately installed npm CLI can share the same name but may not expose
-  # the terminal tool surface required by these real acceptance suites.
-  for candidate in "${ADRO_CODEX_BIN:-}" \
-    "/Applications/ChatGPT.app/Contents/Resources/codex" \
-    "${HOME:-}/.local/bin/codex"; do
+  # Prefer the operator's PATH-selected CLI. A separately installed npm CLI
+  # can share the same name as the application bundle, and the PATH is the
+  # explicit discovery contract used by CI and local release runners. The
+  # application bundle remains a last-resort fallback for machines that do
+  # not expose Codex on PATH.
+  for candidate in "${ADRO_CODEX_BIN:-}" "$(command -v codex 2>/dev/null || true)" \
+    "${HOME:-}/.local/bin/codex" \
+    "/Applications/ChatGPT.app/Contents/Resources/codex"; do
     if [ -n "$candidate" ] && [ -x "$candidate" ]; then
       printf '%s' "$candidate"
       return 0
     fi
   done
-  command -v codex 2>/dev/null
 }
 
 write_minimal_codex_config() {

@@ -143,7 +143,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		case "completed", "passed", "success", "succeeded":
 			if explicitOutcome == "" {
 				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_result_missing", Summary: "provider completed without ADRO_RESULT_JSON evidence", Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":missing-result"}}
-				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: false}
+				// A completed process without the required structured result is a
+				// provider protocol failure, not a semantic graph result. Retry the
+				// current node so a transient truncated/invalid Codex turn does not
+				// consume a repair round or strand the graph before feedback starts.
+				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: true}
 				break
 			}
 			event, result = "success", StructuredResult{Outcome: "pass", ReasonCode: providerReason, Summary: providerSummary, Fields: usage, EvidenceIDs: providerEvidence}

@@ -16,6 +16,8 @@ printf '%s\n' '#!/bin/sh' 'exit 0' >"$run_root/bin/codex"
 chmod 700 "$run_root/bin/codex"
 selected_codex="$(ADRO_EXECUTOR=codex PATH="$run_root/bin:$PATH" select_real_codex)"
 [ "$selected_codex" = "$run_root/bin/codex" ]
+selected_codex="$(ADRO_EXECUTOR= ADRO_CODEX_BIN= PATH="$run_root/bin:$PATH" select_real_codex)"
+[ "$selected_codex" = "$run_root/bin/codex" ]
 selected_codex="$(ADRO_CODEX_BIN="$run_root/bin/codex" ADRO_EXECUTOR= select_real_codex)"
 [ "$selected_codex" = "$run_root/bin/codex" ]
 
