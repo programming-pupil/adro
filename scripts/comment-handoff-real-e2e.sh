@@ -17,6 +17,7 @@ API="http://127.0.0.1:$API_PORT"
 START_LOG="$RUN_ROOT/start.log"
 COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 CODEX_VERSION=""
+CODEX_COMMAND=""
 GO_VERSION=""
 
 log() { printf '[ADRO COMMENT HANDOFF E2E] %s\n' "$*"; }
@@ -32,7 +33,7 @@ cleanup() {
       "$START_LOG" >"$REPORT_DIR/start.log" 2>/dev/null || true
   fi
   [ -n "$CODEX_VERSION" ] && printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
-  REPORT_DIR="$REPORT_DIR" RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" ruby -rjson -rdigest -e '
+  REPORT_DIR="$REPORT_DIR" RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" CODEX_COMMAND="$CODEX_COMMAND" GO_VERSION="$GO_VERSION" ruby -rjson -rdigest -e '
     dir = ENV.fetch("REPORT_DIR")
     files = Dir[File.join(dir, "*")].sort
     report = {
@@ -42,6 +43,7 @@ cleanup() {
       "commit_sha" => ENV.fetch("COMMIT_SHA"),
       "command" => "ADRO_REQUIRE_CODEX=1 bash scripts/comment-handoff-real-e2e.sh",
       "codex_version" => ENV.fetch("CODEX_VERSION"),
+      "codex_command" => ENV.fetch("CODEX_COMMAND"),
       "go_version" => ENV.fetch("GO_VERSION"),
       "evidence_files" => files.map { |path| {"path" => File.basename(path), "sha256" => Digest::SHA256.file(path).hexdigest} }
     }
@@ -75,6 +77,7 @@ executor="${ADRO_EXECUTOR:-}"
 [ -n "$executor" ] || fail "Codex is required"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "comment handoff suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
+CODEX_COMMAND="$executor"
 CODEX_VERSION="$($executor --version 2>&1 || true)"
 [ -n "$CODEX_VERSION" ] || fail "Codex is not runnable"
 go_bin="$(select_go_bin || true)"

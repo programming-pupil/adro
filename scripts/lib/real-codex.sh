@@ -57,7 +57,7 @@ write_minimal_codex_config() {
       }
       next
     }
-    section == "" && $0 ~ /^[[:space:]]*(model_provider|model|review_model|model_reasoning_effort|disable_response_storage|service_tier)[[:space:]]*=/ {
+    section == "" && $0 ~ /^[[:space:]]*(model_provider|model|review_model|model_reasoning_effort|disable_response_storage|service_tier|suppress_unstable_features_warning)[[:space:]]*=/ {
       print
       next
     }

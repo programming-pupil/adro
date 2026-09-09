@@ -1,6 +1,6 @@
 # ADRO 发布前专家级测试用例规范
 
-版本：`v0.5.0`（加入广播语义、机器生成 coverage ledger、模型 tokenizer、检索质量和至少一次事件投递契约；以测试执行时检出的提交为准）
+版本：`v0.5.1`（加入真实 Codex evidence 完整性校验；以测试执行时检出的提交为准）
 编写日期：2026-09-05
 源码复核基线：以每次执行 `ruby scripts/coverage-ledger.rb --check` 输出并写入报告的 `source_sha` 为准；文档不固化历史 SHA，避免测试计划与源码提交再次漂移。文档提交目标：`main`
 适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
@@ -147,8 +147,8 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | REQ-UI-008 | 用旧版本编辑标题/状态，另一个用户先更新 | 返回冲突；页面提示刷新；本地旧值不覆盖新值 |
 | REQ-UI-009 | 关联仓库/执行人、影响报告生成和确认，版本过期/跨需求 ID | 关联去重；报告 version 严格匹配；越权或过期确认无副作用 |
 | REQ-UI-010 | 需求由正常、失败、阻塞、暂停恢复后重新打开 | 状态、工作项、附件、事件、错误原因均可反查，不能显示“已完成”假象 |
-| REQ-UI-011 | 方案 Agent 在需求详情留下结论；成员在该评论下回复并选择研发 Agent，输入“请确认方案是否可行”后提交 | 回复保留 `parent_id/root_id`；目标 Agent、follow-up receipt、session/workdir、上下文和事件可追溯；当前 UI 没有评论/Agent 提及控件，记录 `BLOCKED/S1` |
-| REQ-UI-012 | 在评论编辑器输入 Agent 名称、真实 Agent UUID、`[@研发](mention://agent/<uuid>)`、普通 `@研发`、多个 Agent 和无效目标 | 只允许从同 workspace roster 选择真实 UUID；显示触发预览、权限和重复任务结果；当前 ADRO 未实现 mention URI/预览，记录 `BLOCKED/S1`，不得把纯文本保存当作触发通过 |
+| REQ-UI-011 | 方案 Agent 在需求详情留下结论；成员在该评论下回复并选择研发 Agent，输入“请确认方案是否可行”后提交 | 回复保留 `parent_id/root_id`；目标 Agent、follow-up receipt、session/workdir、上下文和事件可追溯；当前 UI/API 已有评论树、显式 Agent/Squad mention、预览和 receipt，仍需按真实 Codex handoff evidence 验收 |
+| REQ-UI-012 | 在评论编辑器输入 Agent 名称、真实 Agent UUID、`[@研发](mention://agent/<uuid>)`、普通 `@研发`、多个 Agent 和无效目标 | roster autocomplete 只插入同 workspace 的真实 UUID；结构化 URI 进入预览和权限校验；普通显示名和无效 URI 只产生 render-only/blocked outcome，不得触发 Provider |
 | REQ-UI-013 | 方案评论包含附件/截图，研发 Agent 回复后发起单测 Agent follow-up；刷新、断网重连、重复点击发送 | 评论、附件、回复、每次 follow-up 的 attempt/session/workdir/context/artifact 和 StreamEvents 不丢不重；当前仅有 provider-neutral 评论 API，组合链路需真实 E2E 证明 |
 
 #### `bugs` Bug 中心
@@ -380,19 +380,19 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 | COMMENT-001 | 在需求下创建方案 Agent 根评论，再创建成员回复；回复 `parent_id` 指向根评论；继续分页读取评论 | 根评论 `root_id=comment_id`，回复的 `parent_id/root_id/target` 正确，分页 cursor 不漏不重；ADRO API 可验证，需保存原始 JSON |
 | COMMENT-002 | 方案 Agent 完成后，人类在其评论下回复“请确认方案是否可行”，显式选择研发 Agent，提交 follow-up | 设计评论、回复、目标 Agent、receipt、run/session/workdir 和事件一一关联；ADRO 目前可通过 `agent_binding_id` 做受限验证，但没有 UI 选择/提及控件，UI 项为 `BLOCKED/S1` |
 | COMMENT-003 | 内容使用 Multica 规范 `[@研发](mention://agent/<真实 agent UUID>)`，检查创建响应和触发预览 | 后端按真实 UUID 解析、校验同 workspace 权限并返回唯一 trigger outcome；ADRO parser/preview 已实现，需保存 API JSON 和 receipt，真实 Provider 仍按 L3 单独验收 |
-| COMMENT-004 | 依次提交 `@研发`、`[@研发](mention://agent/研发名称)`、错误格式 UUID、其他 workspace 的合法 UUID | 普通显示名不得触发；格式错误与不存在目标按契约安全区分且不泄露目标；URI parser 与 trigger validator 的 canonical UUID 差距仍为 `PARTIAL/S1` |
+| COMMENT-004 | 依次提交 `@研发`、`[@研发](mention://agent/研发名称)`、错误格式 UUID、其他 workspace 的合法 UUID | 普通显示名不得触发；格式错误与不存在目标按契约安全区分且不泄露目标；parser 负责语法、roster/trigger 层负责 canonical UUID 和 workspace 实体校验；仍需真实权限矩阵证据 |
 | COMMENT-005 | 同一评论同时放一个 Agent URI、重复 Agent URI、32 个以上目标和 `mentions` JSON 字段 | 解析结果去重、上限明确、内容与结构化字段合并规则稳定；每个目标只有一个 outcome；parser/trigger 单测已覆盖，需补 API 并发和真实 receipt |
 | COMMENT-006 | 方案评论 follow-up 指定与 WorkItem 当前开发 binding 相同、不同、空值和已删除 binding | 相同 binding 才允许继续；不同 binding fail-closed 且无 Provider 副作用；空值按明确路由策略；ADRO 已有 mismatch rejection，需验证状态/receipt 不被伪造为 started |
 | COMMENT-007 | 设计 -> 研发 -> 单测 -> 测试的评论交接：每个 Agent 在上一条评论线程下回复并交给下一个目标 | 每次交接保留同一 requirement/root/session lineage、独立 turn/attempt、输入输出证据；任一节点失败只进入配置的回退边；ADRO 只有显式 binding 的部分路径，无通用评论图，`BLOCKED/S1` |
 | COMMENT-008 | 一个评论显式提及多个 Agent；分别测试串行策略、fan-out 策略和目标 Agent 已忙 | 触发策略必须由编排快照决定，不能只取第一个 token；忙目标返回 coalesced/deferred 并合并原评论；ADRO 无多目标触发与 pending outcome，`BLOCKED/S1` |
-| COMMENT-009 | 评论使用 `[@开发小队](mention://squad/<真实 squad UUID>)`，小队 leader 再按小队拓扑执行 | 解析 squad、读取稳定 leader、只触发 leader 一次并记录 squad/version；ADRO API/receipt 已实现，成员拓扑和真实 Codex handoff 仍需 L3 证据 |
-| COMMENT-010 | 对比 `member`、`issue`、`@all` 和显式 `@agent` 混合评论 | member/issue 只渲染不启动；`@all` 只产生 `broadcast` outcome/event，不创建 follow-up；同评论显式 Agent 仍只触发一次；确定性 API 回归已实现，需保留真实证据 |
-| COMMENT-011 | 目标 Agent 无权限、私有、禁用、无 runtime、跨 workspace；目标 Squad leader 同样逐项测试 | 调用权限、可见权限和 runtime 状态分层；拒绝不泄露目标存在性；无 runtime 不创建半成品 run；ADRO 当前无 mention invoke gate，`BLOCKED/S1` |
+| COMMENT-009 | 评论使用 `[@开发小队](mention://squad/<真实 squad UUID>)`，小队 leader 再按小队拓扑执行 | 解析 squad、读取稳定 leader、只触发 leader 一次并记录 squad/version；API/receipt 和三角色真实 Codex handoff 已有证据，复杂成员拓扑仍需单独回归 |
+| COMMENT-010 | 对比 `member`、`issue`、`@all` 和显式 `@agent` 混合评论 | member/issue 只渲染不启动；`@all` 只产生 `broadcast` outcome/event，不创建 follow-up；同评论显式 Agent 仍只触发一次；确定性回归已覆盖，真实 @all 权限/编辑矩阵仍需补证据 |
+| COMMENT-011 | 目标 Agent 无权限、私有、禁用、无 runtime、跨 workspace；目标 Squad leader 同样逐项测试 | 调用权限、可见权限和 runtime 状态分层；拒绝不泄露目标存在性；无 runtime 不创建半成品 run；当前已有 `UserCanInvoke`、runtime health、workspace 和 authority snapshot 门禁，真实拒绝矩阵仍需验收 |
 | COMMENT-012 | 同一 comment 重复 POST、follow-up 重试、客户端超时后重放；目标已有 pending task | comment/follow-up 幂等键只保留一个 receipt/turn/Provider 副作用；同 comment 编辑只取消并重算本评论 pending；应返回 started/coalesced/deferred/retrying 的真实状态；ADRO 仅有按 comment receipt 的部分幂等，需补并发证据 |
 | COMMENT-013 | follow-up 经历 unavailable、dispatching、started、running、completed、failed、cancelled；轮询和 retry | 状态只能单调推进，terminal 不被旧状态覆盖；Provider completion event 先发布后对外 terminal；错误含 request/trace/reason；ADRO 有 receipt/retry 测试，需补真实 Provider 与事件顺序 |
 | COMMENT-014 | 线程超过 250 条，设计评论包含长文本、代码、附件和截图；从中间 cursor 重连并发起 follow-up | `commentFollowUpPrompt` 必须收集完整 root 线程而非当前页，附件/artifact hash 与 prompt lineage 一致；ADRO 已有跨页 prompt 单测，需执行 API/真实重连 |
 | COMMENT-015 | 使用 `X-Member-ID`、`X-Agent-ID`、body `author_id/author_type` 互相冲突；普通成员、Agent、viewer 分别发评论 | 服务端身份以受信 header/认证主体为准，不能由 body 冒充；无权限 dispatch 被拒绝且审计 actor 正确；ADRO 当前存在 header/body fallback，必须做伪造与越权回归 |
-| COMMENT-016 | 评论编辑、触发预览、广播事件、审计/事件、附件截图及 repair/rerun | 编辑只重算受影响 comment 的触发，其他 comment pending 不被吞；`@all` 编辑/重试不得产生 provider side effect；评论、附件、repair attempt、session/workdir/context/event 可回放；originator/suppress lineage 仍为 `PARTIAL/S1` |
+| COMMENT-016 | 评论编辑、触发预览、广播事件、审计/事件、附件截图及 repair/rerun | 编辑只重算受影响 comment 的触发，其他 comment pending 不被吞；`@all` 编辑/重试不得产生 provider side effect；评论、附件、repair attempt、session/workdir/context/event 可回放；originator lineage 已进入 receipt，仍需真实编辑/迟到结果矩阵验收 |
 
 COMMENT-002 是用户给出的“方案 Agent 完成后，人类在评论下 @研发 Agent 询问有没有问题”的最小验收；COMMENT-007/008/009/010/016 才能证明它不是只能单点触发的假闭环。当前 ADRO 可以证明评论持久化、回复树、线程 prompt、显式 binding follow-up 和 receipt 状态，但不能宣称已经对齐 Multica 的结构化 Agent/Squad mention 或自由评论编排。研发若补齐能力，必须先补 API/UI/权限/事件契约，再按 COMMENT-001..016 全量回归。
 
@@ -772,7 +772,7 @@ API-MAIN-OP-039  POST /api/v1/plugins/{id}/quarantine
 1. `API-CONTRACT-*` 从 `openapi/openapi.yaml` 生成参数化 inventory；测试启动时应断言 `scripts/coverage-ledger.rb --check` 成功、当前 operation/menu/action 数量写入 report，并对重复 method/path 或重复 derived operation id 直接失败。再从 `internal/api/server.go`/`session.go` 生成 source-dispatch ledger，必须额外执行 `API-GAP-001` 与 `API-GAP-006`，发现代码入口未进入契约或测试登记应直接失败。
 2. API 集成测试使用真实启动的 ADRO HTTP server 和真实 filesystem state（可使用临时目录），不绕过路由直接调用 store；每个测试结束清理租户、文件和进程。
 3. Playwright 测试覆盖本文件所有 `SHELL-*`、`WB-*`、`REQ-UI-*`、`BUG-UI-*`、`WF-UI-*`、`REPO-UI-*`、`AGENT-UI-*`、`CAP-UI-*`、`OPS-UI-*` 和 `COMMENT-*`；每个按钮必须断言网络请求和数据变化，禁止只断言 locator 可见。COMMENT 用例还必须断言 `parent_id/root_id`、mention URI 解析、trigger outcome、follow-up receipt、权限和重连重放。
-4. 编排测试必须参数化执行 AGC、SQUAD、BIDI 和 COMMENT 清单；每次反馈至少断言 plan snapshot、edge condition、decision、attempt、lease、事件序列、ContextManifest 和 artifact lineage。L1/L2 可以使用明确标记的 deterministic MockProvider 来验证状态机和错误映射；编排层的 BIDI/AGC/SQUAD/COMMENT 只能在 mock 中验证纯状态机，不能据此宣称真实 Agent 已执行。COMMENT-003/009/010/016 必须另有真实 Multica mention contract probe。L4 `E2E-REAL-*`、真实 Runner 和 Codex 禁止 mock/stub，必须检查实际 Provider、二进制（若为 Codex）、进程 PID、workdir、commit 和 provider evidence。
+4. 本 issue 的发布验收不接受 MockProvider 代替真实 Codex：所有触及 Provider、Agent、Squad、评论 follow-up、pipeline、browser-created graph 或真实故障恢复的 case，必须由本地真实 `codex` 执行并记录 PID、workdir、commit 和 provider evidence。纯 domain projection 的快速不变量测试没有 Codex 边界，只能标记为 `deterministic-only`，不能计入真实能力 PASS，也不能冒充本 issue 的真实验收。`make test-expert` 在真实套件结束后执行 `scripts/verify-real-evidence.mjs`，校验当前 SHA、Codex 版本、命令、证据文件 hash、线程/运行时 lineage、回放和终态；任一项缺失即失败。
 5. 每个 test fixture 必须有 `tenant/workspace/user/repository/agent/requirement/work-item/run` 的创建和销毁钩子；测试失败时保留现场快照，成功时删除凭据和临时文件。
 6. 事件断言使用独立 collector，按 `event_id + sequence + aggregate_id` 去重并保存原文；不能通过等待固定时间或只看最终 UI 文案判断异步成功。BIDI 反馈额外断言 `source_node_id/target_node_id/attempt/plan_version/idempotency_key`，并验证 replay 后决策不变。
 7. 并发测试使用 barrier/latch 同时发起请求；至少重复 20 次并启用 Go race。随机数据必须由固定 seed 记录，重跑同 seed 能复现。
@@ -810,7 +810,7 @@ tests/
 | Context/Memory 质量 | 100% | CTX-011..012；manifest tokenizer/index version 与质量 report 可重放 |
 | 故障注入 | 10/10 | FI-001..010，包含恢复后的数据一致性 |
 | 并发隔离 | 4 类 | 同用户双需求、跨用户、同资源竞争、事件重放 |
-| 真实链路 | 4/4 | E2E-REAL-001..004，真实 Provider/Codex evidence 完整；self-hosted runner/Codex 缺失时为 BLOCKED |
+| 真实链路 | 4/4 | E2E-REAL-001..004，真实 Provider/Codex evidence 完整，并通过 `scripts/verify-real-evidence.mjs`；self-hosted runner/Codex 缺失时为 BLOCKED |
 | CLI/部署 | 16/16 | CLI-001..006、START-001..006、DEPLOY-001..003、CONFORM-CLI-001 |
 | S0/S1 缺陷 | 0 | 任一未关闭即阻断发布 |
 

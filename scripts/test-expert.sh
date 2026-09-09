@@ -50,11 +50,13 @@ if [[ "${ADRO_TEST_EXPERT_REAL:-0}" == "1" ]]; then
   run_step browser_graph_real bash scripts/browser-graph-real-e2e.sh
   run_step comment_handoff_real bash scripts/comment-handoff-real-e2e.sh
   run_step real_e2e make real-e2e
+  run_step real_evidence node scripts/verify-real-evidence.mjs
 else
   overall=1
   printf '%s\t%s\t%s\t%s\n' browser_graph_real blocked 2 'set ADRO_TEST_EXPERT_REAL=1 on a Codex-authenticated runner' >> "$STEPS_FILE"
   printf '%s\t%s\t%s\t%s\n' comment_handoff_real blocked 2 'set ADRO_TEST_EXPERT_REAL=1 on a Codex-authenticated runner' >> "$STEPS_FILE"
   printf '%s\t%s\t%s\t%s\n' real_e2e blocked 2 'set ADRO_TEST_EXPERT_REAL=1 on a Codex-authenticated runner' >> "$STEPS_FILE"
+  printf '%s\t%s\t%s\t%s\n' real_evidence blocked 2 'set ADRO_TEST_EXPERT_REAL=1 on a Codex-authenticated runner' >> "$STEPS_FILE"
 fi
 
 finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

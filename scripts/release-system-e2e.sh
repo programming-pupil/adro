@@ -16,6 +16,7 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 REPORT_DIR="$ROOT_DIR/var/test-report/real-codex/$RUN_ID"
 COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 CODEX_VERSION=""
+CODEX_COMMAND=""
 GO_VERSION=""
 mkdir -p "$REPORT_DIR"
 
@@ -34,7 +35,7 @@ cleanup() {
       "$LOG" >"$REPORT_DIR/start.log" 2>/dev/null || true
   fi
   [ -n "$CODEX_VERSION" ] && printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
-  RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" CHAT_ID="${chat_id:-}" REQUIREMENT_A_ID="${req_a_id:-}" REQUIREMENT_B_ID="${req_b_id:-}" TEMPLATE_ID="${template_id:-}" ruby -rjson -rdigest -e '
+  RUN_ID="$RUN_ID" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" CODEX_COMMAND="$CODEX_COMMAND" GO_VERSION="$GO_VERSION" CHAT_ID="${chat_id:-}" REQUIREMENT_A_ID="${req_a_id:-}" REQUIREMENT_B_ID="${req_b_id:-}" TEMPLATE_ID="${template_id:-}" ruby -rjson -rdigest -e '
     dir = ENV.fetch("REPORT_DIR")
     files = Dir[File.join(dir, "*")].sort
     report = {
@@ -44,6 +45,7 @@ cleanup() {
       "commit_sha" => ENV.fetch("COMMIT_SHA"),
       "command" => "ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh",
       "codex_version" => ENV.fetch("CODEX_VERSION"),
+      "codex_command" => ENV.fetch("CODEX_COMMAND"),
       "go_version" => ENV.fetch("GO_VERSION"),
       "workspace_ids" => ["adro-system-e2e-a", "adro-system-e2e-b"],
       "chat_id" => ENV.fetch("CHAT_ID"),
@@ -89,6 +91,7 @@ case "$(basename "$executor")" in
   *) fail "real system suite requires Codex, got $(basename "$executor"); refusing to substitute another client" ;;
 esac
 "$executor" --version >/dev/null 2>&1 || fail "Codex executable is not runnable: $executor"
+CODEX_COMMAND="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 CODEX_VERSION="$("$executor" --version 2>&1 || true)"
 GO_VERSION="$(go version 2>/dev/null || true)"
 printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"

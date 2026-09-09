@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e test-expert verify run local
+.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e real-evidence test-expert verify run local
 
 GO ?= ./scripts/e2e-go.sh
 
@@ -70,6 +70,9 @@ real-e2e:
 	ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
 	ADRO_REQUIRE_CODEX=1 bash scripts/real-pipeline-e2e.sh
 	ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh
+
+real-evidence:
+	node scripts/verify-real-evidence.mjs
 
 test-expert:
 	bash scripts/test-expert.sh

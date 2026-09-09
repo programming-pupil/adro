@@ -22,6 +22,7 @@ mkdir -p "$REPORT_DIR"
 COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 GO_VERSION=""
 CODEX_VERSION=""
+CODEX_COMMAND=""
 GO_ROOT=""
 
 log() { printf '[ADRO REAL GRAPH E2E] %s\n' "$*"; }
@@ -60,7 +61,7 @@ write_failure_manifest() {
   collect_provider_evidence "$projection_file"
   local status="failed"
   [ "$exit_status" -eq 130 ] && status="interrupted"
-  STATUS="$status" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" ruby -rjson -rdigest -e '
+  STATUS="$status" EXIT_STATUS="$exit_status" REPORT_DIR="$REPORT_DIR" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" CODEX_COMMAND="$CODEX_COMMAND" GO_VERSION="$GO_VERSION" ruby -rjson -rdigest -e '
     dir = ENV.fetch("REPORT_DIR")
     files = Dir[File.join(dir, "*")].sort
     hash = ->(path) { Digest::SHA256.file(path).hexdigest }
@@ -68,7 +69,7 @@ write_failure_manifest() {
     artifact_paths = files.reject { |f| File.basename(f) == "manifest.json" }
     report = {
       status: ENV.fetch("STATUS"), exit_status: ENV.fetch("EXIT_STATUS").to_i,
-      run_id: File.basename(dir), commit_sha: ENV.fetch("COMMIT_SHA"), command: "ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh", codex_version: ENV.fetch("CODEX_VERSION"), go_version: ENV.fetch("GO_VERSION"), plan_id: nil, graph_id: nil, revision: nil,
+      run_id: File.basename(dir), commit_sha: ENV.fetch("COMMIT_SHA"), command: "ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh", codex_version: ENV.fetch("CODEX_VERSION"), codex_command: ENV.fetch("CODEX_COMMAND"), go_version: ENV.fetch("GO_VERSION"), plan_id: nil, graph_id: nil, revision: nil,
       session_id: File.file?(File.join(dir, "session.json")) ? JSON.parse(File.read(File.join(dir, "session.json")))["id"] : nil,
       work_item_id: "real-graph-work-item",
       event_cursor: nil, projection_hash: File.file?(File.join(dir, "projection.json")) ? hash.call(File.join(dir, "projection.json")) : nil,
@@ -119,6 +120,7 @@ executor="${ADRO_EXECUTOR:-}"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "real graph suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 real_executor="$executor"
+CODEX_COMMAND="$real_executor"
 CODEX_VERSION="$("$real_executor" --version 2>&1 || true)"
 go_bin="$(select_go_bin || true)"
 [ -n "$go_bin" ] || fail "Go is required for real graph evidence"
@@ -452,11 +454,11 @@ result="pass"
 [ "$(printf '%s' "$projection_json" | json_field terminal_outcome)" = succeeded ] || result="failed"
 [ "$replay_status" = "200" ] || result="failed"
 [ "$replay_match" = "true" ] || result="failed"
-RESULT="$result" VALIDATION_STATUS="$validation_status" PROJECTION_CANONICAL_HASH="$projection_canonical_hash" REPLAY_MATCH="$replay_match" RUN_ID="$RUN_ID" PLAN_ID="$plan_id" GRAPH_ID="$graph_id" REVISION="$revision" REQUIREMENT_ID="$requirement_id" SESSION_ID="$session_id" EVENT_CURSOR="$event_cursor" PROJECTION_HASH="$projection_hash" REPLAY_PROJECTION_HASH="$replay_projection_hash" ARTIFACT_HASH="$artifact_hash" TIMELINE_HASH="$timeline_hash" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" GO_VERSION="$GO_VERSION" REPORT_DIR="$REPORT_DIR" ruby -rjson -rdigest -e '
+RESULT="$result" VALIDATION_STATUS="$validation_status" PROJECTION_CANONICAL_HASH="$projection_canonical_hash" REPLAY_MATCH="$replay_match" RUN_ID="$RUN_ID" PLAN_ID="$plan_id" GRAPH_ID="$graph_id" REVISION="$revision" REQUIREMENT_ID="$requirement_id" SESSION_ID="$session_id" EVENT_CURSOR="$event_cursor" PROJECTION_HASH="$projection_hash" REPLAY_PROJECTION_HASH="$replay_projection_hash" ARTIFACT_HASH="$artifact_hash" TIMELINE_HASH="$timeline_hash" COMMIT_SHA="$COMMIT_SHA" CODEX_VERSION="$CODEX_VERSION" CODEX_COMMAND="$CODEX_COMMAND" GO_VERSION="$GO_VERSION" REPORT_DIR="$REPORT_DIR" ruby -rjson -rdigest -e '
   dir = ENV.fetch("REPORT_DIR")
   files = Dir[File.join(dir, "*")].sort
   result = ENV.fetch("RESULT")
-  report = {status: result, exit_status: result == "pass" ? 0 : 1, run_id: ENV.fetch("RUN_ID"), commit_sha: ENV.fetch("COMMIT_SHA"), command: "ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh", codex_version: ENV.fetch("CODEX_VERSION"), go_version: ENV.fetch("GO_VERSION"), plan_id: ENV.fetch("PLAN_ID"), graph_id: ENV.fetch("GRAPH_ID"), revision: ENV.fetch("REVISION"), requirement_id: ENV.fetch("REQUIREMENT_ID"), session_id: ENV.fetch("SESSION_ID"), work_item_id: "real-graph-work-item", event_cursor: ENV.fetch("EVENT_CURSOR"), projection_hash: ENV.fetch("PROJECTION_HASH"), projection_canonical_hash: ENV.fetch("PROJECTION_CANONICAL_HASH"), replay_projection_hash: ENV.fetch("REPLAY_PROJECTION_HASH"), replay_match: ENV.fetch("REPLAY_MATCH"), artifact_hash: ENV.fetch("ARTIFACT_HASH"), timeline_hash: ENV.fetch("TIMELINE_HASH"), evidence_files: files.map { |f| {path: File.basename(f), sha256: Digest::SHA256.file(f).hexdigest} }, assertions: File.file?(File.join(dir, "lineage-validation.json")) ? JSON.parse(File.read(File.join(dir, "lineage-validation.json"))) : {"validation_status" => ENV.fetch("VALIDATION_STATUS")}}
+  report = {status: result, exit_status: result == "pass" ? 0 : 1, run_id: ENV.fetch("RUN_ID"), commit_sha: ENV.fetch("COMMIT_SHA"), command: "ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh", codex_version: ENV.fetch("CODEX_VERSION"), codex_command: ENV.fetch("CODEX_COMMAND"), go_version: ENV.fetch("GO_VERSION"), plan_id: ENV.fetch("PLAN_ID"), graph_id: ENV.fetch("GRAPH_ID"), revision: ENV.fetch("REVISION"), requirement_id: ENV.fetch("REQUIREMENT_ID"), session_id: ENV.fetch("SESSION_ID"), work_item_id: "real-graph-work-item", event_cursor: ENV.fetch("EVENT_CURSOR"), projection_hash: ENV.fetch("PROJECTION_HASH"), projection_canonical_hash: ENV.fetch("PROJECTION_CANONICAL_HASH"), replay_projection_hash: ENV.fetch("REPLAY_PROJECTION_HASH"), replay_match: ENV.fetch("REPLAY_MATCH"), artifact_hash: ENV.fetch("ARTIFACT_HASH"), timeline_hash: ENV.fetch("TIMELINE_HASH"), evidence_files: files.map { |f| {path: File.basename(f), sha256: Digest::SHA256.file(f).hexdigest} }, assertions: File.file?(File.join(dir, "lineage-validation.json")) ? JSON.parse(File.read(File.join(dir, "lineage-validation.json"))) : {"validation_status" => ENV.fetch("VALIDATION_STATUS")}}
   File.write(File.join(dir, "manifest.json"), JSON.pretty_generate(report) + "\n")
 '
 [ "$result" = pass ] || fail "graph did not succeed; evidence=$REPORT_DIR/manifest.json"
