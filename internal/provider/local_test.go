@@ -34,6 +34,9 @@ func TestLocalProviderRunsRealProcessAndCapturesSnapshot(t *testing.T) {
 	if snapshot.Usage.DurationMS < 0 || snapshot.FinishedAt == nil {
 		t.Fatalf("snapshot usage=%+v", snapshot.Usage)
 	}
+	if snapshot.ExecutorPath != "/usr/bin/printf" || snapshot.ExecutorPID <= 0 || len(snapshot.ExecutorArgs) != 1 || snapshot.ExecutorArgs[0] != "READY" {
+		t.Fatalf("executor provenance=%+v", snapshot)
+	}
 	if filepath.Clean(snapshot.WorkDir) != filepath.Clean(root+"/work-1/"+binding.SessionID) {
 		t.Fatalf("unexpected workdir=%q", snapshot.WorkDir)
 	}

@@ -15,6 +15,7 @@ security:
 paths:
   "/api/v1/execution-plans":
     get:
+      operationId: get_api_v1_execution_plans
       summary: List immutable execution plans in a workspace
       responses:
         '200':
@@ -40,6 +41,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/execution-plans/{plan_id}":
     get:
+      operationId: get_api_v1_execution_plans_by_plan_id
       summary: Get a frozen execution plan
       parameters:
       - name: plan_id
@@ -71,6 +73,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/execution-plans/{plan_id}/timeline":
     get:
+      operationId: get_api_v1_execution_plans_by_plan_id_timeline
       summary: Read immutable plan events for replay and diagnostics
       parameters:
       - name: plan_id
@@ -108,6 +111,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/execution-plans/{plan_id}/replay":
     get:
+      operationId: get_api_v1_execution_plans_by_plan_id_replay
       summary: Rebuild a projection from a frozen plan and its immutable events
       parameters:
       - name: plan_id
@@ -139,6 +143,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/execution-plans/{plan_id}/tick":
     post:
+      operationId: post_api_v1_execution_plans_by_plan_id_tick
       summary: Advance one durable graph scheduler tick
       parameters:
       - name: plan_id
@@ -179,6 +184,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/execution-plans/{plan_id}/nodes/{node_id}/approve":
     post:
+      operationId: post_api_v1_execution_plans_by_plan_id_nodes_by_node_id_approve
       summary: Approve a waiting human graph node
       parameters:
       - name: plan_id
@@ -218,6 +224,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/execution-plans/{plan_id}/nodes/{node_id}/deny":
     post:
+      operationId: post_api_v1_execution_plans_by_plan_id_nodes_by_node_id_deny
       summary: Deny a waiting human graph node
       parameters:
       - name: plan_id
@@ -273,6 +280,7 @@ paths:
         - takeover
         - resume
     post:
+      operationId: post_api_v1_execution_plans_by_plan_id_by_action
       summary: Apply an explicit execution plan lifecycle action
       requestBody:
         required: false
@@ -308,6 +316,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/workspaces/{workspace_id}/agents":
     get:
+      operationId: get_api_v1_workspaces_by_workspace_id_agents
       summary: List revisioned orchestration agents
       parameters:
       - name: workspace_id
@@ -338,6 +347,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_workspaces_by_workspace_id_agents
       summary: Create an agent definition draft
       parameters:
       - name: workspace_id
@@ -378,6 +388,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/squads":
     get:
+      operationId: get_api_v1_squads
       summary: List revisioned squads
       responses:
         '200':
@@ -402,6 +413,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_squads
       summary: Create a squad draft
       requestBody:
         required: true
@@ -437,6 +449,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/execution-plans/validate":
     post:
+      operationId: post_api_v1_execution_plans_validate
       summary: Validate a graph execution plan without executing it
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -481,6 +494,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/requirements/{id}/comments/trigger-preview":
     post:
+      operationId: post_api_v1_requirements_by_id_comments_trigger_preview
       summary: Preview structured Agent/Squad comment triggers
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -530,6 +544,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/auth/login":
     post:
+      operationId: post_api_v1_auth_login
       security: []
       summary: Authenticate an ADRO user and set an HttpOnly session cookie
       requestBody:
@@ -580,6 +595,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/auth/me":
     get:
+      operationId: get_api_v1_auth_me
       security: []
       summary: Read the current interactive or machine identity
       responses:
@@ -606,6 +622,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/auth/logout":
     post:
+      operationId: post_api_v1_auth_logout
       summary: Revoke the current session and clear its cookie
       responses:
         '204':
@@ -624,6 +641,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/users":
     get:
+      operationId: get_api_v1_users
       summary: List users and menu catalog (administrator only)
       responses:
         '200':
@@ -657,6 +675,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_users
       summary: Create a user with role, status, and menu access (administrator only)
       requestBody:
         required: true
@@ -707,6 +726,7 @@ paths:
       schema:
         type: string
     patch:
+      operationId: patch_api_v1_users_by_id
       summary: Update role, status, password, or menu access (administrator only)
       requestBody:
         required: true
@@ -751,6 +771,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/directory":
     get:
+      operationId: get_api_v1_directory
       summary: List active workspace identities for assignee selectors
       responses:
         '200':
@@ -776,6 +797,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/attachments":
     get:
+      operationId: get_api_v1_attachments
       summary: List attachments linked to a requirement or bug
       parameters:
       - name: owner_type
@@ -814,6 +836,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_attachments
       summary: Upload and link an attachment to a requirement or bug
       requestBody:
         required: true
@@ -864,6 +887,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/provider/diagnostics":
     get:
+      operationId: get_api_v1_provider_diagnostics
       summary: Probe provider capabilities, health, and attachment support
       responses:
         '200':
@@ -889,6 +913,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/system/diagnostics":
     get:
+      operationId: get_api_v1_system_diagnostics
       summary: Report selected backends and durable recovery boundaries
       responses:
         '200':
@@ -914,6 +939,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/healthz":
     get:
+      operationId: get_healthz
       security: []
       summary: Report control-plane process health
       responses:
@@ -940,6 +966,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/metrics":
     get:
+      operationId: get_metrics
       security: []
       summary: Prometheus metrics
       responses:
@@ -966,6 +993,7 @@ paths:
                 type: string
   "/readyz":
     get:
+      operationId: get_readyz
       security: []
       summary: Report provider and control-plane readiness
       responses:
@@ -1001,6 +1029,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/requirements":
     get:
+      operationId: get_api_v1_requirements
       summary: List requirements
       parameters:
       - "$ref": "#/components/parameters/WorkspaceID"
@@ -1041,6 +1070,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_requirements
       summary: Create a requirement
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -1092,6 +1122,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_requirements_by_id
       summary: Get requirement
       responses:
         '200':
@@ -1116,6 +1147,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     patch:
+      operationId: patch_api_v1_requirements_by_id
       summary: Update requirement
       responses:
         '200':
@@ -1160,6 +1192,7 @@ paths:
       schema:
         type: string
     patch:
+      operationId: patch_api_v1_comments_by_id
       summary: Edit a comment with optimistic revision checking
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -1201,6 +1234,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_comments_by_id_trigger_outcomes
       summary: List per-target structured mention outcomes
       responses:
         '200':
@@ -1232,6 +1266,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_comments_by_id_revisions
       summary: List immutable comment content and attachment revisions
       responses:
         '200':
@@ -1263,6 +1298,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_comments_by_id_trigger_retry
       summary: Recompute structured mention trigger outcomes
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -1298,6 +1334,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_comments_by_id_follow_up
       summary: Read durable comment follow-up execution status
       responses:
         '200':
@@ -1322,6 +1359,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_comments_by_id_follow_up
       summary: Retry or dispatch a comment follow-up
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -1364,6 +1402,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_requirements_by_id_comments
       summary: List requirement discussion comments
       parameters:
       - name: cursor
@@ -1399,6 +1438,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_requirements_by_id_comments
       summary: Add a requirement comment or reply and optionally dispatch a follow-up
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -1441,6 +1481,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_start
       summary: Start workflow
       responses:
         '200':
@@ -1485,6 +1526,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_transition
       summary: Apply a validated requirement state transition
       responses:
         '200':
@@ -1529,6 +1571,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_gates
       summary: Apply a deterministic quality gate and optionally create a bug
       responses:
         '200':
@@ -1573,6 +1616,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_approve
       summary: Approve design
       responses:
         '200':
@@ -1608,6 +1652,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_confirm_assignees
       summary: Confirm requirement assignees
       responses:
         '200':
@@ -1643,6 +1688,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_begin_design
       summary: Begin design
       responses:
         '200':
@@ -1678,6 +1724,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_pause
       summary: Pause a requirement
       responses:
         '200':
@@ -1713,6 +1760,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_resume
       summary: Resume a requirement
       responses:
         '200':
@@ -1748,6 +1796,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_requirements_by_id_work_items
       summary: List requirement work items
       responses:
         '200':
@@ -1779,6 +1828,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_assignees
       summary: Add requirement assignees
       responses:
         '200':
@@ -1814,6 +1864,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_repositories
       summary: Add requirement repositories
       responses:
         '200':
@@ -1849,6 +1900,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_requirements_by_id_impact_reports
       summary: Create an impact report
       responses:
         '201':
@@ -1890,6 +1942,7 @@ paths:
         type: integer
         format: int64
     post:
+      operationId: post_api_v1_requirements_by_id_impact_reports_by_version_confirm
       summary: Confirm an impact report repository set
       responses:
         '200':
@@ -1925,6 +1978,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_bugs_by_id
       summary: Read a bug
       responses:
         '200':
@@ -1956,6 +2010,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_bugs_by_id_comments
       summary: List bug discussion comments
       parameters:
       - name: cursor
@@ -1991,6 +2046,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_bugs_by_id_comments
       summary: Add a bug comment or reply and optionally dispatch a follow-up
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -2033,6 +2089,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_bugs_by_id_triage
       summary: Triage a bug
       responses:
         '200':
@@ -2068,6 +2125,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_bugs_by_id_verify
       summary: Verify a repaired bug
       responses:
         '200':
@@ -2097,6 +2155,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/bugs":
     get:
+      operationId: get_api_v1_bugs
       summary: List bugs
       responses:
         '200':
@@ -2121,6 +2180,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_bugs
       summary: Create or deduplicate a bug
       requestBody:
         required: true
@@ -2173,6 +2233,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_bugs_by_id_repair
       summary: Start an automatic repair attempt
       responses:
         '202':
@@ -2211,6 +2272,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/artifacts/uploads":
     post:
+      operationId: post_api_v1_artifacts_uploads
       summary: Create an artifact upload session
       responses:
         '201':
@@ -2240,6 +2302,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/screenshots":
     post:
+      operationId: post_api_v1_screenshots
       summary: Store a screenshot and optionally deliver it to a provider target
       requestBody:
         required: true
@@ -2297,6 +2360,7 @@ paths:
         type: integer
         minimum: 1
     put:
+      operationId: put_api_v1_artifacts_uploads_by_upload_id_parts_by_part_no
       summary: Upload one artifact part
       responses:
         '200':
@@ -2332,6 +2396,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_artifacts_uploads_by_upload_id_complete
       summary: Complete and verify an artifact upload
       responses:
         '201':
@@ -2361,6 +2426,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/artifact-migrations":
     post:
+      operationId: post_api_v1_artifact_migrations
       summary: Start an artifact driver migration
       responses:
         '202':
@@ -2396,6 +2462,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_artifact_migrations_by_id
       summary: Read artifact migration
       responses:
         '200':
@@ -2427,6 +2494,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_artifact_migrations_by_id_pause
       summary: Pause artifact migration
       responses:
         '200':
@@ -2462,6 +2530,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_artifact_migrations_by_id_resume
       summary: Resume artifact migration
       responses:
         '200':
@@ -2497,6 +2566,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_artifact_migrations_by_id_rollback
       summary: Roll back artifact migration
       responses:
         '200':
@@ -2538,6 +2608,7 @@ paths:
         type: integer
         format: int64
     get:
+      operationId: get_api_v1_artifacts_by_id_versions_by_version_content
       summary: Download artifact content with Range support
       responses:
         '200':
@@ -2574,6 +2645,7 @@ paths:
                 type: string
                 format: binary
     head:
+      operationId: head_api_v1_artifacts_by_id_versions_by_version_content
       summary: Read artifact content metadata
       responses:
         '200':
@@ -2595,6 +2667,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_work_items_by_id_diff
       summary: Read the latest changed-files snapshot
       responses:
         '200':
@@ -2619,6 +2692,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_work_items_by_id_diff
       summary: Publish a changed-files snapshot
       responses:
         '201':
@@ -2648,6 +2722,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/work-items":
     get:
+      operationId: get_api_v1_work_items
       summary: List workspace work items with opaque routing metadata
       parameters:
       - "$ref": "#/components/parameters/WorkspaceID"
@@ -2681,6 +2756,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_work_items_by_id
       summary: Read a work item and evidence
       responses:
         '200':
@@ -2718,6 +2794,7 @@ paths:
         format: int64
         minimum: 1
     get:
+      operationId: get_api_v1_work_items_by_id_context
       summary: Read the versioned context manifest and latest provenance
       responses:
         '200':
@@ -2758,6 +2835,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_work_items_by_id_repair_attempts
       summary: List repair attempts associated with a work item
       responses:
         '200':
@@ -2789,6 +2867,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_work_items_by_id_run
       summary: Start a provider run for a work item
       responses:
         '202':
@@ -2824,6 +2903,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_runs_by_id
       summary: Read execution run
       responses:
         '200':
@@ -2864,6 +2944,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_runs_by_id_events
       summary: Read run events with cursor
       responses:
         '200':
@@ -2895,6 +2976,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runs_by_id_messages
       summary: Append input to an execution run
       responses:
         '202':
@@ -2939,6 +3021,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runs_by_id_cancel
       summary: Cancel an execution run when the Provider advertises run.cancel.v1
       responses:
         '200':
@@ -2983,6 +3066,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_runs_by_id_usage
       summary: Read token and duration usage
       responses:
         '200':
@@ -3017,6 +3101,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/repositories":
     get:
+      operationId: get_api_v1_repositories
       summary: List repositories
       responses:
         '200':
@@ -3041,6 +3126,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_repositories
       summary: Register a repository
       responses:
         '201':
@@ -3076,6 +3162,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_repositories_by_id_index
       summary: Mark a repository snapshot indexed
       responses:
         '200':
@@ -3111,6 +3198,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_repositories_by_id
       summary: Read a repository
       responses:
         '200':
@@ -3135,6 +3223,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     patch:
+      operationId: patch_api_v1_repositories_by_id
       summary: Update a repository
       responses:
         '200':
@@ -3163,6 +3252,7 @@ paths:
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
     delete:
+      operationId: delete_api_v1_repositories_by_id
       summary: Delete a repository
       responses:
         '204':
@@ -3181,6 +3271,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/repository-graph":
     get:
+      operationId: get_api_v1_repository_graph
       summary: Read the workspace repository knowledge graph
       responses:
         '200':
@@ -3206,6 +3297,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/team-workspaces":
     get:
+      operationId: get_api_v1_team_workspaces
       summary: List team workspaces
       responses:
         '200':
@@ -3230,6 +3322,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_team_workspaces
       summary: Create a team workspace
       responses:
         '201':
@@ -3265,6 +3358,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_team_workspaces_by_id
       summary: Read a team workspace
       responses:
         '200':
@@ -3290,6 +3384,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/developer-profiles":
     get:
+      operationId: get_api_v1_developer_profiles
       summary: List ADRO developer profiles
       responses:
         '200':
@@ -3321,6 +3416,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_developer_profiles_by_member_id
       summary: Read a developer profile
       responses:
         '200':
@@ -3345,6 +3441,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_developer_profiles_by_member_id
       summary: Create a developer profile
       responses:
         '200':
@@ -3373,6 +3470,7 @@ paths:
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
     patch:
+      operationId: patch_api_v1_developer_profiles_by_member_id
       summary: Update a developer profile
       responses:
         '200':
@@ -3402,6 +3500,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/approvals":
     post:
+      operationId: post_api_v1_approvals
       summary: Create an approval request
       responses:
         '201':
@@ -3437,6 +3536,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_approvals_by_id_decide
       summary: Decide an approval
       responses:
         '200':
@@ -3466,6 +3566,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/evidence":
     get:
+      operationId: get_api_v1_evidence
       summary: List evidence bundles
       responses:
         '200':
@@ -3490,6 +3591,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_evidence
       summary: Publish an evidence bundle
       responses:
         '201':
@@ -3519,6 +3621,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/mcp":
     get:
+      operationId: get_api_v1_mcp
       summary: List MCP servers
       responses:
         '200':
@@ -3543,6 +3646,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_mcp
       summary: Register an MCP server
       responses:
         '201':
@@ -3572,6 +3676,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/mcp/servers":
     get:
+      operationId: get_api_v1_mcp_servers
       summary: List MCP servers
       responses:
         '200':
@@ -3596,6 +3701,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_mcp_servers
       summary: Register an MCP server
       responses:
         '201':
@@ -3631,6 +3737,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_mcp_servers_by_id_discover
       summary: Discover MCP schema
       responses:
         '200':
@@ -3666,6 +3773,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_mcp_servers_by_id_approve
       summary: Approve an MCP server
       responses:
         '200':
@@ -3701,6 +3809,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_mcp_servers_by_id_health_check
       summary: Health-check an MCP server
       responses:
         '200':
@@ -3730,6 +3839,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/mcp/invocations":
     get:
+      operationId: get_api_v1_mcp_invocations
       summary: List MCP invocation audit records
       responses:
         '200':
@@ -3755,6 +3865,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/skills":
     get:
+      operationId: get_api_v1_skills
       summary: List skills
       responses:
         '200':
@@ -3779,6 +3890,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_skills
       summary: Register a skill
       responses:
         '201':
@@ -3814,6 +3926,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_skills_by_id_versions
       summary: Create a skill version
       responses:
         '201':
@@ -3849,6 +3962,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_skills_by_id_publish
       summary: Publish a skill version
       responses:
         '200':
@@ -3884,6 +3998,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_skills_by_id_rollback
       summary: Roll back a skill version
       responses:
         '200':
@@ -3913,6 +4028,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/automations":
     get:
+      operationId: get_api_v1_automations
       summary: List automations
       responses:
         '200':
@@ -3937,6 +4053,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_automations
       summary: Create an automation
       responses:
         '201':
@@ -3972,6 +4089,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_automations_by_id_publish
       summary: Publish an automation
       responses:
         '200':
@@ -4007,6 +4125,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_automations_by_id_pause
       summary: Pause an automation
       responses:
         '200':
@@ -4042,6 +4161,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_automations_by_id_trigger
       summary: Trigger an automation run
       responses:
         '202':
@@ -4077,6 +4197,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_automations_by_id_runs
       summary: List automation runs
       responses:
         '200':
@@ -4108,6 +4229,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_automation_runs_by_id_cancel
       summary: Cancel an automation run
       responses:
         '200':
@@ -4143,6 +4265,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_automation_runs_by_id_takeover
       summary: Take over an automation run
       responses:
         '200':
@@ -4172,6 +4295,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/runners":
     get:
+      operationId: get_api_v1_runners
       summary: List runners
       responses:
         '200':
@@ -4196,6 +4320,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_runners
       summary: Register a runner
       responses:
         '201':
@@ -4231,6 +4356,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_runners_by_id
       summary: Read a runner
       responses:
         '200':
@@ -4262,6 +4388,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runners_by_id_heartbeat
       summary: Record runner heartbeat
       responses:
         '200':
@@ -4297,6 +4424,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runners_by_id_drain
       summary: Drain a runner
       responses:
         '200':
@@ -4332,6 +4460,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runners_by_id_quarantine
       summary: Quarantine a runner
       responses:
         '200':
@@ -4367,6 +4496,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_runners_by_id_execute
       summary: Execute an argv command inside the registered runner workspace
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -4411,6 +4541,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/agents":
     get:
+      operationId: get_api_v1_agents
       summary: List ADRO agent profiles
       responses:
         '200':
@@ -4435,6 +4566,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_agents
       summary: Create an ADRO agent through the configured Provider
       responses:
         '201':
@@ -4470,6 +4602,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_agents_by_id_mcp_bindings
       summary: List MCP bindings
       responses:
         '200':
@@ -4494,6 +4627,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_agents_by_id_mcp_bindings
       summary: Bind an MCP server to an agent
       responses:
         '201':
@@ -4529,6 +4663,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_agents_by_id_capabilities
       summary: Report required and provider-observed capabilities for an agent
       responses:
         '200':
@@ -4560,6 +4695,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_agents_by_id_skill_bindings
       summary: List skill bindings
       responses:
         '200':
@@ -4584,6 +4720,7 @@ paths:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
     post:
+      operationId: post_api_v1_agents_by_id_skill_bindings
       summary: Bind a skill to an agent
       responses:
         '201':
@@ -4613,6 +4750,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
   "/api/v1/audit":
     get:
+      operationId: get_api_v1_audit
       summary: Read the append-only audit chain
       responses:
         '200':
@@ -4644,6 +4782,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_streams_workspaces_by_workspace_id
       summary: Read workspace events with cursor replay
       parameters:
       - name: workspace_id
@@ -4692,6 +4831,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_streams_workspaces_by_workspace_id_ack
       summary: Acknowledge a workspace stream cursor
       requestBody:
         required: true
@@ -4733,6 +4873,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_streams_workspaces_by_workspace_id_replay_range
       summary: Repair a retained workspace event gap by sequence range
       parameters:
       - name: workspace_id
@@ -4780,6 +4921,7 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
   "/api/v1/pipelines":
     get:
+      operationId: get_api_v1_pipelines
       summary: List ADRO-owned seven-stage delivery pipelines
       parameters:
       - name: requirement_id
@@ -4814,6 +4956,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_pipelines
       summary: Start an automated delivery pipeline with the local executor
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -4865,6 +5008,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_pipelines_by_id
       summary: Read durable stage, context, history, and final report
       responses:
         '200':
@@ -4896,6 +5040,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_pipelines_by_id_results
       summary: Commit current-stage evidence and automatically dispatch the next stage
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -4942,6 +5087,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/workflow-templates":
     get:
+      operationId: get_api_v1_workflow_templates
       summary: List workspace workflow templates
       responses:
         '200':
@@ -4966,6 +5112,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_workflow_templates
       summary: Create a validated custom workflow template
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5007,6 +5154,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_workflow_templates_by_id
       summary: Read a workflow template
       responses:
         '200':
@@ -5031,6 +5179,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     delete:
+      operationId: delete_api_v1_workflow_templates_by_id
       summary: Delete a workflow template
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5051,6 +5200,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/chats":
     get:
+      operationId: get_api_v1_chats
       summary: List ordinary project-bound chat sessions
       parameters:
       - name: project_id
@@ -5080,6 +5230,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_chats
       summary: Create a durable ordinary chat session
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5121,6 +5272,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_chats_by_id
       summary: Read chat messages and harness context status
       responses:
         '200':
@@ -5152,6 +5304,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_chats_by_id_messages
       summary: Append a user turn to a durable chat
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5187,6 +5340,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions":
     post:
+      operationId: post_api_v1_sessions
       summary: Create an ADRO-owned durable harness session
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5229,6 +5383,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id
       summary: Read durable session and context status
       responses:
         '200':
@@ -5260,6 +5415,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_turns
       summary: Read an incremental transcript page
       responses:
         '200':
@@ -5284,6 +5440,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_sessions_by_id_turns
       summary: Append an immutable transcript turn
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5326,6 +5483,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_checkpoints
       summary: List recovery checkpoints
       responses:
         '200':
@@ -5350,6 +5508,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_sessions_by_id_checkpoints
       summary: Persist a checkpoint around a tool or side effect
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5392,6 +5551,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_context_status
       summary: Read context budget, archive, and checkpoint status
       responses:
         '200':
@@ -5423,6 +5583,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_context_archives
       summary: List exact immutable context archive windows
       responses:
         '200':
@@ -5454,6 +5615,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_context_compile
       summary: Compile a bounded context view from turns and verified archives
       responses:
         '200':
@@ -5485,6 +5647,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_context_integrity
       summary: Verify transcript hashes and archive recall
       responses:
         '200':
@@ -5516,6 +5679,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_memory
       summary: List active working, session, and project memory items
       responses:
         '200':
@@ -5547,6 +5711,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_sessions_by_id_memory_reduce
       summary: Add a scoped memory item with source turn citations (deterministic,
         non-semantic)
       parameters:
@@ -5590,6 +5755,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_sessions_by_id_compact
       summary: Archive an exact transcript window with a verified replacement summary
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5632,6 +5798,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_sessions_by_id_recover
       summary: Recover the latest checkpoint and pending outbox effects
       responses:
         '200':
@@ -5657,6 +5824,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins":
     get:
+      operationId: get_api_v1_plugins
       summary: List signed adapter installations
       responses:
         '200':
@@ -5681,6 +5849,7 @@ paths:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
     post:
+      operationId: post_api_v1_plugins
       summary: Install a verified signed adapter manifest
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5723,6 +5892,7 @@ paths:
       schema:
         type: string
     get:
+      operationId: get_api_v1_plugins_by_id
       summary: Read a plugin installation and health state
       responses:
         '200':
@@ -5754,6 +5924,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_plugins_by_id_activate
       summary: Activate a verified plugin
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5790,6 +5961,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_plugins_by_id_health
       summary: Record a plugin health probe and quarantine repeated failures
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5832,6 +6004,7 @@ paths:
       schema:
         type: string
     post:
+      operationId: post_api_v1_plugins_by_id_quarantine
       summary: Quarantine an installation and stop new routing
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
@@ -5868,6 +6041,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/plans/{plan_id}/timeline":
     get:
+      operationId: get_api_v1_plans_by_plan_id_timeline
       summary: Read plan timeline with projection and immutable events
       parameters:
       - name: plan_id
@@ -5905,6 +6079,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/runs/{run_id}/replay":
     get:
+      operationId: get_api_v1_runs_by_run_id_replay
       summary: Rebuild an orchestration projection from its event chain
       parameters:
       - name: run_id
@@ -5936,6 +6111,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/runs/{run_id}/diagnostics":
     get:
+      operationId: get_api_v1_runs_by_run_id_diagnostics
       summary: Read run orchestration diagnostics
       parameters:
       - name: run_id
@@ -5967,6 +6143,7 @@ paths:
               "$ref": "#/components/headers/RequestID"
   "/api/v1/sessions/{id}/memory/{memory_id}":
     patch:
+      operationId: patch_api_v1_sessions_by_id_memory_by_memory_id
       summary: Promote, quarantine, supersede or forget an evidence-backed memory
       parameters:
       - name: id

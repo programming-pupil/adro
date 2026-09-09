@@ -3,6 +3,23 @@
 # Resolve the Go installation paired with an explicitly selected go binary.
 # Some local Go distributions report a different compiled-in GOROOT unless
 # the environment overrides it, so prefer the binary's validated install root.
+select_go_bin() {
+  local configured_path="${ADRO_GO_BIN:-}"
+  if [ -n "$configured_path" ] && [ -x "$configured_path" ]; then
+    printf '%s' "$configured_path"
+    return 0
+  fi
+  if [ -n "${ROOT_DIR:-}" ] && [ -x "$ROOT_DIR/scripts/e2e-go.sh" ]; then
+    printf '%s' "$ROOT_DIR/scripts/e2e-go.sh"
+    return 0
+  fi
+  if [ -x "/Users/shareit/.gvm/gos/go1.24.1/bin/go" ]; then
+    printf '%s' "/Users/shareit/.gvm/gos/go1.24.1/bin/go"
+    return 0
+  fi
+  command -v go 2>/dev/null
+}
+
 resolve_go_root() {
   local go_bin="$1"
   local resolved_bin=""

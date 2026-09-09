@@ -362,27 +362,30 @@ func validateTraceCarrier(parent, state string) error {
 }
 
 type RunSnapshot struct {
-	ID                string `json:"id"`
-	WorkItemID        string `json:"work_item_id,omitempty"`
-	ProviderIssueID   string `json:"provider_issue_id,omitempty"`
-	InputHash         string `json:"input_hash,omitempty"`
-	Status            string `json:"status"`
-	LastEventID       string `json:"last_event_id,omitempty"`
-	SessionID         string `json:"session_id,omitempty"`
-	SessionContinuity string `json:"session_continuity,omitempty"`
-	WorkDir           string `json:"work_dir,omitempty"`
-	TraceParent       string `json:"traceparent,omitempty"`
-	TraceState        string `json:"tracestate,omitempty"`
-	BaselineCommit    string `json:"baseline_commit,omitempty"`
-	HeadCommit        string `json:"head_commit,omitempty"`
-	OutputSHA256      string `json:"output_sha256,omitempty"`
-	SourceDiffSHA256  string `json:"source_diff_sha256,omitempty"`
-	WorktreeSHA256    string `json:"worktree_sha256,omitempty"`
-	ToolEventsSHA256  string `json:"tool_events_sha256,omitempty"`
-	SubmissionURL     string `json:"submission_url,omitempty"`
-	ChecksConclusion  string `json:"checks_conclusion,omitempty"`
-	Output            string `json:"output,omitempty"`
-	Error             string `json:"error,omitempty"`
+	ID                string   `json:"id"`
+	WorkItemID        string   `json:"work_item_id,omitempty"`
+	ProviderIssueID   string   `json:"provider_issue_id,omitempty"`
+	InputHash         string   `json:"input_hash,omitempty"`
+	Status            string   `json:"status"`
+	LastEventID       string   `json:"last_event_id,omitempty"`
+	SessionID         string   `json:"session_id,omitempty"`
+	SessionContinuity string   `json:"session_continuity,omitempty"`
+	WorkDir           string   `json:"work_dir,omitempty"`
+	ExecutorPath      string   `json:"executor_path,omitempty"`
+	ExecutorPID       int      `json:"executor_pid,omitempty"`
+	ExecutorArgs      []string `json:"executor_args,omitempty"`
+	TraceParent       string   `json:"traceparent,omitempty"`
+	TraceState        string   `json:"tracestate,omitempty"`
+	BaselineCommit    string   `json:"baseline_commit,omitempty"`
+	HeadCommit        string   `json:"head_commit,omitempty"`
+	OutputSHA256      string   `json:"output_sha256,omitempty"`
+	SourceDiffSHA256  string   `json:"source_diff_sha256,omitempty"`
+	WorktreeSHA256    string   `json:"worktree_sha256,omitempty"`
+	ToolEventsSHA256  string   `json:"tool_events_sha256,omitempty"`
+	SubmissionURL     string   `json:"submission_url,omitempty"`
+	ChecksConclusion  string   `json:"checks_conclusion,omitempty"`
+	Output            string   `json:"output,omitempty"`
+	Error             string   `json:"error,omitempty"`
 	// RecoveryState distinguishes an interrupted child from a provider
 	// execution failure. Status remains failed for compatibility with existing
 	// clients, while repair/reconcile workers can act on this durable reason.

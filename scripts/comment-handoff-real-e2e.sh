@@ -4,6 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/real-codex.sh
 source "$ROOT_DIR/scripts/lib/real-codex.sh"
+# shellcheck source=scripts/lib/go-toolchain.sh
+source "$ROOT_DIR/scripts/lib/go-toolchain.sh"
 
 API_PORT="${ADRO_COMMENT_HANDOFF_API_PORT:-18088}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -69,17 +71,18 @@ command -v ruby >/dev/null 2>&1 || fail "ruby is required"
 command -v shasum >/dev/null 2>&1 || fail "shasum is required"
 
 executor="${ADRO_EXECUTOR:-}"
-[ -n "$executor" ] || executor="$(command -v codex 2>/dev/null || true)"
+[ -n "$executor" ] || executor="$(select_real_codex || true)"
 [ -n "$executor" ] || fail "Codex is required"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "comment handoff suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 CODEX_VERSION="$($executor --version 2>&1 || true)"
 [ -n "$CODEX_VERSION" ] || fail "Codex is not runnable"
-go_bin="${ADRO_GO_BIN:-$(command -v go 2>/dev/null || true)}"
+go_bin="$(select_go_bin || true)"
 [ -n "$go_bin" ] || fail "Go is required"
 GO_VERSION="$($go_bin version 2>/dev/null || true)"
-go_root="$($go_bin env GOROOT 2>/dev/null || true)"
+go_root="$(resolve_go_root "$go_bin" || true)"
 [ -n "$go_root" ] || fail "could not resolve Go root"
+export ADRO_GO_BIN="$go_bin" GOROOT="$go_root"
 
 mkdir -p "$REPORT_DIR" "$STATE_HOME" "$FIXTURE_REPO"
 printf '%s\n' 'module example.com/adro-comment-handoff' 'go 1.24.1' >"$FIXTURE_REPO/go.mod"
@@ -94,8 +97,7 @@ git -C "$FIXTURE_REPO" branch -M main
 prepare_real_codex_home "$RUN_ROOT/codex-home"
 trust_real_codex_project "$RUN_ROOT/codex-home" "$STATE_HOME"
 codex_wrapper="$RUN_ROOT/codex"
-printf '%s\n' '#!/bin/sh' "export GOROOT=$(printf '%q' "$go_root")" "exec $(printf '%q' "$executor") \"\$@\"" >"$codex_wrapper"
-chmod 700 "$codex_wrapper"
+write_real_codex_wrapper "$codex_wrapper" "$executor" "$go_root"
 executor="$codex_wrapper"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   configure_real_codex_command "$executor"
@@ -103,6 +105,13 @@ fi
 export ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_AUTH_MODE=optional ADRO_EXECUTOR="$executor"
 export ADRO_ARTIFACT_ROOT="$STATE_HOME/artifacts" ADRO_WORK_ROOT="$STATE_HOME/workspaces"
 export ADRO_GRAPH_WATCH_TIMEOUT="${ADRO_GRAPH_WATCH_TIMEOUT:-30m}" ADRO_GRAPH_WATCH_INTERVAL="${ADRO_GRAPH_WATCH_INTERVAL:-100ms}"
+# Comment handoff prompts are intentionally small, but the model still needs
+# enough time to open the real shell and emit its terminal JSON result. Keep the
+# deadline configurable without letting a transient slow turn exhaust the
+# whole suite.
+export ADRO_CODEX_REQUIRE_TERMINAL=1
+export ADRO_CODEX_ATTEMPT_TIMEOUT="${ADRO_COMMENT_HANDOFF_ATTEMPT_TIMEOUT:-120}"
+export ADRO_CODEX_MAX_RETRIES="${ADRO_COMMENT_HANDOFF_CODEX_RETRIES:-1}"
 
 "$ROOT_DIR/start.sh" --no-open >"$START_LOG" 2>&1 || { cat "$START_LOG" >&2; fail "ADRO did not start"; }
 curl -fsS "$API/readyz" >/dev/null || fail "ADRO is not ready"
@@ -120,15 +129,20 @@ repo_id="$(printf '%s' "$repo_json" | json_field id)"
 requirement_json="$(api_json -X POST "$API/api/v1/requirements" "${headers[@]}" -d "$(REPO="$repo_id" ruby -rjson -e 'puts JSON.generate(workspace_id: "local", title: "Real comment A to B to C handoff", description: "Preserve one comment root and continuation lineage across three real Codex roles.", acceptance_criteria: ["architect, developer and tester comments remain in one thread", "every explicit mention has one receipt and a real run"], assignee_member_ids: ["handoff-owner"], repository_ids: [ENV.fetch("REPO")])')")"
 requirement_id="$(printf '%s' "$requirement_json" | json_field id)"
 [ -n "$requirement_id" ] || fail "requirement id missing"
-api_json -X POST "$API/api/v1/requirements/$requirement_id/start" "${headers[@]}" -d '{}' >"$REPORT_DIR/requirement-start.json"
 
 agents=()
 for role in architect developer tester; do
-  instructions="You are the real ${role} in a comment handoff. Do not edit ADRO state. Read the complete thread in your prompt and return exactly one ADRO_RESULT_JSON marker with outcome pass, reason_code comment_${role}_handoff, summary comment ${role} handoff completed, evidence_ids [comment-${role}-1], and fields {comment_handoff:true, role:${role}}."
+  instructions="You are the real ${role} in a comment handoff. Use the terminal immediately and run exactly pwd in the provided checkout. Do not run any other command, inspect files, or edit ADRO state. Return exactly one ADRO_RESULT_JSON marker with outcome pass, reason_code comment_${role}_handoff, summary comment ${role} handoff completed, evidence_ids [comment-${role}-1], and fields {comment_handoff:true, role:${role}}."
   agent_id="$(ruby -rsecurerandom -e 'puts SecureRandom.uuid')"
   agent_json="$(ROLE="$role" ID="$agent_id" INSTRUCTIONS="$instructions" ruby -rjson -e 'puts JSON.generate(workspace_id: "local", id: ENV.fetch("ID"), revision: 1, name: "Comment " + ENV.fetch("ROLE"), role: ENV.fetch("ROLE"), instructions: ENV.fetch("INSTRUCTIONS"), status: "active", executor_binding: {provider_id: "local", required_caps: ["run.snapshot.v1"]}, input_schema: {id: "comment-input", version: 1}, output_schema: {id: "comment-output", version: 1})' | api_json -X POST "$API/api/v1/workspaces/local/agents" "${headers[@]}" -d @- )"
   agents+=("$(printf '%s' "$agent_json" | json_field id)")
 done
+
+# Ensure requirement start materializes a repository-backed developer work item.
+# Comment dispatch then clones this fixture and all three roles can continue in
+# one provider workdir instead of falling back to a synthetic empty directory.
+api_json -X POST "$API/api/v1/developer-profiles/handoff-owner" "${headers[@]}" -d '{"workspace_id":"local","default_role":"developer","status":"active"}' >"$REPORT_DIR/developer-profile.json"
+api_json -X POST "$API/api/v1/requirements/$requirement_id/start" "${headers[@]}" -d '{}' >"$REPORT_DIR/requirement-start.json"
 
 comments_file="$REPORT_DIR/comment-handoff-evidence.json"
 comments='[]'
@@ -181,7 +195,7 @@ for index in 0 1 2; do
     2) role=tester; prompt='测试阶段：请基于方案和研发评论完成回归确认。' ;;
   esac
   agent_id="${agents[$index]}"
-  content="$prompt [@Comment $role](mention://agent/$agent_id)"
+  content="$prompt Real Codex handoff requirement: run exactly pwd in the provided checkout, do not run another command or inspect files, then return exactly one ADRO_RESULT_JSON line with outcome pass, reason_code comment_${role}_handoff, summary comment ${role} handoff completed, evidence_ids [comment-${role}-1], and fields {comment_handoff:true, role:${role}}. [@Comment $role](mention://agent/$agent_id)"
   body="$(CONTENT="$content" PARENT="$previous_id" ruby -rjson -e 'value={content: ENV.fetch("CONTENT")}; parent=ENV.fetch("PARENT"); value[:parent_id]=parent unless parent.empty?; puts JSON.generate(value)')"
   response="$(api_json -X POST "$API/api/v1/requirements/$requirement_id/comments" "${headers[@]}" -H 'X-Member-ID: handoff-owner' -H "Idempotency-Key: comment-handoff-$index" -d "$body")"
   comment_id="$(printf '%s' "$response" | json_field comment.id)"

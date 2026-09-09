@@ -1,16 +1,18 @@
 .PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e test-expert verify run local
 
+GO ?= ./scripts/e2e-go.sh
+
 test:
-	go test ./...
+	$(GO) test ./...
 
 test-race:
-	go test -race ./...
+	$(GO) test -race ./...
 
 vet:
-	go vet ./...
+	$(GO) vet ./...
 
 build:
-	go build ./...
+	$(GO) build ./...
 
 coverage-ledger:
 	ruby scripts/coverage-ledger.rb --check
@@ -75,6 +77,6 @@ test-expert:
 verify: test test-race vet build contracts supply-chain browser
 
 run:
-	go run ./cmd/adro-api -addr $${ADRO_ADDR:-:8080} -artifact-root $${ADRO_ARTIFACT_ROOT:-./var/artifacts}
+	$(GO) run ./cmd/adro-api -addr $${ADRO_ADDR:-:8080} -artifact-root $${ADRO_ARTIFACT_ROOT:-./var/artifacts}
 
 local: run

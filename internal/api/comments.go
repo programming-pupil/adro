@@ -566,13 +566,14 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 	}
 	requestedBinding := strings.TrimSpace(requestedAgentBinding)
 	result := map[string]any{"requested": true, "status": "unavailable"}
+	receiptDedupeKey := strings.TrimSpace(dedupeKey)
 	saveReceipt := func(receipt domain.CommentFollowUp) {
 		if s.Store == nil {
 			return
 		}
 		receipt.DispatchTargetType = dispatchTargetType
 		receipt.DispatchTargetID = dispatchTargetID
-		receipt.DedupeKey = dedupeKey
+		receipt.DedupeKey = receiptDedupeKey
 		receipt.CommentRevision = comment.Revision
 		receipt.OriginatorID = comment.OriginatorID
 		receipt.OriginatorType = comment.OriginatorType
@@ -582,13 +583,30 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 			s.Logger.Error("persist comment follow-up receipt", "error", err, "comment_id", comment.ID)
 		}
 	}
-	if existing, err := s.Store.GetCommentFollowUpForTarget(comment.ID, dispatchTargetType, dispatchTargetID); err == nil && (existing.Status == "started" || existing.Status == "running" || existing.Status == "completed" || existing.Status == "dispatching" || existing.Status == "queued") {
+	existing, existingErr := s.Store.GetCommentFollowUpForTarget(comment.ID, dispatchTargetType, dispatchTargetID)
+	if existingErr == nil && (existing.Status == "started" || existing.Status == "running" || existing.Status == "completed" || existing.Status == "dispatching" || existing.Status == "queued") {
 		result["status"] = existing.Status
 		result["run_id"] = existing.ProviderRunID
 		result["session_id"] = existing.ProviderSessionID
 		result["session_reused"] = existing.Mode == "continuation"
 		return result
 	}
+	// A failed/cancelled follow-up may be retried after its first dispatch has
+	// recorded provider provenance. Use a new durable dispatch key for that
+	// retry: the continuation payload is intentionally different from the
+	// original new-run payload, and reusing the old outbox key would correctly
+	// fail closed as an idempotency conflict.
+	dispatchKey := strings.TrimSpace(dedupeKey)
+	if dispatchKey == "" {
+		dispatchKey = fmt.Sprintf("comment:%s:revision:%d:%s:%s", comment.ID, comment.Revision, dispatchTargetType, dispatchTargetID)
+	}
+	if existingErr == nil && existing.Attempts > 0 {
+		switch existing.Status {
+		case "failed", "cancelled", "cancel_pending", "timed_out", "rejected", "unavailable", "retrying":
+			dispatchKey = fmt.Sprintf("%s:retry:%d", dispatchKey, existing.Attempts+1)
+		}
+	}
+	receiptDedupeKey = dispatchKey
 	if s.Harness == nil || s.Provider == nil || s.Store == nil {
 		result["reason"] = "execution dependencies are unavailable"
 		saveReceipt(domain.CommentFollowUp{CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, TargetType: comment.TargetType, TargetID: comment.TargetID, Status: "unavailable", Reason: result["reason"].(string)})
@@ -596,10 +614,12 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 	}
 	workItem, run, agentID := s.commentExecutionTarget(comment)
 	explicitStructured := strings.Contains(comment.Content, "mention://")
+	targetAgentInstructions := ""
 	if requestedBinding != "" {
 		agentID = strings.TrimSpace(requestedBinding)
 		if s.Orchestration != nil {
 			if definition, definitionErr := s.Orchestration.GetAgent(comment.WorkspaceID, agentID, 0); definitionErr == nil {
+				targetAgentInstructions = strings.TrimSpace(definition.Instructions)
 				if strings.TrimSpace(definition.ExecutorBinding.ProviderID) != "" {
 					agentID = definition.ExecutorBinding.ProviderID
 				}
@@ -650,11 +670,11 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 	if contextVersion < 1 {
 		contextVersion = 1
 	}
-	key := strings.TrimSpace(dedupeKey)
-	if key == "" {
-		key = fmt.Sprintf("comment:%s:revision:%d:%s:%s", comment.ID, comment.Revision, dispatchTargetType, dispatchTargetID)
-	}
 	prompt := s.commentFollowUpPrompt(comment)
+	if targetAgentInstructions != "" {
+		prompt += "\n\nTarget agent instructions:\n" + targetAgentInstructions
+	}
+	key := dispatchKey
 	turn, err := s.Harness.AppendTurn(sessionID, harness.Turn{Role: harness.RoleUser, Content: prompt, IdempotencyKey: key, Metadata: map[string]string{"comment_id": comment.ID, "target_type": comment.TargetType, "target_id": comment.TargetID}})
 	if err != nil {
 		result["reason"] = err.Error()
@@ -689,17 +709,30 @@ func (s *Server) queueCommentFollowUpForTargetWithBinding(r *http.Request, comme
 	}
 	command.PlanID, command.NodeID, command.AttemptID = graphScope.PlanID, graphScope.NodeID, graphScope.AttemptID
 	command = command.WithTraceContext(r.Context())
-	intent := providerDispatchIntent{Kind: "comment", CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, DispatchTargetType: dispatchTargetType, DispatchTargetID: dispatchTargetID, DedupeKey: dedupeKey, WorkItemID: workItem.ID, RequirementID: commentRequirementID(s.Store, comment), BugID: commentBugID(s.Store, comment), AgentID: agentID, ProviderIssueID: issueID, HarnessSessionID: sessionID, ContextID: command.ContextID, ContextVersion: contextVersion, TurnHash: turn.Hash, ContextEnvelope: contextEnvelope, Command: command}
+	intent := providerDispatchIntent{Kind: "comment", CommentID: comment.ID, WorkspaceID: comment.WorkspaceID, DispatchTargetType: dispatchTargetType, DispatchTargetID: dispatchTargetID, DedupeKey: dispatchKey, WorkItemID: workItem.ID, RequirementID: commentRequirementID(s.Store, comment), BugID: commentBugID(s.Store, comment), AgentID: agentID, ProviderIssueID: issueID, HarnessSessionID: sessionID, ContextID: command.ContextID, ContextVersion: contextVersion, TurnHash: turn.Hash, ContextEnvelope: contextEnvelope, Command: command}
 	if workItem.ID != "" {
-		if provenance, found := s.Store.FindProvenance(workItem.ID); found && workItem.ProviderIssueID != "" && provenance.ProviderSessionID != "" && provenance.ProviderWorkDir != "" {
-			intent.ProviderIssueID = workItem.ProviderIssueID
-			continuation := &provider.ContinuationCommand{IssueID: workItem.ProviderIssueID, AgentID: agentID, Input: dispatchPrompt, ExpectedSessionID: provenance.ProviderSessionID, ExpectedWorkDir: provenance.ProviderWorkDir, IdempotencyKey: key, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: "comment-v1"}
-			continuation.ExpectedRevision = contextVersion
-			continuation.PlanID = command.PlanID
-			continuation.NodeID = command.NodeID
-			continuation.AttemptID = command.AttemptID
-			*continuation = continuation.WithTraceContext(r.Context())
-			intent.Continuation = continuation
+		if provenance, found := s.Store.FindProvenance(workItem.ID); found {
+			// The initial provider binding can contain only ADRO's provisional
+			// session. Reconcile it with the provider snapshot before deciding
+			// whether a comment may be dispatched as a continuation.
+			if provenance.ProviderTaskID != "" {
+				if snapshot, snapshotErr := s.Provider.GetRun(r.Context(), provenance.ProviderTaskID); snapshotErr == nil && snapshot.SessionContinuity == "proven" {
+					_ = s.refreshLocalProviderProvenance(workItem.ID, snapshot)
+					if refreshed, refreshedOK := s.Store.FindProvenance(workItem.ID); refreshedOK {
+						provenance = refreshed
+					}
+				}
+			}
+			if workItem.ProviderIssueID != "" && provenance.ProviderSessionID != "" && provenance.ProviderWorkDir != "" {
+				intent.ProviderIssueID = workItem.ProviderIssueID
+				continuation := &provider.ContinuationCommand{IssueID: workItem.ProviderIssueID, AgentID: agentID, Input: dispatchPrompt, ExpectedSessionID: provenance.ProviderSessionID, ExpectedWorkDir: provenance.ProviderWorkDir, IdempotencyKey: key, ContextEnvelope: contextEnvelope, LegacyAdapterVersion: "comment-v1"}
+				continuation.ExpectedRevision = contextVersion
+				continuation.PlanID = command.PlanID
+				continuation.NodeID = command.NodeID
+				continuation.AttemptID = command.AttemptID
+				*continuation = continuation.WithTraceContext(r.Context())
+				intent.Continuation = continuation
+			}
 		}
 	}
 	event, claimed, err := s.Harness.EnqueueAndClaimOutbox(sessionID, key, intent, providerDispatchOwner, dispatchLeaseTTL(), time.Now().UTC())
@@ -780,6 +813,22 @@ func (s *Server) refreshCommentFollowUp(r *http.Request, followUp domain.Comment
 	if err != nil {
 		return followUp
 	}
+	if snapshot.SessionContinuity == "proven" && snapshot.WorkItemID != "" {
+		// StartRun returns ADRO's provisional session before Codex emits its
+		// native thread.started id. Keep durable provenance aligned with the
+		// authoritative terminal snapshot so the next comment can continue the
+		// same provider conversation.
+		_ = s.refreshLocalProviderProvenance(snapshot.WorkItemID, snapshot)
+	}
+	changed := false
+	if snapshot.SessionID != "" && snapshot.SessionID != followUp.ProviderSessionID {
+		followUp.ProviderSessionID = snapshot.SessionID
+		changed = true
+	}
+	if snapshot.WorkDir != "" && snapshot.WorkDir != followUp.ProviderWorkDir {
+		followUp.ProviderWorkDir = snapshot.WorkDir
+		changed = true
+	}
 	status := followUp.Status
 	switch snapshot.Status {
 	case "completed":
@@ -791,12 +840,16 @@ func (s *Server) refreshCommentFollowUp(r *http.Request, followUp domain.Comment
 	case "timed_out":
 		status = "timed_out"
 	}
-	if status == followUp.Status && snapshot.Error == "" {
-		return followUp
+	if status != followUp.Status {
+		followUp.Status = status
+		changed = true
 	}
-	followUp.Status = status
-	if snapshot.Error != "" {
+	if snapshot.Error != "" && snapshot.Error != followUp.Reason {
 		followUp.Reason = snapshot.Error
+		changed = true
+	}
+	if !changed {
+		return followUp
 	}
 	if saved, saveErr := s.Store.SaveCommentFollowUp(followUp); saveErr == nil {
 		return saved

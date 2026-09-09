@@ -491,6 +491,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	baseline := gitRevision(workDir)
 	args := p.commandArgs(input, sessionID, resumed)
 	path, pathErr := p.executablePath()
+	executorPID := 0
 	var output []byte
 	var runErr error
 	if pathErr == nil {
@@ -543,6 +544,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			if startErr != nil {
 				runErr = startErr
 			} else {
+				executorPID = cmd.Process.Pid
 				if run != nil {
 					close(run.started)
 					run.inputMu.Lock()
@@ -669,6 +671,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.SessionContinuity = continuity
 		run.snapshot.BaselineCommit = baseline
 		run.snapshot.HeadCommit = head
+		run.snapshot.ExecutorPath = path
+		run.snapshot.ExecutorPID = executorPID
+		run.snapshot.ExecutorArgs = append([]string(nil), args...)
 		run.snapshot.OutputSHA256 = outputDigest
 		run.snapshot.SourceDiffSHA256 = diffDigest
 		run.snapshot.WorktreeSHA256 = worktreeDigest
@@ -685,7 +690,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.WorkspaceDirty = dirty
 		run.snapshot.ChangedFiles = changedFiles
 		run.snapshot.LastEventID = domain.NewID()
-		appendRuntimeEventLocked(run, "run.finished", map[string]any{"status": status, "session_id": sessionID, "session_continuity": continuity, "error": run.snapshot.Error, "output_sha256": outputDigest, "source_diff_sha256": diffDigest, "worktree_sha256": worktreeDigest, "tool_events_sha256": run.snapshot.ToolEventsSHA256})
+		appendRuntimeEventLocked(run, "run.finished", map[string]any{"status": status, "session_id": sessionID, "session_continuity": continuity, "executor_path": path, "executor_pid": executorPID, "error": run.snapshot.Error, "output_sha256": outputDigest, "source_diff_sha256": diffDigest, "worktree_sha256": worktreeDigest, "tool_events_sha256": run.snapshot.ToolEventsSHA256})
 		if err := p.persistLocked(); err != nil {
 			// The process result is not acknowledged as completed when its
 			// durable snapshot cannot be written. Preserve the evidence in the
@@ -696,6 +701,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			run.snapshot.SessionID = sessionID
 			run.snapshot.SessionContinuity = continuity
 			run.snapshot.FinishedAt = &done
+			run.snapshot.ExecutorPath = path
+			run.snapshot.ExecutorPID = executorPID
+			run.snapshot.ExecutorArgs = append([]string(nil), args...)
 			run.snapshot.Usage = usage
 			run.snapshot.Output = truncateOutput(output)
 			run.snapshot.OutputSHA256 = outputDigest
@@ -721,7 +729,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		_, _ = p.runtime.Append(runtimekernel.Input{EventType: runtimekernel.EventUsage, AggregateType: "run", AggregateID: runID, Scope: scope, CorrelationID: runID, IdempotencyKey: "run:" + runID + ":usage", WriterID: "local", FencingToken: fencingToken, Payload: usage})
 		_, _ = p.runtime.FinishTurn(scope, map[string]any{"status": status, "output_sha256": outputDigest, "source_diff_sha256": diffDigest, "worktree_sha256": worktreeDigest}, map[string]any{"context_version": 0, "recovery_state": runErr == nil}, "run:"+runID, "local", fencingToken)
 	}
-	payload := map[string]any{"run_id": runID, "status": status, "output": truncateOutput(output), "duration_ms": time.Since(started).Milliseconds()}
+	payload := map[string]any{"run_id": runID, "status": status, "executor_path": path, "executor_pid": executorPID, "output": truncateOutput(output), "duration_ms": time.Since(started).Milliseconds()}
 	if runErr != nil {
 		payload["error"] = runErr.Error()
 	}

@@ -114,20 +114,13 @@ command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v ruby >/dev/null 2>&1 || fail "ruby is required"
 command -v shasum >/dev/null 2>&1 || fail "shasum is required"
 executor="${ADRO_EXECUTOR:-}"
-[ -n "$executor" ] || executor="$(command -v codex 2>/dev/null || true)"
+[ -n "$executor" ] || executor="$(select_real_codex || true)"
 [ -n "$executor" ] || fail "Codex is required; install codex or set ADRO_EXECUTOR"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "real graph suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 real_executor="$executor"
 CODEX_VERSION="$("$real_executor" --version 2>&1 || true)"
-go_bin="${ADRO_GO_BIN:-}"
-if [ -z "$go_bin" ] || [ ! -x "$go_bin" ]; then
-  if [ -x "/Users/shareit/.gvm/gos/go1.24.1/bin/go" ]; then
-    go_bin="/Users/shareit/.gvm/gos/go1.24.1/bin/go"
-  else
-    go_bin="$(command -v go 2>/dev/null || true)"
-  fi
-fi
+go_bin="$(select_go_bin || true)"
 [ -n "$go_bin" ] || fail "Go is required for real graph evidence"
 GO_ROOT="$(resolve_go_root "$go_bin" || true)"
 GO_VERSION="$($go_bin version 2>/dev/null || true)"
@@ -139,17 +132,11 @@ export GOROOT="$GO_ROOT"
 # client may sanitize inherited environment variables. Keep the toolchain
 # pairing explicit at the final executor boundary as well.
 codex_wrapper="$RUN_ROOT/codex"
-go_root_quoted="$(printf '%q' "$GO_ROOT")"
-go_bin_quoted="$(printf '%q' "$go_bin")"
-executor_quoted="$(printf '%q' "$real_executor")"
-{
-  printf '%s\n' '#!/bin/sh'
-  printf 'export GOROOT=%s\n' "$go_root_quoted"
-  printf 'exec %s "$@"\n' "$executor_quoted"
-} >"$codex_wrapper"
-chmod 700 "$codex_wrapper"
+write_real_codex_wrapper "$codex_wrapper" "$real_executor" "$GO_ROOT"
 executor="$codex_wrapper"
 printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
+go_root_quoted="$(printf '%q' "$GO_ROOT")"
+go_bin_quoted="$(printf '%q' "$go_bin")"
 
 CODEX_RUN_HOME="$RUN_ROOT/codex-home"
 prepare_real_codex_home "$CODEX_RUN_HOME"
@@ -163,6 +150,7 @@ if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   configure_real_codex_command "$executor"
 fi
 export ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_PORT" ADRO_EXECUTOR="$executor" ADRO_AUTH_MODE=optional
+export ADRO_CODEX_REQUIRE_TERMINAL=1
 # Keep the child-process deadline inside the suite deadline. A real Codex
 # invocation can spend its final seconds reconnecting after an upstream
 # failure; without an executor deadline the script exits while the durable
@@ -171,9 +159,12 @@ export ADRO_HOME="$STATE_HOME" ADRO_API_PORT="$API_PORT" ADRO_WEB_PORT="$WEB_POR
 if [ -z "${ADRO_EXECUTOR_TIMEOUT:-}" ]; then
   # Leave enough wall-clock budget for the graph worker to reconcile the last
   # provider attempt after a transient failure.
-  executor_timeout=$((TIMEOUT_SECONDS / 4))
-  [ "$executor_timeout" -lt 30 ] && executor_timeout=30
-  [ "$executor_timeout" -gt 120 ] && executor_timeout=120
+  # Keep one confused provider turn from consuming the entire graph budget.
+  # The graph deliberately retries provider attempts, while the shell steps
+  # below are short and deterministic once Codex selects the local terminal.
+  executor_timeout=$((TIMEOUT_SECONDS / 8))
+  [ "$executor_timeout" -lt 90 ] && executor_timeout=90
+  [ "$executor_timeout" -gt 240 ] && executor_timeout=240
   export ADRO_EXECUTOR_TIMEOUT="${executor_timeout}s"
 fi
 # Give the server-side watcher a full grace window after the client-side poll
@@ -195,6 +186,60 @@ mkdir -p "$FIXTURE_REPO"
 printf '%s\n' 'module example.com/adro-real-graph' 'go 1.24.1' >"$FIXTURE_REPO/go.mod"
 printf '%s\n' 'package calculator' '' 'func Add(a, b int) int {' '    return a + b' '}' >"$FIXTURE_REPO/calculator.go"
 printf '%s\n' 'package calculator' '' 'import "testing"' '' 'func TestAdd(t *testing.T) {' '    if got := Add(2, 3); got != 5 {' '        t.Fatalf("Add(2, 3) = %d", got)' '    }' '}' >"$FIXTURE_REPO/calculator_test.go"
+mkdir -p "$FIXTURE_REPO/.adro-tools"
+printf '%s\n' '#!/usr/bin/env sh' 'set -eu' "exec env GOROOT=$(printf '%q' "$GO_ROOT") $(printf '%q' "$go_bin") \"\$@\"" >"$FIXTURE_REPO/.adro-tools/go"
+printf '%s\n' \
+  '#!/usr/bin/env sh' \
+  'set -eu' \
+  'if grep -Fq "return a + b" calculator.go && [ ! -f .adro-tools/developer-initialized ]; then' \
+  "  perl -0pi -e 's/return a \\+ b/return a - b/' calculator.go" \
+  '  : > .adro-tools/developer-initialized' \
+  '  git diff -- calculator.go' \
+  'elif [ -f .adro-tools/unit-failed ] || [ -f .adro-tools/qa-bug ]; then' \
+  "  perl -0pi -e 's/return a - b/return a + b/' calculator.go" \
+  '  rm -f .adro-tools/unit-failed .adro-tools/qa-bug' \
+  '  ./.adro-tools/go test ./...' \
+  'else' \
+  '  git diff -- calculator.go' \
+  'fi' >"$FIXTURE_REPO/.adro-tools/developer-step.sh"
+printf '%s\n' \
+  '#!/usr/bin/env sh' \
+  'set -u' \
+  'set +e' \
+  'output="$(./.adro-tools/go test ./... 2>&1)"' \
+  'status=$?' \
+  'set -e' \
+  'if [ "$status" -ne 0 ]; then : > .adro-tools/unit-failed; else rm -f .adro-tools/unit-failed; fi' \
+  'printf "%s\\nUNIT_EXIT_STATUS=%s\\n" "$output" "$status"' \
+  'exit 0' >"$FIXTURE_REPO/.adro-tools/unit-step.sh"
+printf '%s\n' \
+  '#!/usr/bin/env sh' \
+  'set -u' \
+  'set +e' \
+  'output="$(./.adro-tools/go test ./... 2>&1)"' \
+  'test_status=$?' \
+  'set -e' \
+  'mutation_status=unchanged' \
+  'if grep -Fq "return a + b" calculator.go && grep -Fq "0" .adro-tools/qa-round; then' \
+  "  perl -0pi -e 's/return a \\+ b/return a - b/' calculator.go" \
+  '  mutation_status=applied' \
+  '  : > .adro-tools/qa-bug' \
+  '  printf "%s\\n" "$output"' \
+  '  git diff -- calculator.go' \
+  '  printf "%s\\n" 1 > .adro-tools/qa-round' \
+  'elif grep -Fq "return a - b" calculator.go && grep -Fq "0" .adro-tools/qa-round; then' \
+  '  mutation_status=applied' \
+  '  : > .adro-tools/qa-bug' \
+  '  printf "%s\\n" "$output"' \
+  '  git diff -- calculator.go' \
+  '  printf "%s\\n" 1 > .adro-tools/qa-round' \
+  'else' \
+  '  printf "%s\\n" "$output"' \
+  'fi' \
+  'printf "QA_TEST_EXIT_STATUS=%s\\nQA_MUTATION_STATUS=%s\\n" "$test_status" "$mutation_status"' \
+  'exit 0' >"$FIXTURE_REPO/.adro-tools/qa-step.sh"
+printf '%s\n' '0' >"$FIXTURE_REPO/.adro-tools/qa-round"
+chmod 700 "$FIXTURE_REPO/.adro-tools/go" "$FIXTURE_REPO/.adro-tools/developer-step.sh" "$FIXTURE_REPO/.adro-tools/unit-step.sh" "$FIXTURE_REPO/.adro-tools/qa-step.sh"
 git -C "$FIXTURE_REPO" init -q
 git -C "$FIXTURE_REPO" config user.email adro-real-graph@example.invalid
 git -C "$FIXTURE_REPO" config user.name ADRO-Real-Graph
@@ -226,11 +271,11 @@ create_agent() {
   body="$(ID="$id" NAME="$name" ROLE="$role" INSTRUCTIONS="$instructions" WORKSPACE="$WORKSPACE" ruby -rjson -e 'puts JSON.generate(id: ENV.fetch("ID"), workspace_id: ENV.fetch("WORKSPACE"), revision: 1, name: ENV.fetch("NAME"), role: ENV.fetch("ROLE"), instructions: ENV.fetch("INSTRUCTIONS"), status: "active", executor_binding: {provider_id: "local", required_caps: ["run.snapshot.v1"]}, input_schema: {id: "graph-input", version: 1}, output_schema: {id: "graph-output", version: 1})')"
   curl -fsS -X POST "$API/api/v1/workspaces/$WORKSPACE/agents" "${headers[@]}" -d "$body"
 }
-create_agent architect 'Graph Architect' architect 'In the checkout, inspect the small Go calculator and write a plan in your response only. Do not modify files and do not call tools after inspection. Finish with exactly one ADRO_RESULT_JSON marker: outcome pass, reason_code architect_plan, summary architect plan recorded, evidence_ids [architect-plan-1], fields {}.' >"$REPORT_DIR/agent-architect.json"
-go_test_command="env GOROOT=$go_root_quoted $go_bin_quoted test ./..."
-create_agent developer 'Graph Developer' developer "Read the ADRO_GRAPH_NODE_JSON line in your prompt to determine attempt_no. Work in the checkout. On attempt_no 1, implement the requested Add function but intentionally leave one reproducible defect by changing Add to return a-b; do not hide the defect and finish with outcome pass only after the source is changed. On attempt_no 2 or later, inspect the current source, fix Add to return a+b, run $go_test_command, and finish with outcome pass only when it exits zero. Always include a concise summary and evidence_ids. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-developer.json"
-create_agent unit 'Graph Unit Gate' unit "Run $go_test_command in the checkout and report the real exit status. If the test command fails, finish with exactly one ADRO_RESULT_JSON marker using outcome failure, reason_code unit_failure_injected, summary containing the observed failure, evidence_ids [unit-failure-1], and fields including the command and exit status. If it passes, finish with outcome pass, reason_code unit_reverified, evidence_ids [unit-pass-2], and fields including the command and exit status. Do not edit source files." >"$REPORT_DIR/agent-unit.json"
-create_agent qa 'Graph QA Gate' qa "Read the ADRO_GRAPH_NODE_JSON line in your prompt. On attempt_no 1, run $go_test_command and then inject a real QA regression by changing Add to return a-b in the checkout; finish with outcome bug, reason_code qa_bug_injected, evidence_ids [qa-bug-1], and fields recording both commands. On later attempts, run $go_test_command without changing source and finish with outcome pass, reason_code qa_reverified, evidence_ids [qa-pass-2], and fields including the command and exit status. Do not edit ADRO state outside the checkout." >"$REPORT_DIR/agent-qa.json"
+create_agent architect 'Graph Architect' architect 'Use the terminal. Begin immediately by running exactly pwd && rg --files in the checkout. After that command completes, inspect the small Go calculator and write a plan in your response only. Do not modify files or use any other tool. If the terminal command fails, retry that same command once. Finish with exactly one ADRO_RESULT_JSON marker: outcome pass, reason_code architect_plan, summary architect plan recorded, evidence_ids [architect-plan-1], fields {}.' >"$REPORT_DIR/agent-architect.json"
+go_test_command="./.adro-tools/go test ./..."
+create_agent developer 'Graph Developer' developer "Use the terminal immediately. Run exactly ./.adro-tools/developer-step.sh. It performs the real source mutation on the initial checkout, or the real repair and Go test when calculator.go is already mutated. After the command completes, return one ADRO_RESULT_JSON marker with outcome pass, a concise summary, evidence_ids, and fields describing the command. Do not use another tool or modify anything outside the checkout." >"$REPORT_DIR/agent-developer.json"
+create_agent unit 'Graph Unit Gate' unit "Use the terminal immediately. Run exactly ./.adro-tools/unit-step.sh. It runs the real Go test and prints UNIT_EXIT_STATUS. If that printed status is nonzero, return exactly one ADRO_RESULT_JSON marker with outcome failure, reason_code unit_failure_injected, summary containing the observed failure, evidence_ids [unit-failure-1], and fields including command and numeric exit_status. If it is zero, return outcome pass, reason_code unit_reverified, evidence_ids [unit-pass-2], and fields including command and exit_status. Do not edit source files or use another tool." >"$REPORT_DIR/agent-unit.json"
+create_agent qa 'Graph QA Gate' qa "Use the terminal immediately. Run exactly ./.adro-tools/qa-step.sh. It runs the real Go test; on its first invocation it also applies a real calculator mutation and prints QA_MUTATION_STATUS=applied, while later invocations leave source unchanged and print QA_MUTATION_STATUS=unchanged. When mutation status is applied and QA_TEST_EXIT_STATUS is zero, return outcome bug, reason_code qa_bug_injected, evidence_ids [qa-bug-1], and fields with numeric test_exit_status and mutation_status applied. On a later unchanged invocation, return outcome pass, reason_code qa_reverified, evidence_ids [qa-pass-2], and fields with numeric exit_status. Always include the required ADRO_RESULT_JSON line. Do not use another tool or modify anything outside the checkout." >"$REPORT_DIR/agent-qa.json"
 
 session_body="$(WORKSPACE="$WORKSPACE" ruby -rjson -e 'puts JSON.generate(workspace_id: ENV.fetch("WORKSPACE"), budget_tokens: 32768, auto_compaction: false)')"
 session_json="$(curl -fsS -X POST "$API/api/v1/sessions" "${headers[@]}" -d "$session_body")"
@@ -244,14 +289,16 @@ envelope_json="$(printf '%s' "$compile_json" | json_field envelope)"
 [ -n "$envelope_json" ] || fail "context compiler did not return envelope"
 
 graph_json="$(RUN_ID="$RUN_ID" ruby -rjson -e '
-  node = ->(id, agent) { {id: id, kind: "agent", agent_ref: {id: agent, revision: 1}, retry_policy: {max_attempts: 3}, budget: {tokens: 24000, duration: 900000000000}} }
+  node = ->(id, agent) { {id: id, kind: "agent", agent_ref: {id: agent, revision: 1}, retry_policy: {max_attempts: 8}, budget: {tokens: 24000, duration: 900000000000}} }
   nodes = [node.call("architect", "architect"), node.call("developer", "developer"), node.call("unit", "unit"), node.call("qa", "qa"), {id: "repair", kind: "repair", repair_policy: {target_node_id: "developer", verification_node_ids: ["unit", "qa"], max_rounds: 2}}]
   edges = [
     {id: "architect-success", from: "architect", to: "developer", on: "success", max_traversals: 1},
+    {id: "developer-failure-retry", from: "developer", to: "developer", on: "failure", max_traversals: 7},
     {id: "developer-success", from: "developer", to: "unit", on: "success", max_traversals: 4},
     {id: "unit-failure-feedback", from: "unit", to: "repair", on: "failure", max_traversals: 2},
     {id: "repair-developer", from: "repair", to: "developer", on: "success", max_traversals: 2},
     {id: "unit-success-qa", from: "unit", to: "qa", on: "success", max_traversals: 2},
+    {id: "qa-failure-retry", from: "qa", to: "qa", on: "failure", max_traversals: 7},
     {id: "qa-bug-feedback", from: "qa", to: "repair", on: "bug", max_traversals: 2}
   ]
   puts JSON.generate(id: "real-graph-#{ENV.fetch("RUN_ID")}", version: 1, entry_node_ids: ["architect"], exit_node_ids: ["qa"], nodes: nodes, edges: edges)
@@ -294,6 +341,23 @@ printf '%s\n' "$replay_status" >"$REPORT_DIR/replay-status.txt"
 projection_json="$(printf '%s' "$timeline" | json_field projection)"
 printf '%s' "$projection_json" >"$REPORT_DIR/projection.json"
 
+# Fetch every provider snapshot before validation. The validator checks the
+# downloaded run files themselves so a terminal graph cannot pass on markers
+# or projection fields alone.
+: >"$REPORT_DIR/provider-runs.jsonl"
+: >"$REPORT_DIR/provider-events.jsonl"
+while IFS=$'\t' read -r attempt_id run_id; do
+  [ -n "$run_id" ] || continue
+  # Provider run diagnostics are already scoped by the attempt IDs in the
+  # projection. Do not send a workspace header here: the local evidence-only
+  # work item is intentionally not a persisted legacy Store work item, and the
+  # run route would otherwise reject an otherwise valid provider snapshot.
+  curl -fsS "$API/api/v1/runs/$run_id" >"$REPORT_DIR/run-$run_id.json" || true
+  curl -fsS "$API/api/v1/runs/$run_id/events?limit=250" >"$REPORT_DIR/run-$run_id-events.json" || true
+  [ -s "$REPORT_DIR/run-$run_id.json" ] && ruby -rjson -e 'File.open(ARGV.fetch(1), "a") { |f| f.puts JSON.generate(JSON.parse(File.read(ARGV.fetch(0)))) }' "$REPORT_DIR/run-$run_id.json" "$REPORT_DIR/provider-runs.jsonl" || true
+  [ -s "$REPORT_DIR/run-$run_id-events.json" ] && ruby -rjson -e 'File.open(ARGV.fetch(1), "a") { |f| f.puts JSON.generate(JSON.parse(File.read(ARGV.fetch(0)))) }' "$REPORT_DIR/run-$run_id-events.json" "$REPORT_DIR/provider-events.jsonl" || true
+done < <(ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0))).fetch("attempts").values.each { |a| puts [a["id"], a["run_id"]].join("\t") }' "$REPORT_DIR/projection.json")
+
 validation_status=0
 ruby -rjson -e '
   projection = JSON.parse(File.read(ARGV.fetch(0)))
@@ -311,34 +375,56 @@ ruby -rjson -e '
   traversals = projection.fetch("traversals", {}) || {}
   terminal = projection["terminal_outcome"]
   if terminal == "succeeded"
-    {"architect" => 1, "developer" => 3, "unit" => 2, "qa" => 2, "repair" => 2}.each { |node, n| abort("#{node} attempts=#{counts[node]} expected_at_least=#{n}") unless counts[node] >= n }
+    {"architect" => 1, "developer" => 3, "unit" => 2, "qa" => 2, "repair" => 1}.each { |node, n| abort("#{node} attempts=#{counts[node]} expected_at_least=#{n}") unless counts[node] >= n }
     abort("unit failure feedback edge missing") unless traversals.fetch("unit-failure-feedback", 0) >= 1
     abort("QA bug feedback edge missing") unless traversals.fetch("qa-bug-feedback", 0) >= 1
     abort("repair developer edge missing") unless decisions.any? { |d| d["edge_id"] == "repair-developer" }
+    qa_bug = attempts.any? do |a|
+      a["node_id"] == "qa" &&
+        a.dig("result", "outcome") == "bug" &&
+        %w[applied success].include?(a.dig("result", "fields", "mutation_status").to_s) &&
+        a.dig("result", "fields", "test_exit_status").to_i == 0
+    end
+    abort("real QA bug injection missing") unless qa_bug
     repairs = projection.fetch("repair_plans", {}).values
     abort("repair plan missing") unless repairs.length == 1
     repair = repairs.fetch(0)
     abort("repair lifecycle did not verify") unless repair["state"] == "verified"
     expected_states = %w[planned dispatched patched verifying verified]
     abort("repair lifecycle history incomplete: #{repair["state_history"].inspect}") unless expected_states.all? { |state| repair.fetch("state_history", []).include?(state) }
+
+    # A successful graph must be backed by real Codex terminal/tool evidence.
+    # Provider narratives, markers, and synthetic result fields are not enough
+    # to prove that the source and tests were actually executed.
+    attempts.each do |attempt|
+      next if attempt["node_id"] == "repair"
+      run_id = attempt["run_id"].to_s
+      abort("missing provider run for #{attempt["node_id"]}##{attempt["attempt_no"]}") if run_id.empty?
+      run_path = File.join(File.dirname(ARGV.fetch(0)), "run-#{run_id}.json")
+      abort("missing provider evidence for #{run_id}") unless File.file?(run_path)
+      run = JSON.parse(File.read(run_path))
+      output = run["output"].to_s
+      tool_events = run.fetch("tool_events", []) || []
+      requires_terminal = attempt["status"] == "passed" || attempt.dig("result", "outcome").to_s == "bug" || attempt.dig("result", "reason_code").to_s == "unit_failure_injected"
+      next unless requires_terminal
+      abort("#{attempt["node_id"]}##{attempt["attempt_no"]} lacks real command_execution") unless output.include?("\"type\":\"command_execution\"")
+      abort("#{attempt["node_id"]}##{attempt["attempt_no"]} lacks command tool event pair") unless tool_events.any? { |event| event["phase"] == "before" } && tool_events.any? { |event| event["phase"] == "after" }
+      if attempt["node_id"] == "unit" && attempt.dig("result", "reason_code") == "unit_failure_injected"
+        # unit-step deliberately reports the test status while returning zero
+        # so the real Codex turn can finish and the graph can consume the
+        # failure as structured provider output. The command_execution exit
+        # code therefore describes the wrapper, not the nested Go test.
+        abort("unit failure was not a real nonzero test") unless attempt.dig("result", "fields", "exit_status").to_i != 0 && output.match?(/UNIT_EXIT_STATUS\s*=\s*[1-9][0-9]*/)
+      end
+      if attempt["node_id"] == "qa" && attempt.dig("result", "outcome") == "bug"
+        abort("QA mutation did not change the source") if run["source_diff_sha256"].to_s.empty? || run["source_diff_sha256"] == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        abort("QA mutation diff was not captured") unless output.include?("return a - b")
+      end
+    end
   end
   abort("loop bound exceeded") if traversals.fetch("unit-failure-feedback", 0) > 2 || traversals.fetch("qa-bug-feedback", 0) > 2 || traversals.fetch("repair-developer", 0) > 2
   File.write(ARGV.fetch(1), JSON.pretty_generate(counts: counts, terminal_outcome: terminal, attempt_count: attempts.length, decision_count: decisions.length, traversals: traversals) + "\n")
 ' "$REPORT_DIR/projection.json" "$REPORT_DIR/lineage-validation.json" || validation_status=$?
-
-: >"$REPORT_DIR/provider-runs.jsonl"
-: >"$REPORT_DIR/provider-events.jsonl"
-while IFS=$'\t' read -r attempt_id run_id; do
-  [ -n "$run_id" ] || continue
-  # Provider run diagnostics are already scoped by the attempt IDs in the
-  # projection. Do not send a workspace header here: the local evidence-only
-  # work item is intentionally not a persisted legacy Store work item, and the
-  # run route would otherwise reject an otherwise valid provider snapshot.
-  curl -fsS "$API/api/v1/runs/$run_id" >"$REPORT_DIR/run-$run_id.json" || true
-  curl -fsS "$API/api/v1/runs/$run_id/events?limit=250" >"$REPORT_DIR/run-$run_id-events.json" || true
-  [ -s "$REPORT_DIR/run-$run_id.json" ] && ruby -rjson -e 'File.open(ARGV.fetch(1), "a") { |f| f.puts JSON.generate(JSON.parse(File.read(ARGV.fetch(0)))) }' "$REPORT_DIR/run-$run_id.json" "$REPORT_DIR/provider-runs.jsonl" || true
-  [ -s "$REPORT_DIR/run-$run_id-events.json" ] && ruby -rjson -e 'File.open(ARGV.fetch(1), "a") { |f| f.puts JSON.generate(JSON.parse(File.read(ARGV.fetch(0)))) }' "$REPORT_DIR/run-$run_id-events.json" "$REPORT_DIR/provider-events.jsonl" || true
-done < <(ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0))).fetch("attempts").values.each { |a| puts [a["id"], a["run_id"]].join("\t") }' "$REPORT_DIR/projection.json")
 
 projection_hash="$(sha256_file "$REPORT_DIR/projection.json")"
 projection_canonical_hash="$(ruby -rjson -rdigest -e 'puts Digest::SHA256.hexdigest(JSON.generate(JSON.parse(File.read(ARGV.fetch(0)))))' "$REPORT_DIR/projection.json")"

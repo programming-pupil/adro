@@ -4,6 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/real-codex.sh
 source "$ROOT_DIR/scripts/lib/real-codex.sh"
+# shellcheck source=scripts/lib/go-toolchain.sh
+source "$ROOT_DIR/scripts/lib/go-toolchain.sh"
 
 API_PORT="${ADRO_GRAPH_BROWSER_API_PORT:-18086}"
 WEB_PORT="${ADRO_GRAPH_BROWSER_WEB_PORT:-18087}"
@@ -80,17 +82,18 @@ command -v shasum >/dev/null 2>&1 || fail "shasum is required"
 command -v npm >/dev/null 2>&1 || fail "npm is required"
 
 executor="${ADRO_EXECUTOR:-}"
-[ -n "$executor" ] || executor="$(command -v codex 2>/dev/null || true)"
+[ -n "$executor" ] || executor="$(select_real_codex || true)"
 [ -n "$executor" ] || fail "Codex is required"
 case "$(basename "$executor")" in codex|codex.exe) ;; *) fail "browser graph suite requires Codex" ;; esac
 executor="$(command -v "$executor" 2>/dev/null || printf '%s' "$executor")"
 CODEX_VERSION="$($executor --version 2>&1 || true)"
 [ -n "$CODEX_VERSION" ] || fail "Codex is not runnable"
-go_bin="${ADRO_GO_BIN:-$(command -v go 2>/dev/null || true)}"
+go_bin="$(select_go_bin || true)"
 [ -n "$go_bin" ] || fail "Go is required"
 GO_VERSION="$($go_bin version 2>/dev/null || true)"
-go_root="$($go_bin env GOROOT 2>/dev/null || true)"
+go_root="$(resolve_go_root "$go_bin" || true)"
 [ -n "$go_root" ] || fail "could not resolve Go root"
+export ADRO_GO_BIN="$go_bin" GOROOT="$go_root"
 
 mkdir -p "$REPORT_DIR" "$STATE_HOME" "$FIXTURE_REPO"
 printf '%s\n' 'module example.com/adro-browser-graph' 'go 1.24.1' >"$FIXTURE_REPO/go.mod"
@@ -104,8 +107,7 @@ git -C "$FIXTURE_REPO" branch -M main
 prepare_real_codex_home "$RUN_ROOT/codex-home"
 trust_real_codex_project "$RUN_ROOT/codex-home" "$STATE_HOME"
 codex_wrapper="$RUN_ROOT/codex"
-printf '%s\n' '#!/bin/sh' "export GOROOT=$(printf '%q' "$go_root")" "exec $(printf '%q' "$executor") \"\$@\"" >"$codex_wrapper"
-chmod 700 "$codex_wrapper"
+write_real_codex_wrapper "$codex_wrapper" "$executor" "$go_root"
 executor="$codex_wrapper"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   configure_real_codex_command "$executor"

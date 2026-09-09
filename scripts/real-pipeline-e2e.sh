@@ -151,7 +151,7 @@ if [ -z "$executor" ] && [ -n "${ADRO_EXECUTOR_COMMAND:-}" ]; then
   executor="${ADRO_EXECUTOR_COMMAND%% *}"
 fi
 if [ "${ADRO_REQUIRE_CODEX:-0}" = "1" ]; then
-  [ -n "$executor" ] || executor="$(command -v codex 2>/dev/null || true)"
+  [ -n "$executor" ] || executor="$(select_real_codex || true)"
   [ -n "$executor" ] || fail "Codex is required for the real pipeline suite; install codex or set ADRO_EXECUTOR"
   case "$(basename "$executor")" in
     codex|codex.exe) ;;
@@ -172,6 +172,9 @@ CODEX_VERSION="$("$executor" --version 2>&1 || true)"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
 	case "$(basename "$executor")" in
 		codex)
+			codex_wrapper="$RUN_ROOT/codex"
+			write_real_codex_wrapper "$codex_wrapper" "$executor"
+			executor="$codex_wrapper"
 			configure_real_codex_command "$executor"
 			;;
 		*)
@@ -267,7 +270,7 @@ requirement_body="$(WORKSPACE="$WORKSPACE" REPO_ID="$repo_id" GO_COMMAND="$GO_CO
   puts JSON.generate(
     workspace_id: ENV.fetch("WORKSPACE"),
     title: "Implement Multiply with an audited repair loop",
-    description: "Implement Multiply(a,b) in calculator.go and add unit coverage. The checkout contains #{go_command}, a pinned Go wrapper. Never invoke bare go; use #{go_command} for every Go command. Run #{go_command} test ./... in stage 3. In stage 4 run ./integration-check.sh; it intentionally fails exactly once using ADRO_E2E_INTEGRATION_COUNTER. Treat that failure as a real bug, preserve the original development session and worktree, repair the code incrementally, then rerun unit and integration checks.",
+    description: "Implement Multiply(a,b) in calculator.go and add unit coverage. The checkout contains #{go_command}, a pinned Go wrapper. Never invoke bare go; use #{go_command} for every Go command. Run #{go_command} test ./... in stage 3. In stage 4 run ./integration-check.sh; it intentionally fails exactly once using ADRO_E2E_INTEGRATION_COUNTER. Treat that failure as a real bug, preserve the original development session and worktree, repair the code incrementally, then rerun unit and integration checks. Pipeline result markers must use outcome exactly pass or fail; in arbitration, use pass when approving the actionable repair and never emit approve/approved.",
     acceptance_criteria: ["Multiply is implemented and tested", "the intentional integration failure is recorded", "the same provider session and workdir are used for repair", "the final report contains test evidence"],
     assignee_member_ids: ["real-e2e-product"],
     repository_ids: [ENV.fetch("REPO_ID")],

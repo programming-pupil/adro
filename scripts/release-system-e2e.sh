@@ -82,7 +82,7 @@ require_command ruby
 require_command go
 
 executor="${ADRO_EXECUTOR:-}"
-if [ -z "$executor" ]; then executor="$(command -v codex 2>/dev/null || true)"; fi
+if [ -z "$executor" ]; then executor="$(select_real_codex || true)"; fi
 [ -n "$executor" ] || fail "Codex is required for the real system suite; install codex or set ADRO_EXECUTOR to a Codex executable"
 case "$(basename "$executor")" in
   codex|codex.exe) ;;
@@ -95,6 +95,9 @@ printf '%s\n' "$CODEX_VERSION" >"$REPORT_DIR/codex-version.txt"
 prepare_real_codex_home "$RUN_ROOT/codex-home"
 trust_real_codex_project "$RUN_ROOT/codex-home" "$STATE_HOME"
 if [ -z "${ADRO_EXECUTOR_COMMAND:-}" ]; then
+  codex_wrapper="$RUN_ROOT/codex"
+  write_real_codex_wrapper "$codex_wrapper" "$executor"
+  executor="$codex_wrapper"
   configure_real_codex_command "$executor"
 fi
 
