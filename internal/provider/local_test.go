@@ -76,6 +76,21 @@ func TestExtractToolEventsFromCodexJSONL(t *testing.T) {
 	}
 }
 
+func TestExtractToolEventsFromCodexAppServerJSONRPC(t *testing.T) {
+	output := []byte("{\"jsonrpc\":\"2.0\",\"method\":\"item/started\",\"params\":{\"item\":{\"type\":\"commandExecution\",\"id\":\"exec-1\",\"command\":\"pwd\"}}}\n" +
+		"{\"jsonrpc\":\"2.0\",\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"commandExecution\",\"id\":\"exec-1\",\"aggregatedOutput\":\"/work\",\"exitCode\":0}}}\n")
+	events := extractToolEvents(output, "codex")
+	if len(events) != 2 {
+		t.Fatalf("app-server command events=%+v", events)
+	}
+	if events[0].CallID != "exec-1" || events[0].Name != "commandExecution" || events[0].Phase != "before" {
+		t.Fatalf("unexpected app-server start event=%+v", events[0])
+	}
+	if events[1].CallID != "exec-1" || events[1].Name != "commandExecution" || events[1].Phase != "after" {
+		t.Fatalf("unexpected app-server completion event=%+v", events[1])
+	}
+}
+
 func TestLocalProviderConcurrentStartRunUsesOneIdempotentReservation(t *testing.T) {
 	p := NewLocalProvider("/bin/sleep", []string{"0.05"}, t.TempDir(), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "concurrent-item", Title: "concurrent"})

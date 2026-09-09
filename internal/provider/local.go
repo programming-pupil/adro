@@ -797,6 +797,14 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 		return
 	}
 	typ, _ := value["type"].(string)
+	method, _ := value["method"].(string)
+	if method != "" {
+		if params, ok := value["params"].(map[string]any); ok {
+			if item, ok := params["item"].(map[string]any); ok {
+				collectToolEvent(map[string]any{"type": method, "item": item}, events, sequence)
+			}
+		}
+	}
 	item, _ := value["item"].(map[string]any)
 	if item == nil {
 		item = value
@@ -808,7 +816,7 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 		name = itemType
 	}
 	phase := ""
-	lower := strings.ToLower(typ + " " + itemType)
+	lower := strings.ToLower(typ + " " + method + " " + itemType)
 	switch {
 	case strings.Contains(lower, "completed") || strings.Contains(lower, "complete") || strings.Contains(lower, "tool_result") || strings.Contains(lower, "result"):
 		phase = "after"
