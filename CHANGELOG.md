@@ -5,6 +5,9 @@
 - Added CodeQL, dependency review, automated dependency updates, and OpenSSF
   Scorecard workflows; refreshed public documentation and removed internal
   prompt notes from the published tree.
+- Corrected CodeQL build-mode selection for Go, moved security analysis to
+  CodeQL v4, switched Scorecard to its GHCR-backed release, and pinned all
+  workflow actions to Node 24-compatible commits.
 - Added the provider-independent local control-plane reference profile, HTTP
   API, event cursor, artifact driver, runner supervisor, capability registry,
   multilingual workbench, migrations, OpenAPI and deployment scaffolding.
