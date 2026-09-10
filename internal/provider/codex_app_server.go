@@ -285,10 +285,16 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 			if emptyTurns > emptyTurnRetries {
 				return finish(fmt.Errorf("codex turn completed without assistant or tool output after %d attempt(s)", emptyTurns))
 			}
-			retryEvent, _ := json.Marshal(map[string]any{"type": "codex.empty_turn.retry", "attempt": emptyTurns, "thread_id": threadID})
+			retryDelay := codexEmptyTurnRetryDelay(emptyTurns)
+			retryEvent, _ := json.Marshal(map[string]any{
+				"type":      "codex.empty_turn.retry",
+				"attempt":   emptyTurns,
+				"delay_ms":  retryDelay.Milliseconds(),
+				"thread_id": threadID,
+			})
 			evidence.Write(retryEvent)
 			evidence.WriteByte('\n')
-			if err := waitForCodexRetry(ctx, time.Duration(emptyTurns)*time.Second); err != nil {
+			if err := waitForCodexRetry(ctx, retryDelay); err != nil {
 				return finish(err)
 			}
 			turnHadActivity = false
@@ -312,6 +318,33 @@ func codexEmptyTurnRetries() int {
 		return defaultRetries
 	}
 	return retries
+}
+
+func codexEmptyTurnRetryDelay(attempt int) time.Duration {
+	const (
+		defaultBaseDelay = 5 * time.Second
+		maximumDelay     = time.Minute
+	)
+	baseDelay := defaultBaseDelay
+	if value := strings.TrimSpace(os.Getenv("ADRO_CODEX_EMPTY_TURN_BACKOFF")); value != "" {
+		if configured, err := time.ParseDuration(value); err == nil && configured > 0 && configured <= maximumDelay {
+			baseDelay = configured
+		}
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := baseDelay
+	for i := 1; i < attempt; i++ {
+		if delay > maximumDelay/3 {
+			return maximumDelay
+		}
+		delay *= 3
+	}
+	if delay > maximumDelay {
+		return maximumDelay
+	}
+	return delay
 }
 
 func waitForCodexRetry(ctx context.Context, delay time.Duration) error {

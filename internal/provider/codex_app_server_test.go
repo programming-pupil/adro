@@ -12,6 +12,7 @@ import (
 func TestExecuteCodexAppServerRetriesCompletelyEmptyTurn(t *testing.T) {
 	executable := writeFakeCodexAppServer(t, false)
 	t.Setenv("ADRO_CODEX_EMPTY_TURN_RETRIES", "1")
+	t.Setenv("ADRO_CODEX_EMPTY_TURN_BACKOFF", "1ms")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -20,7 +21,7 @@ func TestExecuteCodexAppServerRetriesCompletelyEmptyTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(output)
-	if pid < 1 || !strings.Contains(text, `"type":"codex.empty_turn.retry"`) || !strings.Contains(text, "ADRO_RESULT_JSON") {
+	if pid < 1 || !strings.Contains(text, `"delay_ms":1`) || !strings.Contains(text, `"type":"codex.empty_turn.retry"`) || !strings.Contains(text, "ADRO_RESULT_JSON") {
 		t.Fatalf("empty turn was not retried with retained evidence: pid=%d output=%s", pid, text)
 	}
 }
@@ -28,6 +29,7 @@ func TestExecuteCodexAppServerRetriesCompletelyEmptyTurn(t *testing.T) {
 func TestExecuteCodexAppServerFailsAfterEmptyTurnRetryLimit(t *testing.T) {
 	executable := writeFakeCodexAppServer(t, true)
 	t.Setenv("ADRO_CODEX_EMPTY_TURN_RETRIES", "1")
+	t.Setenv("ADRO_CODEX_EMPTY_TURN_BACKOFF", "1ms")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -45,6 +47,24 @@ func TestCodexEmptyTurnRetryConfiguration(t *testing.T) {
 	t.Setenv("ADRO_CODEX_EMPTY_TURN_RETRIES", "invalid")
 	if got := codexEmptyTurnRetries(); got != 2 {
 		t.Fatalf("invalid retry configuration did not use default: %d", got)
+	}
+}
+
+func TestCodexEmptyTurnRetryBackoff(t *testing.T) {
+	t.Setenv("ADRO_CODEX_EMPTY_TURN_BACKOFF", "")
+	for attempt, want := range []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second, time.Minute, time.Minute} {
+		if got := codexEmptyTurnRetryDelay(attempt + 1); got != want {
+			t.Fatalf("attempt %d delay=%s want=%s", attempt+1, got, want)
+		}
+	}
+
+	t.Setenv("ADRO_CODEX_EMPTY_TURN_BACKOFF", "2ms")
+	if got := codexEmptyTurnRetryDelay(2); got != 6*time.Millisecond {
+		t.Fatalf("configured delay=%s want=6ms", got)
+	}
+	t.Setenv("ADRO_CODEX_EMPTY_TURN_BACKOFF", "invalid")
+	if got := codexEmptyTurnRetryDelay(1); got != 5*time.Second {
+		t.Fatalf("invalid delay=%s want=5s", got)
 	}
 }
 
