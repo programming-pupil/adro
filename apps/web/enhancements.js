@@ -1288,10 +1288,15 @@
     const name = String(data.get('name') || '').trim();
     const instructions = String(data.get('instructions') || '').trim();
     const role = String(data.get('role') || '').trim() || 'developer';
+    const runtime = String(data.get('runtime') || '').trim();
+    const model = String(data.get('model') || '').trim();
+    const thinking = String(data.get('thinking') || '').trim();
+    const serviceTier = String(data.get('service_tier') || '').trim();
+    const customArgs = String(data.get('custom_args') || '').trim().split(/\s+/).filter(Boolean);
     const nativeBody = {
       name, role, instructions, status: 'active', created_by: currentUser?.id || member,
       capabilities: [{name: 'session.start', version: 'v1'}, {name: 'stream.events', version: 'v1'}],
-      executor_binding: {provider_id: rootInfo.provider || 'local', required_caps: ['run.snapshot.v1'], config_version: 'web-v1'},
+      executor_binding: {provider_id: rootInfo.provider || 'local', runtime_id: runtime, model, thinking_level: thinking, service_tier: serviceTier, custom_args: customArgs, required_caps: ['run.snapshot.v1'], config_version: 'web-v2'},
       concurrency_budget: {tokens: 120000, tool_calls: 200, concurrent: 1},
       input_schema: {id: 'adro.context-envelope', version: 1}, output_schema: {id: 'adro.structured-result', version: 1},
       tool_policy: {network: false}, memory_policy: {require_evidence: true}

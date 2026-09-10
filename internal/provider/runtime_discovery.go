@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"os/exec"
 	"sort"
 )
@@ -54,6 +55,11 @@ var RuntimeRegistry = []RuntimeDescriptor{
 
 func DiscoverLocalRuntimes() []DiscoveredRuntime {
 	items := make([]DiscoveredRuntime, 0, len(RuntimeRegistry))
+	if explicit := os.Getenv("ADRO_EXECUTOR"); explicit != "" {
+		if path, err := exec.LookPath(explicit); err == nil {
+			items = append(items, DiscoveredRuntime{RuntimeDescriptor: RuntimeDescriptor{ID: "local", Name: "Configured local executor", Command: explicit, ProtocolFamily: "local", AdapterAvailable: true}, Installed: true, ExecutablePath: path})
+		}
+	}
 	for _, descriptor := range RuntimeRegistry {
 		item := DiscoveredRuntime{RuntimeDescriptor: descriptor}
 		if path, err := exec.LookPath(descriptor.Command); err == nil {

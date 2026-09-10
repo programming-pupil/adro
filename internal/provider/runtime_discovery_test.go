@@ -14,6 +14,7 @@ func TestDiscoverLocalRuntimesFindsEveryInstalledClient(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("ADRO_EXECUTOR", "")
 	items := DiscoverLocalRuntimes()
 	if len(items) != len(RuntimeRegistry) {
 		t.Fatalf("discovered %d registry entries, want %d", len(items), len(RuntimeRegistry))
@@ -28,6 +29,20 @@ func TestDiscoverLocalRuntimesFindsEveryInstalledClient(t *testing.T) {
 		if !installed[id] {
 			t.Fatalf("runtime %q was not discovered: %+v", id, items)
 		}
+	}
+}
+
+func TestDiscoverLocalRuntimesIncludesExplicitExecutor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "private-agent")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("ADRO_EXECUTOR", path)
+	items := DiscoverLocalRuntimes()
+	if len(items) != len(RuntimeRegistry)+1 || items[0].ID != "local" || !items[0].Installed || !items[0].AdapterAvailable {
+		t.Fatalf("explicit executor missing: %+v", items)
 	}
 }
 

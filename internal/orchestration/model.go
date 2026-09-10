@@ -67,6 +67,11 @@ type MemoryPolicy struct {
 }
 type ExecutorBinding struct {
 	ProviderID      string   `json:"provider_id"`
+	RuntimeID       string   `json:"runtime_id,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	ThinkingLevel   string   `json:"thinking_level,omitempty"`
+	ServiceTier     string   `json:"service_tier,omitempty"`
+	CustomArgs      []string `json:"custom_args,omitempty"`
 	ProviderVersion string   `json:"provider_version,omitempty"`
 	BinaryDigest    string   `json:"binary_digest,omitempty"`
 	RequiredCaps    []string `json:"required_caps,omitempty"`
@@ -502,6 +507,20 @@ func (a AgentDefinition) Validate() error {
 	for i, required := range a.ExecutorBinding.RequiredCaps {
 		if strings.TrimSpace(required) == "" {
 			return fmt.Errorf("agent executor required_caps[%d] is empty", i)
+		}
+	}
+	if level := strings.TrimSpace(a.ExecutorBinding.ThinkingLevel); level != "" {
+		valid := map[string]bool{"none": true, "minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true, "off": true, "on": true}
+		if !valid[level] {
+			return fmt.Errorf("agent executor thinking_level %q is invalid", level)
+		}
+	}
+	if tier := strings.TrimSpace(a.ExecutorBinding.ServiceTier); tier != "" && tier != "priority" && tier != "flex" {
+		return fmt.Errorf("agent executor service_tier %q is invalid", tier)
+	}
+	for i, arg := range a.ExecutorBinding.CustomArgs {
+		if strings.TrimSpace(arg) == "" {
+			return fmt.Errorf("agent executor custom_args[%d] is empty", i)
 		}
 	}
 	if len(a.Graph.Nodes) > 0 {

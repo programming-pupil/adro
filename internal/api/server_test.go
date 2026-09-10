@@ -1006,6 +1006,7 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 
 func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ADRO_EXECUTOR", "")
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
 	if response.Code != http.StatusOK {
