@@ -97,7 +97,16 @@ function licenseSource(item) {
     // the canonical source so release verification is platform-independent.
     return join(root, licenseTarget(item));
   }
-  const moduleDir = run('go', ['list', '-m', '-f', '{{.Dir}}', `${item.name}@${item.version}`]);
+  let moduleMetadata;
+  try {
+    moduleMetadata = JSON.parse(run('go', ['mod', 'download', '-json', `${item.name}@${item.version}`]));
+  } catch (error) {
+    fail(`Go module metadata is unavailable for ${dependencyKey(item)}: ${error.message}`);
+  }
+  const moduleDir = moduleMetadata?.Dir;
+  if (typeof moduleDir !== 'string' || moduleDir.length === 0 || !existsSync(moduleDir)) {
+    fail(`Go module directory is unavailable for ${dependencyKey(item)}`);
+  }
   // Go modules are inconsistent about the license filename (lib/pq ships
   // LICENSE.md while most modules use LICENSE). Pick the first conventional
   // candidate so release generation never fails for a valid SPDX dependency.
