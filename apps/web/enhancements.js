@@ -82,6 +82,7 @@
   let activeCommentTargetID = '';
   let activeCommentItems = [];
   let commentActivity = new Map();
+  let onboardingPrompted = false;
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -159,6 +160,10 @@
     if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
     if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
     if (currentView === 'agents') render();
+    if (!onboardingPrompted && currentUser?.role === 'admin' && nativeAgents.length === 0) {
+      onboardingPrompted = true;
+      await showAgentDialog(true);
+    }
   }
 
   const focusIfPresent = selector => {
@@ -1305,7 +1310,7 @@
     try {
       await api('/api/v1/workspaces/local/agents', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(nativeBody)});
       await api('/api/v1/agents', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({workspace_id: 'local', member_id: member, name, instructions, role})});
-      closeAgentDialog(); form.reset(); await loadCore(true);
+      delete form.dataset.onboarding; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
     } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
   };
 

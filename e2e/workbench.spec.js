@@ -8,6 +8,7 @@ const menuViews = [
   'executions', 'diffs', 'testing', 'repositories', 'agents', 'mcp',
   'skills', 'automations', 'integrations', 'artifacts', 'runners', 'cost', 'admin'
 ];
+let onboardingChecked = false;
 
 test.beforeEach(async ({ page }) => {
   const errors = [];
@@ -23,6 +24,16 @@ test.beforeEach(async ({ page }) => {
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  if (!onboardingChecked) {
+    await page.locator('#agentDialog').waitFor({state: 'visible'});
+    await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
+    await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('通用 Agent');
+    await expect(page.locator('#closeAgentDialog')).toBeHidden();
+    await expect(page.locator('#cancelAgentDialog')).toBeHidden();
+    await page.locator('#agentForm button[type="submit"]').click();
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+    onboardingChecked = true;
+  }
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;
   page.__adroRequestHosts = requestHosts;

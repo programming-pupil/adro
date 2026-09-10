@@ -17,6 +17,11 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
+  await page.screenshot({ path: 'var/adro-first-agent-setup.png', fullPage: true });
+  await page.locator('#agentForm button[type="submit"]').click();
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   await page.screenshot({ path: 'var/adro-workbench-cyber.png', fullPage: true });
 
