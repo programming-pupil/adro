@@ -251,7 +251,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 
 ### 4.2 Agent 自由组合与编排拓扑用例
 
-源码事实：`POST /api/v1/agents` 创建的是 Provider agent/profile；`developer-profiles` 为 member 保存一个 `default_agent_binding_id`；`ADRO_MULTICA_AGENT_MAP` 解析 member、role、workspace default 等路由优先级；`WorkItem` 目前只有一个 `developer_agent_binding_id`。最新 main 虽有 `/api/v1/workflow-templates` 和 `/api/v1/pipelines`，但只保存按 stage 排序的步骤，没有按 requirement 持久化任意“阶段 -> Agent -> 前置/后置/反馈边”的 workflow graph。因此必须把“现有有序 pipeline 可用性”和“目标双向图能力缺失检测”分开记录。
+源码事实：`POST /api/v1/agents` 创建的是 Provider agent/profile；`developer-profiles` 为 member 保存一个 `default_agent_binding_id`；`环境变量` 解析 member、role、workspace default 等路由优先级；`WorkItem` 目前只有一个 `developer_agent_binding_id`。最新 main 虽有 `/api/v1/workflow-templates` 和 `/api/v1/pipelines`，但只保存按 stage 排序的步骤，没有按 requirement 持久化任意“阶段 -> Agent -> 前置/后置/反馈边”的 workflow graph。因此必须把“现有有序 pipeline 可用性”和“目标双向图能力缺失检测”分开记录。
 
 每个组合都要创建全新的 requirement/work item，记录期望拓扑、实际拓扑、每个节点的 agent binding/session/workdir/attempt，并在 API、事件、审计和最终报告四处核对；不能只看最终状态。
 
@@ -371,7 +371,7 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 
 ### 4.2.4 评论线程、Agent @提及与设计交接用例
 
-这是对“方案设计 Agent 完成后，人类在该评论下 `@研发 Agent` 询问是否有问题，并继续交给研发/单测/测试 Agent”的专项验收。Multica 的真实结构化 mention 契约是 `[@标签](mention://agent/<真实 UUID>)` 和 `[@小队](mention://squad/<真实 UUID>)`；`member`/`issue` 只渲染不触发，`@all` 是广播并抑制隐式路由。ADRO 当前已具备 URI parser、roster preview、Agent/Squad receipt、编辑/重试和 `@all` 广播 projection；仍需把 originator lineage、跨 issue 权限和真实 Codex handoff 保持为独立阻断项，不能用“评论保存成功”替代触发证据。
+这是对“方案设计 Agent 完成后，人类在该评论下 `@研发 Agent` 询问是否有问题，并继续交给研发/单测/测试 Agent”的专项验收。结构化 mention 契约是 `[@标签](mention://agent/<真实 UUID>)` 和 `[@小队](mention://squad/<真实 UUID>)`；`member`/`issue` 只渲染不触发，`@all` 是广播并抑制隐式路由。ADRO 当前已具备 URI parser、roster preview、Agent/Squad receipt、编辑/重试和 `@all` 广播 projection；仍需把 originator lineage、跨 issue 权限和真实 Codex handoff 保持为独立阻断项，不能用“评论保存成功”替代触发证据。
 
 每个 Case 都要保存 comment/root/parent、author 身份、mentions 原文与解析结果、target Agent/Squad UUID、trigger outcome、follow-up receipt、run/session/workdir、ContextManifest、StreamEvents、artifact/evidence 和审计记录。需要触发 Agent 时必须从真实 workspace roster 取得 UUID，禁止把显示名称拼进 URI；每个阻断项都要记录请求、响应、源码证据和实现缺口。
 
@@ -379,7 +379,7 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 |---|---|---|
 | COMMENT-001 | 在需求下创建方案 Agent 根评论，再创建成员回复；回复 `parent_id` 指向根评论；继续分页读取评论 | 根评论 `root_id=comment_id`，回复的 `parent_id/root_id/target` 正确，分页 cursor 不漏不重；ADRO API 可验证，需保存原始 JSON |
 | COMMENT-002 | 方案 Agent 完成后，人类在其评论下回复“请确认方案是否可行”，显式选择研发 Agent，提交 follow-up | 设计评论、回复、目标 Agent、receipt、run/session/workdir 和事件一一关联；ADRO 目前可通过 `agent_binding_id` 做受限验证，但没有 UI 选择/提及控件，UI 项为 `BLOCKED/S1` |
-| COMMENT-003 | 内容使用 Multica 规范 `[@研发](mention://agent/<真实 agent UUID>)`，检查创建响应和触发预览 | 后端按真实 UUID 解析、校验同 workspace 权限并返回唯一 trigger outcome；ADRO parser/preview 已实现，需保存 API JSON 和 receipt，真实 Provider 仍按 L3 单独验收 |
+| COMMENT-003 | 内容使用结构化 mention `[@研发](mention://agent/<真实 agent UUID>)`，检查创建响应和触发预览 | 后端按真实 UUID 解析、校验同 workspace 权限并返回唯一 trigger outcome；parser/preview 已实现，需保存 API JSON 和 receipt，真实 Provider 仍按 L3 单独验收 |
 | COMMENT-004 | 依次提交 `@研发`、`[@研发](mention://agent/研发名称)`、错误格式 UUID、其他 workspace 的合法 UUID | 普通显示名不得触发；格式错误与不存在目标按契约安全区分且不泄露目标；parser 负责语法、roster/trigger 层负责 canonical UUID 和 workspace 实体校验；仍需真实权限矩阵证据 |
 | COMMENT-005 | 同一评论同时放一个 Agent URI、重复 Agent URI、32 个以上目标和 `mentions` JSON 字段 | 解析结果去重、上限明确、内容与结构化字段合并规则稳定；每个目标只有一个 outcome；parser/trigger 单测已覆盖，需补 API 并发和真实 receipt |
 | COMMENT-006 | 方案评论 follow-up 指定与 WorkItem 当前开发 binding 相同、不同、空值和已删除 binding | 相同 binding 才允许继续；不同 binding fail-closed 且无 Provider 副作用；空值按明确路由策略；ADRO 已有 mismatch rejection，需验证状态/receipt 不被伪造为 started |
@@ -394,7 +394,7 @@ AGC-001..017 的目标验收不是“默认路由能跑通”。如果 QA 无法
 | COMMENT-015 | 使用 `X-Member-ID`、`X-Agent-ID`、body `author_id/author_type` 互相冲突；普通成员、Agent、viewer 分别发评论 | 服务端身份以受信 header/认证主体为准，不能由 body 冒充；无权限 dispatch 被拒绝且审计 actor 正确；ADRO 当前存在 header/body fallback，必须做伪造与越权回归 |
 | COMMENT-016 | 评论编辑、触发预览、广播事件、审计/事件、附件截图及 repair/rerun | 编辑只重算受影响 comment 的触发，其他 comment pending 不被吞；`@all` 编辑/重试不得产生 provider side effect；评论、附件、repair attempt、session/workdir/context/event 可回放；originator lineage 已进入 receipt，仍需真实编辑/迟到结果矩阵验收 |
 
-COMMENT-002 是用户给出的“方案 Agent 完成后，人类在评论下 @研发 Agent 询问有没有问题”的最小验收；COMMENT-007/008/009/010/016 才能证明它不是只能单点触发的假闭环。当前 ADRO 可以证明评论持久化、回复树、线程 prompt、显式 binding follow-up 和 receipt 状态，但不能宣称已经对齐 Multica 的结构化 Agent/Squad mention 或自由评论编排。研发若补齐能力，必须先补 API/UI/权限/事件契约，再按 COMMENT-001..016 全量回归。
+COMMENT-002 是用户给出的“方案 Agent 完成后，人类在评论下 @研发 Agent 询问有没有问题”的最小验收；COMMENT-007/008/009/010/016 才能证明它不是只能单点触发的假闭环。当前 ADRO 可以证明评论持久化、回复树、线程 prompt、显式 binding follow-up 和 receipt 状态，但不能宣称已经完成结构化 Agent/Squad mention 或自由评论编排。研发若补齐能力，必须先补 API/UI/权限/事件契约，再按 COMMENT-001..016 全量回归。
 
 ### 4.3 需求状态机逐边测试
 
@@ -847,7 +847,7 @@ tests/
 | CLI-005 | `adroctl health --url` 返回 200、503、连接拒绝、重定向 | 只把 2xx 判健康；超时/非 2xx 非零退出；不泄露响应 body 中 secret |
 | CLI-006 | `adroctl config-check` 合法配置、未知 enum、缺必需路径、错误 Agent map | 与 API 启动校验一致；错误返回非零且指出字段，不静默降级 |
 | START-001 | `./start.sh --help`、未知 flag、`--status`、`--stop`、重复 stop | 帮助和状态准确；未知参数不修改状态；stop 可重入且不杀非本实例 PID |
-| START-002 | `--without-multica`、`--no-docker`、`--non-interactive`、`--no-open` 的组合 | 依赖检查、provider profile、浏览器行为和输出准确；缺 Go/curl/openssl/docker 早失败 |
+| START-002 | `--standalone`、`--no-docker`、`--non-interactive`、`--no-open` 的组合 | 依赖检查、provider profile、浏览器行为和输出准确；缺 Go/curl/openssl/docker 早失败 |
 | START-003 | 端口已占用、PID 文件过期、API/WebUI 只启动一半、启动超时 | 安全退出并保留诊断；清理本实例文件；不连接到别的服务冒充 ready |
 | START-004 | 首次生成/再次读取 `ADRO_HOME/adro.env`，密码、PAT、Agent map 和路径特殊字符 | 目录 0700、env 0600；键更新不重复；日志/终端不打印 secret；重启值一致 |
 | START-005 | Docker Compose profile 的 `ADRO_REPLICA_COUNT>1`、错误 backend、未知 env | 单机 profile 拒绝不安全副本/后端组合；readyz 与配置状态一致 |

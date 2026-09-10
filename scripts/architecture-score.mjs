@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,17 +34,10 @@ const rulesRaw = readFileSync(rulesPath);
 const rules = JSON.parse(rulesRaw);
 if (!Array.isArray(rules.dimensions) || rules.dimensions.length !== 15) fail('rules must define exactly 15 dimensions');
 
-const projects = [
-  { name: 'ADRO', path: resolve(option('--adro', root)), ref: option('--adro-ref', 'WORKTREE') },
-  { name: 'AOS', path: resolve(option('--aos', process.env.ADRO_AOS_REPO || '')), ref: option('--aos-ref', 'origin/main') },
-  { name: 'Multica', path: resolve(option('--multica', process.env.ADRO_MULTICA_REPO || '')), ref: option('--multica-ref', 'origin/main') }
-];
-for (const project of projects) {
-  if (!project.path || !existsSync(join(project.path, '.git'))) fail(`${project.name} repository path is required and must contain .git`);
-  project.commit = project.ref === 'WORKTREE' ? git(project.path, ['rev-parse', 'HEAD']) : git(project.path, ['rev-parse', `${project.ref}^{commit}`]);
-  project.branch = git(project.path, ['symbolic-ref', '--short', 'HEAD']);
-  project.dirty = git(project.path, ['status', '--porcelain']) !== '';
-}
+const project = { name: 'ADRO', path: root, ref: 'WORKTREE' };
+project.commit = git(project.path, ['rev-parse', 'HEAD']);
+project.branch = git(project.path, ['symbolic-ref', '--short', 'HEAD']);
+project.dirty = git(project.path, ['status', '--porcelain']) !== '';
 
 const pathCategories = {
   test: /(^|\/)(test|tests|e2e)(\/|$)|_test[.]|[.]spec[.]|[.]test[.]/i,
@@ -88,47 +81,38 @@ function evidenceFor(project, check) {
   return unique;
 }
 
-const scores = {};
-for (const project of projects) {
-  const dimensions = [];
-  for (const dimension of rules.dimensions) {
-    const checks = dimension.checks.map(check => {
-      const evidence = evidenceFor(project, check);
-      return { ...check, matched: evidence.length > 0, evidence };
-    });
-    const matched = checks.filter(check => check.matched).length;
-    dimensions.push({ id: dimension.id, name: dimension.name, kernel: Boolean(dimension.kernel), score: Number((matched / checks.length * 10).toFixed(2)), matched_checks: matched, total_checks: checks.length, checks });
-  }
-  const overall = Number((dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / dimensions.length).toFixed(2));
-  scores[project.name] = { ...project, overall, dimensions };
-}
-
-const adro = scores.ADRO;
-const aos = scores.AOS;
-const kernelRegressions = adro.dimensions.filter(item => item.kernel && item.score < aos.dimensions.find(candidate => candidate.id === item.id).score).map(item => item.id);
-const gate = { overall_strictly_above_aos: adro.overall > aos.overall, kernel_not_below_aos: kernelRegressions.length === 0, kernel_regressions: kernelRegressions };
-gate.passed = gate.overall_strictly_above_aos && gate.kernel_not_below_aos;
+const dimensions = rules.dimensions.map(dimension => {
+  const checks = dimension.checks.map(check => {
+    const evidence = evidenceFor(project, check);
+    return { ...check, matched: evidence.length > 0, evidence };
+  });
+  const matched = checks.filter(check => check.matched).length;
+  return { id: dimension.id, name: dimension.name, kernel: Boolean(dimension.kernel), score: Number((matched / checks.length * 10).toFixed(2)), matched_checks: matched, total_checks: checks.length, checks };
+});
+const overall = Number((dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / dimensions.length).toFixed(2));
+const adro = { ...project, overall, dimensions };
+const incompleteDimensions = dimensions.filter(item => item.matched_checks !== item.total_checks).map(item => item.id);
+const gate = { all_dimensions_complete: incompleteDimensions.length === 0, incomplete_dimensions: incompleteDimensions };
+gate.passed = gate.all_dimensions_complete;
 
 const report = {
   schema_version: 1,
   generated_at: new Date().toISOString(),
   rules: { path: rulesPath.slice(root.length + 1), sha256: createHash('sha256').update(rulesRaw).digest('hex'), method: rules.method },
-  projects: scores,
+  project: adro,
   gate
 };
 mkdirSync(outputDir, { recursive: true });
 writeFileSync(join(outputDir, 'architecture-score.json'), `${JSON.stringify(report, null, 2)}\n`);
 
-const header = '| Dimension | Kernel | ADRO | AOS | Multica | ADRO - AOS |\n| --- | :---: | ---: | ---: | ---: | ---: |';
+const header = '| Dimension | Kernel | Score | Matched |\n| --- | :---: | ---: | ---: |';
 const rows = rules.dimensions.map(dimension => {
   const a = adro.dimensions.find(item => item.id === dimension.id).score;
-  const o = aos.dimensions.find(item => item.id === dimension.id).score;
-  const m = scores.Multica.dimensions.find(item => item.id === dimension.id).score;
-  return `| ${dimension.name} | ${dimension.kernel ? 'yes' : 'no'} | ${a.toFixed(2)} | ${o.toFixed(2)} | ${m.toFixed(2)} | ${(a - o).toFixed(2)} |`;
+  const matched = adro.dimensions.find(item => item.id === dimension.id).matched_checks;
+  return `| ${dimension.name} | ${dimension.kernel ? 'yes' : 'no'} | ${a.toFixed(2)} | ${matched}/5 |`;
 }).join('\n');
-const refs = projects.map(project => `- ${project.name}: \`${project.commit}\` (${project.ref}, branch \`${project.branch}\`, dirty \`${project.dirty}\`)`).join('\n');
 const gaps = adro.dimensions.flatMap(dimension => dimension.checks.filter(check => !check.matched).map(check => `- ${dimension.name}: missing ${check.id} (${check.category}, \`${check.pattern}\`)`));
-writeFileSync(join(outputDir, 'architecture-score.md'), `# ADRO / AOS / Multica architecture score\n\n${refs}\n\n- Rules SHA-256: \`${report.rules.sha256}\`\n- Gate: **${gate.passed ? 'passed' : 'failed'}**\n- ADRO overall: **${adro.overall.toFixed(2)}**\n- AOS overall: **${aos.overall.toFixed(2)}**\n- Multica overall: **${scores.Multica.overall.toFixed(2)}**\n\n${header}\n${rows}\n\n## ADRO unmatched checks\n\n${gaps.length ? gaps.join('\n') : '- None.'}\n`);
+writeFileSync(join(outputDir, 'architecture-score.md'), `# ADRO architecture completeness score\n\n- Commit: \`${project.commit}\` (branch \`${project.branch}\`, dirty \`${project.dirty}\`)\n- Rules SHA-256: \`${report.rules.sha256}\`\n- Gate: **${gate.passed ? 'passed' : 'failed'}**\n- Overall: **${adro.overall.toFixed(2)}**\n\n${header}\n${rows}\n\n## Unmatched checks\n\n${gaps.length ? gaps.join('\n') : '- None.'}\n`);
 
-process.stdout.write(JSON.stringify({ gate, totals: { ADRO: adro.overall, AOS: aos.overall, Multica: scores.Multica.overall }, output: outputDir }) + '\n');
+process.stdout.write(JSON.stringify({ gate, total: adro.overall, output: outputDir }) + '\n');
 if (!gate.passed) process.exit(1);

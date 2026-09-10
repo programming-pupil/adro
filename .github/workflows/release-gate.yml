@@ -74,20 +74,20 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: adro_app
-          POSTGRES_PASSWORD: adro_test
-          POSTGRES_DB: adro_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_admin
+          POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U adro_app -d adro_test"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     env:
       ADRO_POSTGRES_TEST_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
-      ADRO_POSTGRES_BACKUP_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_test?sslmode=disable
-      ADRO_POSTGRES_ADMIN_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/postgres?sslmode=disable
+      ADRO_POSTGRES_BACKUP_DSN: postgres://adro_backup:adro_backup@127.0.0.1:5432/adro_test?sslmode=disable
+      ADRO_POSTGRES_ADMIN_DSN: postgres://postgres:postgres_admin@127.0.0.1:5432/postgres?sslmode=disable
       ADRO_POSTGRES_RESTORE_DSN: postgres://adro_app:adro_test@127.0.0.1:5432/adro_restore?sslmode=disable
       ADRO_POSTGRES_RESTORE_DB: adro_restore
       ADRO_POSTGRES_EVIDENCE_DIR: var/test-report/postgres
@@ -99,6 +99,15 @@ jobs:
           cache: true
       - name: Install PostgreSQL client tools
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create least-privilege test roles
+        env:
+          PGPASSWORD: postgres_admin
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE adro_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD 'adro_test';
+          CREATE ROLE adro_backup LOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD 'adro_backup';
+          CREATE DATABASE adro_test OWNER adro_app;
+          SQL
       - run: make postgres-conformance
       - uses: actions/upload-artifact@v4
         if: always()

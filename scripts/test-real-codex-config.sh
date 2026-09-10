@@ -107,4 +107,37 @@ case "$ADRO_EXECUTOR_COMMAND" in
   *) printf '%s\n' 'relay bearer profile did not disable ChatGPT auth' >&2; exit 1 ;;
 esac
 
+# The generated wrapper is a process boundary. Parent automation metadata must
+# not reach either native app-server or the legacy one-shot path, while the
+# explicit Codex home and toolchain settings remain available.
+fake_executor="$run_root/bin/fake-codex"
+app_env="$run_root/app-server.env"
+one_shot_env="$run_root/one-shot.env"
+cat >"$fake_executor" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = app-server ]; then
+  env | sort >"$app_env"
+  exit 0
+fi
+env | sort >"$one_shot_env"
+cat >/dev/null
+printf '%s\n' '{"type":"turn.completed"}' 'ADRO_RESULT_JSON={"outcome":"pass"}'
+EOF
+chmod 700 "$fake_executor"
+wrapper="$run_root/bin/codex-wrapper"
+write_real_codex_wrapper "$wrapper" "$fake_executor" "$run_root/go-root"
+PARENT_AUTOMATION_CONTEXT=secret CODEX_SESSION_ID=secret CODEX_THREAD_ID=secret CODEX_CI=secret \
+  HOME="$run_root/home" PATH="$PATH" CODEX_HOME="$run_root/run" "$wrapper" app-server --listen stdio://
+printf '%s' prompt | PARENT_AUTOMATION_CONTEXT=secret CODEX_SESSION_ID=secret CODEX_THREAD_ID=secret CODEX_CI=secret \
+  HOME="$run_root/home" PATH="$PATH" CODEX_HOME="$run_root/run" "$wrapper" exec --json >/dev/null
+for captured in "$app_env" "$one_shot_env"; do
+  grep -Fq "HOME=$run_root/home" "$captured"
+  grep -Fq "CODEX_HOME=$run_root/run" "$captured"
+  grep -Fq "GOROOT=$run_root/go-root" "$captured"
+  ! grep -Fq 'PARENT_AUTOMATION_CONTEXT=' "$captured"
+  ! grep -Fq 'CODEX_SESSION_ID=' "$captured"
+  ! grep -Fq 'CODEX_THREAD_ID=' "$captured"
+  ! grep -Fq 'CODEX_CI=' "$captured"
+done
+
 printf '%s\n' 'real Codex configuration helper passed'

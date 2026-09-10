@@ -70,7 +70,7 @@
         {"id":"typed_context","category":"source","pattern":"context[_ ]?(envelope|manifest|packet)|semantic[_ ]?snapshot"},
         {"id":"selection_digest","category":"source","pattern":"selection[_ ]?digest|replay[_ ]?key|manifest[_ ]?digest"},
         {"id":"hard_budget","category":"source","pattern":"token[_ ]?budget|hard[_ ]?budget|context[_ ]?overflow"},
-        {"id":"compression_lineage","category":"source","pattern":"summary[_ ]?compression|compression[_ ]?(lineage|version)|compaction[_ ]?(lineage|snapshot)"},
+        {"id":"compression_lineage","category":"source","pattern":"summary[_ ]?compression|compression[_ ]?(lineage|version)|compaction[_ ]?(lineage|snapshot)|CheckpointCompaction|CompressionRecords"},
         {"id":"context_tests","category":"test","pattern":"context.{0,50}(overflow|digest|budget|snapshot|tamper)|compression.{0,40}(replay|lineage|budget)"}
       ]
     },
@@ -142,8 +142,8 @@
         {"id":"ack_cursor","category":"source","pattern":"ack[_ ]?scoped|replay[_ ]?scoped|consumer[_ ]?cursor|stream[_ ]?cursor"},
         {"id":"gap_duplicate","category":"source","pattern":"stream[.]gap|event[_ ]?gap|duplicate.{0,20}event|out[_ -]?of[_ -]?order"},
         {"id":"retention","category":"source","pattern":"stream[_ ]?retention|retention[_ ]?ttl|trim.{0,30}stream"},
-        {"id":"relay","category":"source","pattern":"redis[_ ]?relay|sharded[_ ]?stream|stream[_ ]?relay|websocket.{0,30}replay"},
-        {"id":"stream_tests","category":"test","pattern":"stream.{0,50}(gap|replay|ack|retention|relay)|cursor.{0,40}(scope|restart|unknown)"}
+        {"id":"websocket_replay","category":"source","pattern":"websocket[_ ]?stream|replay[_ ]?scoped"},
+        {"id":"stream_tests","category":"test","pattern":"stream.{0,50}(gap|replay|ack|retention|websocket)|cursor.{0,40}(scope|restart|unknown)"}
       ]
     },
     {

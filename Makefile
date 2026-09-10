@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e real-evidence test-expert verify run local
+.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e real-evidence test-expert test-all verify run local
 
 GO ?= ./scripts/e2e-go.sh
 
@@ -76,6 +76,11 @@ real-evidence:
 
 test-expert:
 	bash scripts/test-expert.sh
+
+# Release acceptance: deterministic layers plus every external/real layer.
+# Real suites fail closed when a Codex-authenticated runner is unavailable.
+test-all:
+	ADRO_TEST_EXPERT_REAL=1 ADRO_REQUIRE_CODEX=1 bash scripts/test-expert.sh
 
 verify: test test-race vet build contracts supply-chain browser
 

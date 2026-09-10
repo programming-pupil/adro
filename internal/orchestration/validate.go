@@ -146,7 +146,6 @@ func ValidateGraph(g WorkflowGraph) error {
 		exitSeen[id] = struct{}{}
 	}
 	edges := map[string]WorkflowEdge{}
-	edgeByFromTo := map[string][]WorkflowEdge{}
 	outgoing := map[string][]string{}
 	incoming := map[string][]string{}
 	for i, e := range g.Edges {
@@ -201,7 +200,6 @@ func ValidateGraph(g WorkflowGraph) error {
 			}
 		}
 		edges[e.ID] = e
-		edgeByFromTo[e.From+"\x00"+e.To] = append(edgeByFromTo[e.From+"\x00"+e.To], e)
 		outgoing[e.From] = append(outgoing[e.From], e.To)
 		incoming[e.To] = append(incoming[e.To], e.From)
 	}
@@ -268,25 +266,29 @@ func ValidateGraph(g WorkflowGraph) error {
 			return fmt.Errorf("graph.nodes.%s.no_exit_path", id)
 		}
 	}
-	// Detect directed cycles and require an explicit traversal bound on the
-	// back-edge. This catches multi-node loops as well as self-loops.
+	// Every directed cycle must contain a bounded edge. Checking for cycles
+	// after removing bounded edges makes that rule independent of DFS root
+	// order; the previous back-edge check could randomly accept or reject the
+	// same graph because Go map iteration is intentionally unordered.
+	unboundedOutgoing := map[string][]WorkflowEdge{}
+	for _, edge := range g.Edges {
+		if edge.MaxTraversals < 1 {
+			unboundedOutgoing[edge.From] = append(unboundedOutgoing[edge.From], edge)
+		}
+		if edge.MaxTraversals > 0 && edge.LoopGroup != "" && pathExists(outgoing, edge.To, edge.From) && !hasHumanExit(nodes, outgoing, edge.From) {
+			return fmt.Errorf("graph.edges.%s.loop_group.human_exit.required", edge.ID)
+		}
+	}
 	color := map[string]uint8{}
 	var visit func(string) error
 	visit = func(id string) error {
 		color[id] = 1
-		for _, next := range outgoing[id] {
-			if color[next] == 1 {
-				for _, e := range edgeByFromTo[id+"\x00"+next] {
-					if e.MaxTraversals < 1 {
-						return fmt.Errorf("graph.edges.%s.max_traversals.required", e.ID)
-					}
-					if e.LoopGroup != "" && !hasHumanExit(nodes, outgoing, id) {
-						return fmt.Errorf("graph.edges.%s.loop_group.human_exit.required", e.ID)
-					}
-				}
+		for _, edge := range unboundedOutgoing[id] {
+			if color[edge.To] == 1 {
+				return fmt.Errorf("graph.edges.%s.max_traversals.required", edge.ID)
 			}
-			if color[next] == 0 {
-				if err := visit(next); err != nil {
+			if color[edge.To] == 0 {
+				if err := visit(edge.To); err != nil {
 					return err
 				}
 			}
@@ -294,14 +296,32 @@ func ValidateGraph(g WorkflowGraph) error {
 		color[id] = 2
 		return nil
 	}
-	for id := range nodes {
-		if color[id] == 0 {
-			if err := visit(id); err != nil {
+	for _, node := range g.Nodes {
+		if color[node.ID] == 0 {
+			if err := visit(node.ID); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func pathExists(outgoing map[string][]string, start, target string) bool {
+	seen := map[string]struct{}{}
+	queue := []string{start}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if id == target {
+			return true
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		queue = append(queue, outgoing[id]...)
+	}
+	return false
 }
 
 func ValidatePredicate(p Predicate, depth int, path string) error {

@@ -1,8 +1,8 @@
 package provider
 
-// Codex app-server is a long-lived JSON-RPC process. A local run therefore
-// needs the same lifecycle as Multica: initialize, start/resume a native
-// thread, start one turn, and wait for turn/completed.
+// Codex app-server is a long-lived JSON-RPC process. A local run initializes
+// it, starts or resumes a native thread, starts one turn, and waits for the
+// terminal turn event.
 
 import (
 	"bufio"
@@ -270,8 +270,8 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 	}
 }
 
-// Multica retries a resume only when Codex explicitly rejects the protocol
-// request (for example, an unknown thread or an incompatible schema). A
+// Retry a resume only when Codex explicitly rejects the protocol request (for
+// example, an unknown thread or an incompatible schema). A
 // broken stdio transport, EOF, or context cancellation leaves the native
 // session state uncertain and must fail closed instead of silently starting a
 // new conversation.
@@ -283,8 +283,8 @@ func isRecoverableCodexResumeError(err error) bool {
 // App-server emits token deltas, reasoning summaries, status updates and
 // usage heartbeats in addition to the durable run evidence. Recording every
 // delta can evict the final ADRO_RESULT_JSON marker from ADRO's bounded
-// snapshot. Keep the same actionable evidence Multica keeps: tool lifecycle,
-// completed agent messages, terminal turn state and protocol errors.
+// snapshot. Keep actionable evidence: tool lifecycle, completed agent
+// messages, terminal turn state and protocol errors.
 func appendCodexEvidence(dst *bytes.Buffer, raw map[string]json.RawMessage) {
 	method := ""
 	_ = json.Unmarshal(raw["method"], &method)

@@ -24,8 +24,14 @@ run_rehearsal() {
   local restore_dsn="$4"
   local restore_db="$5"
   local dump_file="$6"
+  local app_role="${ADRO_POSTGRES_APP_ROLE:-adro_app}"
+  local backup_role="${ADRO_POSTGRES_BACKUP_ROLE:-adro_backup}"
   if [[ ! "$restore_db" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     printf 'invalid PostgreSQL restore database name: %s\n' "$restore_db" >&2
+    return 2
+  fi
+  if [[ ! "$app_role" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ ! "$backup_role" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    printf 'invalid PostgreSQL application or backup role name\n' >&2
     return 2
   fi
 
@@ -36,14 +42,18 @@ run_rehearsal() {
     return 1
   fi
   # FORCE ROW LEVEL SECURITY correctly prevents the application role from
-  # reading every workspace. Operators must supply a distinct backup identity
-  # with audited BYPASSRLS/read privileges; silently weakening RLS is forbidden.
+  # reading every workspace. The backup identity gets read-only object
+  # privileges and BYPASSRLS, never application write privileges.
+  psql "$source_dsn" -X -v ON_ERROR_STOP=1 \
+    -c "GRANT USAGE ON SCHEMA public TO \"$backup_role\"" \
+    -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"$backup_role\"" \
+    -c "GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$backup_role\"" >/dev/null
   pg_dump --format=custom --no-owner --no-privileges --file "$dump_file" "$backup_dsn"
 
   local started finished restored_fingerprint
   started="$(millis)"
   psql "$admin_dsn" -X -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$restore_db\" WITH (FORCE)" >/dev/null
-  psql "$admin_dsn" -X -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$restore_db\"" >/dev/null
+  psql "$admin_dsn" -X -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$restore_db\" OWNER \"$app_role\"" >/dev/null
   pg_restore --exit-on-error --no-owner --no-privileges --dbname "$restore_dsn" "$dump_file"
   restored_fingerprint="$(snapshot_fingerprint "$restore_dsn")"
   finished="$(millis)"
@@ -112,14 +122,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-initdb -D "$PG_DATA" -A trust --no-locale -E UTF8 >/dev/null
+initdb -D "$PG_DATA" -A trust --no-locale -E UTF8 --username=adro_admin >/dev/null
 pg_ctl -D "$PG_DATA" -o "-k $PG_SOCKET -p $PG_PORT" -w start >/dev/null
-createuser -h "$PG_SOCKET" -p "$PG_PORT" --createdb adro_app
-createuser -h "$PG_SOCKET" -p "$PG_PORT" --superuser adro_backup
-createdb -h "$PG_SOCKET" -p "$PG_PORT" -O adro_app adro_test
+createuser -h "$PG_SOCKET" -p "$PG_PORT" -U adro_admin --createdb adro_app
+createuser -h "$PG_SOCKET" -p "$PG_PORT" -U adro_admin --bypassrls adro_backup
+createdb -h "$PG_SOCKET" -p "$PG_PORT" -U adro_admin -O adro_app adro_test
 
 source_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_test user=adro_app sslmode=disable"
-admin_dsn="host=$PG_SOCKET port=$PG_PORT dbname=postgres user=adro_app sslmode=disable"
+admin_dsn="host=$PG_SOCKET port=$PG_PORT dbname=postgres user=adro_admin sslmode=disable"
 restore_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_restore user=adro_app sslmode=disable"
 backup_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_test user=adro_backup sslmode=disable"
 run_conformance "$source_dsn"

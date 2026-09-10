@@ -28,8 +28,8 @@ The following categories remain in the repository:
 | File | Reason | Reference scan | Recovery |
 |---|---|---|---|
 | `CTW-15-ga-audit.md` | Obsolete CTW-25 release-readiness snapshot with stale menu and test claims; superseded by the current release plan and architecture readiness docs. | No inbound repository references. | Revert the cleanup commit. |
-| `ADRO-vs-AOS-Multica-architecture-review-2026-09-02.md` | Historical comparison against an obsolete ADRO SHA; not a normative architecture specification or release evidence record. | No inbound repository references. | Revert the cleanup commit. |
-| `docs/architecture/ADRO-vs-AOS-ctw27-2026-09-02.md` | Historical handoff for a deleted working branch and stale refs; implementation details are now in the current architecture and release documents. | No inbound repository references. | Revert the cleanup commit. |
+| Historical comparison document | Historical comparison against an obsolete ADRO SHA; not a normative architecture specification or release evidence record. | No inbound repository references. | Revert the cleanup commit. |
+| Historical architecture handoff | Historical handoff for a deleted working branch and stale refs; implementation details are now in the current architecture and release documents. | No inbound repository references. | Revert the cleanup commit. |
 
 No source code, test code, formal test plan, license, architecture norm,
 change record, or release evidence schema was deleted. The cleanup is limited

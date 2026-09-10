@@ -17,8 +17,8 @@ type TargetType string
 const (
 	TargetAgent TargetType = "agent"
 	TargetSquad TargetType = "squad"
-	// TargetMember and TargetIssue are render-only references. They are part of
-	// the Multica mention grammar but must never become execution targets.
+	// TargetMember and TargetIssue are render-only references and must never
+	// become execution targets.
 	TargetMember TargetType = "member"
 	TargetIssue  TargetType = "issue"
 	TargetAll    TargetType = "all"

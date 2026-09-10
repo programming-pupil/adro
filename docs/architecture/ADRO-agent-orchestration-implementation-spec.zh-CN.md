@@ -27,21 +27,21 @@
 | 评论和 follow-up | `internal/api/comments.go` | `strings.Fields` 解析普通 `@token`；有受限 `agent_binding_id` follow-up | 实现结构化 `mention://agent`/`mention://squad`、preview 和 per-target outcome |
 | 审计、事件总线、附件 | `internal/audit`、`internal/events`、`internal/artifact` | 可作为事实和证据底座 | 将 comment、edge decision、artifact commit 纳入统一相关 ID |
 
-### 1.2 AOS/Multica 参考点（只借鉴契约，不复制代码）
+### 1.2 外部架构审计项
 
 | 参考能力 | 源码位置 | 应借鉴的工程点 |
 | --- | --- | --- |
-| typed context、prompt layer、trust、预算 | AOS `rust/crates/semantic-core/src/context.rs` | ContextPacket/Manifest、mandatory/optional 选择、hard budget、trust 和 snapshot lineage |
-| 压缩和恢复 | AOS `rust/crates/runtime/src/summary_compression.rs` | 压缩结果可解释、受预算约束、能从同一快照重放 |
-| task lifecycle、revision、parent/child | AOS `rust/crates/runtime/src/task_registry.rs`、`agent_coordinator.rs` | 乐观版本、显式 approval/timeout/cancel/retry、父子终态约束 |
-| durable Agent Team | AOS `rust/crates/web-server/src/agent_team.rs` | team scope、spawn idempotency、worker lease、并发许可、嵌套深度 |
-| evidence memory | AOS `rust/crates/memory-engine/src/lib.rs` | evidence hash、lifecycle、污染隔离、冲突包、repository TCK |
-| Squad 和成员权限 | Multica `server/internal/handler/squad.go` | Squad/leader/member/role、归档和 workspace 权限 |
-| mention 触发计算 | Multica `server/internal/handler/comment.go` | 结构化 mention、显式优先级、权限 gate、去重和触发结果 |
-| mention preview/edit | Multica `server/internal/handler/comment_trigger_preview_test.go` | preview 与 create/edit 共用计算器、revision、suppress、blocked reason |
-| realtime replay/retention | Multica `server/internal/realtime/redis_relay.go`、`sharded_stream_relay.go`、`stream_retention.go` | relay、ACK、retention、TTL、duplicate/gap 处理 |
+| typed context、prompt layer、trust、预算 | ADRO 上下文治理 | ContextPacket/Manifest、mandatory/optional 选择、hard budget、trust 和 snapshot lineage |
+| 压缩和恢复 | ADRO 上下文治理 | 压缩结果可解释、受预算约束、能从同一快照重放 |
+| task lifecycle、revision、parent/child | ADRO 任务生命周期 | 乐观版本、显式 approval/timeout/cancel/retry、父子终态约束 |
+| durable Agent Team | ADRO 团队编排 | team scope、spawn idempotency、worker lease、并发许可、嵌套深度 |
+| evidence memory | ADRO 证据记忆 | evidence hash、lifecycle、污染隔离、冲突包、repository TCK |
+| Squad 和成员权限 | ADRO 协作权限 | Squad/leader/member/role、归档和 workspace 权限 |
+| mention 触发计算 | ADRO mention 路由 | 结构化 mention、显式优先级、权限 gate、去重和触发结果 |
+| mention preview/edit | ADRO mention 路由 | preview 与 create/edit 共用计算器、revision、suppress、blocked reason |
+| realtime replay/retention | ADRO 实时事件流 | WebSocket replay、ACK、retention、TTL、duplicate/gap 处理 |
 
-这些参考项目也不能被无条件复制：AOS 的部分组件是 in-memory 或 SQLite profile，Multica 的 realtime 需要 Redis。开发时必须标注 profile 和证据级别。
+这些外部审计项不能被无条件复制。开发时必须标注 profile 和证据级别，并以 ADRO 自身的持久化、权限和运行时契约为准。
 
 ## 2. 设计目标和不变量
 

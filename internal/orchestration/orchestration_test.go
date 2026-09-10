@@ -1587,6 +1587,37 @@ func TestValidateGraphRequiresStableID(t *testing.T) {
 	}
 }
 
+func TestValidateGraphAcceptsCycleWithOneBoundedEdgeDeterministically(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "bounded-feedback", Version: 1, EntryNodeIDs: []string{"agent"}, ExitNodeIDs: []string{"gate"},
+		Nodes: []WorkflowNode{{ID: "agent", Kind: NodeGate}, {ID: "gate", Kind: NodeGate}},
+		Edges: []WorkflowEdge{
+			{ID: "agent-to-gate", From: "agent", To: "gate", On: EdgeSuccess},
+			{ID: "gate-to-agent", From: "gate", To: "agent", On: EdgeSuccess, MaxTraversals: 1},
+		},
+	}
+	for i := 0; i < 100; i++ {
+		if err := ValidateGraph(graph); err != nil {
+			t.Fatalf("bounded feedback graph rejected on iteration %d: %v", i, err)
+		}
+	}
+}
+
+func TestValidateGraphRejectsRemainingUnboundedSubcycle(t *testing.T) {
+	graph := WorkflowGraph{
+		ID: "partially-bounded-feedback", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"c"},
+		Nodes: []WorkflowNode{{ID: "a", Kind: NodeGate}, {ID: "b", Kind: NodeGate}, {ID: "c", Kind: NodeGate}},
+		Edges: []WorkflowEdge{
+			{ID: "a-to-b", From: "a", To: "b", On: EdgeSuccess},
+			{ID: "b-to-a", From: "b", To: "a", On: EdgeFailure},
+			{ID: "b-to-c", From: "b", To: "c", On: EdgeSuccess, MaxTraversals: 1},
+		},
+	}
+	if err := ValidateGraph(graph); err == nil || !strings.Contains(err.Error(), "max_traversals.required") {
+		t.Fatalf("expected unbounded subcycle rejection, got %v", err)
+	}
+}
+
 func TestLoopGroupRequiresHumanExit(t *testing.T) {
 	graph := WorkflowGraph{ID: "bounded-loop", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"a"}, Nodes: []WorkflowNode{{ID: "a", Kind: NodeGate}}, Edges: []WorkflowEdge{{ID: "loop", From: "a", To: "a", On: EdgeSuccess, LoopGroup: "repair", MaxTraversals: 2}}}
 	if err := ValidateGraph(graph); err == nil || !strings.Contains(err.Error(), "human_exit.required") {
