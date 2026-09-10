@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -66,32 +68,73 @@ type MemoryPolicy struct {
 	RequireEvidence bool     `json:"require_evidence,omitempty"`
 }
 type ExecutorBinding struct {
-	ProviderID      string   `json:"provider_id"`
-	RuntimeID       string   `json:"runtime_id,omitempty"`
-	Model           string   `json:"model,omitempty"`
-	ThinkingLevel   string   `json:"thinking_level,omitempty"`
-	ServiceTier     string   `json:"service_tier,omitempty"`
-	CustomArgs      []string `json:"custom_args,omitempty"`
-	ProviderVersion string   `json:"provider_version,omitempty"`
-	BinaryDigest    string   `json:"binary_digest,omitempty"`
-	RequiredCaps    []string `json:"required_caps,omitempty"`
-	ConfigVersion   string   `json:"config_version,omitempty"`
+	ProviderID      string                 `json:"provider_id"`
+	RuntimeID       string                 `json:"runtime_id,omitempty"`
+	Model           string                 `json:"model,omitempty"`
+	ThinkingLevel   string                 `json:"thinking_level,omitempty"`
+	ServiceTier     string                 `json:"service_tier,omitempty"`
+	CustomArgs      []string               `json:"custom_args,omitempty"`
+	RuntimeConfig   map[string]string      `json:"runtime_config,omitempty"`
+	Environment     []EnvironmentReference `json:"environment,omitempty"`
+	ProviderVersion string                 `json:"provider_version,omitempty"`
+	BinaryDigest    string                 `json:"binary_digest,omitempty"`
+	RequiredCaps    []string               `json:"required_caps,omitempty"`
+	ConfigVersion   string                 `json:"config_version,omitempty"`
+}
+
+type EnvironmentReference struct {
+	Name      string `json:"name"`
+	SecretRef string `json:"secret_ref"`
+}
+
+type ConversationStarter struct {
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
+}
+
+// DisabledRuntimeSkill identifies a runtime-local Skill that this Agent must
+// not inherit. RuntimeID keeps the decision scoped when a definition is moved
+// between execution clients; workspace-bound Skills remain explicit through
+// SkillIDs and are unaffected by this deny list.
+type DisabledRuntimeSkill struct {
+	RuntimeID string `json:"runtime_id"`
+	Provider  string `json:"provider"`
+	Root      string `json:"root"`
+	Key       string `json:"key"`
+	Name      string `json:"name,omitempty"`
+	Plugin    string `json:"plugin,omitempty"`
+}
+
+type AgentAccessPolicy struct {
+	// Mode is private, workspace, or members. An empty value is accepted only
+	// for definitions written before invocation access became explicit and is
+	// interpreted as private by callers.
+	Mode      string   `json:"mode,omitempty"`
+	MemberIDs []string `json:"member_ids,omitempty"`
 }
 
 type AgentDefinition struct {
-	ID                string          `json:"id"`
-	WorkspaceID       string          `json:"workspace_id"`
-	Revision          int64           `json:"revision"`
-	Name              string          `json:"name"`
-	Role              string          `json:"role,omitempty"`
-	Instructions      string          `json:"instructions,omitempty"`
-	Capabilities      []CapabilityRef `json:"capabilities,omitempty"`
-	ToolPolicy        ToolPolicy      `json:"tool_policy"`
-	MemoryPolicy      MemoryPolicy    `json:"memory_policy"`
-	ExecutorBinding   ExecutorBinding `json:"executor_binding"`
-	ConcurrencyBudget Budget          `json:"concurrency_budget"`
-	InputSchema       SchemaRef       `json:"input_schema"`
-	OutputSchema      SchemaRef       `json:"output_schema"`
+	ID                    string                 `json:"id"`
+	WorkspaceID           string                 `json:"workspace_id"`
+	Revision              int64                  `json:"revision"`
+	Name                  string                 `json:"name"`
+	OwnerID               string                 `json:"owner_id,omitempty"`
+	Description           string                 `json:"description,omitempty"`
+	AvatarURL             string                 `json:"avatar_url,omitempty"`
+	Role                  string                 `json:"role,omitempty"`
+	Instructions          string                 `json:"instructions,omitempty"`
+	ConversationStarters  []ConversationStarter  `json:"conversation_starters,omitempty"`
+	AccessPolicy          AgentAccessPolicy      `json:"access_policy,omitempty"`
+	SkillIDs              []string               `json:"skill_ids,omitempty"`
+	DisabledRuntimeSkills []DisabledRuntimeSkill `json:"disabled_runtime_skills,omitempty"`
+	MCPServerIDs          []string               `json:"mcp_server_ids,omitempty"`
+	Capabilities          []CapabilityRef        `json:"capabilities,omitempty"`
+	ToolPolicy            ToolPolicy             `json:"tool_policy"`
+	MemoryPolicy          MemoryPolicy           `json:"memory_policy"`
+	ExecutorBinding       ExecutorBinding        `json:"executor_binding"`
+	ConcurrencyBudget     Budget                 `json:"concurrency_budget"`
+	InputSchema           SchemaRef              `json:"input_schema"`
+	OutputSchema          SchemaRef              `json:"output_schema"`
 	// Graph is an optional revisioned routing graph owned by this Agent. A
 	// zero graph keeps the legacy single-node behavior; once present it is
 	// frozen into every execution plan selected through this Agent.
@@ -482,6 +525,94 @@ func (a AgentDefinition) Validate() error {
 	if a.Revision < 1 {
 		return errors.New("agent revision must be positive")
 	}
+	if len([]rune(a.Description)) > 255 {
+		return errors.New("agent description cannot exceed 255 characters")
+	}
+	if len(a.ConversationStarters) > 3 {
+		return errors.New("agent cannot have more than three conversation starters")
+	}
+	starterLabels := map[string]bool{}
+	for i, starter := range a.ConversationStarters {
+		label := strings.TrimSpace(starter.Label)
+		prompt := strings.TrimSpace(starter.Prompt)
+		if label == "" || prompt == "" {
+			return fmt.Errorf("agent conversation_starters[%d] requires label and prompt", i)
+		}
+		if len([]rune(label)) > 80 || len([]rune(prompt)) > 4000 {
+			return fmt.Errorf("agent conversation_starters[%d] exceeds its size limit", i)
+		}
+		key := strings.ToLower(label)
+		if starterLabels[key] {
+			return fmt.Errorf("agent conversation starter label %q is duplicated", label)
+		}
+		starterLabels[key] = true
+	}
+	mode := strings.ToLower(strings.TrimSpace(a.AccessPolicy.Mode))
+	switch mode {
+	case "", "private", "workspace":
+		if len(a.AccessPolicy.MemberIDs) > 0 {
+			return errors.New("agent member access requires access_policy.mode members")
+		}
+	case "members":
+		if len(a.AccessPolicy.MemberIDs) == 0 {
+			return errors.New("agent members access requires at least one member_id")
+		}
+	default:
+		return fmt.Errorf("agent access policy mode %q is invalid", mode)
+	}
+	memberIDs := map[string]bool{}
+	for i, memberID := range a.AccessPolicy.MemberIDs {
+		memberID = strings.TrimSpace(memberID)
+		if memberID == "" {
+			return fmt.Errorf("agent access_policy.member_ids[%d] is empty", i)
+		}
+		if memberIDs[memberID] {
+			return fmt.Errorf("agent access policy member_id %q is duplicated", memberID)
+		}
+		memberIDs[memberID] = true
+	}
+	for field, values := range map[string][]string{"skill_ids": a.SkillIDs, "mcp_server_ids": a.MCPServerIDs} {
+		seen := map[string]bool{}
+		for i, value := range values {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				return fmt.Errorf("agent %s[%d] is empty", field, i)
+			}
+			if seen[value] {
+				return fmt.Errorf("agent %s value %q is duplicated", field, value)
+			}
+			seen[value] = true
+		}
+	}
+	if len(a.DisabledRuntimeSkills) > 256 {
+		return errors.New("agent cannot disable more than 256 runtime Skills")
+	}
+	disabledSkills := map[string]bool{}
+	for i, skill := range a.DisabledRuntimeSkills {
+		runtimeID := strings.TrimSpace(skill.RuntimeID)
+		providerID := strings.TrimSpace(skill.Provider)
+		root := strings.TrimSpace(skill.Root)
+		key := strings.TrimSpace(skill.Key)
+		plugin := strings.TrimSpace(skill.Plugin)
+		if runtimeID == "" || providerID == "" {
+			return fmt.Errorf("agent disabled_runtime_skills[%d] requires runtime_id and provider", i)
+		}
+		if root != "provider" && root != "universal" && root != "plugin" {
+			return fmt.Errorf("agent disabled_runtime_skills[%d].root is invalid", i)
+		}
+		cleaned := path.Clean(strings.ReplaceAll(key, `\\`, "/"))
+		if key == "" || strings.HasPrefix(key, "/") || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != key {
+			return fmt.Errorf("agent disabled_runtime_skills[%d].key is invalid", i)
+		}
+		if (root == "plugin") != (plugin != "") {
+			return fmt.Errorf("agent disabled_runtime_skills[%d].plugin does not match its root", i)
+		}
+		identity := strings.Join([]string{runtimeID, providerID, root, key, plugin}, "\x00")
+		if disabledSkills[identity] {
+			return fmt.Errorf("agent disabled runtime Skill %q is duplicated", key)
+		}
+		disabledSkills[identity] = true
+	}
 	switch a.Status {
 	case AgentDraft, AgentActive, AgentDisabled, AgentArchived:
 	default:
@@ -528,7 +659,72 @@ func (a AgentDefinition) Validate() error {
 			return fmt.Errorf("agent graph: %w", err)
 		}
 	}
+	if len(a.ExecutorBinding.RuntimeConfig) > 32 {
+		return errors.New("agent runtime_config cannot contain more than 32 entries")
+	}
+	for key, value := range a.ExecutorBinding.RuntimeConfig {
+		if !runtimeConfigKeyPattern.MatchString(key) {
+			return fmt.Errorf("agent runtime_config key %q is invalid", key)
+		}
+		lower := strings.ToLower(key)
+		for _, fragment := range []string{"secret", "token", "password", "credential", "api_key", "apikey"} {
+			if strings.Contains(lower, fragment) {
+				return fmt.Errorf("agent runtime_config key %q must use environment secret references", key)
+			}
+		}
+		if len(value) > 1024 || strings.ContainsAny(value, "\r\n\x00") {
+			return fmt.Errorf("agent runtime_config value for %q is invalid", key)
+		}
+	}
+	if len(a.ExecutorBinding.Environment) > 64 {
+		return errors.New("agent environment cannot contain more than 64 references")
+	}
+	environmentNames := map[string]bool{}
+	for i, ref := range a.ExecutorBinding.Environment {
+		name, secretRef := strings.TrimSpace(ref.Name), strings.TrimSpace(ref.SecretRef)
+		if !environmentNamePattern.MatchString(name) {
+			return fmt.Errorf("agent environment[%d].name is invalid", i)
+		}
+		if !strings.HasPrefix(secretRef, "env:") || !environmentNamePattern.MatchString(strings.TrimPrefix(secretRef, "env:")) {
+			return fmt.Errorf("agent environment[%d].secret_ref is invalid", i)
+		}
+		if environmentNames[name] {
+			return fmt.Errorf("agent environment name %q is duplicated", name)
+		}
+		environmentNames[name] = true
+	}
 	return nil
+}
+
+var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var runtimeConfigKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+
+// CanInvoke applies the versioned access contract before a provider process is
+// started. Definitions created before access policies existed remain usable
+// only when they also have no recorded owner.
+func (a AgentDefinition) CanInvoke(memberID string) bool {
+	memberID = strings.TrimSpace(memberID)
+	ownerID := strings.TrimSpace(a.OwnerID)
+	if ownerID == "" {
+		ownerID = strings.TrimSpace(a.CreatedBy)
+	}
+	if ownerID == "" && strings.TrimSpace(a.AccessPolicy.Mode) == "" {
+		return true
+	}
+	if memberID != "" && memberID == ownerID {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(a.AccessPolicy.Mode)) {
+	case "workspace":
+		return memberID != ""
+	case "members":
+		for _, allowed := range a.AccessPolicy.MemberIDs {
+			if memberID != "" && memberID == strings.TrimSpace(allowed) {
+				return true
+			}
+		}
+	}
+	return false
 }
 func (m SquadMember) Validate() error {
 	if strings.TrimSpace(m.ID) == "" || (strings.TrimSpace(m.AgentID) == "" && strings.TrimSpace(m.SquadID) == "") || strings.TrimSpace(m.Role) == "" {

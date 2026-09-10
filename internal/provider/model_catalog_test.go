@@ -20,6 +20,7 @@ func TestDiscoverRuntimeModelsUsesNativeCatalogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
 
 	codexCatalog, err := DiscoverRuntimeModels(context.Background(), "codex")
@@ -60,8 +61,9 @@ func TestDiscoverRuntimeModelsUsesNativeCatalogs(t *testing.T) {
 
 func TestDiscoverRuntimeModelsRejectsUnavailableRuntime(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
-	if _, err := DiscoverRuntimeModels(context.Background(), "codex"); err == nil {
+	if _, err := DiscoverRuntimeModels(context.Background(), "cursor"); err == nil {
 		t.Fatal("uninstalled runtime catalog was returned")
 	}
 	if _, err := DiscoverRuntimeModels(context.Background(), "unknown"); err == nil {
@@ -119,11 +121,12 @@ func TestDiscoverDSHRuntimeModels(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dsh")
 	argsPath := filepath.Join(dir, "args.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nprintf '%s\\n' '{\"v\":1,\"type\":\"models\",\"models\":[{\"id\":\"model-a\",\"provider\":\"provider\",\"label\":\"Model A\",\"default\":true}]}'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nif [ \"$3\" = \"--probe\" ]; then printf '%s\\n' '{\"v\":1,\"type\":\"probe\",\"runtime\":\"dsh\",\"protocol_version\":1}'; else printf '%s\\n' '{\"v\":1,\"type\":\"models\",\"models\":[{\"id\":\"model-a\",\"provider\":\"provider\",\"label\":\"Model A\",\"default\":true}]}'; fi\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
 	catalog, err := DiscoverRuntimeModels(context.Background(), "dsh")
 	if err != nil {

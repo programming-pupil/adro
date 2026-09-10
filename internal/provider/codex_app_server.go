@@ -36,13 +36,13 @@ func (e *codexRPCError) Error() string {
 // executeCodexAppServer puts the thread proof obtained from thread/start or
 // thread/resume into the provider's existing JSONL evidence stream. It is
 // derived from the RPC result, never from model text or a fixture.
-func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool, model, thinkingLevel, serviceTier string) (int, []byte, error) {
+func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool, model, thinkingLevel, serviceTier string, environment map[string]string) (int, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	configureLocalCommand(cmd)
 	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
 	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = workDir
-	cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

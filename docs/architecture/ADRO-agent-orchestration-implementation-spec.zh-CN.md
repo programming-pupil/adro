@@ -664,22 +664,17 @@ npm run test:e2e:adro
 5. 没有 `TODO`、隐式 stage、字符串 mention 路由或无界 retry；
 6. reviewer 能从 plan hash 找到每个 attempt、edge、context、tool、artifact 和最终结论。
 
-## 16. 给开发团队的首批任务拆分
+## 16. 实现状态与后续验收
 
-1. `ORCH-001`：新增 orchestration model、repository、graph validator 和 predicate AST；不接执行器。
-2. `ORCH-002`：实现 reducer、attempt、feedback、loop/join 和 event projection；完成纯状态机测试。
-3. `ORCH-003`：把 LocalProvider 接入 plan/node/attempt 和完整 ContextEnvelope；补真实 capability 探测。
-4. `ORCH-004`：实现 Agent/Squad CRUD、版本发布、quick-squad、validate/dry-run 和权限。
-5. `ORCH-005`：实现 execution-plan API、旧 pipeline compat adapter 和 shadow comparison。
-6. `ORCH-006`：实现 mention parser、roster resolver、trigger preview、create/edit/retry/outcomes。
-7. `ORCH-007`：实现 replay/timeline/diagnostics、OTel 字段和审计 projection。
-8. `ORCH-008`：补 SQLite/file profile 的故障注入，接入真实 Codex 和浏览器 E2E。
-9. `ORCH-009`：接入 PostgreSQL/Redis/NATS 或等价生产 profile；在单机门禁通过后单独做多副本 conformance。
+1. `ORCH-001..007` 已在源码中形成 graph model/repository/validator/reducer、attempt/feedback/repair、Agent/Squad 生命周期、execution-plan API、结构化 mention、timeline/replay 和 Web 编排入口；发布验收仍必须按第 15 节提供逐层证据。
+2. `ORCH-008` 的 deterministic fault/browser 套件和真实 Codex 脚本已接入；只有 SHA 绑定的真实运行报告才能证明外部执行边界，不得用 fixture 代替。
+3. PostgreSQL orchestration、RLS、备份恢复和兼容工作区迁移已有 conformance；Redis/NATS、多副本和企业身份等外部 profile 仍须在相应部署中单独验收。
+4. 兼容 pipeline 与 graph-native execution plan 必须持续做双轨回归，保证旧数据可读、已冻结计划不被模板变更改写、迁移可回滚。
 
 每个子任务必须在 PR 描述中填写：变更的 invariant、event schema、migration、测试命令、真实证据位置、已知 blocked/deferred 项和回滚步骤。
 
 ## 17. 诚实的起点和终点
 
-按当前源码，ADRO 不能宣称已经拥有本规格的自由编排或评论 mention；这是需要开发的目标。现有 `PipelineStage`、`WorkflowStep`、`nextCustomStage`、`commentMentions` 和 `queueCommentFollowUp` 只能作为兼容和迁移起点。
+当前源码已经实现本规格的自由编排、可复用 Agent/Squad、双向反馈和结构化评论 mention 契约；`PipelineStage`、`WorkflowStep` 与旧 binding 继续作为兼容路径，不能替代或改写 graph-native plan。
 
-完成本规格后，ADRO 的差异化应来自“可验证的有界图 + 强证据执行内核 + 可复用 Agent/Squad + 双向反馈 + 结构化评论触发”，而不是堆叠更多固定阶段。任何未通过真实执行、故障注入和发布门禁的能力，都必须在版本说明中标为 partial、blocked 或 deferred。
+ADRO 的差异化来自“可验证的有界图 + 强证据执行内核 + 可复用 Agent/Squad + 双向反馈 + 结构化评论触发”，而不是堆叠更多固定阶段。实现存在不等于发布通过；任何未通过真实执行、故障注入和发布门禁的能力，都必须在版本说明中标为 partial、blocked 或 deferred。

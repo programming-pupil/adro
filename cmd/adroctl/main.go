@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/internal/workspacebundle"
 )
 
 func main() {
@@ -40,6 +44,11 @@ func main() {
 		graphValidate(os.Args[2:])
 	case "agent", "squad", "plan":
 		orchestrationControl(os.Args[1], os.Args[2:])
+	case "workspace":
+		if err := workspaceCommand(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "api":
 		genericAPI(os.Args[2:])
 	default:
@@ -48,11 +57,205 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|api|version>")
+	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|workspace|api|version>")
 	fmt.Println("  adroctl agent <list|get|create|validate|enable|disable|archive> [flags]")
 	fmt.Println("  adroctl squad <list|get|create|validate|dry-run|publish|disable|archive> [flags]")
 	fmt.Println("  adroctl plan <list|get|create|publish|timeline|replay|diagnostics> [flags]")
+	fmt.Println("  adroctl workspace <export|preflight|import|export-postgres|preflight-postgres|import-postgres> [flags]")
 	fmt.Println("  adroctl api --method GET --path /api/v1/... [--file body.json]")
+}
+
+func workspaceCommand(args []string, output io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("workspace subcommand is required")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("workspace "+action, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	home := fs.String("home", envDefault("ADRO_HOME", ".adro"), "durable ADRO state directory")
+	artifactRoot := fs.String("artifact-root", envDefault("ADRO_ARTIFACT_ROOT", ""), "artifact store root (defaults to <home>/artifacts)")
+	workspaceID := fs.String("workspace", envDefault("ADRO_WORKSPACE_ID", "local"), "source or target workspace ID")
+	file := fs.String("file", "", "workspace bundle path")
+	conflict := fs.String("conflict", "rename", "conflict policy: fail, skip, or rename")
+	dryRun := fs.Bool("dry-run", false, "validate without changing the target")
+	sourceDSN := fs.String("source-dsn", envDefault("ADRO_MIGRATION_SOURCE_DSN", ""), "compatible PostgreSQL source DSN")
+	sourceWorkspace := fs.String("source-workspace", envDefault("ADRO_MIGRATION_SOURCE_WORKSPACE", ""), "compatible source workspace ID or slug")
+	sourceUploadRoot := fs.String("source-upload-root", envDefault("ADRO_MIGRATION_SOURCE_UPLOAD_ROOT", filepath.Join("data", "uploads")), "compatible source attachment root")
+	timeout := fs.Duration("timeout", 5*time.Minute, "source snapshot timeout")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*artifactRoot) == "" {
+		*artifactRoot = filepath.Join(*home, "artifacts")
+	}
+	postgresAction := action == "export-postgres" || action == "preflight-postgres" || action == "import-postgres"
+	if !postgresAction && strings.TrimSpace(*file) == "" {
+		return errors.New("--file is required")
+	}
+	if action == "export-postgres" && strings.TrimSpace(*file) == "" {
+		return errors.New("--file is required")
+	}
+	if postgresAction {
+		if strings.TrimSpace(*sourceDSN) == "" {
+			return errors.New("--source-dsn is required")
+		}
+		if strings.TrimSpace(*sourceWorkspace) == "" {
+			return errors.New("--source-workspace is required")
+		}
+		if *timeout <= 0 {
+			return errors.New("--timeout must be positive")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		data, manifest, err := workspacebundle.ExportPostgresWorkspace(ctx, workspacebundle.PostgresExportOptions{
+			DSN:        *sourceDSN,
+			Workspace:  *sourceWorkspace,
+			UploadRoot: *sourceUploadRoot,
+		})
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(*file) != "" {
+			if err := atomicWriteFile(*file, data, 0o600); err != nil {
+				return fmt.Errorf("write workspace bundle: %w", err)
+			}
+		}
+		switch action {
+		case "export-postgres":
+			return writeJSONOutput(output, map[string]any{"file": *file, "digest": manifest.Digest, "counts": workspacebundleCounts(manifest)})
+		case "preflight-postgres":
+			service, err := openWorkspaceMigrationService(*home, *artifactRoot)
+			if err != nil {
+				return err
+			}
+			report, err := service.Preflight(ctx, data, *workspaceID, *conflict)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(output, report)
+		case "import-postgres":
+			service, err := openWorkspaceMigrationService(*home, *artifactRoot)
+			if err != nil {
+				return err
+			}
+			report, err := service.Import(ctx, data, *workspaceID, *conflict, *dryRun)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(output, report)
+		}
+	}
+	switch action {
+	case "preflight":
+		data, err := os.ReadFile(*file)
+		if err != nil {
+			return fmt.Errorf("read workspace bundle: %w", err)
+		}
+		service, err := openWorkspaceMigrationService(*home, *artifactRoot)
+		if err != nil {
+			return err
+		}
+		report, err := service.Preflight(context.Background(), data, *workspaceID, *conflict)
+		if err != nil {
+			return err
+		}
+		return writeJSONOutput(output, report)
+	case "export", "import":
+		service, err := openWorkspaceMigrationService(*home, *artifactRoot)
+		if err != nil {
+			return err
+		}
+		if action == "export" {
+			data, manifest, err := service.Export(context.Background(), *workspaceID)
+			if err != nil {
+				return err
+			}
+			if err := atomicWriteFile(*file, data, 0o600); err != nil {
+				return fmt.Errorf("write workspace bundle: %w", err)
+			}
+			return writeJSONOutput(output, map[string]any{"file": *file, "digest": manifest.Digest, "counts": workspacebundleCounts(manifest)})
+		}
+		data, err := os.ReadFile(*file)
+		if err != nil {
+			return fmt.Errorf("read workspace bundle: %w", err)
+		}
+		report, err := service.Import(context.Background(), data, *workspaceID, *conflict, *dryRun)
+		if err != nil {
+			return err
+		}
+		return writeJSONOutput(output, report)
+	default:
+		return fmt.Errorf("unsupported workspace action %q", action)
+	}
+}
+
+func openWorkspaceMigrationService(home, artifactRoot string) (workspacebundle.Service, error) {
+	control, err := store.NewPersistentMemory(filepath.Join(home, "state.json"))
+	if err != nil {
+		return workspacebundle.Service{}, err
+	}
+	definitions, err := orchestration.NewPersistentRepository(filepath.Join(home, "orchestration.json"))
+	if err != nil {
+		return workspacebundle.Service{}, err
+	}
+	artifacts, err := artifact.NewFileStore(artifactRoot)
+	if err != nil {
+		return workspacebundle.Service{}, err
+	}
+	return workspacebundle.Service{Control: control, Definitions: definitions, Artifacts: artifacts}, nil
+}
+
+func writeJSONOutput(output io.Writer, value any) error {
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
+}
+
+func atomicWriteFile(target string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".adro-workspace-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, target)
+}
+
+func workspacebundleCounts(manifest workspacebundle.Manifest) workspacebundle.Counts {
+	return workspacebundle.Counts{
+		Agents:       len(manifest.Definitions.Agents),
+		Squads:       len(manifest.Definitions.Squads),
+		Requirements: len(manifest.Control.Requirements),
+		Comments:     len(manifest.Control.Comments),
+		Attachments:  len(manifest.Control.Attachments),
+		Repositories: len(manifest.Control.Repositories),
+		Projects:     len(manifest.Control.TeamWorkspaces),
+		Skills:       len(manifest.Control.Skills),
+		MCPServers:   len(manifest.Control.MCPServers),
+		Automations:  len(manifest.Control.Automations),
+		ChatSessions: len(manifest.Control.ChatSessions),
+		ChatMessages: len(manifest.Control.ChatMessages),
+		Artifacts:    len(manifest.Artifacts),
+	}
 }
 
 type apiOptions struct {

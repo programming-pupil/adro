@@ -139,7 +139,7 @@ func runACPHelper(t *testing.T, kind string, resumed bool, model, thinking, mode
 	args := []string{"-test.run=^TestACPRuntimeHelperProcess$"}
 	_, output, runErr := executeACPRuntime(
 		ctx, executable, args, "task", t.TempDir(), "resume-session", resumed,
-		model, thinking, kind, nil, nil,
+		model, thinking, kind, nil, nil, nil,
 	)
 	requests, _ := os.ReadFile(logPath)
 	return output, string(requests), runErr

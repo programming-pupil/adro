@@ -62,8 +62,8 @@ func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle Def
 	if bundle.Format != DefinitionBundleFormat {
 		return DefinitionImportReport{}, fmt.Errorf("unsupported bundle format %q", bundle.Format)
 	}
-	if len(bundle.Agents) == 0 {
-		return DefinitionImportReport{}, errors.New("bundle must contain at least one agent")
+	if len(bundle.Agents) == 0 && len(bundle.Squads) == 0 {
+		return DefinitionImportReport{}, errors.New("bundle must contain at least one definition")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {

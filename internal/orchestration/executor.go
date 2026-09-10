@@ -22,17 +22,19 @@ import (
 // complete typed scope and context envelope.  Production workers can replace
 // this adapter with a queue consumer without changing the contracts.
 type Executor struct {
-	Provider         provider.ExecutionProvider
-	ProviderResolver func(context.Context, AgentDefinition) (provider.ExecutionProvider, error)
-	Repository       Repository
-	Events           interface{ AppendEvent(Event) error }
-	GateEvaluator    GateEvaluator
-	MergeReducer     MergeReducer
-	RepairController RepairController
-	Tracer           telemetry.Tracer
-	Owner            string
-	Now              func() time.Time
-	LeaseTTL         time.Duration
+	Provider             provider.ExecutionProvider
+	ProviderResolver     func(context.Context, AgentDefinition) (provider.ExecutionProvider, error)
+	InstructionsResolver func(context.Context, AgentDefinition) (string, error)
+	Repository           Repository
+	Events               interface{ AppendEvent(Event) error }
+	GateEvaluator        GateEvaluator
+	MergeReducer         MergeReducer
+	RepairController     RepairController
+	Tracer               telemetry.Tracer
+	Owner                string
+	InvokerID            string
+	Now                  func() time.Time
+	LeaseTTL             time.Duration
 }
 
 func (e Executor) now() time.Time {
@@ -292,10 +294,20 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			if agent.Status != AgentActive {
 				return started, fmt.Errorf("agent node %s references non-active agent", node.ID)
 			}
+			if !agent.CanInvoke(e.InvokerID) {
+				return started, fmt.Errorf("agent node %s access denied for member %q", node.ID, e.InvokerID)
+			}
 			if capabilityErr := e.requireAgentCapabilities(ctx, agent); capabilityErr != nil {
 				return started, fmt.Errorf("agent node %s: %w", node.ID, capabilityErr)
 			}
 			agentInstructions = agent.Instructions
+			if e.InstructionsResolver != nil {
+				resolved, resolveErr := e.InstructionsResolver(ctx, agent)
+				if resolveErr != nil {
+					return started, fmt.Errorf("resolve agent node %s instructions: %w", node.ID, resolveErr)
+				}
+				agentInstructions = resolved
+			}
 			resolvedAgent = &agent
 		}
 		var squadDefinition *SquadDefinition
@@ -448,10 +460,19 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			}
 			if leaderAgent, leaderErr := e.Repository.GetAgent(plan.WorkspaceID, leader.AgentID, 0); leaderErr != nil {
 				return started, fmt.Errorf("resolve squad leader %s: %w", leader.AgentID, leaderErr)
+			} else if !leaderAgent.CanInvoke(e.InvokerID) {
+				return started, fmt.Errorf("squad node %s leader access denied for member %q", node.ID, e.InvokerID)
 			} else if capabilityErr := e.requireAgentCapabilities(ctx, leaderAgent); capabilityErr != nil {
 				return started, fmt.Errorf("squad node %s: %w", node.ID, capabilityErr)
 			} else {
 				agentInstructions = leaderAgent.Instructions
+				if e.InstructionsResolver != nil {
+					resolved, resolveErr := e.InstructionsResolver(ctx, leaderAgent)
+					if resolveErr != nil {
+						return started, fmt.Errorf("resolve squad node %s leader instructions: %w", node.ID, resolveErr)
+					}
+					agentInstructions = resolved
+				}
 				resolvedAgent = &leaderAgent
 			}
 		}

@@ -388,13 +388,13 @@ type acpRuntimeProcess struct {
 	waitErr    error
 }
 
-func startACPRuntimeProcess(ctx context.Context, path string, args []string, workDir, kind string, onStart func(int)) (*acpRuntimeProcess, error) {
+func startACPRuntimeProcess(ctx context.Context, path string, args []string, workDir, kind string, environment map[string]string, onStart func(int)) (*acpRuntimeProcess, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	configureLocalCommand(cmd)
 	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
 	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = workDir
-	cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
 	if kind == "hermes" {
 		cmd.Env = replaceEnvironmentValue(cmd.Env, "HERMES_YOLO_MODE", "1")
 	}
@@ -478,13 +478,14 @@ func executeACPRuntime(
 	resumed bool,
 	model, thinkingLevel, kind string,
 	customArgs []string,
+	environment map[string]string,
 	onStart func(int),
 ) (pid int, output []byte, runErr error) {
 	spec, ok := acpRuntimeSpecs[kind]
 	if !ok {
 		return 0, nil, fmt.Errorf("unsupported ACP runtime %q", kind)
 	}
-	process, err := startACPRuntimeProcess(ctx, path, args, workDir, kind, func(startedPID int) {
+	process, err := startACPRuntimeProcess(ctx, path, args, workDir, kind, environment, func(startedPID int) {
 		pid = startedPID
 		if onStart != nil {
 			onStart(startedPID)

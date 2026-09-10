@@ -102,17 +102,17 @@ func TestProviderOutcomeReadsNestedCodexAgentMessageContent(t *testing.T) {
 	}
 }
 
-func TestCommandExecutionEvidenceRequiresMatchedBeforeAfterPair(t *testing.T) {
+func TestProviderToolEvidenceRequiresMatchedBeforeAfterPair(t *testing.T) {
 	base := provider.RunSnapshot{Output: `{"type":"item.completed","item":{"type":"command_execution"}}`}
-	if hasCommandExecutionEvidence(base) {
+	if hasProviderToolEvidence(base) {
 		t.Fatal("command_execution text without tool events was accepted")
 	}
 	base.ToolEvents = []provider.ToolEvent{{CallID: "call-1", Name: "command_execution", Phase: "before"}}
-	if hasCommandExecutionEvidence(base) {
+	if hasProviderToolEvidence(base) {
 		t.Fatal("unpaired command_execution event was accepted")
 	}
 	base.ToolEvents = append(base.ToolEvents, provider.ToolEvent{CallID: "call-1", Name: "command_execution", Phase: "after"})
-	if !hasCommandExecutionEvidence(base) {
+	if !hasProviderToolEvidence(base) {
 		t.Fatal("matched command_execution before/after pair was rejected")
 	}
 
@@ -121,8 +121,29 @@ func TestCommandExecutionEvidenceRequiresMatchedBeforeAfterPair(t *testing.T) {
 		{CallID: "exec-1", Name: "commandExecution", Phase: "before"},
 		{CallID: "exec-1", Name: "commandExecution", Phase: "after"},
 	}
-	if !hasCommandExecutionEvidence(appServer) {
+	if !hasProviderToolEvidence(appServer) {
 		t.Fatal("camelCase app-server commandExecution evidence was rejected")
+	}
+
+	dsh := provider.RunSnapshot{ExecutorPath: "/usr/local/bin/dsh", Output: `{"v":1,"type":"result","output":"done"}`}
+	dsh.ToolEvents = []provider.ToolEvent{
+		{CallID: "tool-1", Name: "bash", Phase: "before"},
+		{CallID: "tool-1", Name: "bash", Phase: "after"},
+	}
+	if !hasProviderToolEvidence(dsh) {
+		t.Fatal("DSH native tool call/result evidence was rejected")
+	}
+	dsh.ToolEvents[1].CallID = "other-tool"
+	if hasProviderToolEvidence(dsh) {
+		t.Fatal("unmatched DSH tool evidence was accepted")
+	}
+}
+
+func TestProviderOutcomeReadsDSHTerminalResult(t *testing.T) {
+	output := `{"v":1,"type":"result","status":"completed","output":"ADRO_RESULT_JSON={\"outcome\":\"pass\",\"reason_code\":\"dsh_real\",\"evidence_ids\":[\"dsh-1\"]}"}`
+	outcome, fields := providerOutcome(output)
+	if outcome != "pass" || fields["provider_reason_code"] != "dsh_real" {
+		t.Fatalf("DSH terminal result was not classified: outcome=%q fields=%v", outcome, fields)
 	}
 }
 
@@ -173,5 +194,53 @@ func TestWorkerCancellationClosesRunningAttemptAndLeavesTerminalProjection(t *te
 	}
 	if got := projection.Attempts[attempt.ID].Status; got != AttemptTimedOut {
 		t.Fatalf("active attempt status=%s, want timed_out", got)
+	}
+}
+
+func TestWorkerReconcileResolvesProviderFromFrozenAgent(t *testing.T) {
+	repo := NewMemoryRepository()
+	agent := AgentDefinition{
+		ID: "selected-agent", WorkspaceID: "w", Revision: 1, Name: "selected", Status: AgentActive,
+		ExecutorBinding: ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
+		InputSchema:     SchemaRef{ID: "input", Version: 1},
+		OutputSchema:    SchemaRef{ID: "output", Version: 1},
+	}
+	if err := repo.SaveAgent(agent, 0); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := (RequirementExecutionPlan{
+		ID: "selected-provider-plan", RequirementID: "req", WorkspaceID: "w",
+		GraphSnapshot: WorkflowGraph{ID: "selected-provider-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}},
+		Status:        PlanDraft,
+	}).Freeze()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := NewProjection(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	lease := Lease{Key: "selected-provider-plan:node", Owner: "worker", FencingToken: now.UnixNano(), ExpiresAt: now.Add(time.Minute)}
+	attempt, err := projection.StartAttempt(plan, "node", "selected-attempt", 1, lease, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: "selected-dispatch", PayloadHash: "payload", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt.RunID = "selected-run"
+	projection.Attempts[attempt.ID] = attempt
+	selected := &blockingProvider{MockProvider: provider.NewMockProvider(events.NewBus())}
+	fallback := provider.NewMockProvider(events.NewBus())
+	worker := Worker{Scheduler: Scheduler{Repository: repo, Executor: Executor{
+		Provider: fallback, Repository: repo,
+		ProviderResolver: func(_ context.Context, resolved AgentDefinition) (provider.ExecutionProvider, error) {
+			if resolved.ID != agent.ID || resolved.Revision != agent.Revision {
+				t.Fatalf("resolved agent=%+v", resolved)
+			}
+			return selected, nil
+		},
+	}, Config: SchedulerConfig{Now: func() time.Time { return now }}}}
+	finished, err := worker.Reconcile(context.Background(), plan, &projection)
+	if err != nil || len(finished) != 0 {
+		t.Fatalf("finished=%+v err=%v", finished, err)
 	}
 }

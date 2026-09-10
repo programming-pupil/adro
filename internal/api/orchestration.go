@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,15 +19,105 @@ import (
 )
 
 func (s *Server) graphExecutor(owner string) orchestration.Executor {
-	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner}
+	return s.graphExecutorFor(owner, owner)
+}
+
+func (s *Server) graphExecutorFor(owner, invokerID string) orchestration.Executor {
+	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner, InvokerID: invokerID}
+	executor.InstructionsResolver = func(_ context.Context, agent orchestration.AgentDefinition) (string, error) {
+		return s.agentExecutionInstructions(agent)
+	}
 	if s.RuntimeProviders != nil {
 		executor.Provider = s.RuntimeProviders
 		executor.ProviderResolver = func(_ context.Context, agent orchestration.AgentDefinition) (provider.ExecutionProvider, error) {
 			binding := agent.ExecutorBinding
-			return s.RuntimeProviders.Resolve(provider.RuntimeSelection{RuntimeID: binding.RuntimeID, Model: binding.Model, ThinkingLevel: binding.ThinkingLevel, ServiceTier: binding.ServiceTier, CustomArgs: binding.CustomArgs})
+			environment, err := resolveAgentEnvironment(binding.Environment)
+			if err != nil {
+				return nil, err
+			}
+			mcpServers, err := s.agentRuntimeMCPServers(agent)
+			if err != nil {
+				return nil, err
+			}
+			disabledSkills := make([]provider.RuntimeSkillRef, 0, len(agent.DisabledRuntimeSkills))
+			for _, skill := range agent.DisabledRuntimeSkills {
+				disabledSkills = append(disabledSkills, provider.RuntimeSkillRef{RuntimeID: skill.RuntimeID, Provider: skill.Provider, Root: skill.Root, Key: skill.Key, Name: skill.Name, Plugin: skill.Plugin})
+			}
+			return s.RuntimeProviders.Resolve(provider.RuntimeSelection{RuntimeID: binding.RuntimeID, Model: binding.Model, ThinkingLevel: binding.ThinkingLevel, ServiceTier: binding.ServiceTier, CustomArgs: binding.CustomArgs, RuntimeConfig: binding.RuntimeConfig, Environment: environment, MCPServers: mcpServers, DisabledRuntimeSkills: disabledSkills})
 		}
 	}
 	return executor
+}
+
+func resolveAgentEnvironment(references []orchestration.EnvironmentReference) (map[string]string, error) {
+	values := make(map[string]string, len(references))
+	if len(references) == 0 {
+		return values, nil
+	}
+	if backend := strings.ToLower(strings.TrimSpace(os.Getenv("ADRO_SECRET_STORE"))); backend != "" && backend != "environment" {
+		return nil, fmt.Errorf("secret store %q does not expose a runtime resolver", backend)
+	}
+	for _, reference := range references {
+		secretName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(reference.SecretRef), "env:"))
+		value, ok := os.LookupEnv(secretName)
+		if !ok {
+			return nil, fmt.Errorf("secret reference for environment variable %s is unavailable", reference.Name)
+		}
+		values[reference.Name] = value
+	}
+	return values, nil
+}
+
+func (s *Server) agentExecutionInstructions(agent orchestration.AgentDefinition) (string, error) {
+	if len(agent.SkillIDs) == 0 {
+		return agent.Instructions, nil
+	}
+	available := map[string]domain.Skill{}
+	for _, skill := range s.Store.ListSkills(agent.WorkspaceID) {
+		available[skill.ID] = skill
+	}
+	sections := []string{strings.TrimSpace(agent.Instructions)}
+	for _, skillID := range agent.SkillIDs {
+		skill, ok := available[skillID]
+		if !ok {
+			return "", fmt.Errorf("selected Skill %q is unavailable", skillID)
+		}
+		if skill.Status == "archived" || skill.Status == "disabled" || skill.Status == "draft" {
+			return "", fmt.Errorf("selected Skill %q is not executable", skillID)
+		}
+		contract, err := json.Marshal(skill.Contract)
+		if err != nil {
+			return "", fmt.Errorf("encode selected Skill %q: %w", skillID, err)
+		}
+		sections = append(sections, fmt.Sprintf("<adro_skill id=%q name=%q version=%q digest=%q>\n%s\n</adro_skill>", skill.ID, skill.Name, skill.Version, skill.Digest, contract))
+	}
+	return strings.Join(sections, "\n\n"), nil
+}
+
+func (s *Server) agentRuntimeMCPServers(agent orchestration.AgentDefinition) ([]provider.RuntimeMCPServer, error) {
+	if len(agent.MCPServerIDs) == 0 {
+		return nil, nil
+	}
+	available := map[string]domain.MCPServer{}
+	for _, server := range s.Store.ListMCPServers(agent.WorkspaceID) {
+		available[server.ID] = server
+	}
+	selected := make([]provider.RuntimeMCPServer, 0, len(agent.MCPServerIDs))
+	for _, serverID := range agent.MCPServerIDs {
+		server, ok := available[serverID]
+		if !ok {
+			return nil, fmt.Errorf("selected MCP server %q is unavailable", serverID)
+		}
+		if server.Status == "disabled" || server.Status == "unreachable" || server.Status == "failed" {
+			return nil, fmt.Errorf("selected MCP server %q is not executable", serverID)
+		}
+		secretEnv := strings.TrimPrefix(strings.TrimSpace(server.SecretRef), "env:")
+		if secretEnv == server.SecretRef {
+			secretEnv = ""
+		}
+		selected = append(selected, provider.RuntimeMCPServer{Name: server.Name, Endpoint: server.Endpoint, Protocol: server.Protocol, BearerTokenEnvVar: secretEnv})
+	}
+	return selected, nil
 }
 
 // orchestrationRoute exposes the plan/graph contracts without coupling the
@@ -194,7 +286,7 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "projection": projection, "report": report})
-		s.watchGraphPlan(plan, *input.Context, input.WorkItemID, input.AgentBinding)
+		s.watchGraphPlan(plan, *input.Context, input.WorkItemID, input.AgentBinding, r.Header.Get("X-Member-ID"))
 		return
 	}
 	projection, err := s.Orchestration.GetProjection(plan.ID)
@@ -380,7 +472,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "projection": projection, "report": report})
-	s.watchGraphPlan(plan, *input.Envelope, input.WorkItemID, input.AgentBindingID)
+	s.watchGraphPlan(plan, *input.Envelope, input.WorkItemID, input.AgentBindingID, r.Header.Get("X-Member-ID"))
 }
 
 // watchGraphPlan keeps a graph execution moving after the HTTP request that
@@ -389,7 +481,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 // loop that observes provider snapshots, commits terminal outcomes, and
 // dispatches feedback/retry edges. The watcher is keyed by plan so repeated
 // browser refreshes and idempotent ticks cannot create competing workers.
-func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, envelope harness.ContextEnvelope, workItemID, agentBindingID string) {
+func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, envelope harness.ContextEnvelope, workItemID, agentBindingID, invokerID string) {
 	if s == nil || s.Orchestration == nil || s.Provider == nil || plan.ID == "" {
 		return
 	}
@@ -432,7 +524,7 @@ func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, env
 		worker := orchestration.Worker{
 			Scheduler: orchestration.Scheduler{
 				Repository: s.Orchestration,
-				Executor:   s.graphExecutor(owner),
+				Executor:   s.graphExecutorFor(owner, invokerID),
 				Config:     orchestration.SchedulerConfig{MaxConcurrent: plan.PolicySnapshot.Budget.Concurrent},
 			},
 			PollInterval: graphWatchPollInterval(),

@@ -1,18 +1,41 @@
 ## Workflow modes
 
-ADRO keeps the historical seven-stage pipeline as the compatibility default.
-Requirements may point at a `workflow_template_id` and select either
+ADRO's graph-native path freezes an Agent, a published Squad revision, or a
+request-specific `WorkflowGraph` into an immutable `RequirementExecutionPlan`.
+Agent, nested Squad, Gate, Human, Merge, and Repair nodes can be connected by
+typed success/failure/timeout/approval/bug/cancel edges. Structured predicates,
+fan-out/join policies, evidence requirements, budgets, retries, deadlines, and
+bounded loop traversals are validated before execution. Every node attempt,
+feedback decision, repair lifecycle, lease/fencing token, and selected edge is
+available through the plan timeline and replay APIs.
+
+The Web workbench exposes the same graph contract through Agent and Squad
+editors, validation, dry-run, requirement quick-Squad creation, execution-plan
+selection, and timeline/replay views. Plans pin definition revisions, so later
+Agent or Squad edits affect only new executions.
+
+ADRO also keeps the historical seven-stage pipeline as a compatibility
+default. Requirements may point at a `workflow_template_id` and select either
 `automatic` or `design_approval`. A template is an ordered, immutable-at-run
 time list of validated `WorkflowStep` records. Every step names an agent,
-optional role/configuration, and its retry limit. Design, unit test,
-integration test, arbitration, and revalidation are selectable; the report
-step is mandatory so every successful run has an auditable terminal artifact.
+optional role/configuration, and its retry limit. The mandatory report step
+keeps successful compatibility runs auditable.
 
 When a design-approval run emits its design result, the pipeline durably moves
 to `waiting_approval` and creates an approval record. The approval decision is
 the only operation that advances the run. Rejection is terminal for that run;
 approval resumes at the next selected step with the same durable harness
 session.
+
+## Comment handoff
+
+Requirement and Bug threads use structured Agent and Squad mention URIs. The
+picker resolves only authorized targets from the current workspace roster;
+plain display names never dispatch work. Each target receives a durable
+queued/coalesced/deferred/blocked receipt tied to the comment revision and
+originator lineage. Member and issue mentions are render-only, while `@all`
+is a broadcast outcome and never expands into Agent fan-out. Editing or
+retrying a comment recomputes only that revision's pending targets.
 
 ## Ordinary chat
 

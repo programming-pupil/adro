@@ -101,6 +101,10 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if tail != "" {
+			if tail == "compose" {
+				s.composeAgentDraft(w, r, workspaceID)
+				return
+			}
 			s.orchestrationAgentResource(w, r, tail, workspaceID)
 			return
 		}
@@ -133,6 +137,10 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 		}
 		now := time.Now().UTC()
 		a.CreatedAt, a.UpdatedAt = now, now
+		if err := s.validateAgentResources(a); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "agent_resource_validation_failed", err.Error(), nil)
+			return
+		}
 		if err := s.Orchestration.SaveAgent(a, 0); err != nil {
 			s.problem(w, r, http.StatusUnprocessableEntity, "agent_validation_failed", err.Error(), nil)
 			return
@@ -274,23 +282,22 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 		}
 		var expected int64
 		if raw := patch["expected_revision"]; len(raw) > 0 {
-			_ = json.Unmarshal(raw, &expected)
+			if err := json.Unmarshal(raw, &expected); err != nil {
+				s.problem(w, r, http.StatusBadRequest, "invalid_agent_patch", "expected_revision must be an integer", nil)
+				return
+			}
 		}
 		if expected == 0 {
 			s.problem(w, r, http.StatusBadRequest, "expected_revision_required", "expected_revision is required", nil)
 			return
 		}
-		if raw := patch["name"]; len(raw) > 0 {
-			_ = json.Unmarshal(raw, &a.Name)
+		if err := applyAgentPatch(&a, patch); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "invalid_agent_patch", err.Error(), nil)
+			return
 		}
-		if raw := patch["role"]; len(raw) > 0 {
-			_ = json.Unmarshal(raw, &a.Role)
-		}
-		if raw := patch["instructions"]; len(raw) > 0 {
-			_ = json.Unmarshal(raw, &a.Instructions)
-		}
-		if raw := patch["status"]; len(raw) > 0 {
-			_ = json.Unmarshal(raw, &a.Status)
+		if err := s.validateAgentResources(a); err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "agent_resource_validation_failed", err.Error(), nil)
+			return
 		}
 		a.Revision++
 		a.UpdatedAt = time.Now().UTC()
@@ -323,6 +330,94 @@ func (s *Server) orchestrationAgentResource(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+}
+
+func applyAgentPatch(agent *orchestration.AgentDefinition, patch map[string]json.RawMessage) error {
+	for key, raw := range patch {
+		var target any
+		switch key {
+		case "expected_revision":
+			continue
+		case "name":
+			target = &agent.Name
+		case "owner_id":
+			target = &agent.OwnerID
+		case "description":
+			target = &agent.Description
+		case "avatar_url":
+			target = &agent.AvatarURL
+		case "role":
+			target = &agent.Role
+		case "instructions":
+			target = &agent.Instructions
+		case "conversation_starters":
+			target = &agent.ConversationStarters
+		case "access_policy":
+			target = &agent.AccessPolicy
+		case "skill_ids":
+			target = &agent.SkillIDs
+		case "disabled_runtime_skills":
+			target = &agent.DisabledRuntimeSkills
+		case "mcp_server_ids":
+			target = &agent.MCPServerIDs
+		case "capabilities":
+			target = &agent.Capabilities
+		case "tool_policy":
+			target = &agent.ToolPolicy
+		case "memory_policy":
+			target = &agent.MemoryPolicy
+		case "executor_binding":
+			target = &agent.ExecutorBinding
+		case "concurrency_budget":
+			target = &agent.ConcurrencyBudget
+		case "input_schema":
+			target = &agent.InputSchema
+		case "output_schema":
+			target = &agent.OutputSchema
+		case "status":
+			target = &agent.Status
+		default:
+			return fmt.Errorf("field %q cannot be updated", key)
+		}
+		if err := json.Unmarshal(raw, target); err != nil {
+			return fmt.Errorf("field %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func (s *Server) validateAgentResources(agent orchestration.AgentDefinition) error {
+	if len(agent.SkillIDs) > 0 {
+		available := make(map[string]domain.Skill)
+		for _, skill := range s.Store.ListSkills(agent.WorkspaceID) {
+			available[skill.ID] = skill
+		}
+		for _, id := range agent.SkillIDs {
+			skill, ok := available[id]
+			if !ok {
+				return fmt.Errorf("selected Skill %q does not exist in workspace %q", id, agent.WorkspaceID)
+			}
+			if skill.Status == "archived" || skill.Status == "disabled" || skill.Status == "draft" {
+				return fmt.Errorf("selected Skill %q is not executable", id)
+			}
+		}
+	}
+	if len(agent.MCPServerIDs) > 0 {
+		available := make(map[string]domain.MCPServer)
+		for _, server := range s.Store.ListMCPServers(agent.WorkspaceID) {
+			available[server.ID] = server
+		}
+		for _, id := range agent.MCPServerIDs {
+			server, ok := available[id]
+			if !ok {
+				return fmt.Errorf("selected MCP server %q does not exist in workspace %q", id, agent.WorkspaceID)
+			}
+			if server.Status == "disabled" || server.Status == "unreachable" || server.Status == "failed" {
+				return fmt.Errorf("selected MCP server %q is not executable", id)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Server) orchestrationSquadResource(w http.ResponseWriter, r *http.Request, id, workspaceID string) {

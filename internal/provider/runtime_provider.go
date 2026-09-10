@@ -2,35 +2,68 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/adro-project/adro/internal/events"
 )
 
+var runtimeEnvironmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 type RuntimeSelection struct {
-	RuntimeID     string
-	Model         string
-	ThinkingLevel string
-	ServiceTier   string
-	CustomArgs    []string
+	RuntimeID             string
+	Model                 string
+	ThinkingLevel         string
+	ServiceTier           string
+	CustomArgs            []string
+	RuntimeConfig         map[string]string
+	Environment           map[string]string
+	MCPServers            []RuntimeMCPServer
+	DisabledRuntimeSkills []RuntimeSkillRef
+}
+
+type RuntimeMCPServer struct {
+	Name              string
+	Endpoint          string
+	Protocol          string
+	BearerTokenEnvVar string
+}
+
+type RuntimeSkillRef struct {
+	RuntimeID string
+	Provider  string
+	Root      string
+	Key       string
+	Name      string
+	Plugin    string
 }
 
 // RuntimeProviderPool keeps provider run/session state isolated by immutable
 // launch configuration while preserving the legacy global provider for Agents
 // created before runtime bindings were introduced.
 type RuntimeProviderPool struct {
-	fallback ExecutionProvider
-	workRoot string
-	bus      *events.Bus
-	mu       sync.Mutex
-	items    map[string]ExecutionProvider
-	runs     map[string]ExecutionProvider
+	fallback  ExecutionProvider
+	workRoot  string
+	stateRoot string
+	bus       *events.Bus
+	mu        sync.Mutex
+	items     map[string]ExecutionProvider
+	runs      map[string]ExecutionProvider
 }
 
 func NewRuntimeProviderPool(fallback ExecutionProvider, workRoot string, bus *events.Bus) *RuntimeProviderPool {
-	return &RuntimeProviderPool{fallback: fallback, workRoot: workRoot, bus: bus, items: map[string]ExecutionProvider{}, runs: map[string]ExecutionProvider{}}
+	stateRoot := ""
+	if local, ok := fallback.(*LocalProvider); ok && strings.TrimSpace(local.StatePath) != "" {
+		stateRoot = filepath.Join(filepath.Dir(local.StatePath), "runtime-runs")
+	}
+	return &RuntimeProviderPool{fallback: fallback, workRoot: workRoot, stateRoot: stateRoot, bus: bus, items: map[string]ExecutionProvider{}, runs: map[string]ExecutionProvider{}}
 }
 
 func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProvider, error) {
@@ -64,7 +97,10 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if err := validateRuntimeCustomArgs(runtimeID, selection.CustomArgs); err != nil {
 		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
 	}
-	key := strings.Join([]string{runtimeID, runtime.ExecutablePath, selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}, "\x01")
+	if err := validateRuntimeConfig(runtimeID, selection.RuntimeConfig); err != nil {
+		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
+	}
+	key := runtimeSelectionKey(runtime.ExecutablePath, selection)
 	p.mu.Lock()
 	if existing := p.items[key]; existing != nil {
 		p.mu.Unlock()
@@ -78,15 +114,106 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if err := validateRuntimeSelection(catalog, selection); err != nil {
 		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
 	}
-	created := NewLocalProvider(runtime.ExecutablePath, nil, p.workRoot, p.bus).
-		WithExecutionConfig(selection.Model, selection.ThinkingLevel, selection.ServiceTier, selection.CustomArgs)
+	created := NewLocalProvider(runtime.ExecutablePath, nil, p.workRoot, p.bus)
+	if p.stateRoot != "" {
+		created.StatePath = filepath.Join(p.stateRoot, key+".json")
+		if err := created.loadState(); err != nil {
+			return nil, fmt.Errorf("restore runtime %q state: %w", runtimeID, err)
+		}
+	}
+	created.WithExecutionConfig(selection.Model, selection.ThinkingLevel, selection.ServiceTier, selection.CustomArgs).
+		WithRuntimeConfig(selection.RuntimeConfig).
+		WithRuntimeEnvironment(selection.Environment).
+		WithMCPServers(selection.MCPServers).
+		WithDisabledRuntimeSkills(selection.DisabledRuntimeSkills)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if existing := p.items[key]; existing != nil {
 		return selectedRuntimeProvider{pool: p, provider: existing}, nil
 	}
 	p.items[key] = created
+	created.mu.RLock()
+	for runID := range created.runs {
+		p.runs[runID] = created
+	}
+	created.mu.RUnlock()
 	return selectedRuntimeProvider{pool: p, provider: created}, nil
+}
+
+func runtimeSelectionKey(executable string, selection RuntimeSelection) string {
+	parts := []string{selection.RuntimeID, executable, selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}
+	keys := make([]string, 0, len(selection.RuntimeConfig)+len(selection.Environment))
+	for key := range selection.RuntimeConfig {
+		keys = append(keys, "config:"+key)
+	}
+	for key := range selection.Environment {
+		keys = append(keys, "env:"+key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if strings.HasPrefix(key, "config:") {
+			parts = append(parts, key+"="+selection.RuntimeConfig[strings.TrimPrefix(key, "config:")])
+		} else {
+			parts = append(parts, key+"="+selection.Environment[strings.TrimPrefix(key, "env:")])
+		}
+	}
+	servers := append([]RuntimeMCPServer(nil), selection.MCPServers...)
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+	for _, server := range servers {
+		parts = append(parts, "mcp:"+server.Name+":"+server.Endpoint+":"+server.Protocol+":"+server.BearerTokenEnvVar)
+	}
+	skills := append([]RuntimeSkillRef(nil), selection.DisabledRuntimeSkills...)
+	sort.Slice(skills, func(i, j int) bool {
+		left := strings.Join([]string{skills[i].RuntimeID, skills[i].Provider, skills[i].Root, skills[i].Key, skills[i].Plugin}, "\x00")
+		right := strings.Join([]string{skills[j].RuntimeID, skills[j].Provider, skills[j].Root, skills[j].Key, skills[j].Plugin}, "\x00")
+		return left < right
+	})
+	for _, skill := range skills {
+		parts = append(parts, "disabled-skill:"+strings.Join([]string{skill.RuntimeID, skill.Provider, skill.Root, skill.Key, skill.Plugin}, ":"))
+	}
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x01")))
+	return hex.EncodeToString(digest[:])
+}
+
+func validateRuntimeConfig(runtimeID string, config map[string]string) error {
+	if runtimeID == "codex" {
+		if value := strings.TrimSpace(config["sandbox_mode"]); value != "" && value != "read-only" && value != "workspace-write" && value != "danger-full-access" {
+			return fmt.Errorf("runtime_config sandbox_mode %q is invalid", value)
+		}
+		if value := strings.TrimSpace(config["approval_policy"]); value != "" && value != "untrusted" && value != "on-failure" && value != "on-request" && value != "never" {
+			return fmt.Errorf("runtime_config approval_policy %q is invalid", value)
+		}
+		return nil
+	}
+	if runtimeID != "openclaw" {
+		return nil
+	}
+	allowed := map[string]bool{
+		"mode": true, "gateway.host": true, "gateway.port": true,
+		"gateway.tls": true, "gateway.auth_env": true,
+	}
+	for key := range config {
+		if !allowed[key] {
+			return fmt.Errorf("runtime_config key %q is not supported", key)
+		}
+	}
+	mode := strings.TrimSpace(config["mode"])
+	if mode != "" && mode != "local" && mode != "gateway" {
+		return fmt.Errorf("runtime_config mode %q is invalid", mode)
+	}
+	if value := strings.TrimSpace(config["gateway.port"]); value != "" {
+		port, err := strconv.Atoi(value)
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("runtime_config gateway.port %q is invalid", value)
+		}
+	}
+	if value := strings.TrimSpace(config["gateway.tls"]); value != "" && value != "true" && value != "false" {
+		return fmt.Errorf("runtime_config gateway.tls %q is invalid", value)
+	}
+	if value := strings.TrimSpace(config["gateway.auth_env"]); value != "" && !runtimeEnvironmentNamePattern.MatchString(value) {
+		return fmt.Errorf("runtime_config gateway.auth_env %q is invalid", value)
+	}
+	return nil
 }
 
 func validateRuntimeSelection(catalog RuntimeModelCatalog, selection RuntimeSelection) error {

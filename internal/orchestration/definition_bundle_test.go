@@ -7,9 +7,12 @@ import (
 
 func migrationBundle() DefinitionBundle {
 	agent := AgentDefinition{
-		ID: "agent-1", Revision: 1, Name: "General agent", Status: AgentActive,
-		ExecutorBinding: ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", CustomArgs: []string{"--ephemeral"}},
-		InputSchema:     SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1},
+		ID: "agent-1", Revision: 1, Name: "General agent", Description: "Handles general delivery work.", Role: "generalist", Instructions: "Deliver verifiable results.", Status: AgentActive,
+		ConversationStarters: []ConversationStarter{{Label: "Plan", Prompt: "Plan this delivery."}},
+		AccessPolicy:         AgentAccessPolicy{Mode: "members", MemberIDs: []string{"member-1"}},
+		ExecutorBinding:      ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", CustomArgs: []string{"--ephemeral"}},
+		ConcurrencyBudget:    Budget{Tokens: 120000, ToolCalls: 200, Concurrent: 2},
+		InputSchema:          SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1},
 	}
 	graph := WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent-node"}, ExitNodeIDs: []string{"agent-node"}, Nodes: []WorkflowNode{{ID: "agent-node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}}
 	squad := SquadDefinition{ID: "squad-1", Revision: 1, PublishedVersion: 1, Name: "Delivery", Status: SquadPublished, Members: []SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph}
@@ -41,8 +44,8 @@ func TestImportDefinitionBundleDryRunCommitAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.ExecutorBinding.RuntimeID != "codex" || agent.ExecutorBinding.ThinkingLevel != "high" {
-		t.Fatalf("binding=%+v", agent.ExecutorBinding)
+	if agent.ExecutorBinding.RuntimeID != "codex" || agent.ExecutorBinding.ThinkingLevel != "high" || agent.AccessPolicy.Mode != "members" || len(agent.ConversationStarters) != 1 || agent.ConcurrencyBudget.Concurrent != 2 {
+		t.Fatalf("agent=%+v", agent)
 	}
 	squad, err := repo.GetSquad("target", "squad-1", 1)
 	if err != nil || squad.Members[0].AgentID != agent.ID {

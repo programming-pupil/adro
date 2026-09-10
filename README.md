@@ -66,7 +66,6 @@ Requirements: Go 1.24+, Git, curl, and an installed coding client. Docker is
 not required for the local profile.
 
 ```bash
-ADRO_EXECUTOR="$(command -v codex)" \
 ADRO_ADMIN_PASSWORD='change-this-password' \
 ./start.sh --no-docker --no-open
 ```
@@ -74,14 +73,43 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 Open `http://127.0.0.1:8081`. The API readiness endpoint is
 `http://127.0.0.1:8080/readyz`.
 
+On a clean profile the workbench opens the first-Agent setup automatically.
+It discovers every installed runtime with a supported adapter and lets the
+administrator choose the runtime, model, thinking level, service tier,
+runtime arguments, Skills, MCP servers, access policy, and execution budget.
+An existing workspace ZIP can be preflighted and imported from the same setup
+before creating an Agent.
+
 ```bash
 ./start.sh --status
 ./start.sh --stop
 ```
 
 Set `ADRO_HOME`, `ADRO_API_PORT`, and `ADRO_WEB_PORT` to isolate state or run
-multiple local profiles. `ADRO_EXECUTOR_COMMAND` accepts an argv-style command
-with `{input}` as the stage prompt placeholder.
+multiple local profiles. Use `ADRO_EXECUTOR` to pin one executable;
+`ADRO_EXECUTOR_COMMAND` accepts an argv-style command with `{input}` as the
+stage prompt placeholder.
+
+### Bring an existing workspace
+
+The setup screen can preflight and import an ADRO workspace ZIP before the
+first Agent is created. Operators can also convert a compatible PostgreSQL
+workspace directly with the CLI:
+
+```bash
+go run ./cmd/adroctl workspace preflight-postgres \
+  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
+  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local
+
+go run ./cmd/adroctl workspace import-postgres \
+  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
+  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local --conflict rename
+```
+
+The source transaction is read-only and repeatable-read. Credentials, custom
+environment variables, live tasks, queues, execution sessions, and local paths
+are excluded. See [workspace migration](docs/operations/workspace-migration.md)
+for ZIP export/import, conflict modes, attachment handling, and rollback.
 
 ## Development
 
@@ -103,6 +131,7 @@ depend on a developer workstation; `make real-e2e` is the model-backed path.
 | [Product requirements](docs/product-requirements.en.md) | Scope, personas, behavior, and acceptance criteria |
 | [Technical design](docs/architecture/adro-technical-design.en.md) | Runtime boundaries, persistence, security, and extension contracts |
 | [Production deployment](docs/architecture/production-deployment.md) | Controls required beyond the local reference profile |
+| [Workspace migration](docs/operations/workspace-migration.md) | Portable export, preflight, import, exclusions, and recovery |
 | [Compatibility](docs/compatibility.md) | Supported runtime, browser, and adapter surfaces |
 | [Contributing](CONTRIBUTING.md) | Change and review expectations |
 | [Security policy](SECURITY.md) | Private vulnerability reporting and threat-model links |

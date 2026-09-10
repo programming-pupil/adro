@@ -19,6 +19,12 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await expect(page.locator('#appShell')).toBeVisible();
   await expect(page.locator('#agentDialog')).toBeVisible();
   await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
+  await page.locator('#agentForm button[type="submit"]').scrollIntoViewIfNeeded();
+  expect(await page.locator('#agentForm button[type="submit"]').evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+  })).toBe(true);
+  await page.locator('#agentForm').evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: 'var/adro-first-agent-setup.png', fullPage: true });
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();

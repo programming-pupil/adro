@@ -142,6 +142,7 @@ func (w WorkflowTemplate) StepsForRun() []WorkflowStep { return NormalizeWorkflo
 type ChatSession struct {
 	ID               string    `json:"id"`
 	WorkspaceID      string    `json:"workspace_id"`
+	AgentID          string    `json:"agent_id,omitempty"`
 	ProjectID        string    `json:"project_id,omitempty"`
 	Title            string    `json:"title"`
 	HarnessSessionID string    `json:"harness_session_id"`

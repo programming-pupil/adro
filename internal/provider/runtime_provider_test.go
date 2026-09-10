@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adro-project/adro/internal/events"
 )
@@ -31,12 +32,137 @@ func TestLocalProviderAppliesAgentRuntimeOptions(t *testing.T) {
 	}
 
 	codex := NewLocalProvider("codex", []string{"exec", "{input}"}, t.TempDir(), events.NewBus()).
-		WithExecutionConfig("gpt-5", "xhigh", "fast", []string{"--ephemeral"})
+		WithExecutionConfig("gpt-5", "xhigh", "fast", []string{"--ephemeral"}).
+		WithRuntimeConfig(map[string]string{"sandbox_mode": "workspace-write"}).
+		WithMCPServers([]RuntimeMCPServer{{Name: "release tools", Endpoint: "https://mcp.example.test", Protocol: "http", BearerTokenEnvVar: "ADRO_MCP_TOKEN"}})
 	args = codex.commandArgs("ship it", "", false)
-	for _, value := range []string{"gpt-5", "model_reasoning_effort=xhigh", "service_tier=fast", "--ephemeral"} {
+	for _, value := range []string{"gpt-5", "model_reasoning_effort=xhigh", "service_tier=fast", "sandbox_mode=workspace-write", `mcp_servers."release tools".url="https://mcp.example.test"`, `mcp_servers."release tools".bearer_token_env_var="ADRO_MCP_TOKEN"`, "--ephemeral"} {
 		if !slices.Contains(args, value) {
 			t.Fatalf("missing %q in %v", value, args)
 		}
+	}
+}
+
+func TestLocalProviderAppliesRuntimeSkillAndGatewayPolicies(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	codex := NewLocalProvider("codex", []string{"exec", "{input}"}, t.TempDir(), events.NewBus()).
+		WithDisabledRuntimeSkills([]RuntimeSkillRef{{RuntimeID: "codex", Provider: "codex", Root: "provider", Key: "review"}})
+	args := codex.commandArgs("ship it", "", false)
+	want := `skills.config=[{path="` + filepath.ToSlash(filepath.Join(home, ".codex", "skills", "review", "SKILL.md")) + `",enabled=false}]`
+	if !slices.Contains(args, want) {
+		t.Fatalf("missing disabled Skill policy %q in %v", want, args)
+	}
+
+	claude := NewLocalProvider("claude", nil, t.TempDir(), events.NewBus()).
+		WithDisabledRuntimeSkills([]RuntimeSkillRef{{RuntimeID: "claude", Provider: "claude", Root: "provider", Key: "review", Name: "Review"}})
+	args = claude.commandArgs("ship it", "11111111-1111-4111-8111-111111111111", false)
+	settingsIndex := slices.Index(args, "--settings")
+	if settingsIndex < 0 || settingsIndex+1 >= len(args) || !strings.Contains(args[settingsIndex+1], `"Skill(Review)"`) {
+		t.Fatalf("Claude Skill settings missing from %v", args)
+	}
+
+	openclaw := NewLocalProvider("openclaw", nil, t.TempDir(), events.NewBus()).
+		WithRuntimeConfig(map[string]string{"mode": "gateway"})
+	args = openclaw.commandArgs("ship it", "session", false)
+	if slices.Contains(args, "--local") {
+		t.Fatalf("gateway mode retained --local: %v", args)
+	}
+	if err := validateRuntimeConfig("openclaw", map[string]string{"mode": "gateway", "gateway.port": "70000"}); err == nil {
+		t.Fatal("invalid gateway port accepted")
+	}
+	if err := validateRuntimeConfig("codex", map[string]string{"sandbox_mode": "host", "approval_policy": "always"}); err == nil {
+		t.Fatal("invalid Codex execution policy accepted")
+	}
+}
+
+func TestOpenClawGatewayRuntimeConfigIsEphemeralAndSecretBacked(t *testing.T) {
+	root := t.TempDir()
+	provider := NewLocalProvider("openclaw", nil, root, events.NewBus()).
+		WithRuntimeConfig(map[string]string{"mode": "gateway", "gateway.host": "gateway.internal", "gateway.port": "18789", "gateway.tls": "true", "gateway.auth_env": "TOKEN"}).
+		WithRuntimeEnvironment(map[string]string{"TOKEN": "do-not-persist"})
+	overlay, cleanup, err := provider.openclawRuntimeEnvironment("run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := overlay["OPENCLAW_CONFIG_PATH"]
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("gateway wrapper permissions=%o", info.Mode().Perm())
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"host":"gateway.internal"`, `"port":18789`, `"tls":true`, `"token":"do-not-persist"`} {
+		if !strings.Contains(string(payload), want) {
+			t.Fatalf("gateway wrapper missing %q: %s", want, payload)
+		}
+	}
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("gateway wrapper survived cleanup: %v", err)
+	}
+
+	provider.WithRuntimeEnvironment(map[string]string{})
+	_, _, err = provider.openclawRuntimeEnvironment("run-2")
+	if err == nil || strings.Contains(err.Error(), "do-not-persist") {
+		t.Fatalf("missing credential error=%v", err)
+	}
+}
+
+func TestRuntimeProviderPoolRestoresSelectedRuntimeRuns(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "claude")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf 'completed'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	workRoot := filepath.Join(dir, "work")
+	statePath := filepath.Join(dir, "runs.json")
+	fallback, err := NewPersistentLocalProvider(executable, nil, workRoot, statePath, events.NewBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := NewRuntimeProviderPool(fallback, workRoot, events.NewBus())
+	selected, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := selected.StartRun(context.Background(), StartRunCommand{WorkItemID: "restore-selected", Input: "run", IdempotencyKey: "restore-selected"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, snapshotErr := selected.GetRun(context.Background(), binding.ID)
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if snapshot.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("selected runtime did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	restartedFallback, err := NewPersistentLocalProvider(executable, nil, workRoot, statePath, events.NewBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewRuntimeProviderPool(restartedFallback, workRoot, events.NewBus())
+	if _, err := restarted.Resolve(RuntimeSelection{RuntimeID: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := restarted.GetRun(context.Background(), binding.ID)
+	if err != nil || snapshot.ID != binding.ID || snapshot.Status == "running" {
+		t.Fatalf("restored snapshot=%+v err=%v", snapshot, err)
 	}
 }
 
@@ -131,6 +257,7 @@ func TestRuntimeAdapterCommandContracts(t *testing.T) {
 
 func TestRuntimeAdapterRejectsProtocolOverrides(t *testing.T) {
 	for runtimeID, arg := range map[string]string{
+		"codex":  "--listen=tcp://127.0.0.1:9999",
 		"cursor": "--output-format", "copilot": "--allow-all=false", "opencode": "--dir=/tmp",
 		"deveco": "--variant", "openclaw": "--message=other", "antigravity": "--log-file",
 		"codebuddy": "--input-format=json", "qwen": "--approval-mode=default",
@@ -143,6 +270,19 @@ func TestRuntimeAdapterRejectsProtocolOverrides(t *testing.T) {
 	}
 	if err := validateRuntimeCustomArgs("cursor", []string{"--sandbox", "workspace-write"}); err != nil {
 		t.Fatalf("safe custom arguments rejected: %v", err)
+	}
+	if err := validateRuntimeCustomArgs("codex", []string{"--ephemeral"}); err == nil {
+		t.Fatal("Codex app-server accepted an exec-only argument")
+	}
+}
+
+func TestCodexAppServerPlacesGlobalCustomArgsBeforeSubcommand(t *testing.T) {
+	provider := NewLocalProvider("codex", nil, t.TempDir(), events.NewBus()).
+		WithExecutionConfig("", "", "", []string{"--profile", "research", "--analytics-default-enabled"})
+	args := provider.commandArgs("ship it", "", false)
+	want := "--profile research app-server --listen stdio:// --analytics-default-enabled"
+	if got := strings.Join(args, " "); got != want {
+		t.Fatalf("Codex app-server args=%q want=%q", got, want)
 	}
 }
 

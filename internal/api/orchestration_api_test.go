@@ -42,6 +42,99 @@ func TestExecutionPlanGraphValidationRoute(t *testing.T) {
 	}
 }
 
+func TestAgentConfigurationPatchPersistsCompleteEditableSurface(t *testing.T) {
+	s := testServer(t)
+	skill, err := s.Store.UpsertSkill(domain.Skill{ID: "skill-release", WorkspaceID: "w1", Name: "Release checks", Version: "1", Status: "active", Contract: map[string]any{"instructions": "Verify the release."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcp, err := s.Store.UpsertMCPServer(domain.MCPServer{ID: "mcp-release", WorkspaceID: "w1", Name: "release-tools", Endpoint: "https://mcp.example.test", Protocol: "http", Status: "configured"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := "agent-configurable"
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents", `{"id":"`+agentID+`","name":"agent","status":"active","executor_binding":{"provider_id":"local","runtime_id":"codex"},"input_schema":{"id":"in"},"output_schema":{"id":"out"}}`, map[string]string{"X-Workspace-ID": "w1"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	patch := `{"expected_revision":1,"name":"Release reviewer","description":"Reviews releases.","avatar_url":"emoji:rocket","role":"reviewer","instructions":"Review evidence.","conversation_starters":[{"label":"Review","prompt":"Review this release."}],"access_policy":{"mode":"members","member_ids":["member-1"]},"skill_ids":["` + skill.ID + `"],"disabled_runtime_skills":[{"runtime_id":"codex","provider":"codex","root":"provider","key":"legacy-review","name":"Legacy Review"}],"mcp_server_ids":["` + mcp.ID + `"],"executor_binding":{"provider_id":"local","runtime_id":"codex","model":"gpt-5","thinking_level":"high","runtime_config":{"sandbox_mode":"workspace-write"},"environment":[{"name":"RELEASE_TOKEN","secret_ref":"env:ADRO_RELEASE_TOKEN"}]},"concurrency_budget":{"tokens":50000,"tool_calls":50,"concurrent":2},"tool_policy":{"network":true},"memory_policy":{"require_evidence":true}}`
+	updated := request(t, s.Routes(), http.MethodPatch, "/api/v1/agents/"+agentID+"?workspace_id=w1", patch, map[string]string{"X-Workspace-ID": "w1"})
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"member-1"`) || !strings.Contains(updated.Body.String(), `"concurrent":2`) {
+		t.Fatalf("patch status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	stored, err := s.Orchestration.GetAgent("w1", agentID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Description != "Reviews releases." || stored.AvatarURL != "emoji:rocket" || stored.AccessPolicy.Mode != "members" || stored.ExecutorBinding.Model != "gpt-5" || !stored.ToolPolicy.Network || len(stored.SkillIDs) != 1 || len(stored.DisabledRuntimeSkills) != 1 || stored.DisabledRuntimeSkills[0].Key != "legacy-review" || len(stored.MCPServerIDs) != 1 || stored.ExecutorBinding.RuntimeConfig["sandbox_mode"] != "workspace-write" || len(stored.ExecutorBinding.Environment) != 1 {
+		t.Fatalf("stored=%+v", stored)
+	}
+	missing := request(t, s.Routes(), http.MethodPatch, "/api/v1/agents/"+agentID+"?workspace_id=w1", `{"expected_revision":2,"skill_ids":["missing"]}`, map[string]string{"X-Workspace-ID": "w1"})
+	if missing.Code != http.StatusUnprocessableEntity || !strings.Contains(missing.Body.String(), "does not exist") {
+		t.Fatalf("missing resource status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	disabledSkill, err := s.Store.UpsertSkill(domain.Skill{ID: "skill-disabled", WorkspaceID: "w1", Name: "Disabled skill", Version: "1", Status: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledMCP, err := s.Store.UpsertMCPServer(domain.MCPServer{ID: "mcp-disabled", WorkspaceID: "w1", Name: "disabled-tools", Endpoint: "https://disabled.example.test", Protocol: "http", Status: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, resourcePatch := range []string{
+		`{"expected_revision":2,"skill_ids":["` + disabledSkill.ID + `"]}`,
+		`{"expected_revision":2,"mcp_server_ids":["` + disabledMCP.ID + `"]}`,
+	} {
+		response := request(t, s.Routes(), http.MethodPatch, "/api/v1/agents/"+agentID+"?workspace_id=w1", resourcePatch, map[string]string{"X-Workspace-ID": "w1"})
+		if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "not executable") {
+			t.Fatalf("disabled resource patch=%s status=%d body=%s", resourcePatch, response.Code, response.Body.String())
+		}
+	}
+	stale := request(t, s.Routes(), http.MethodPatch, "/api/v1/agents/"+agentID+"?workspace_id=w1", `{"expected_revision":1,"name":"Stale update"}`, map[string]string{"X-Workspace-ID": "w1"})
+	if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "agent_update_conflict") {
+		t.Fatalf("stale patch status=%d body=%s", stale.Code, stale.Body.String())
+	}
+
+	for _, invalid := range []string{
+		`{"expected_revision":2,"description":7}`,
+		`{"expected_revision":2,"unknown":true}`,
+	} {
+		response := request(t, s.Routes(), http.MethodPatch, "/api/v1/agents/"+agentID+"?workspace_id=w1", invalid, map[string]string{"X-Workspace-ID": "w1"})
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("patch=%s status=%d body=%s", invalid, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAgentExecutionConfigurationResolvesSkillsMCPAndSecretEnvironment(t *testing.T) {
+	s := testServer(t)
+	skill, err := s.Store.UpsertSkill(domain.Skill{ID: "skill-review", WorkspaceID: "w1", Name: "Review", Version: "1", Status: "active", Digest: "digest", Contract: map[string]any{"content": "Run the release checks."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := s.Store.UpsertMCPServer(domain.MCPServer{ID: "mcp-review", WorkspaceID: "w1", Name: "review-tools", Endpoint: "https://mcp.example.test", Protocol: "http", SecretRef: "env:ADRO_MCP_TOKEN", Status: "configured"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := orchestration.AgentDefinition{WorkspaceID: "w1", Instructions: "Base instructions.", SkillIDs: []string{skill.ID}, MCPServerIDs: []string{server.ID}}
+	instructions, err := s.agentExecutionInstructions(agent)
+	if err != nil || !strings.Contains(instructions, "Base instructions.") || !strings.Contains(instructions, "Run the release checks.") || !strings.Contains(instructions, `id="skill-review"`) {
+		t.Fatalf("instructions=%q err=%v", instructions, err)
+	}
+	mcpServers, err := s.agentRuntimeMCPServers(agent)
+	if err != nil || len(mcpServers) != 1 || mcpServers[0].BearerTokenEnvVar != "ADRO_MCP_TOKEN" {
+		t.Fatalf("MCP servers=%+v err=%v", mcpServers, err)
+	}
+	t.Setenv("ADRO_AGENT_SECRET", "secret-value")
+	environment, err := resolveAgentEnvironment([]orchestration.EnvironmentReference{{Name: "TOKEN", SecretRef: "env:ADRO_AGENT_SECRET"}})
+	if err != nil || environment["TOKEN"] != "secret-value" {
+		t.Fatalf("environment=%v err=%v", environment, err)
+	}
+	if _, err := resolveAgentEnvironment([]orchestration.EnvironmentReference{{Name: "MISSING", SecretRef: "env:ADRO_MISSING_SECRET"}}); err == nil || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("missing secret error=%v", err)
+	}
+}
+
 func TestAgentGraphRoutePersistsVersionedGraphAndPlanUsesIt(t *testing.T) {
 	s := testServer(t)
 	agentID := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"

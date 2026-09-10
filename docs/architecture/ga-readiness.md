@@ -10,16 +10,20 @@ contract is present but a production adapter is intentionally external;
 | Requirements, bugs, work items, idempotency | implemented | domain/store/API tests |
 | Multi-tenant and multi-project authorization | implemented | authenticated API and persistence tests |
 | Agent routing and role orchestration | implemented | immutable bindings and route tests |
+| Free-form Agent/Squad graphs and feedback | implemented | revisioned definitions, immutable plans, bounded loops, repair lifecycle, timeline/replay, API and browser tests |
+| Structured comment handoff | implemented | Agent/Squad picker, per-target receipts, edit/retry lineage and broadcast-only `@all` tests |
 | Seven-stage pipeline and same-session repair | implemented | pipeline engine/API tests and context manifests |
 | Durable harness transcript and context recovery | implemented for local profile | long-lived fsynced append-only JSONL transcript reconciled with the snapshot, hash-linked checkpoints, automatic provider tool before/after evidence, exact archive windows, recall/integrity probes, recovery API and restart/tamper tests |
 | Lease/outbox crash recovery | implemented for local profile | durable claim/ack/nack, expiry requeue, lease heartbeats, stale runner reaping and dispatcher fault-injection tests |
 | Local client discovery and real process boundary | implemented | `LocalProvider`, `start.sh`, real client version/readiness smoke |
+| First-run setup and Agent builder | implemented | runtime/model/Skill discovery, guided Agent creation, import-first path and browser/API tests |
 | Run snapshot, git baseline/head, checks and usage | implemented for local process | captured from process exit and git; external CI/Git adapters remain optional |
 | Evidence, artifacts, attachment receipt and audit | implemented | filesystem artifact and API tests |
 | MCP, Skill, Automation and signed plugin governance | implemented for control plane | manifests, digest/signature verification, activation, health and quarantine are durable; plugin binaries remain external |
 | GitHub/Git/CI/deploy integrations | reference-only | SPI and evidence model exist; credentials and adapters are deployment inputs |
 | Durable single-node state | implemented | atomic mode-0600 JSON snapshots and restart tests |
 | PostgreSQL persistence and RLS | implemented for orchestration profile | SQL repository, tenant/workspace scope, backup/restore and PostgreSQL 17 conformance gate |
+| Portable and compatible workspace migration | implemented | signed ZIP manifest, read-only PostgreSQL conversion, reference remap, attachment verification and atomic rollback tests |
 | NATS, Temporal and cloud artifacts | blocked | production adapters are not shipped in this profile; the harness SDK and migration boundary are ready |
 | Local identity, login and menu RBAC | implemented | auth and browser tests |
 | OIDC/mTLS/enterprise secret management | blocked | install and conformance external adapters before GA |

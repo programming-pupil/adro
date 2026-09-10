@@ -49,7 +49,7 @@ Options:
   -h, --help        Show this help.
 
 Environment:
-  ADRO_EXECUTOR           Executable path (auto-discovers claude, codex, claude-code).
+  ADRO_EXECUTOR           Executable path (otherwise discovers every supported local runtime).
   ADRO_EXECUTOR_COMMAND   Executable plus arguments; use {input} as prompt placeholder.
   ADRO_EXECUTOR_TIMEOUT   Optional per-run deadline (Go duration, e.g. 15m).
   ADRO_PIPELINE_WATCH_TIMEOUT  Local pipeline watchdog deadline (Go duration, e.g. 30m).
@@ -99,10 +99,43 @@ executor_path() {
 		if [ -x "$command_name" ]; then printf '%s' "$command_name"; return 0; fi
 		if command -v "$command_name" >/dev/null 2>&1; then command -v "$command_name"; return 0; fi
 	fi
-	local candidate
-  for candidate in claude codex claude-code; do
-    if has "$candidate"; then command -v "$candidate"; return 0; fi
-  done
+	local candidate runtime_id path_variable pinned_path
+	while IFS=: read -r runtime_id candidate; do
+		[ -n "$runtime_id" ] || continue
+		path_variable="ADRO_${runtime_id}_PATH"
+		pinned_path="${!path_variable:-}"
+		if [ -n "$pinned_path" ]; then
+			if [ -x "$pinned_path" ]; then printf '%s' "$pinned_path"; return 0; fi
+			if command -v "$pinned_path" >/dev/null 2>&1; then command -v "$pinned_path"; return 0; fi
+		fi
+		if has "$candidate"; then command -v "$candidate"; return 0; fi
+	done <<'EOF'
+CLAUDE:claude
+CODEX:codex
+CURSOR:cursor-agent
+COPILOT:copilot
+OPENCODE:opencode
+OPENCLAW:openclaw
+HERMES:hermes
+PI:pi
+ANTIGRAVITY:agy
+CODEBUDDY:codebuddy
+DEVECO:deveco
+GROK:grok
+KIMI:kimi
+KIRO:kiro-cli
+QODER:qodercli
+QODERCLICN:qoderclicn
+QWEN:qwen
+QWENPAW:qwenpaw
+REASONIX:reasonix
+TRAECLI:traecli
+DSH:dsh
+OMP:omp
+MCODE:mcode
+DIM:dim
+ZEROCLAW:zeroclaw
+EOF
   return 1
 }
 
@@ -174,7 +207,7 @@ GO_CMD="$(go_cmd 2>/dev/null || true)"
 [ -n "$GO_CMD" ] || fail "Go is required to build ADRO locally"
 has curl || fail "curl is required to verify local readiness"
 executor="$(executor_path 2>/dev/null || true)"
-[ -n "$executor" ] || fail "No coding executor found; install claude/codex or set ADRO_EXECUTOR"
+[ -n "$executor" ] || fail "No supported coding executor found; install one or set ADRO_EXECUTOR"
 
 mkdir -p "$BIN_DIR" "$ARTIFACT_ROOT" "$WORK_ROOT"
 "$GO_CMD" build -o "$BIN_DIR/adro-api" ./cmd/adro-api

@@ -358,6 +358,10 @@ func (r *MemoryRepository) Restore(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old := persistedRepository{Version: 1, Revision: r.revision, Agents: r.agents, Squads: r.squads, Plans: r.plans, Projections: r.projections, Keys: r.keys, Events: r.events, Outbox: r.outbox}
+	// Restore is also the rollback primitive for a multi-repository import. The
+	// backup revision predates the failed commit, so retain the current durable
+	// revision and write the backed-up content as the next snapshot.
+	state.Revision = r.revision
 	r.revision, r.agents, r.squads, r.plans = state.Revision, state.Agents, state.Squads, state.Plans
 	r.projections, r.keys, r.events, r.outbox = state.Projections, state.Keys, state.Events, state.Outbox
 	if r.agents == nil {

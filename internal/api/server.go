@@ -483,6 +483,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, catalog)
+	case strings.HasPrefix(path, "/api/v1/runtimes/") && strings.HasSuffix(path, "/skills") && r.Method == http.MethodGet:
+		runtimeID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/runtimes/"), "/skills")
+		items, supported, err := provider.DiscoverRuntimeSkills(runtimeID)
+		if err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "runtime_skills_unavailable", err.Error(), nil)
+			return
+		}
+		if !supported {
+			s.problem(w, r, http.StatusNotFound, "runtime_not_found", "runtime is not registered", nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"runtime_id": runtimeID, "items": items})
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {
@@ -521,6 +533,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			tail = parts[2]
 		}
 		s.orchestrationWorkspaceRoute(w, r, parts[0], parts[1], tail)
+	case strings.HasPrefix(path, "/api/v1/workspaces/") && strings.Contains(path, "/migration/"):
+		s.workspaceMigrationRoute(w, r, path)
 	case path == "/api/v1/agents":
 		// Keep the historical provider-binding collection endpoint stable. The
 		// revisioned orchestration collection lives under /workspaces/{id}/agents
@@ -941,6 +955,8 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		Priority           string   `json:"priority"`
 		CreatedBy          string   `json:"created_by"`
 		AssigneeMemberIDs  []string `json:"assignee_member_ids"`
+		AssigneeTargetType string   `json:"assignee_target_type"`
+		AssigneeTargetID   string   `json:"assignee_target_id"`
 		RepositoryIDs      []string `json:"repository_ids"`
 		WorkflowTemplateID string   `json:"workflow_template_id"`
 	}
@@ -958,7 +974,11 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
 		return
 	}
-	req := domain.Requirement{WorkspaceID: in.WorkspaceID, Title: in.Title, Description: in.Description, AcceptanceCriteria: in.AcceptanceCriteria, Priority: in.Priority, CreatedBy: in.CreatedBy, AssigneeMemberIDs: in.AssigneeMemberIDs, RepositoryIDs: in.RepositoryIDs, WorkflowTemplateID: in.WorkflowTemplateID}
+	req := domain.Requirement{WorkspaceID: in.WorkspaceID, Title: in.Title, Description: in.Description, AcceptanceCriteria: in.AcceptanceCriteria, Priority: in.Priority, CreatedBy: in.CreatedBy, AssigneeMemberIDs: in.AssigneeMemberIDs, AssigneeTargetType: in.AssigneeTargetType, AssigneeTargetID: in.AssigneeTargetID, RepositoryIDs: in.RepositoryIDs, WorkflowTemplateID: in.WorkflowTemplateID}
+	if err := s.validateRequirementAssignee(req); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_assignee", err.Error(), nil)
+		return
+	}
 	created, err := s.Store.CreateRequirement(req)
 	if err != nil {
 		s.problem(w, r, 422, "validation_error", err.Error(), nil)
@@ -1159,6 +1179,8 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 		Status             *domain.RequirementStatus `json:"status"`
 		AcceptanceCriteria []string                  `json:"acceptance_criteria"`
 		AssigneeMemberIDs  []string                  `json:"assignee_member_ids"`
+		AssigneeTargetType *string                   `json:"assignee_target_type"`
+		AssigneeTargetID   *string                   `json:"assignee_target_id"`
 		RepositoryIDs      []string                  `json:"repository_ids"`
 		Version            int64                     `json:"version"`
 	}
@@ -1184,11 +1206,21 @@ func (s *Server) requirement(w http.ResponseWriter, r *http.Request, id string) 
 	if patch.AssigneeMemberIDs != nil {
 		req.AssigneeMemberIDs = patch.AssigneeMemberIDs
 	}
+	if patch.AssigneeTargetType != nil {
+		req.AssigneeTargetType = *patch.AssigneeTargetType
+	}
+	if patch.AssigneeTargetID != nil {
+		req.AssigneeTargetID = *patch.AssigneeTargetID
+	}
 	if patch.RepositoryIDs != nil {
 		req.RepositoryIDs = patch.RepositoryIDs
 	}
 	if err := s.validateRequirementRepositoryRelations(req.WorkspaceID, req.RepositoryIDs); err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
+		return
+	}
+	if err := s.validateRequirementAssignee(req); err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_assignee", err.Error(), nil)
 		return
 	}
 	expected := patch.Version
@@ -2946,6 +2978,10 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 				s.recordAudit(r, saved.WorkspaceID, "mcp."+parts[1], saved.ID, nil)
 				s.writeJSON(w, 200, saved)
 			case len(parts) == 1 && r.Method == http.MethodPost:
+				if item.Status != "approved" && item.Status != "healthy" {
+					s.problem(w, r, http.StatusConflict, "mcp_not_approved", "MCP server must be approved before invocation", nil)
+					return
+				}
 				var input struct {
 					Tool    string         `json:"tool"`
 					Request map[string]any `json:"request"`
@@ -3575,7 +3611,11 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 	// a concurrent request to create the same remote Issue.
 	s.materializeMu.Lock()
 	defer s.materializeMu.Unlock()
-	if len(req.RepositoryIDs) == 0 || len(req.AssigneeMemberIDs) == 0 {
+	principals, directAgentID, routeSource, err := s.requirementExecutionPrincipals(req)
+	if err != nil {
+		return err
+	}
+	if len(req.RepositoryIDs) == 0 || len(principals) == 0 {
 		return nil
 	}
 	if err := s.validateRequirementRepositoryRelations(req.WorkspaceID, req.RepositoryIDs); err != nil {
@@ -3614,32 +3654,40 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 		if exists && item.ProviderIssueID != "" {
 			continue
 		}
-		memberID := req.AssigneeMemberIDs[i%len(req.AssigneeMemberIDs)]
+		memberID := principals[i%len(principals)]
 		decision := provider.RouteDecision{Source: "unassigned"}
 		if exists {
 			// A previous provider call failed. Retry with the original immutable
 			// route instead of resolving against possibly changed configuration.
 			memberID = item.MemberID
 			var err error
-			decision, err = persistedDecision(item)
-			if err != nil {
-				return err
+			if directAgentID != "" && item.DeveloperAgentBindingID == "" {
+				decision = provider.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
+			} else {
+				decision, err = persistedDecision(item)
+				if err != nil {
+					return err
+				}
 			}
 		} else {
-			profile := domain.DeveloperProfile{}
-			if storedProfile, profileErr := s.Store.GetDeveloperProfile(req.WorkspaceID, memberID); profileErr == nil {
-				profile = storedProfile
-			}
-			var profileBinding *domain.ProviderBinding
-			if profile.DefaultAgentBindingID != "" {
-				resolved, bindingErr := s.Store.GetProviderBinding(profile.DefaultAgentBindingID)
-				if bindingErr != nil {
-					return fmt.Errorf("developer profile binding unavailable")
+			profile := domain.DeveloperProfile{DefaultRole: "developer"}
+			if directAgentID != "" {
+				decision = provider.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
+			} else {
+				if storedProfile, profileErr := s.Store.GetDeveloperProfile(req.WorkspaceID, memberID); profileErr == nil {
+					profile = storedProfile
 				}
-				profileBinding = &resolved
-			}
-			if s.Router != nil {
-				decision = s.Router.Resolve(req.WorkspaceID, memberID, profile.DefaultRole, profileBinding)
+				var profileBinding *domain.ProviderBinding
+				if profile.DefaultAgentBindingID != "" {
+					resolved, bindingErr := s.Store.GetProviderBinding(profile.DefaultAgentBindingID)
+					if bindingErr != nil {
+						return fmt.Errorf("developer profile binding unavailable")
+					}
+					profileBinding = &resolved
+				}
+				if s.Router != nil {
+					decision = s.Router.Resolve(req.WorkspaceID, memberID, profile.DefaultRole, profileBinding)
+				}
 			}
 			if decision.Binding.ID != "" {
 				if _, err := s.Store.SaveProviderBinding(decision.Binding); err != nil {
@@ -3699,6 +3747,50 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 		_ = s.Events.Publish(ctx, events.NewWithContext(ctx, "work_item.created.v1", "work_item", item.ID, "", req.WorkspaceID, 1, map[string]any{"requirement_id": req.ID, "repository_id": repositoryID, "member_id": memberID, "agent_route_source": item.AgentRouteSource, "routing_config_revision": item.RoutingConfigRevision}))
 	}
 	return nil
+}
+
+func (s *Server) validateRequirementAssignee(req domain.Requirement) error {
+	_, _, _, err := s.requirementExecutionPrincipals(req)
+	return err
+}
+
+func (s *Server) requirementExecutionPrincipals(req domain.Requirement) ([]string, string, string, error) {
+	targetType := strings.ToLower(strings.TrimSpace(req.AssigneeTargetType))
+	targetID := strings.TrimSpace(req.AssigneeTargetID)
+	if (targetType == "") != (targetID == "") {
+		return nil, "", "", errors.New("assignee_target_type and assignee_target_id must be provided together")
+	}
+	switch targetType {
+	case "":
+		return append([]string(nil), req.AssigneeMemberIDs...), "", "", nil
+	case "member":
+		return []string{targetID}, "", "", nil
+	case "agent":
+		if s.Orchestration == nil {
+			return nil, "", "", errors.New("Agent definitions are unavailable")
+		}
+		agent, err := s.Orchestration.GetAgent(req.WorkspaceID, targetID, 0)
+		if err != nil || agent.Status != orchestration.AgentActive {
+			return nil, "", "", fmt.Errorf("assigned Agent %q is not active in workspace %q", targetID, req.WorkspaceID)
+		}
+		return []string{targetID}, targetID, "requirement-agent", nil
+	case "squad":
+		if s.Orchestration == nil {
+			return nil, "", "", errors.New("Squad definitions are unavailable")
+		}
+		squad, err := s.Orchestration.GetSquad(req.WorkspaceID, targetID, 0)
+		if err != nil || squad.Status != orchestration.SquadPublished {
+			return nil, "", "", fmt.Errorf("assigned Squad %q is not published in workspace %q", targetID, req.WorkspaceID)
+		}
+		for _, member := range squad.Members {
+			if member.Leader {
+				return []string{member.AgentID}, member.AgentID, "requirement-squad", nil
+			}
+		}
+		return nil, "", "", fmt.Errorf("assigned Squad %q has no leader", targetID)
+	default:
+		return nil, "", "", errors.New("assignee_target_type must be member, agent, or squad")
+	}
 }
 
 // validateRequirementRepositoryRelations prevents a requirement from using a
@@ -4131,6 +4223,9 @@ func bearerToken(r *http.Request) string {
 }
 
 func menuForPath(path string) string {
+	if strings.HasPrefix(path, "/api/v1/workspaces/") && strings.Contains(path, "/migration/") {
+		return "admin"
+	}
 	routes := []struct {
 		prefix string
 		menu   string

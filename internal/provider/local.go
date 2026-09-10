@@ -19,6 +19,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -98,15 +100,19 @@ type localState struct {
 }
 
 type LocalProvider struct {
-	Executable    string
-	Args          []string
-	Model         string
-	ThinkingLevel string
-	ServiceTier   string
-	CustomArgs    []string
-	WorkRoot      string
-	Bus           *events.Bus
-	StatePath     string
+	Executable            string
+	Args                  []string
+	Model                 string
+	ThinkingLevel         string
+	ServiceTier           string
+	CustomArgs            []string
+	RuntimeConfig         map[string]string
+	Environment           map[string]string
+	MCPServers            []RuntimeMCPServer
+	DisabledRuntimeSkills []RuntimeSkillRef
+	WorkRoot              string
+	Bus                   *events.Bus
+	StatePath             string
 
 	mu       sync.RWMutex
 	startMu  sync.Mutex
@@ -128,6 +134,32 @@ func (p *LocalProvider) WithExecutionConfig(model, thinkingLevel, serviceTier st
 	p.ThinkingLevel = strings.TrimSpace(thinkingLevel)
 	p.ServiceTier = strings.TrimSpace(serviceTier)
 	p.CustomArgs = append([]string(nil), customArgs...)
+	return p
+}
+
+func (p *LocalProvider) WithRuntimeConfig(config map[string]string) *LocalProvider {
+	p.RuntimeConfig = make(map[string]string, len(config))
+	for key, value := range config {
+		p.RuntimeConfig[key] = value
+	}
+	return p
+}
+
+func (p *LocalProvider) WithRuntimeEnvironment(environment map[string]string) *LocalProvider {
+	p.Environment = make(map[string]string, len(environment))
+	for key, value := range environment {
+		p.Environment[key] = value
+	}
+	return p
+}
+
+func (p *LocalProvider) WithMCPServers(servers []RuntimeMCPServer) *LocalProvider {
+	p.MCPServers = append([]RuntimeMCPServer(nil), servers...)
+	return p
+}
+
+func (p *LocalProvider) WithDisabledRuntimeSkills(skills []RuntimeSkillRef) *LocalProvider {
+	p.DisabledRuntimeSkills = append([]RuntimeSkillRef(nil), skills...)
 	return p
 }
 
@@ -171,9 +203,10 @@ func NewPersistentLocalProvider(executable string, args []string, workRoot, stat
 	return p, nil
 }
 
-// DiscoverLocalProvider scans the operator's PATH in a stable order. An
-// explicit ADRO_EXECUTOR path always wins; ADRO_EXECUTOR_COMMAND may provide
-// extra argv (the first token is the executable).
+// DiscoverLocalProvider scans the same runtime registry exposed by first-run
+// setup. An explicit ADRO_EXECUTOR path always wins;
+// ADRO_EXECUTOR_COMMAND may provide extra argv (the first token is the
+// executable).
 func DiscoverLocalProvider(workRoot string, bus *events.Bus) (*LocalProvider, error) {
 	command := strings.TrimSpace(os.Getenv("ADRO_EXECUTOR_COMMAND"))
 	var executable string
@@ -188,15 +221,19 @@ func DiscoverLocalProvider(workRoot string, bus *events.Bus) (*LocalProvider, er
 		executable = explicit
 	}
 	if executable == "" {
-		for _, candidate := range []string{"claude", "codex", "claude-code"} {
-			if path, err := exec.LookPath(candidate); err == nil {
-				executable = path
+		discovered := make(map[string]DiscoveredRuntime, len(RuntimeRegistry))
+		for _, runtime := range DiscoverLocalRuntimes() {
+			discovered[runtime.ID] = runtime
+		}
+		for _, descriptor := range RuntimeRegistry {
+			if runtime := discovered[descriptor.ID]; runtime.Installed && runtime.AdapterAvailable {
+				executable = runtime.ExecutablePath
 				break
 			}
 		}
 	}
 	if executable == "" {
-		return nil, errors.New("no supported coding client found; install claude, codex, or claude-code, or set ADRO_EXECUTOR")
+		return nil, errors.New("no supported coding client found; install a supported local runtime or set ADRO_EXECUTOR")
 	}
 	if path, err := exec.LookPath(executable); err == nil {
 		executable = path
@@ -508,6 +545,19 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	baseline := gitRevision(workDir)
 	runtimeLogPath := ""
 	var runtimeSetupErr error
+	runtimeEnvironment := make(map[string]string, len(p.Environment)+1)
+	for key, value := range p.Environment {
+		runtimeEnvironment[key] = value
+	}
+	runtimeCleanup := func() {}
+	if p.executorKind() == "openclaw" {
+		var overlay map[string]string
+		overlay, runtimeCleanup, runtimeSetupErr = p.openclawRuntimeEnvironment(runID)
+		for key, value := range overlay {
+			runtimeEnvironment[key] = value
+		}
+	}
+	defer runtimeCleanup()
 	if kind := p.executorKind(); (kind == "pi" || kind == "omp") && len(p.Args) == 0 {
 		sessionID, runtimeSetupErr = p.piSessionPath(sessionID, resumed, kind)
 	}
@@ -532,10 +582,10 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	var runErr error
 	if pathErr == nil {
 		if p.executorKind() == "codex" && !codexExecMode(args) {
-			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier)
+			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier, runtimeEnvironment)
 		} else if p.executorKind() == "dsh" && len(p.Args) == 0 {
 			executorPID, output, runErr = executeDSHRuntime(
-				ctx, path, args, runID, input, workDir, sessionID, p.Model, p.ThinkingLevel, resumed,
+				ctx, path, args, runID, input, workDir, sessionID, p.Model, p.ThinkingLevel, resumed, p.Environment,
 				func(int) {
 					p.mu.Lock()
 					if run := p.runs[runID]; run != nil {
@@ -554,7 +604,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		} else if isACPRuntime(p.executorKind()) && len(p.Args) == 0 {
 			executorPID, output, runErr = executeACPRuntime(
 				ctx, path, args, input, workDir, sessionID, resumed,
-				p.Model, p.ThinkingLevel, p.executorKind(), p.CustomArgs,
+				p.Model, p.ThinkingLevel, p.executorKind(), p.CustomArgs, p.Environment,
 				func(int) {
 					p.mu.Lock()
 					if run := p.runs[runID]; run != nil {
@@ -583,7 +633,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			// has been fenced and killed.
 			cmd.WaitDelay = 250 * time.Millisecond
 			cmd.Dir = workDir
-			cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+			cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), runtimeEnvironment)
 			if kind := p.executorKind(); kind == "opencode" || kind == "deveco" {
 				cmd.Env = replaceEnvironmentValue(cmd.Env, "PWD", workDir)
 			}
@@ -1038,7 +1088,11 @@ func (p *LocalProvider) commandArgsAt(input, sessionID string, resumed bool, wor
 		}
 		return args
 	case "openclaw":
-		args := []string{"agent", "--local", "--json", "--session-id", sessionID}
+		args := []string{"agent"}
+		if strings.TrimSpace(p.RuntimeConfig["mode"]) != "gateway" {
+			args = append(args, "--local")
+		}
+		args = append(args, "--json", "--session-id", sessionID)
 		if p.Model != "" {
 			args = append(args, "--agent", p.Model)
 		}
@@ -1107,7 +1161,22 @@ func (p *LocalProvider) withRuntimeOptions(args []string) []string {
 		if p.ThinkingLevel != "" {
 			result = append(result, "--effort", p.ThinkingLevel)
 		}
+		if settings := p.claudeDisabledSkillSettings(); settings != "" {
+			result = append(result, "--settings", settings)
+		}
 	case "codex":
+		configKeys := make([]string, 0, len(p.RuntimeConfig))
+		for key := range p.RuntimeConfig {
+			configKeys = append(configKeys, key)
+		}
+		sort.Strings(configKeys)
+		configArgs := make([]string, 0, len(configKeys)*2)
+		for _, key := range configKeys {
+			configArgs = append(configArgs, "-c", key+"="+p.RuntimeConfig[key])
+		}
+		if disabled := p.codexDisabledSkillConfig(); disabled != "" {
+			configArgs = append(configArgs, "-c", disabled)
+		}
 		// app-server receives model settings through its protocol. For explicit
 		// exec configurations use the CLI's stable model/config flags.
 		if codexExecMode(result) {
@@ -1120,9 +1189,199 @@ func (p *LocalProvider) withRuntimeOptions(args []string) []string {
 			if p.ServiceTier != "" {
 				result = append(result, "-c", "service_tier="+p.ServiceTier)
 			}
+			mcpArgs := p.codexMCPArgs()
+			result = append(result, configArgs...)
+			result = append(result, mcpArgs...)
+		} else {
+			globalArgs, appServerArgs := codexAppServerCustomArgs(p.CustomArgs)
+			prefix := append(configArgs, p.codexMCPArgs()...)
+			prefix = append(prefix, globalArgs...)
+			if len(prefix) > 0 {
+				result = append(prefix, result...)
+			}
+			return append(result, appServerArgs...)
 		}
 	}
 	return append(result, p.CustomArgs...)
+}
+
+func codexAppServerCustomArgs(args []string) (global, appServer []string) {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		name, _, inline := strings.Cut(arg, "=")
+		switch name {
+		case "--analytics-default-enabled":
+			appServer = append(appServer, arg)
+		case "--code-mode-host":
+			appServer = append(appServer, arg)
+			if !inline && index+1 < len(args) {
+				index++
+				appServer = append(appServer, args[index])
+			}
+		default:
+			global = append(global, arg)
+		}
+	}
+	return global, appServer
+}
+
+func (p *LocalProvider) scopedDisabledRuntimeSkills(providerID string) []RuntimeSkillRef {
+	result := make([]RuntimeSkillRef, 0, len(p.DisabledRuntimeSkills))
+	for _, skill := range p.DisabledRuntimeSkills {
+		if skill.RuntimeID == providerID && skill.Provider == providerID {
+			result = append(result, skill)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.Join([]string{result[i].Root, result[i].Key, result[i].Plugin}, "\x00") < strings.Join([]string{result[j].Root, result[j].Key, result[j].Plugin}, "\x00")
+	})
+	return result
+}
+
+func (p *LocalProvider) codexDisabledSkillConfig() string {
+	skills := p.scopedDisabledRuntimeSkills("codex")
+	if len(skills) == 0 {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	items := make([]string, 0, len(skills))
+	seen := map[string]bool{}
+	for _, skill := range skills {
+		var root string
+		switch skill.Root {
+		case "provider":
+			root = filepath.Join(codexHome, "skills")
+		case "universal":
+			root = filepath.Join(home, ".agents", "skills")
+		default:
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(skill.Key), "SKILL.md")
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		items = append(items, `{path=`+strconv.Quote(filepath.ToSlash(path))+`,enabled=false}`)
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return "skills.config=[" + strings.Join(items, ",") + "]"
+}
+
+func (p *LocalProvider) claudeDisabledSkillSettings() string {
+	skills := p.scopedDisabledRuntimeSkills("claude")
+	if len(skills) == 0 {
+		return ""
+	}
+	overrides := map[string]string{}
+	deny := make([]string, 0, len(skills)*2)
+	seen := map[string]bool{}
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" {
+			name = filepath.Base(filepath.FromSlash(skill.Key))
+		}
+		if skill.Root != "plugin" {
+			overrides[name] = "off"
+		} else {
+			name = skill.Key
+		}
+		for _, rule := range []string{"Skill(" + name + ")", "Skill(" + name + " *)"} {
+			if !seen[rule] {
+				seen[rule] = true
+				deny = append(deny, rule)
+			}
+		}
+	}
+	payload, err := json.Marshal(map[string]any{"skillOverrides": overrides, "permissions": map[string]any{"deny": deny}})
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
+func (p *LocalProvider) openclawRuntimeEnvironment(runID string) (map[string]string, func(), error) {
+	if strings.TrimSpace(p.RuntimeConfig["mode"]) != "gateway" {
+		return nil, func() {}, nil
+	}
+	host := strings.TrimSpace(p.RuntimeConfig["gateway.host"])
+	portText := strings.TrimSpace(p.RuntimeConfig["gateway.port"])
+	tlsText := strings.TrimSpace(p.RuntimeConfig["gateway.tls"])
+	authEnv := strings.TrimSpace(p.RuntimeConfig["gateway.auth_env"])
+	if host == "" && portText == "" && tlsText == "" && authEnv == "" {
+		return nil, func() {}, nil
+	}
+	gateway := map[string]any{}
+	if host != "" {
+		gateway["host"] = host
+	}
+	if portText != "" {
+		port, _ := strconv.Atoi(portText)
+		gateway["port"] = port
+	}
+	if tlsText == "true" {
+		gateway["tls"] = true
+	}
+	if authEnv != "" {
+		token, ok := p.Environment[authEnv]
+		if !ok || token == "" {
+			return nil, func() {}, fmt.Errorf("openclaw gateway credential environment %q is unavailable", authEnv)
+		}
+		gateway["auth"] = map[string]any{"mode": "token", "token": token}
+	}
+	config := map[string]any{"gateway": gateway}
+	activePath := strings.TrimSpace(os.Getenv("OPENCLAW_CONFIG_PATH"))
+	if activePath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			activePath = filepath.Join(home, ".openclaw", "openclaw.json")
+		}
+	}
+	if activePath != "" {
+		if info, err := os.Stat(activePath); err == nil && !info.IsDir() {
+			config["$include"] = activePath
+		}
+	}
+	payload, err := json.Marshal(config)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("encode openclaw runtime config: %w", err)
+	}
+	directory := filepath.Join(p.WorkRoot, ".runtime-config")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, func() {}, fmt.Errorf("create openclaw runtime config directory: %w", err)
+	}
+	path := filepath.Join(directory, "openclaw-"+runID+".json")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return nil, func() {}, fmt.Errorf("write openclaw runtime config: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(path) }
+	return map[string]string{"OPENCLAW_CONFIG_PATH": path}, cleanup, nil
+}
+
+func (p *LocalProvider) codexMCPArgs() []string {
+	servers := append([]RuntimeMCPServer(nil), p.MCPServers...)
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+	args := make([]string, 0, len(servers)*4)
+	for _, server := range servers {
+		name, endpoint := strings.TrimSpace(server.Name), strings.TrimSpace(server.Endpoint)
+		protocol := strings.ToLower(strings.TrimSpace(server.Protocol))
+		if name == "" || endpoint == "" || (protocol != "" && protocol != "http" && protocol != "https" && protocol != "mcp.v1") {
+			continue
+		}
+		prefix := `mcp_servers.` + strconv.Quote(name)
+		args = append(args, "-c", prefix+`.url=`+strconv.Quote(endpoint))
+		if envName := strings.TrimSpace(server.BearerTokenEnvVar); envName != "" {
+			args = append(args, "-c", prefix+`.bearer_token_env_var=`+strconv.Quote(envName))
+		}
+	}
+	return args
 }
 
 func withCodexAppServerArgs(args []string) []string {

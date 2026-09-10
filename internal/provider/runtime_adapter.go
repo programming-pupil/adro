@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 var antigravityConversationPattern = regexp.MustCompile(`conversation=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:,|\s|$)`)
 
 var runtimeOwnedArgs = map[string][]string{
+	"claude":      {"-p", "--print", "--output-format", "--permission-mode", "--model", "--effort", "--resume", "--session-id", "--settings"},
+	"codex":       {"--listen", "--stdio", "--ws-auth", "--ws-token-file", "--ws-token-sha256", "--ws-shared-secret-file", "--ws-issuer", "--ws-audience", "--ws-max-clock-skew-seconds"},
 	"cursor":      {"-p", "--output-format", "--yolo", "--workspace", "--model", "--resume", "--acp"},
 	"copilot":     {"-p", "--prompt", "--output-format", "--allow-all", "--no-ask-user", "--model", "--resume", "--acp"},
 	"opencode":    {"--format", "--dir", "--variant", "--model", "--session", "--dangerously-skip-permissions"},
@@ -41,6 +44,9 @@ var runtimeOwnedArgs = map[string][]string{
 func validateRuntimeCustomArgs(runtimeID string, args []string) error {
 	owned := runtimeOwnedArgs[runtimeID]
 	for _, arg := range args {
+		if runtimeID == "codex" && (arg == "--ephemeral" || strings.HasPrefix(arg, "--ephemeral=")) {
+			return fmt.Errorf("custom argument %q is not supported by codex app-server", arg)
+		}
 		for _, flag := range owned {
 			if arg == flag || strings.HasPrefix(arg, flag+"=") {
 				return fmt.Errorf("custom argument %q is managed by the %s adapter", arg, runtimeID)
@@ -116,6 +122,18 @@ func replaceEnvironmentValue(environment []string, name, value string) []string 
 		result = append(result, item)
 	}
 	return append(result, name+"="+value)
+}
+
+func applyRuntimeEnvironment(environment []string, values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		environment = replaceEnvironmentValue(environment, key, values[key])
+	}
+	return environment
 }
 
 func runtimeProtocolError(output []byte, kind string) error {

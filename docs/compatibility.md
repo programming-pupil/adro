@@ -4,7 +4,9 @@
 | --- | --- | --- |
 | Go API | Go tests on macOS/Linux | source and build compatibility |
 | Native startup | `start.sh`, Bash checks, local health smoke | supported single-node profile; no Docker prerequisite |
-| Local executor | PATH discovery plus real client version probe | Supported coding clients and compatible argv executors |
+| Local executor | shared startup/API registry, PATH/login-shell/Desktop discovery, real client version probe | installed coding clients with a tested adapter plus compatible explicit argv executors |
+| Agent configuration | runtime model catalog, thinking/service options, runtime Skills and MCP bindings | per-Agent revisioned execution policy; unsupported model selection is explicit |
+| Workflow migration | portable ZIP plus read-only compatible PostgreSQL converter | user-authored workspace state, references and verified attachments; credentials and live execution state are excluded |
 | Desktop browsers | Playwright Chromium/Firefox/WebKit matrix | responsive reference workbench |
 | Mobile browsers | Chromium/WebKit emulation | responsive regression only |
 | Kubernetes/Compose | static YAML and schema checks | deployment references; local runtime remains native |

@@ -113,6 +113,7 @@ func executeDSHRuntime(
 	args []string,
 	runID, input, workDir, sessionID, model, thinkingLevel string,
 	resumed bool,
+	environment map[string]string,
 	onStart func(int),
 ) (pid int, output []byte, runErr error) {
 	selection, err := parseDSHModel(model)
@@ -123,7 +124,7 @@ func executeDSHRuntime(
 	configureLocalCommand(cmd)
 	cmd.Dir = workDir
 	cmd.WaitDelay = 250 * time.Millisecond
-	cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return 0, nil, fmt.Errorf("DSH stdout pipe: %w", err)
@@ -175,11 +176,9 @@ func executeDSHRuntime(
 		waitDone := make(chan error, 1)
 		go func() { waitDone <- cmd.Wait() }()
 		var waitErr error
-		forcedAfterTerminal := false
 		select {
 		case waitErr = <-waitDone:
 		case <-time.After(dshProcessExitGrace):
-			forcedAfterTerminal = terminal
 			_ = terminateLocalCommand(cmd)
 			select {
 			case waitErr = <-waitDone:
@@ -187,7 +186,10 @@ func executeDSHRuntime(
 				waitErr = errors.New("process did not exit after terminal result")
 			}
 		}
-		if forcedAfterTerminal {
+		// A validated terminal frame owns the protocol outcome. Some profile
+		// versions fail during stdin-close cleanup after reporting completion;
+		// their later process status cannot revoke the already committed result.
+		if terminal {
 			waitErr = nil
 		}
 		select {

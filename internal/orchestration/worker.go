@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -117,7 +118,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 				continue
 			}
 		}
-		snapshot, err := w.Scheduler.Executor.Provider.GetRun(ctx, runID)
+		runProvider, err := w.providerForAttempt(ctx, plan, attempt)
+		if err != nil {
+			return finished, err
+		}
+		snapshot, err := runProvider.GetRun(ctx, runID)
 		if err != nil {
 			return finished, err
 		}
@@ -148,12 +153,12 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 				// current node so a transient truncated/invalid Codex turn does not
 				// consume a repair round or strand the graph before feedback starts.
 				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: true}
-			} else if !hasCommandExecutionEvidence(snapshot) {
+			} else if !hasProviderToolEvidence(snapshot) {
 				// A model marker is not proof that the requested work happened. A
 				// malformed or tool-less Codex turn must be retried as a provider
 				// protocol failure; otherwise a fabricated bug/failure marker can
 				// advance a semantic feedback edge and consume a repair round.
-				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_tool_evidence_missing", Summary: "provider completed without a matched command_execution before/after pair", Fields: mergeProviderFields(usage, map[string]any{"provider_output_sha256": snapshot.OutputSHA256, "tool_event_count": len(snapshot.ToolEvents)}), EvidenceIDs: []string{"provider-run:" + runID + ":missing-tool-evidence"}}
+				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_tool_evidence_missing", Summary: "provider completed without a matched tool before/after pair", Fields: mergeProviderFields(usage, map[string]any{"provider_output_sha256": snapshot.OutputSHA256, "tool_event_count": len(snapshot.ToolEvents)}), EvidenceIDs: []string{"provider-run:" + runID + ":missing-tool-evidence"}}
 				failure = &FailureReason{Code: "provider_tool_evidence_missing", Message: result.Summary, Retryable: true}
 				break
 			}
@@ -201,22 +206,86 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 	return finished, nil
 }
 
+func (w Worker) providerForAttempt(ctx context.Context, plan RequirementExecutionPlan, attempt NodeAttempt) (provider.ExecutionProvider, error) {
+	executor := w.Scheduler.Executor
+	if executor.ProviderResolver == nil {
+		return executor.Provider, nil
+	}
+	if executor.Repository == nil {
+		return nil, errors.New("repository is required to resolve an attempt provider")
+	}
+	var node *WorkflowNode
+	for index := range plan.GraphSnapshot.Nodes {
+		if plan.GraphSnapshot.Nodes[index].ID == attempt.NodeID {
+			node = &plan.GraphSnapshot.Nodes[index]
+			break
+		}
+	}
+	if node == nil {
+		return nil, fmt.Errorf("attempt %s references unknown node %s", attempt.ID, attempt.NodeID)
+	}
+	var agent AgentDefinition
+	var err error
+	switch node.Kind {
+	case NodeAgent:
+		if node.AgentRef == nil {
+			return nil, fmt.Errorf("agent node %s has no agent_ref", node.ID)
+		}
+		agent, err = executor.Repository.GetAgent(plan.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
+	case NodeSquad:
+		if node.SquadRef == nil {
+			return nil, fmt.Errorf("squad node %s has no squad_ref", node.ID)
+		}
+		var squad SquadDefinition
+		squad, err = executor.Repository.GetSquad(plan.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)
+		if err == nil {
+			leaderID := ""
+			for _, member := range squad.Members {
+				if member.Leader {
+					leaderID = member.AgentID
+					break
+				}
+			}
+			if leaderID == "" {
+				return nil, fmt.Errorf("squad node %s has no leader agent", node.ID)
+			}
+			agent, err = executor.Repository.GetAgent(plan.WorkspaceID, leaderID, 0)
+		}
+	default:
+		return executor.Provider, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve provider for node %s: %w", node.ID, err)
+	}
+	resolved, err := executor.ProviderResolver(ctx, agent)
+	if err != nil {
+		return nil, fmt.Errorf("resolve provider for agent %s: %w", agent.ID, err)
+	}
+	if resolved == nil {
+		return nil, fmt.Errorf("resolved provider is nil for agent %s", agent.ID)
+	}
+	return resolved, nil
+}
+
 // hasCommandExecutionEvidence proves that a completed provider turn opened
 // and closed the terminal tool call it claims to have performed. The marker
 // parser intentionally accepts only agent-message text, but that still is not
 // enough to advance a graph: a real Codex command_execution pair is required
 // before a semantic pass/failure/bug result can reach graph routing.
-func hasCommandExecutionEvidence(snapshot provider.RunSnapshot) bool {
+func hasProviderToolEvidence(snapshot provider.RunSnapshot) bool {
 	// Codex app-server uses the native camelCase item type while legacy JSONL
-	// adapters use snake_case. Normalize both spellings before checking that the
-	// recorded tool events belong to a command execution item.
+	// adapters use snake_case. Codex remains constrained to a terminal command;
+	// other runtimes prove execution with any matched native tool call/result.
 	normalizedOutput := strings.ToLower(strings.ReplaceAll(snapshot.Output, "_", ""))
+	requireCommandExecution := strings.EqualFold(strings.TrimSuffix(filepath.Base(snapshot.ExecutorPath), filepath.Ext(snapshot.ExecutorPath)), "codex") || strings.Contains(normalizedOutput, "commandexecution")
 	if !strings.Contains(normalizedOutput, "commandexecution") {
-		return false
+		if requireCommandExecution {
+			return false
+		}
 	}
 	pairs := make(map[string]map[string]bool)
 	for _, event := range snapshot.ToolEvents {
-		if !isCommandExecutionName(event.Name) || strings.TrimSpace(event.CallID) == "" {
+		if strings.TrimSpace(event.CallID) == "" || (requireCommandExecution && !isCommandExecutionName(event.Name)) {
 			continue
 		}
 		phases := pairs[event.CallID]
@@ -313,6 +382,11 @@ func collectProviderMessageTexts(value any, inMessage bool, candidates *[]string
 				*candidates = append(*candidates, text)
 			}
 		}
+		if isProviderTerminalResultType(typ) {
+			if output, ok := item["output"].(string); ok && strings.TrimSpace(output) != "" {
+				*candidates = append(*candidates, output)
+			}
+		}
 		// Codex currently emits item.completed.item.text; older/current
 		// variants also wrap the same item under event_msg.payload.
 		for _, key := range []string{"item", "params", "payload", "content"} {
@@ -321,6 +395,11 @@ func collectProviderMessageTexts(value any, inMessage bool, candidates *[]string
 			}
 		}
 	}
+}
+
+func isProviderTerminalResultType(value string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", ""))
+	return normalized == "result" || normalized == "finalresult"
 }
 
 func isProviderAgentMessageType(value string) bool {

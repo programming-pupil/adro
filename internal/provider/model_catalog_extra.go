@@ -356,7 +356,7 @@ func discoverACPRuntimeCatalog(parent context.Context, runtimeID, path string) R
 		return fallback
 	}
 	defer os.RemoveAll(workDir)
-	process, err := startACPRuntimeProcess(ctx, path, acpRuntimeLaunchArgs(kind, "", nil), workDir, kind, nil)
+	process, err := startACPRuntimeProcess(ctx, path, acpRuntimeLaunchArgs(kind, "", nil), workDir, kind, nil, nil)
 	if err != nil {
 		return fallback
 	}

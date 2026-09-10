@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/store"
 )
 
 func TestOrchestrationRequestRoutes(t *testing.T) {
@@ -40,6 +45,112 @@ func TestOrchestrationRequestRoutes(t *testing.T) {
 				t.Fatalf("got method=%s path=%s required=%v, want method=%s path=%s required=%v", method, path, required, test.method, test.path, test.bodyRequired)
 			}
 		})
+	}
+}
+
+func TestWorkspaceCommandExportsPreflightsAndImportsFreshHome(t *testing.T) {
+	sourceHome := filepath.Join(t.TempDir(), "source-home")
+	sourceArtifacts := filepath.Join(t.TempDir(), "source-artifacts")
+	sourceStore, err := store.NewPersistentMemory(filepath.Join(sourceHome, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceStore.CreateRequirement(domain.Requirement{ID: "requirement-cli", WorkspaceID: "source", Title: "CLI migration", Description: "round trip", AcceptanceCriteria: []string{"retained"}, AssigneeMemberIDs: []string{"member"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceStore.UpsertMCPServer(domain.MCPServer{ID: "mcp-cli", WorkspaceID: "source", Name: "CLI MCP", Endpoint: "https://mcp.example.test", Status: "configured"}); err != nil {
+		t.Fatal(err)
+	}
+	sourceDefinitions, err := orchestration.NewPersistentRepository(filepath.Join(sourceHome, "orchestration.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := orchestration.AgentDefinition{ID: orchestration.NewID(), WorkspaceID: "source", Revision: 1, Name: "CLI agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	if err := sourceDefinitions.SaveAgent(agent, 0); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(t.TempDir(), "workspace.zip")
+	var output bytes.Buffer
+	if err := workspaceCommand([]string{"export", "--home", sourceHome, "--artifact-root", sourceArtifacts, "--workspace", "source", "--file", bundle}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Len() == 0 {
+		t.Fatal("export did not print a receipt")
+	}
+	output.Reset()
+	if err := workspaceCommand([]string{"preflight", "--workspace", "target", "--conflict", "rename", "--file", bundle}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"valid": true`) || !strings.Contains(output.String(), `"requirements": 1`) || !strings.Contains(output.String(), `"mcp_servers": 1`) {
+		t.Fatalf("preflight output=%s", output.String())
+	}
+	targetHome := filepath.Join(t.TempDir(), "target-home")
+	targetArtifacts := filepath.Join(t.TempDir(), "target-artifacts")
+	output.Reset()
+	if err := workspaceCommand([]string{"import", "--home", targetHome, "--artifact-root", targetArtifacts, "--workspace", "target", "--conflict", "rename", "--file", bundle}, &output); err != nil {
+		t.Fatal(err)
+	}
+	importedStore, err := store.NewPersistentMemory(filepath.Join(targetHome, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requirements, _ := importedStore.ListRequirements("target", "", "", 10)
+	importedDefinitions, err := orchestration.NewPersistentRepository(filepath.Join(targetHome, "orchestration.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requirements) != 1 || requirements[0].Title != "CLI migration" || len(importedDefinitions.ListAgents("target", "")) != 1 {
+		t.Fatalf("requirements=%+v agents=%+v output=%s", requirements, importedDefinitions.ListAgents("target", ""), output.String())
+	}
+}
+
+func TestWorkspaceCommandDefaultsMatchNativeStartupState(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	t.Setenv("ADRO_HOME", "")
+	t.Setenv("ADRO_ARTIFACT_ROOT", "")
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, ".adro")
+	definitions, err := orchestration.NewPersistentRepository(filepath.Join(home, "orchestration.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := orchestration.AgentDefinition{ID: orchestration.NewID(), WorkspaceID: "local", Revision: 1, Name: "Startup agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	if err := definitions.SaveAgent(agent, 0); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, "workspace.zip")
+	if err := workspaceCommand([]string{"export", "--workspace", "local", "--file", bundle}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(bundle); err != nil || info.Size() == 0 {
+		t.Fatalf("default startup-state export: info=%v err=%v", info, err)
+	}
+}
+
+func TestWorkspacePostgresCommandsRequireExplicitSource(t *testing.T) {
+	for _, action := range []string{"export-postgres", "preflight-postgres", "import-postgres"} {
+		t.Run(action, func(t *testing.T) {
+			args := []string{action}
+			if action == "export-postgres" {
+				args = append(args, "--file", filepath.Join(t.TempDir(), "workspace.zip"))
+			}
+			err := workspaceCommand(args, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "--source-dsn") {
+				t.Fatalf("error=%v, want explicit source DSN requirement", err)
+			}
+		})
+	}
+
+	err := workspaceCommand([]string{"export-postgres", "--source-dsn", "redacted", "--source-workspace", "source"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "--file") {
+		t.Fatalf("error=%v, want output file requirement", err)
 	}
 }
 

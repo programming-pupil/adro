@@ -869,12 +869,21 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(mcp.Body.Bytes(), &server)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/mcp/servers/"+server.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read MCP server status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID, `{"tool":"search","request":{}}`, nil).Code; got != http.StatusConflict {
+		t.Fatalf("unapproved MCP invocation status=%d", got)
+	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID+"/discover", "", nil).Code; got != http.StatusOK {
 		t.Fatal(got)
 	}
 	healthCheck := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID+"/health-check", "", nil)
 	if healthCheck.Code != http.StatusOK || !strings.Contains(healthCheck.Body.String(), `"reachable":false`) || !strings.Contains(healthCheck.Body.String(), `"status":"unreachable"`) {
 		t.Fatalf("health check status=%d body=%s", healthCheck.Code, healthCheck.Body.String())
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/mcp/servers/"+server.ID, `{"name":"search-v2"}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update MCP server status=%d", got)
 	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/agents/agent-1/mcp-bindings", `{"workspace_id":"w","capability_id":"`+server.ID+`"}`, nil).Code; got != http.StatusCreated {
 		t.Fatal(got)
@@ -887,6 +896,12 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(skill.Body.Bytes(), &skillID)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/skills/"+skillID.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read Skill status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/skills/"+skillID.ID, `{"name":"verify-v2","version":"1.0.1"}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update Skill status=%d", got)
+	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/skills/"+skillID.ID+"/publish", "", nil).Code; got != http.StatusOK {
 		t.Fatal(got)
 	}
@@ -898,9 +913,28 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(automation.Body.Bytes(), &automationID)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/automations/"+automationID.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read automation status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/automations/"+automationID.ID, `{"name":"on-failure-v2","enabled":true}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update automation status=%d", got)
+	}
 	trigger := request(t, s.Routes(), http.MethodPost, "/api/v1/automations/"+automationID.ID+"/trigger", `{}`, nil)
 	if trigger.Code != http.StatusAccepted {
 		t.Fatal(trigger.Code, trigger.Body.String())
+	}
+	var automationRun struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(trigger.Body.Bytes(), &automationRun)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/automation-runs/"+automationRun.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read automation run status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodDelete, "/api/v1/automations/"+automationID.ID, "", nil).Code; got != http.StatusNoContent {
+		t.Fatalf("delete automation status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodDelete, "/api/v1/skills/"+skillID.ID, "", nil).Code; got != http.StatusNoContent {
+		t.Fatalf("delete Skill status=%d", got)
 	}
 }
 
@@ -1009,6 +1043,9 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ADRO_EXECUTOR", "")
+	// Pin Codex to an unavailable path so this test remains independent of the
+	// macOS desktop fallback on developer machines that have Codex installed.
+	t.Setenv("ADRO_CODEX_PATH", filepath.Join(t.TempDir(), "missing-codex"))
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
 	if response.Code != http.StatusOK {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -53,6 +56,57 @@ func TestMaterializationRoutesOnceAndPersistsBinding(t *testing.T) {
 	}
 }
 
+func TestMaterializationUsesNativeAgentAndSquadAssignments(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		targetType  string
+		targetID    string
+		wantAgentID string
+		wantSource  string
+	}{
+		{name: "agent", targetType: "agent", targetID: "agent-1", wantAgentID: "agent-1", wantSource: "requirement-agent"},
+		{name: "squad", targetType: "squad", targetID: "squad-1", wantAgentID: "agent-1", wantSource: "requirement-squad"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bus := events.NewBus()
+			fs, err := artifact.NewFileStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := New(store.NewMemory(), provider.NewLocalProvider("/usr/bin/true", nil, t.TempDir(), bus), fs, bus, nil)
+			agent := orchestration.AgentDefinition{
+				ID: "agent-1", WorkspaceID: "workspace", Revision: 1, Name: "Builder", Status: orchestration.AgentActive,
+				ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
+				InputSchema:     orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1},
+			}
+			if err := s.Orchestration.SaveAgent(agent, 0); err != nil {
+				t.Fatal(err)
+			}
+			if test.targetType == "squad" {
+				graph := orchestration.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"node-1"}, ExitNodeIDs: []string{"node-1"}, Nodes: []orchestration.WorkflowNode{{ID: "node-1", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agent.ID, Revision: 1}}}}
+				squad := orchestration.SquadDefinition{ID: "squad-1", WorkspaceID: "workspace", Name: "Delivery", Revision: 1, PublishedVersion: 1, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph, Policy: orchestration.SquadPolicy{MaxNestingDepth: 1}, Status: orchestration.SquadPublished}
+				if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			requirement := domain.Requirement{ID: "req-1", Key: "REQ-1", WorkspaceID: "workspace", Description: "native assignment", RepositoryIDs: []string{"repo"}, AssigneeTargetType: test.targetType, AssigneeTargetID: test.targetID}
+			if err := s.materializeWorkItems(context.Background(), requirement); err != nil {
+				t.Fatal(err)
+			}
+			items := s.Store.ListWorkItems(requirement.ID)
+			if len(items) != 1 || items[0].MemberID != test.wantAgentID || items[0].AgentRouteSource != test.wantSource || items[0].ProviderIssueID == "" {
+				t.Fatalf("items=%+v", items)
+			}
+			if err := s.materializeWorkItems(context.Background(), requirement); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(s.Store.ListWorkItems(requirement.ID)); got != 1 {
+				t.Fatalf("idempotent materialization created %d items", got)
+			}
+		})
+	}
+}
+
 func TestProviderDiagnosticsReportsLocalExecutor(t *testing.T) {
 	bus := events.NewBus()
 	fs, err := artifact.NewFileStore(t.TempDir())
@@ -70,5 +124,27 @@ func TestProviderDiagnosticsReportsLocalExecutor(t *testing.T) {
 	}
 	if result["provider"] != "local" || result["configuration_state"] != "configured" || result["reachability_state"] != "reachable" {
 		t.Fatalf("diagnostics=%v", result)
+	}
+}
+
+func TestRuntimeSkillsRouteReturnsMetadataAndRejectsUnknownRuntime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	directory := filepath.Join(home, ".codex", "skills", "release-review")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "SKILL.md"), []byte("---\nname: Release Review\ndescription: Review release evidence\n---\nsecret body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/codex/skills", "", map[string]string{"X-Workspace-ID": "local"})
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"name":"Release Review"`) || strings.Contains(response.Body.String(), "secret body") {
+		t.Fatalf("runtime Skills status=%d body=%s", response.Code, response.Body.String())
+	}
+	missing := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/unknown/skills", "", map[string]string{"X-Workspace-ID": "local"})
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown runtime status=%d body=%s", missing.Code, missing.Body.String())
 	}
 }

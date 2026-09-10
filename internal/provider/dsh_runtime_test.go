@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +65,9 @@ func TestDSHRuntimeHelperProcess(t *testing.T) {
 	if mode == "linger" {
 		time.Sleep(time.Hour)
 	}
+	if mode == "exit-after-result" {
+		os.Exit(1)
+	}
 	os.Exit(0)
 }
 
@@ -84,7 +89,7 @@ func runDSHHelperRequest(t *testing.T, mode string, timeout time.Duration, resum
 	defer cancel()
 	_, output, runErr := executeDSHRuntime(
 		ctx, executable, []string{"-test.run=^TestDSHRuntimeHelperProcess$"},
-		"run-1", "task", t.TempDir(), "dsh-session", "provider/model", "high", resumed, nil,
+		"run-1", "task", t.TempDir(), "dsh-session", "provider/model", "high", resumed, nil, nil,
 	)
 	requests, _ := os.ReadFile(logPath)
 	return output, string(requests), runErr
@@ -98,6 +103,16 @@ func TestExecuteDSHRuntimeBoundsProcessExitAfterResult(t *testing.T) {
 	}
 	if time.Since(started) > 2*time.Second {
 		t.Fatalf("terminal result took %s to return", time.Since(started))
+	}
+	if got := providerSessionID(output, "dsh"); got != "dsh-session" {
+		t.Fatalf("session=%q output=%s", got, output)
+	}
+}
+
+func TestExecuteDSHRuntimeAcceptsValidatedResultBeforeNonzeroExit(t *testing.T) {
+	output, _, err := runDSHHelper(t, "exit-after-result", 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if got := providerSessionID(output, "dsh"); got != "dsh-session" {
 		t.Fatalf("session=%q output=%s", got, output)
@@ -128,6 +143,101 @@ func TestExecuteDSHRuntimeLifecycle(t *testing.T) {
 	if usage.InputTokens != 13 || usage.OutputTokens != 6 {
 		t.Fatalf("usage=%+v", usage)
 	}
+}
+
+func TestDSHRealRuntimeSmoke(t *testing.T) {
+	if os.Getenv("ADRO_RUN_REAL_DSH") != "1" {
+		t.Skip("set ADRO_RUN_REAL_DSH=1 with a configured DSH profile to run the real smoke test")
+	}
+	if strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY")) == "" {
+		t.Fatal("DEEPSEEK_API_KEY is required for the real DSH smoke test")
+	}
+	executable := strings.TrimSpace(os.Getenv("ADRO_REAL_DSH_EXECUTOR"))
+	if executable == "" {
+		var err error
+		executable, err = exec.LookPath("dsh")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	workDir := t.TempDir()
+	provider := NewLocalProvider(executable, nil, workDir, nil).
+		WithExecutionConfig("deepseek-official/deepseek-v4-flash", "high", "", nil)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = provider.Shutdown(ctx)
+	})
+
+	first, err := provider.StartRun(context.Background(), StartRunCommand{
+		WorkItemID: "dsh-real-smoke", WorkDir: workDir, IdempotencyKey: "dsh-real-first",
+		Input: "Use the shell tool to write exactly dsh-real-first followed by a newline to dsh-proof.txt in the current directory, then read the file. Finish with exactly ADRO_RESULT_JSON={\"outcome\":\"pass\",\"reason_code\":\"dsh_real_first\",\"summary\":\"DSH first turn passed\",\"evidence_ids\":[\"dsh-proof.txt\"]}.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSnapshot := waitForRealDSHRun(t, provider, first.ID)
+	if firstSnapshot.Status != "completed" || firstSnapshot.SessionContinuity != "proven" || !hasMatchedToolPair(firstSnapshot.ToolEvents) {
+		t.Fatalf("first DSH run did not prove execution and continuity: status=%s continuity=%s error=%s tools=%d output=%s", firstSnapshot.Status, firstSnapshot.SessionContinuity, firstSnapshot.Error, len(firstSnapshot.ToolEvents), firstSnapshot.Output)
+	}
+	content, err := os.ReadFile(filepath.Join(workDir, "dsh-proof.txt"))
+	if err != nil || string(content) != "dsh-real-first\n" {
+		t.Fatalf("first DSH file evidence=%q err=%v", content, err)
+	}
+
+	second, err := provider.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: "dsh-real-smoke", AgentID: "dsh-real-agent", ExpectedSessionID: firstSnapshot.SessionID,
+		ExpectedWorkDir: workDir, IdempotencyKey: "dsh-real-second",
+		Input: "Read dsh-proof.txt with the shell tool, append exactly dsh-real-second followed by a newline, then read it again. Finish with exactly ADRO_RESULT_JSON={\"outcome\":\"pass\",\"reason_code\":\"dsh_real_resume\",\"summary\":\"DSH resumed turn passed\",\"evidence_ids\":[\"dsh-proof.txt\"]}.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSnapshot := waitForRealDSHRun(t, provider, second.ID)
+	if secondSnapshot.Status != "completed" || !second.SessionReused || secondSnapshot.SessionID != firstSnapshot.SessionID || secondSnapshot.SessionContinuity != "proven" || !hasMatchedToolPair(secondSnapshot.ToolEvents) {
+		t.Fatalf("resumed DSH run did not preserve execution continuity: status=%s reused=%v session_match=%v continuity=%s error=%s tools=%d output=%s", secondSnapshot.Status, second.SessionReused, secondSnapshot.SessionID == firstSnapshot.SessionID, secondSnapshot.SessionContinuity, secondSnapshot.Error, len(secondSnapshot.ToolEvents), secondSnapshot.Output)
+	}
+	content, err = os.ReadFile(filepath.Join(workDir, "dsh-proof.txt"))
+	if err != nil || string(content) != "dsh-real-first\ndsh-real-second\n" {
+		t.Fatalf("resumed DSH file evidence=%q err=%v", content, err)
+	}
+}
+
+func waitForRealDSHRun(t *testing.T, runtime *LocalProvider, runID string) RunSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Minute)
+	for {
+		snapshot, err := runtime.GetRun(context.Background(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Status != "running" {
+			return snapshot
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("real DSH run did not finish before the deadline")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func hasMatchedToolPair(events []ToolEvent) bool {
+	pairs := map[string]map[string]bool{}
+	for _, event := range events {
+		if strings.TrimSpace(event.CallID) == "" {
+			continue
+		}
+		if pairs[event.CallID] == nil {
+			pairs[event.CallID] = map[string]bool{}
+		}
+		pairs[event.CallID][event.Phase] = true
+	}
+	for _, phases := range pairs {
+		if phases["before"] && phases["after"] {
+			return true
+		}
+	}
+	return false
 }
 
 func TestExecuteDSHRuntimeFailsOnProtocolVersion(t *testing.T) {

@@ -8,9 +8,75 @@ const menuViews = [
   'executions', 'diffs', 'testing', 'repositories', 'agents', 'mcp',
   'skills', 'automations', 'integrations', 'artifacts', 'runners', 'cost', 'admin'
 ];
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   const errors = [];
   const requestHosts = new Set();
+  if (testInfo.title.includes('first-run workspace import')) {
+    await page.route('**/api/v1/workspaces/local/agents', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] })
+    }));
+  }
+  if (testInfo.title.includes('AI-assisted Agent creation')) {
+    await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [{ id: 'codex', name: 'OpenAI Codex', installed: true, adapter_available: true }] })
+    }));
+    await page.route('**/api/v1/runtimes/codex/models', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runtime_id: 'codex', models: [{ id: 'gpt-5', label: 'GPT-5', thinking: { supported_levels: [{ value: 'high', label: 'High' }] }, service_tiers: [{ id: 'fast', name: 'Fast' }] }] })
+    }));
+    await page.route('**/api/v1/runtimes/codex/skills', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runtime_id: 'codex', items: [
+        { key: 'release-review', name: 'Release review', description: 'Review release evidence', source_path: '~/.codex/skills/release-review', provider: 'codex', root: 'provider', can_disable: true },
+        { key: 'shared-plan', name: 'Shared plan', source_path: '~/.agents/skills/shared-plan', provider: 'codex', root: 'universal', can_disable: true }
+      ] })
+    }));
+    await page.route('**/api/v1/skills', route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [
+          { id: 'skill-release', name: 'Release checks', version: '1', status: 'active' },
+          { id: 'skill-disabled', name: 'Disabled checks', version: '1', status: 'disabled' }
+        ] })
+      });
+    });
+    await page.route('**/api/v1/mcp/servers', route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [
+          { id: 'mcp-release', name: 'Release tools', protocol: 'http', status: 'configured' },
+          { id: 'mcp-disabled', name: 'Disabled tools', protocol: 'http', status: 'disabled' }
+        ] })
+      });
+    });
+  }
+  if (testInfo.title.includes('OpenClaw gateway')) {
+    await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [{ id: 'openclaw', name: 'OpenClaw', installed: true, adapter_available: true }] })
+    }));
+    await page.route('**/api/v1/runtimes/openclaw/models', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runtime_id: 'openclaw', models: [] })
+    }));
+    await page.route('**/api/v1/runtimes/openclaw/skills', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ runtime_id: 'openclaw', items: [{ key: 'planning', name: 'Planning', source_path: '~/.openclaw/skills/planning', provider: 'openclaw', root: 'provider', can_disable: false }] })
+    }));
+  }
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
@@ -34,12 +100,59 @@ test.beforeEach(async ({ page }) => {
     await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('通用 Agent');
     await expect(page.locator('#closeAgentDialog')).toBeHidden();
     await expect(page.locator('#cancelAgentDialog')).toBeHidden();
-    await page.locator('#agentForm button[type="submit"]').click();
-    await expect(onboardingDialog).not.toBeVisible();
+    if (!testInfo.title.includes('first-run workspace import')) {
+      await page.locator('#agentForm button[type="submit"]').click();
+      await expect(onboardingDialog).not.toBeVisible();
+    }
   }
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;
   page.__adroRequestHosts = requestHosts;
+});
+
+test('first-run workspace import requires preflight and bypasses manual Agent creation', async ({ page }) => {
+  let preflightCalls = 0;
+  let importCalls = 0;
+  await page.route('**/api/v1/workspaces/local/migration/preflight?**', route => {
+    preflightCalls += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ valid: true, digest: '0123456789abcdef', counts: { agents: 1, requirements: 2 } })
+    });
+  });
+  await page.route('**/api/v1/workspaces/local/migration/import?**', route => {
+    importCalls += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ preflight: { valid: true }, artifacts_put: 0 })
+    });
+  });
+
+  const panel = page.locator('#agentForm [data-workspace-migration]');
+  await expect(panel).toBeVisible();
+  const importButton = panel.locator('[data-migration-import]');
+  await panel.locator('[data-migration-file]').setInputFiles({
+    name: 'workspace.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from('fixture bundle')
+  });
+  await expect(importButton).toBeDisabled();
+  await panel.locator('[data-migration-preflight]').click();
+  await expect(panel.locator('[data-migration-report]')).toContainText('0123456789ab');
+  await expect(importButton).toBeEnabled();
+
+  await panel.locator('[data-migration-conflict]').selectOption('skip');
+  await expect(importButton).toBeDisabled();
+  await panel.locator('[data-migration-preflight]').click();
+  await expect(importButton).toBeEnabled();
+  await importButton.click();
+
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(preflightCalls).toBe(2);
+  expect(importCalls).toBe(1);
+  expect(page.__adroErrors).toEqual([]);
 });
 
 test('opens every workbench menu and keeps the browser error-free', async ({ page }) => {
@@ -53,6 +166,146 @@ test('opens every workbench menu and keeps the browser error-free', async ({ pag
   await expect(page.locator('a[href^="http"]')).toHaveCount(0);
   expect([...page.__adroRequestHosts]).toEqual(['127.0.0.1']);
   expect(page.__adroErrors).toEqual([]);
+});
+
+test('AI-assisted Agent creation fills human controls and persists execution settings', async ({ page }) => {
+	await page.route('**/api/v1/workspaces/local/agents', route => {
+		if (route.request().method() !== 'POST') return route.continue();
+		return route.fulfill({status: 201, contentType: 'application/json', body: route.request().postData() || '{}'});
+	});
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      draft: {
+        name: 'Release reviewer',
+        description: 'Reviews release evidence before approval.',
+        role: 'reviewer',
+        instructions: 'Review evidence and return a clear decision.',
+        conversation_starters: [{ label: 'Review release', prompt: 'Review this release candidate.' }],
+        access_policy: { mode: 'workspace' },
+		skill_ids: ['skill-release'],
+		mcp_server_ids: ['mcp-release'],
+        network_access: false,
+        max_concurrent_tasks: 2,
+        token_budget: 60000,
+        tool_call_budget: 80
+      },
+      evidence: { run_id: 'builder-run', runtime_id: 'local', output_sha256: 'abc' }
+    })
+  }));
+
+  await page.locator('#agentBuilderPrompt').fill('Create a release reviewer');
+  await page.locator('#composeAgentDraft').click();
+  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Release reviewer');
+  await expect(page.locator('#agentForm textarea[name="description"]')).toHaveValue('Reviews release evidence before approval.');
+  await expect(page.locator('#agentForm select[name="access_mode"]')).toHaveValue('workspace');
+  await expect(page.locator('#agentForm input[name="starter_label_1"]')).toHaveValue('Review release');
+	await expect(page.locator('#agentForm input[name="agent_skill_ids"][value="skill-release"]')).toBeChecked();
+	await expect(page.locator('#agentForm input[name="agent_mcp_server_ids"][value="mcp-release"]')).toBeChecked();
+	await expect(page.locator('#agentForm input[name="agent_skill_ids"][value="skill-disabled"]')).toHaveCount(0);
+	await expect(page.locator('#agentForm input[name="agent_mcp_server_ids"][value="mcp-disabled"]')).toHaveCount(0);
+  await expect(page.locator('#agentBuilderStatus')).toContainText('草稿已生成');
+
+  await page.locator('#agentForm input[name="member"]').fill('agent-owner');
+  await page.locator('#agentForm select[name="access_mode"]').selectOption('members');
+  await expect(page.locator('#agentAccessMembersField')).toBeVisible();
+  await page.locator('#agentForm input[name="access_members"]').fill('member-a, member-b');
+  await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
+  await page.locator('#agentForm input[name="network"]').check();
+  await page.locator('#agentForm textarea[name="custom_args"]').fill('--ephemeral\n--quiet');
+  await expect(page.locator('[data-runtime-policy="codex"]')).toBeVisible();
+  await page.locator('#agentForm select[name="codex_sandbox"]').selectOption('workspace-write');
+  await page.locator('#agentForm select[name="codex_approval"]').selectOption('on-request');
+  await page.locator('#agentForm input[data-runtime-skill-index="0"]').uncheck();
+  await page.locator('#agentForm textarea[name="runtime_config"]').fill('feature_toggle=true');
+  await page.locator('#agentForm textarea[name="environment"]').fill('CI_TOKEN=env:ADRO_CI_TOKEN');
+
+  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
+  await page.locator('#agentForm button[type="submit"]').click();
+  const body = JSON.parse((await createRequest).postData());
+  expect(body.description).toBe('Reviews release evidence before approval.');
+  expect(body.access_policy).toEqual({ mode: 'members', member_ids: ['member-a', 'member-b'] });
+  expect(body.conversation_starters).toHaveLength(1);
+	expect(body.skill_ids).toEqual(['skill-release']);
+	expect(body.disabled_runtime_skills).toEqual([{ runtime_id: 'codex', provider: 'codex', root: 'provider', key: 'release-review', name: 'Release review', plugin: '' }]);
+	expect(body.mcp_server_ids).toEqual(['mcp-release']);
+  expect(body.concurrency_budget).toEqual({ tokens: 60000, tool_calls: 80, concurrent: 2 });
+  expect(body.tool_policy.network).toBe(true);
+  expect(body.executor_binding.custom_args).toEqual(['--ephemeral', '--quiet']);
+  expect(body.executor_binding.runtime_config).toEqual({ feature_toggle: 'true', sandbox_mode: 'workspace-write', approval_policy: 'on-request' });
+  expect(body.executor_binding.environment).toEqual([{ name: 'CI_TOKEN', secret_ref: 'env:ADRO_CI_TOKEN' }]);
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('OpenClaw gateway policy stores only a secret reference', async ({ page }) => {
+  await page.route('**/api/v1/workspaces/local/agents', route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    return route.fulfill({ status: 201, contentType: 'application/json', body: route.request().postData() || '{}' });
+  });
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await expect(page.locator('[data-runtime-policy="openclaw"]')).toBeVisible();
+  await expect(page.locator('#agentRuntimeSkillOptions input')).toBeDisabled();
+  await page.locator('#agentForm input[name="member"]').fill('gateway-owner');
+  await page.locator('#agentForm input[name="name"]').fill('Gateway agent');
+  await page.locator('#agentForm select[name="openclaw_mode"]').selectOption('gateway');
+  await page.locator('#agentForm input[name="openclaw_host"]').fill('gateway.internal');
+  await page.locator('#agentForm input[name="openclaw_port"]').fill('18789');
+  await page.locator('#agentForm input[name="openclaw_tls"]').check();
+  await page.locator('#agentForm input[name="openclaw_auth_env"]').fill('OPENCLAW_GATEWAY_TOKEN');
+  await page.locator('#agentForm input[name="openclaw_secret_env"]').fill('HOST_OPENCLAW_TOKEN');
+
+  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
+  await page.locator('#agentForm button[type="submit"]').click();
+  const request = await createRequest;
+  const body = JSON.parse(request.postData());
+  expect(body.executor_binding.runtime_config).toEqual({
+    mode: 'gateway',
+    'gateway.host': 'gateway.internal',
+    'gateway.port': '18789',
+    'gateway.tls': 'true',
+    'gateway.auth_env': 'OPENCLAW_GATEWAY_TOKEN'
+  });
+  expect(body.executor_binding.environment).toEqual([{ name: 'OPENCLAW_GATEWAY_TOKEN', secret_ref: 'env:HOST_OPENCLAW_TOKEN' }]);
+  expect(request.postData()).not.toContain('do-not-persist');
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('admin migration rejects invalid data then preflights and imports a verified export', async ({ page }) => {
+  const exported = await page.request.get('http://127.0.0.1:18080/api/v1/workspaces/local/migration/export', {
+    headers: { 'X-Workspace-ID': 'local' }
+  });
+  expect(exported.ok()).toBeTruthy();
+  const bundle = await exported.body();
+  expect(bundle.length).toBeGreaterThan(0);
+
+  await page.locator('.nav-item[data-view="admin"]').click();
+  const panel = page.locator('#appView [data-workspace-migration]');
+  const file = panel.locator('[data-migration-file]');
+  const importButton = panel.locator('[data-migration-import]');
+
+  await file.setInputFiles({ name: 'invalid.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip') });
+  await panel.locator('[data-migration-preflight]').click();
+  await expect(panel.locator('[data-migration-report]')).toHaveClass(/bad/);
+  await expect(importButton).toBeDisabled();
+
+  await file.setInputFiles({ name: 'workspace.zip', mimeType: 'application/zip', buffer: bundle });
+  await expect(importButton).toBeDisabled();
+  const preflightResponse = page.waitForResponse(response => response.url().includes('/migration/preflight?') && response.status() === 200);
+  await panel.locator('[data-migration-preflight]').click();
+  await preflightResponse;
+  await expect(panel.locator('[data-migration-report]')).toHaveClass(/good/);
+  await expect(importButton).toBeEnabled();
+
+  const importResponse = page.waitForResponse(response => response.url().includes('/migration/import?') && response.status() === 200);
+  await importButton.click();
+  await importResponse;
+  await expect(page.locator('#appView [data-workspace-migration]')).toBeVisible();
 });
 
 test('opens the durable project chat and sends a harness-backed message', async ({ page }) => {
@@ -204,8 +457,24 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
   await page.locator('#agentForm input[name="role"]').fill('developer');
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
-  await expect(page.locator('#appView')).toContainText('browser-agent-owner');
-  await expect(page.locator('#appView')).toContainText('pb-');
+  const row = page.locator('tr').filter({ hasText: 'Browser Delivery Agent' }).first();
+  await expect(row).toContainText('browser-agent-owner');
+  await expect(row).toContainText('r1');
+
+  await row.locator('[data-orchestration-action="edit"]').click();
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await expect(page.locator('#agentForm input[name="member"]')).toHaveValue('browser-agent-owner');
+  await page.locator('#agentForm textarea[name="description"]').fill('Owns browser delivery acceptance.');
+  await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
+  await page.locator('#agentForm textarea[name="runtime_config"]').fill('sandbox_mode=workspace-write');
+  await page.locator('#agentForm textarea[name="environment"]').fill('RELEASE_TOKEN=env:ADRO_RELEASE_TOKEN');
+  const patchRequest = page.waitForRequest(request => request.method() === 'PATCH' && new URL(request.url()).pathname.includes('/api/v1/workspaces/local/agents/'));
+  await page.locator('#agentForm button[type="submit"]').click();
+  const patch = JSON.parse((await patchRequest).postData());
+  expect(patch.created_by).toBeUndefined();
+  expect(patch.executor_binding.runtime_config).toEqual({ sandbox_mode: 'workspace-write' });
+  expect(patch.executor_binding.environment).toEqual([{ name: 'RELEASE_TOKEN', secret_ref: 'env:ADRO_RELEASE_TOKEN' }]);
+  await expect(page.locator('tr').filter({ hasText: 'Browser Delivery Agent' }).first()).toContainText('r2');
   expect(page.__adroErrors).toEqual([]);
 });
 
@@ -227,6 +496,11 @@ test('disables ineffective model settings for runtime-managed profiles', async (
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ models: [{ id: 'model-a', label: 'Model A' }] })
+  }));
+  await page.route('**/api/v1/runtimes/{qwenpaw,local}/skills', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ items: [] })
   }));
 
   await page.locator('.nav-item[data-view="agents"]').click();

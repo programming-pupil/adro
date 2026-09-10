@@ -56,7 +56,6 @@ ADRO 持久化；Git、CI、部署、身份和通知通过版本化 SPI 接入�
 环境要求：Go 1.24+、Git、curl，以及一个已安装并完成认证的代码客户端。
 
 ```bash
-ADRO_EXECUTOR="$(command -v codex)" \
 ADRO_ADMIN_PASSWORD='change-this-password' \
 ./start.sh --no-docker --no-open
 ```
@@ -64,13 +63,38 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 启动后访问 `http://127.0.0.1:8081`，API 就绪检查为
 `http://127.0.0.1:8080/readyz`。
 
+全新 profile 会自动进入不可跳过的首个 Agent 设置引导。工作台会发现所有已安装
+且有可用适配器的运行时，并允许管理员选择运行时、模型、推理等级、服务档位、
+运行参数、Skills、MCP、访问策略和执行预算；也可以先在同一引导中预检并导入
+已有工作区 ZIP，再决定是否手工创建 Agent。
+
 ```bash
 ./start.sh --status
 ./start.sh --stop
 ```
 
 可通过 `ADRO_HOME`、`ADRO_API_PORT`、`ADRO_WEB_PORT` 隔离状态目录和端口；
-`ADRO_EXECUTOR_COMMAND` 支持带 `{input}` 占位符的自定义 argv 命令。
+`ADRO_EXECUTOR` 可固定一个执行器，`ADRO_EXECUTOR_COMMAND` 支持带 `{input}`
+占位符的自定义 argv 命令。
+
+### 迁入已有工作区
+
+首次设置页可在创建第一个 Agent 前预检并导入 ADRO 工作区 ZIP。运维人员也可
+通过 CLI 直接转换兼容的 PostgreSQL 工作区：
+
+```bash
+go run ./cmd/adroctl workspace preflight-postgres \
+  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
+  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local
+
+go run ./cmd/adroctl workspace import-postgres \
+  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
+  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local --conflict rename
+```
+
+读取源库时使用只读 repeatable-read 快照；凭据、自定义环境变量、实时任务、
+队列、执行会话和本地路径不会迁入。ZIP 导入导出、冲突策略、附件与失败回滚
+详见[工作区迁移](docs/operations/workspace-migration.md)。
 
 ## 自检与真实流程
 
@@ -92,6 +116,7 @@ SPDX 许可证/SBOM 校验和 Playwright 浏览器矩阵。浏览器测试使用
 | [产品需求](docs/product-requirements.zh-CN.md) | 范围、角色、行为与验收标准 |
 | [技术方案](docs/architecture/adro-technical-design.zh-CN.md) | 运行时边界、持久化、安全与扩展契约 |
 | [生产部署](docs/architecture/production-deployment.md) | 本地参考实现之外必须配置的生产控制 |
+| [工作区迁移](docs/operations/workspace-migration.md) | 可移植导出、预检、导入、排除项与恢复 |
 | [兼容性](docs/compatibility.md) | 运行时、浏览器和适配器支持范围 |
 | [参与贡献](CONTRIBUTING.md) | 变更与评审要求 |
 | [安全策略](SECURITY.md) | 漏洞私密报告方式及威胁模型入口 |

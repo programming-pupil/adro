@@ -99,7 +99,7 @@ func main() {
 		localExecutor, executorErr = provider.NewPersistentLocalProvider(localExecutor.Executable, localExecutor.Args, workRoot, runStatePath, bus)
 	}
 	if executorErr != nil {
-		slog.Error("local executor discovery failed", "error", executorErr, "hint", "install claude or codex, or set ADRO_EXECUTOR")
+		slog.Error("local executor discovery failed", "error", executorErr, "hint", "install a supported local coding runtime, or set ADRO_EXECUTOR")
 		os.Exit(1)
 	}
 	var p provider.ExecutionProvider = localExecutor
