@@ -58,6 +58,9 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if !runtime.Installed || strings.TrimSpace(runtime.ExecutablePath) == "" {
 		return nil, fmt.Errorf("runtime %q is not installed", runtimeID)
 	}
+	if runtime.ModelSelectionUnsupported && (strings.TrimSpace(selection.Model) != "" || strings.TrimSpace(selection.ThinkingLevel) != "" || strings.TrimSpace(selection.ServiceTier) != "") {
+		return nil, fmt.Errorf("runtime %q manages its model in the runtime profile and does not support per-Agent model options", runtimeID)
+	}
 	if err := validateRuntimeCustomArgs(runtimeID, selection.CustomArgs); err != nil {
 		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
 	}

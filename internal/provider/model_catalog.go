@@ -74,6 +74,14 @@ func DiscoverRuntimeModels(ctx context.Context, runtimeID string) (RuntimeModelC
 		return fallbackCodeBuddyCatalog(), nil
 	case "qwen":
 		return RuntimeModelCatalog{RuntimeID: runtime.ID, Models: []RuntimeModel{}, Fallback: true}, nil
+	case "pi", "omp":
+		return discoverPiFamilyCatalog(ctx, runtime.ID, runtime.ExecutablePath), nil
+	case "dsh":
+		return discoverDSHRuntimeCatalog(ctx, runtime.ExecutablePath), nil
+	case "hermes", "kimi", "kiro", "qoder", "qoderclicn", "traecli", "grok", "reasonix", "dim":
+		return discoverACPRuntimeCatalog(ctx, runtime.ID, runtime.ExecutablePath), nil
+	case "qwenpaw", "mcode", "zeroclaw":
+		return RuntimeModelCatalog{RuntimeID: runtime.ID, Models: []RuntimeModel{}}, nil
 	default:
 		return RuntimeModelCatalog{RuntimeID: runtime.ID, Models: []RuntimeModel{}}, nil
 	}

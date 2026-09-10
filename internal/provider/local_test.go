@@ -610,6 +610,14 @@ func TestUsageFromOutputParsesClaudeResult(t *testing.T) {
 	}
 }
 
+func TestUsageFromOutputParsesJSONLAndCamelCase(t *testing.T) {
+	usage := usageFromOutput([]byte("{\"type\":\"update\",\"usage\":{\"inputTokens\":9,\"outputTokens\":2}}\n" +
+		"{\"type\":\"result\",\"usage\":{\"inputTokens\":9,\"outputTokens\":4,\"cachedReadTokens\":3}}\n"))
+	if usage.InputTokens != 9 || usage.OutputTokens != 4 || usage.CacheReadTokens != 3 {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
 func TestLocalProviderClaudeSessionArguments(t *testing.T) {
 	p := NewLocalProvider("claude", nil, t.TempDir(), newTestBus())
 	sessionID := "11111111-1111-4111-8111-111111111111"
@@ -1001,6 +1009,139 @@ func TestLocalProviderRunsAdditionalOneShotAdapters(t *testing.T) {
 				t.Fatalf("snapshot=%+v", snapshot)
 			}
 		})
+	}
+}
+
+func TestLocalProviderRunsAndResumesPiSession(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "pi")
+	argsLog := filepath.Join(root, "args.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + argsLog + `"
+prompt=$(cat)
+printf '{"type":"tool_execution_start","toolCallId":"call-1","toolName":"write","args":{"prompt":"%s"}}\n' "$prompt"
+printf '{"type":"tool_execution_end","toolCallId":"call-1","toolName":"write","result":"ok"}\n'
+printf '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"done"}}\n'
+printf '{"type":"turn_end","message":{"role":"assistant","model":"provider/model","usage":{"input":11,"output":5,"cacheRead":2}}}\n'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus()).
+		WithExecutionConfig("provider/model", "high", "", nil)
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "pi-run", Title: "pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := waitSnapshot(t, provider, first.ID)
+	if initial.Status != "completed" || initial.SessionContinuity != "proven" || !strings.HasSuffix(initial.SessionID, ".jsonl") {
+		t.Fatalf("initial snapshot=%+v", initial)
+	}
+	if initial.Usage.InputTokens != 11 || initial.Usage.OutputTokens != 5 || initial.Usage.CacheReadTokens != 2 {
+		t.Fatalf("usage=%+v", initial.Usage)
+	}
+	if len(initial.ToolEvents) != 2 || initial.ToolEvents[0].Phase != "before" || initial.ToolEvents[1].Phase != "after" {
+		t.Fatalf("tool events=%+v", initial.ToolEvents)
+	}
+	continued, err := provider.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: item.ID, Input: "second", ExpectedSessionID: initial.SessionID, ExpectedWorkDir: initial.WorkDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := waitSnapshot(t, provider, continued.ID)
+	if resumed.Status != "completed" || resumed.SessionID != initial.SessionID || resumed.SessionContinuity != "proven" {
+		t.Fatalf("resumed snapshot=%+v", resumed)
+	}
+	logged, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(logged), "--session "+initial.SessionID) != 2 || strings.Contains(string(logged), "first") || strings.Contains(string(logged), "second") {
+		t.Fatalf("args log=%q", logged)
+	}
+}
+
+func TestLocalProviderRunsAndResumesDSHSession(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "dsh")
+	requestLog := filepath.Join(root, "requests.jsonl")
+	argsLog := filepath.Join(root, "args.log")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "` + argsLog + `"
+IFS= read -r request
+printf '%s\n' "$request" >> "` + requestLog + `"
+request_id=$(printf '%s' "$request" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{"v":1,"type":"ready","runtime":"dsh","protocol_version":1}\n'
+printf '{"v":1,"type":"session","request_id":"%s","session_id":"dsh-native-session"}\n' "$request_id"
+printf '{"v":1,"type":"result","request_id":"%s","session_id":"dsh-native-session","status":"completed","output":"done"}\n' "$request_id"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus()).
+		WithExecutionConfig("provider/model", "high", "", nil)
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "dsh-run", Title: "dsh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := waitSnapshot(t, provider, first.ID)
+	if initial.Status != "completed" || initial.SessionID != "dsh-native-session" || initial.SessionContinuity != "proven" {
+		t.Fatalf("initial snapshot=%+v", initial)
+	}
+	continued, err := provider.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: item.ID, Input: "second", ExpectedSessionID: initial.SessionID, ExpectedWorkDir: initial.WorkDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := waitSnapshot(t, provider, continued.ID)
+	if resumed.Status != "completed" || resumed.SessionID != initial.SessionID || resumed.SessionContinuity != "proven" {
+		t.Fatalf("resumed snapshot=%+v", resumed)
+	}
+	requests, err := os.ReadFile(requestLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(requests), `"type":"execute"`) != 2 || !strings.Contains(string(requests), `"resume_session_id":"dsh-native-session"`) {
+		t.Fatalf("requests=%s", requests)
+	}
+	args, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(args), "--profile "+dshProfile+" --stdio") != 2 {
+		t.Fatalf("args=%q", args)
+	}
+}
+
+func TestPiRuntimeOutputFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "missing terminal", output: `{"type":"agent_start"}`, want: "terminal turn"},
+		{name: "turn error", output: `{"type":"turn_end","message":{"stopReason":"error","errorMessage":"quota exhausted"}}`, want: "quota exhausted"},
+		{name: "retry exhausted", output: `{"type":"auto_retry_end","success":false,"finalError":"network unavailable"}`, want: "network unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := piRuntimeOutputError([]byte(test.output), "pi"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+	if err := piRuntimeOutputError([]byte(`{"type":"turn_end","message":{"stopReason":"end_turn"}}`), "pi"); err != nil {
+		t.Fatal(err)
 	}
 }
 

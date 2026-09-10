@@ -506,9 +506,12 @@ func localExecutionContext(parent context.Context) (context.Context, context.Can
 func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sessionID string, resumed bool) {
 	started := time.Now()
 	baseline := gitRevision(workDir)
-	args := p.commandArgsAt(input, sessionID, resumed, workDir)
 	runtimeLogPath := ""
 	var runtimeSetupErr error
+	if kind := p.executorKind(); (kind == "pi" || kind == "omp") && len(p.Args) == 0 {
+		sessionID, runtimeSetupErr = p.piSessionPath(sessionID, resumed, kind)
+	}
+	args := p.commandArgsAt(input, sessionID, resumed, workDir)
 	if p.executorKind() == "agy" && len(p.Args) == 0 {
 		logFile, err := os.CreateTemp("", "adro-antigravity-"+runID+"-*.log")
 		if err != nil {
@@ -530,6 +533,43 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if pathErr == nil {
 		if p.executorKind() == "codex" && !codexExecMode(args) {
 			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier)
+		} else if p.executorKind() == "dsh" && len(p.Args) == 0 {
+			executorPID, output, runErr = executeDSHRuntime(
+				ctx, path, args, runID, input, workDir, sessionID, p.Model, p.ThinkingLevel, resumed,
+				func(int) {
+					p.mu.Lock()
+					if run := p.runs[runID]; run != nil {
+						close(run.started)
+					}
+					p.mu.Unlock()
+				},
+			)
+			if executorPID == 0 {
+				p.mu.Lock()
+				if run := p.runs[runID]; run != nil {
+					close(run.started)
+				}
+				p.mu.Unlock()
+			}
+		} else if isACPRuntime(p.executorKind()) && len(p.Args) == 0 {
+			executorPID, output, runErr = executeACPRuntime(
+				ctx, path, args, input, workDir, sessionID, resumed,
+				p.Model, p.ThinkingLevel, p.executorKind(), p.CustomArgs,
+				func(int) {
+					p.mu.Lock()
+					if run := p.runs[runID]; run != nil {
+						close(run.started)
+					}
+					p.mu.Unlock()
+				},
+			)
+			if executorPID == 0 {
+				p.mu.Lock()
+				if run := p.runs[runID]; run != nil {
+					close(run.started)
+				}
+				p.mu.Unlock()
+			}
 		} else {
 			cmd := exec.CommandContext(ctx, path, args...)
 			configureLocalCommand(cmd)
@@ -662,6 +702,10 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	}
 	if runErr == nil {
 		runErr = runtimeTerminalOutputError(output, p.executorKind())
+	}
+	if runErr == nil && (p.executorKind() == "pi" || p.executorKind() == "omp") {
+		terminal, _ := json.Marshal(map[string]any{"type": "result", "runtime": p.executorKind(), "session_id": sessionID})
+		output = append(output, append(terminal, '\n')...)
 	}
 	status := "completed"
 	if runErr != nil {
@@ -812,7 +856,7 @@ func traceEnvironment(base, carrier []string) []string {
 // without trusting free-form model text. Unknown records are ignored. The
 // resulting sequence is stable and can be replayed into harness checkpoints.
 func extractToolEvents(output []byte, kind string) []ToolEvent {
-	if kind != "codex" && kind != "claude" {
+	if kind != "codex" && kind != "claude" && kind != "pi" && kind != "omp" && kind != "dsh" && !isACPRuntime(kind) {
 		return nil
 	}
 	events := make([]ToolEvent, 0)
@@ -860,25 +904,40 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 		item = value
 	}
 	itemType, _ := item["type"].(string)
+	updateType := firstString(item, "sessionUpdate", "session_update")
 	callID := firstString(item, "call_id", "tool_call_id", "id")
-	name := firstString(item, "name", "tool_name")
+	if callID == "" {
+		callID = firstString(item, "toolCallId")
+	}
+	name := firstString(item, "name", "tool_name", "toolName")
+	if name == "" {
+		name = firstString(item, "title")
+	}
 	if name == "" {
 		name = itemType
 	}
 	phase := ""
-	lower := strings.ToLower(typ + " " + method + " " + itemType)
+	lower := strings.ToLower(typ + " " + method + " " + itemType + " " + updateType)
 	switch {
+	case updateType == "tool_call_update" && strings.Contains(strings.ToLower(firstString(item, "status")), "complete"):
+		phase = "after"
+	case strings.Contains(lower, "tool") && strings.Contains(lower, "_end"):
+		phase = "after"
 	case strings.Contains(lower, "completed") || strings.Contains(lower, "complete") || strings.Contains(lower, "tool_result") || strings.Contains(lower, "result"):
+		phase = "after"
+	case updateType == "tool_call" || typ == "tool_call":
+		phase = "before"
+	case typ == "tool_result":
 		phase = "after"
 	case strings.Contains(lower, "started") || strings.Contains(lower, "start") || strings.Contains(lower, "tool_use") || strings.Contains(lower, "function_call"):
 		phase = "before"
 	}
 	if callID != "" && phase != "" && (strings.Contains(lower, "tool") || strings.Contains(lower, "function") || itemType == "command_execution" || itemType == "commandExecution" || itemType == "fileChange" || itemType == "mcpToolCall") {
-		payload := firstString(item, "arguments", "input", "output", "aggregated_output", "content")
+		payload := firstString(item, "arguments", "args", "input", "rawInput", "raw_input", "output", "aggregated_output", "content", "result")
 		*sequence++
 		*events = append(*events, ToolEvent{CallID: callID, Name: name, Phase: phase, Payload: payload, Sequence: *sequence})
 	}
-	for _, key := range []string{"params", "tool", "content_block", "data"} {
+	for _, key := range []string{"params", "update", "tool", "content_block", "data"} {
 		if child := value[key]; child != nil {
 			collectToolValue(child, events, sequence)
 		}
@@ -1019,7 +1078,21 @@ func (p *LocalProvider) commandArgsAt(input, sessionID string, resumed bool, wor
 		}
 		args = append(args, "--yolo")
 		return append(args, p.CustomArgs...)
+	case "pi", "omp":
+		args := []string{"-p", "--mode", "json", "--session", sessionID}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--thinking", p.ThinkingLevel)
+		}
+		return append(args, piForwardedCustomArgs(p.CustomArgs)...)
+	case "dsh":
+		return dshLaunchArgs(p.CustomArgs)
 	default:
+		if isACPRuntime(name) {
+			return acpRuntimeLaunchArgs(name, p.ThinkingLevel, p.CustomArgs)
+		}
 		return append(append([]string(nil), p.CustomArgs...), input)
 	}
 }
@@ -1234,7 +1307,7 @@ func providerSessionID(output []byte, kind string) string {
 		}
 		var candidate string
 		switch kind {
-		case "cursor-agent", "codebuddy", "qwen":
+		case "cursor-agent", "codebuddy", "qwen", "pi", "omp", "dsh":
 			candidate, _ = event["session_id"].(string)
 		case "copilot", "openclaw":
 			candidate, _ = event["sessionId"].(string)
@@ -1248,6 +1321,13 @@ func providerSessionID(output []byte, kind string) string {
 			if candidate == "" {
 				if part, ok := event["part"].(map[string]any); ok {
 					candidate, _ = part["sessionID"].(string)
+				}
+			}
+		default:
+			if isACPRuntime(kind) {
+				candidate, _ = event["session_id"].(string)
+				if candidate == "" {
+					candidate, _ = event["sessionId"].(string)
 				}
 			}
 		}
@@ -1381,6 +1461,43 @@ func (p *LocalProvider) workDir(workItemID, sessionID string) (string, error) {
 		key = domain.NewID()
 	}
 	return filepath.Join(p.WorkRoot, workItemID, key), nil
+}
+
+func (p *LocalProvider) piSessionPath(sessionID string, resumed bool, kind string) (string, error) {
+	root, err := filepath.Abs(filepath.Join(p.WorkRoot, ".sessions", kind))
+	if err != nil {
+		return "", fmt.Errorf("resolve %s session root: %w", kind, err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", fmt.Errorf("create %s session root: %w", kind, err)
+	}
+	if resumed {
+		candidate, err := filepath.Abs(filepath.Clean(sessionID))
+		if err != nil {
+			return "", fmt.Errorf("resolve %s session: %w", kind, err)
+		}
+		relative, err := filepath.Rel(root, candidate)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("%s session is outside the managed session root", kind)
+		}
+		info, err := os.Stat(candidate)
+		if err != nil {
+			return "", fmt.Errorf("load %s session: %w", kind, err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("%s session is not a regular file", kind)
+		}
+		return candidate, nil
+	}
+	path := filepath.Join(root, sha256Hex(sessionID)+".jsonl")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create %s session: %w", kind, err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close %s session: %w", kind, err)
+	}
+	return path, nil
 }
 
 func (p *LocalProvider) executablePath() (string, error) {
@@ -2075,36 +2192,85 @@ func truncateOutput(value []byte) string {
 	return string(value)
 }
 
-// usageFromOutput extracts the stable usage fields emitted by non-interactive
-// coding CLIs. Unknown output formats deliberately produce an empty usage
-// record; the process result remains valid and the duration is still captured.
+// usageFromOutput extracts usage from either a single JSON result or a JSONL
+// protocol transcript. Providers commonly repeat cumulative usage in several
+// events, so each field keeps the greatest observed value instead of summing
+// duplicates.
 func usageFromOutput(output []byte) Usage {
-	var result struct {
-		Usage struct {
-			InputTokens               int64 `json:"input_tokens"`
-			OutputTokens              int64 `json:"output_tokens"`
-			CacheReadTokens           int64 `json:"cache_read_input_tokens"`
-			CacheWriteTokens          int64 `json:"cache_creation_input_tokens"`
-			CacheReadTokensAlternate  int64 `json:"cache_read_tokens"`
-			CacheWriteTokensAlternate int64 `json:"cache_write_tokens"`
-		} `json:"usage"`
-		TotalCostUSD float64 `json:"total_cost_usd"`
-		CostUSD      float64 `json:"cost_usd"`
+	result := Usage{}
+	collect := func(raw []byte) bool {
+		var value any
+		if json.Unmarshal(bytes.TrimSpace(raw), &value) != nil {
+			return false
+		}
+		collectUsageValue(value, &result)
+		return true
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(output), &result); err != nil {
-		return Usage{}
+	if collect(output) {
+		return result
 	}
-	cacheRead := result.Usage.CacheReadTokens
-	if cacheRead == 0 {
-		cacheRead = result.Usage.CacheReadTokensAlternate
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 8<<20)
+	for scanner.Scan() {
+		collect(scanner.Bytes())
 	}
-	cacheWrite := result.Usage.CacheWriteTokens
-	if cacheWrite == 0 {
-		cacheWrite = result.Usage.CacheWriteTokensAlternate
+	return result
+}
+
+func collectUsageValue(value any, result *Usage) {
+	switch item := value.(type) {
+	case map[string]any:
+		result.InputTokens = maxInt64(result.InputTokens, numberField(item, "input_tokens", "inputTokens", "input"))
+		result.OutputTokens = maxInt64(result.OutputTokens, numberField(item, "output_tokens", "outputTokens", "output"))
+		result.CacheReadTokens = maxInt64(result.CacheReadTokens, numberField(item, "cache_read_input_tokens", "cache_read_tokens", "cacheReadTokens", "cachedReadTokens", "cachedInputTokens", "cacheRead"))
+		result.CacheWriteTokens = maxInt64(result.CacheWriteTokens, numberField(item, "cache_creation_input_tokens", "cache_write_tokens", "cacheWriteTokens", "cachedWriteTokens", "cacheWrite"))
+		result.EstimatedCost = maxFloat64(result.EstimatedCost, floatField(item, "total_cost_usd", "cost_usd", "costUsd"))
+		for _, child := range item {
+			collectUsageValue(child, result)
+		}
+	case []any:
+		for _, child := range item {
+			collectUsageValue(child, result)
+		}
 	}
-	cost := result.TotalCostUSD
-	if cost == 0 {
-		cost = result.CostUSD
+}
+
+func numberField(value map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		switch number := value[key].(type) {
+		case float64:
+			return int64(number)
+		case json.Number:
+			result, _ := number.Int64()
+			return result
+		}
 	}
-	return Usage{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite, EstimatedCost: cost}
+	return 0
+}
+
+func floatField(value map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		switch number := value[key].(type) {
+		case float64:
+			return number
+		case json.Number:
+			result, _ := number.Float64()
+			return result
+		}
+	}
+	return 0
+}
+
+func maxInt64(left, right int64) int64 {
+	if right > left {
+		return right
+	}
+	return left
+}
+
+func maxFloat64(left, right float64) float64 {
+	if right > left {
+		return right
+	}
+	return left
 }

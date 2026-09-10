@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,5 +84,59 @@ func TestAdditionalRuntimeModelParsers(t *testing.T) {
 	}
 	if !fallbackCopilotCatalog().Fallback || !fallbackCodeBuddyCatalog().Fallback {
 		t.Fatal("static catalogs must be non-authoritative")
+	}
+}
+
+func TestParseACPRuntimeModelsAndThinking(t *testing.T) {
+	models := parseACPRuntimeModels(json.RawMessage(`{
+		"models":{"currentModelId":"model-b","availableModels":[
+			{"modelId":"model-a","name":"Model A"},{"modelId":"model-b","name":"Model B"}
+		]},
+		"configOptions":[{"id":"reasoning_effort","category":"thought","currentValue":"high","options":[
+			{"value":"high","name":"Deep"},{"value":"low","name":"Fast"}
+		]}]
+	}`))
+	if len(models) != 2 || models[0].ID != "model-a" || !models[1].Default {
+		t.Fatalf("models=%+v", models)
+	}
+	if models[0].Thinking == nil || models[0].Thinking.DefaultLevel != "high" || len(models[0].Thinking.SupportedLevels) != 2 || models[0].Thinking.SupportedLevels[0].Value != "low" {
+		t.Fatalf("thinking=%+v", models[0].Thinking)
+	}
+}
+
+func TestParsePiFamilyModels(t *testing.T) {
+	pi := parsePiTableModels([]byte("Provider Model Context\nanthropic claude-sonnet 200k\nopenai:gpt-5 128k\nWarning: No models match pattern x\n"))
+	if len(pi) != 2 || pi[0].ID != "anthropic/claude-sonnet" || pi[1].ID != "openai/gpt-5" {
+		t.Fatalf("pi models=%+v", pi)
+	}
+	omp := parseOMPModels([]byte(`{"models":[{"provider":"anthropic","id":"claude-sonnet","selector":"anthropic/claude-sonnet","name":"Sonnet"}]}`))
+	if len(omp) != 1 || omp[0].ID != "anthropic/claude-sonnet" || omp[0].Label != "Sonnet" {
+		t.Fatalf("omp models=%+v", omp)
+	}
+}
+
+func TestDiscoverDSHRuntimeModels(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dsh")
+	argsPath := filepath.Join(dir, "args.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nprintf '%s\\n' '{\"v\":1,\"type\":\"models\",\"models\":[{\"id\":\"model-a\",\"provider\":\"provider\",\"label\":\"Model A\",\"default\":true}]}'\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("ADRO_EXECUTOR", "")
+	catalog, err := DiscoverRuntimeModels(context.Background(), "dsh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !catalog.Dynamic || catalog.Fallback || len(catalog.Models) != 1 || catalog.Models[0].ID != "provider/model-a" {
+		t.Fatalf("catalog=%+v", catalog)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "--profile "+dshProfile+" --list-models\n" {
+		t.Fatalf("args=%q", args)
 	}
 }

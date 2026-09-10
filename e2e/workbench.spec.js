@@ -209,6 +209,42 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('disables ineffective model settings for runtime-managed profiles', async ({ page }) => {
+  let unsupportedCatalogRequests = 0;
+  await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ items: [
+      { id: 'qwenpaw', name: 'QwenPaw', installed: true, adapter_available: true, model_selection_unsupported: true },
+      { id: 'local', name: 'Local test runtime', installed: true, adapter_available: true }
+    ] })
+  }));
+  await page.route('**/api/v1/runtimes/qwenpaw/models', route => {
+    unsupportedCatalogRequests += 1;
+    return route.fulfill({ status: 500, body: 'must not be requested' });
+  });
+  await page.route('**/api/v1/runtimes/local/models', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ models: [{ id: 'model-a', label: 'Model A' }] })
+  }));
+
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await expect(page.locator('#agentRuntime')).toHaveValue('qwenpaw');
+  await expect(page.locator('#agentModel')).toBeDisabled();
+  await expect(page.locator('#agentThinking')).toBeDisabled();
+  await expect(page.locator('#agentServiceTier')).toBeDisabled();
+  expect(unsupportedCatalogRequests).toBe(0);
+
+  await page.locator('#agentRuntime').selectOption('local');
+  await expect(page.locator('#agentModel')).toBeEnabled();
+  await expect(page.locator('#agentThinking')).toBeEnabled();
+  await expect(page.locator('#agentServiceTier')).toBeEnabled();
+  await expect(page.locator('#agentModelOptions option')).toHaveCount(1);
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('creates and operates native Agent, Squad, and immutable Plan records', async ({ page }) => {
   const runSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const repositoryName = `native-orchestration-service-${runSuffix}`;

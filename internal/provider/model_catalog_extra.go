@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -190,6 +191,82 @@ func discoverOpenClawCatalog(ctx context.Context, path string) RuntimeModelCatal
 	return RuntimeModelCatalog{RuntimeID: "openclaw", Models: []RuntimeModel{}, Fallback: true}
 }
 
+func discoverPiFamilyCatalog(ctx context.Context, runtimeID, path string) RuntimeModelCatalog {
+	var output []byte
+	if runtimeID == "omp" {
+		output = runModelCommand(ctx, path, "models", "--json")
+		models := parseOMPModels(output)
+		return RuntimeModelCatalog{RuntimeID: runtimeID, Models: models, Dynamic: len(models) > 0, Fallback: len(models) == 0}
+	}
+	output = runModelCommand(ctx, path, "--list-models")
+	models := parsePiTableModels(output)
+	return RuntimeModelCatalog{RuntimeID: runtimeID, Models: models, Dynamic: len(models) > 0, Fallback: len(models) == 0}
+}
+
+func parsePiTableModels(output []byte) []RuntimeModel {
+	models := []RuntimeModel{}
+	seen := map[string]bool{}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		lower := strings.ToLower(line)
+		if line == "" || strings.HasPrefix(lower, "provider") || strings.HasPrefix(lower, "warning:") || strings.HasPrefix(lower, "error:") || strings.HasPrefix(lower, "info:") || strings.Contains(lower, "no models match") || strings.Contains(lower, "unknown flag") || strings.Contains(lower, "unknown command") || strings.Contains(lower, "usage:") || strings.Contains(lower, "--help") || strings.Contains(line, "`") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		id := ""
+		if strings.ContainsAny(fields[0], ":/") {
+			id = strings.Replace(fields[0], ":", "/", 1)
+		} else if len(fields) >= 2 {
+			id = fields[0] + "/" + fields[1]
+		}
+		if slash := strings.Index(id, "/"); slash <= 0 || slash == len(id)-1 || !safeCatalogValue(id) || seen[id] {
+			continue
+		}
+		seen[id] = true
+		models = append(models, RuntimeModel{ID: id, Label: id})
+	}
+	return models
+}
+
+func parseOMPModels(output []byte) []RuntimeModel {
+	var result struct {
+		Models []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+			Selector string `json:"selector"`
+			Name     string `json:"name"`
+		} `json:"models"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(output), &result) != nil {
+		return nil
+	}
+	models := []RuntimeModel{}
+	seen := map[string]bool{}
+	for _, item := range result.Models {
+		id := strings.TrimSpace(item.Selector)
+		if id == "" && strings.TrimSpace(item.Provider) != "" && strings.TrimSpace(item.ID) != "" {
+			id = strings.TrimSpace(item.Provider) + "/" + strings.TrimSpace(item.ID)
+		}
+		if id == "" {
+			id = strings.TrimSpace(item.ID)
+		}
+		if !safeCatalogValue(id) || seen[id] {
+			continue
+		}
+		label := strings.TrimSpace(item.Name)
+		if label == "" {
+			label = id
+		}
+		seen[id] = true
+		models = append(models, RuntimeModel{ID: id, Label: label})
+	}
+	return models
+}
+
 func parseOpenClawModels(output []byte) ([]RuntimeModel, bool) {
 	type entry struct {
 		ID    string `json:"id"`
@@ -256,6 +333,241 @@ func fallbackCodeBuddyCatalog() RuntimeModelCatalog {
 		models[index].Thinking = &RuntimeThinking{SupportedLevels: levels}
 	}
 	return RuntimeModelCatalog{RuntimeID: "codebuddy", Models: models, Fallback: true}
+}
+
+func discoverACPRuntimeCatalog(parent context.Context, runtimeID, path string) RuntimeModelCatalog {
+	fallback := RuntimeModelCatalog{RuntimeID: runtimeID, Models: []RuntimeModel{}, Fallback: true}
+	kind := runtimeID
+	switch runtimeID {
+	case "kiro":
+		kind = "kiro-cli"
+	case "qoder":
+		kind = "qodercli"
+	}
+	spec, ok := acpRuntimeSpecs[kind]
+	if !ok || !spec.SetModel {
+		fallback.Fallback = false
+		return fallback
+	}
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	workDir, err := os.MkdirTemp("", "adro-acp-models-")
+	if err != nil {
+		return fallback
+	}
+	defer os.RemoveAll(workDir)
+	process, err := startACPRuntimeProcess(ctx, path, acpRuntimeLaunchArgs(kind, "", nil), workDir, kind, nil)
+	if err != nil {
+		return fallback
+	}
+	defer process.close()
+	initialize, err := process.client.request(ctx, "initialize", map[string]any{
+		"protocolVersion":    1,
+		"clientInfo":         map[string]any{"name": "adro-model-discovery", "version": "1"},
+		"clientCapabilities": map[string]any{},
+	})
+	if err != nil {
+		return fallback
+	}
+	if spec.Authenticate {
+		method, err := selectACPAuthMethod(initialize, strings.TrimSpace(os.Getenv("XAI_API_KEY")) != "")
+		if err != nil {
+			return fallbackGrokCatalog(runtimeID)
+		}
+		if _, err := process.client.request(ctx, "authenticate", map[string]any{"methodId": method, "_meta": map[string]any{"headless": true}}); err != nil {
+			return fallbackGrokCatalog(runtimeID)
+		}
+	}
+	session, err := process.client.request(ctx, "session/new", map[string]any{"cwd": workDir, "mcpServers": []any{}})
+	if err != nil {
+		return fallbackGrokCatalog(runtimeID)
+	}
+	models := parseACPRuntimeModels(session)
+	if len(models) == 0 {
+		return fallbackGrokCatalog(runtimeID)
+	}
+	return RuntimeModelCatalog{RuntimeID: runtimeID, Models: models, Dynamic: true}
+}
+
+func fallbackGrokCatalog(runtimeID string) RuntimeModelCatalog {
+	if runtimeID != "grok" {
+		return RuntimeModelCatalog{RuntimeID: runtimeID, Models: []RuntimeModel{}, Fallback: true}
+	}
+	levels := []RuntimeLevel{{Value: "low", Label: "Low"}, {Value: "medium", Label: "Medium"}, {Value: "high", Label: "High"}, {Value: "xhigh", Label: "Extra high"}}
+	models := []RuntimeModel{
+		{ID: "grok-4.6", Label: "Grok 4.6", Default: true},
+		{ID: "grok-4.5", Label: "Grok 4.5"},
+		{ID: "grok-composer-2.5-fast", Label: "Grok Composer 2.5 Fast"},
+	}
+	for index := range models {
+		models[index].Thinking = &RuntimeThinking{SupportedLevels: levels}
+	}
+	return RuntimeModelCatalog{RuntimeID: runtimeID, Models: models, Fallback: true}
+}
+
+func parseACPRuntimeModels(raw json.RawMessage) []RuntimeModel {
+	var root any
+	if json.Unmarshal(raw, &root) != nil {
+		return nil
+	}
+	current := nestedString(root, "currentModelId", "current_model_id")
+	entries := findACPModelEntries(root)
+	models := make([]RuntimeModel, 0, len(entries))
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		id := directString(entry, "modelId", "model_id", "id", "value")
+		if !safeCatalogValue(id) || seen[id] {
+			continue
+		}
+		label := directString(entry, "name", "label", "title")
+		if label == "" {
+			label = id
+		}
+		seen[id] = true
+		models = append(models, RuntimeModel{ID: id, Label: label, Default: id == current})
+	}
+	levels, defaultLevel := parseACPThinkingLevels(root)
+	if len(levels) > 0 {
+		for index := range models {
+			models[index].Thinking = &RuntimeThinking{DefaultLevel: defaultLevel, SupportedLevels: append([]RuntimeLevel(nil), levels...)}
+		}
+	}
+	return models
+}
+
+func findACPModelEntries(value any) []map[string]any {
+	entries := []map[string]any{}
+	var walk func(any)
+	walk = func(raw any) {
+		switch item := raw.(type) {
+		case map[string]any:
+			for key, child := range item {
+				lower := strings.ToLower(strings.ReplaceAll(key, "_", ""))
+				if lower == "availablemodels" {
+					if list, ok := child.([]any); ok {
+						for _, candidate := range list {
+							if entry, ok := candidate.(map[string]any); ok {
+								entries = append(entries, entry)
+							}
+						}
+					}
+					continue
+				}
+				walk(child)
+			}
+		case []any:
+			for _, child := range item {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	if len(entries) > 0 {
+		return entries
+	}
+	return findACPModelConfigChoices(value)
+}
+
+func findACPModelConfigChoices(value any) []map[string]any {
+	entries := []map[string]any{}
+	var walk func(any)
+	walk = func(raw any) {
+		switch item := raw.(type) {
+		case map[string]any:
+			id := strings.ToLower(directString(item, "id", "configId", "config_id"))
+			category := strings.ToLower(directString(item, "category", "name", "label"))
+			if strings.Contains(id, "model") || category == "model" || category == "models" {
+				for _, key := range []string{"options", "choices"} {
+					if list, ok := item[key].([]any); ok {
+						for _, child := range list {
+							if entry, ok := child.(map[string]any); ok {
+								entries = append(entries, entry)
+							}
+						}
+					}
+				}
+			}
+			for _, child := range item {
+				walk(child)
+			}
+		case []any:
+			for _, child := range item {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return entries
+}
+
+func parseACPThinkingLevels(value any) ([]RuntimeLevel, string) {
+	type choice struct {
+		value string
+		label string
+	}
+	choices := []choice{}
+	defaultLevel := ""
+	var walk func(any)
+	walk = func(raw any) {
+		switch item := raw.(type) {
+		case map[string]any:
+			id := strings.ToLower(directString(item, "id", "configId", "config_id"))
+			category := strings.ToLower(directString(item, "category", "name"))
+			isThinking := strings.Contains(id, "think") || strings.Contains(id, "thought") || strings.Contains(id, "reason") || strings.Contains(id, "effort") || strings.Contains(category, "think") || strings.Contains(category, "reason")
+			if isThinking {
+				defaultLevel = directString(item, "currentValue", "current_value", "defaultValue", "default_value")
+				for _, key := range []string{"options", "choices"} {
+					if list, ok := item[key].([]any); ok {
+						for _, rawChoice := range list {
+							entry, ok := rawChoice.(map[string]any)
+							if !ok {
+								continue
+							}
+							value := directString(entry, "value", "id")
+							if value != "" {
+								label := directString(entry, "name", "label", "title")
+								choices = append(choices, choice{value: value, label: label})
+							}
+						}
+					}
+				}
+				return
+			}
+			for _, child := range item {
+				walk(child)
+			}
+		case []any:
+			for _, child := range item {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	levels := make([]RuntimeLevel, 0, len(choices))
+	seen := map[string]bool{}
+	for _, item := range choices {
+		if seen[item.value] || !safeCatalogValue(item.value) {
+			continue
+		}
+		seen[item.value] = true
+		label := item.label
+		if label == "" {
+			label = levelLabel(item.value)
+		}
+		levels = append(levels, RuntimeLevel{Value: item.value, Label: label})
+	}
+	sort.SliceStable(levels, func(i, j int) bool {
+		left, leftKnown := runtimeThinkingOrder[levels[i].Value]
+		right, rightKnown := runtimeThinkingOrder[levels[j].Value]
+		if leftKnown != rightKnown {
+			return leftKnown
+		}
+		if leftKnown {
+			return left < right
+		}
+		return levels[i].Value < levels[j].Value
+	})
+	return levels, defaultLevel
 }
 
 func safeCatalogID(value string) bool {

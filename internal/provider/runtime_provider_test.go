@@ -98,6 +98,9 @@ func TestRuntimeAdapterCommandContracts(t *testing.T) {
 		{name: "agy", want: []string{"-p", "task", "--dangerously-skip-permissions", "--print-timeout", "30m", "--model", "chosen", "--conversation", session, "--add-dir", "/work"}, promptArg: true},
 		{name: "codebuddy", want: []string{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--permission-mode", "bypassPermissions", "--model", "chosen", "--effort", "high", "--resume", session}},
 		{name: "qwen", want: []string{"--output-format", "stream-json", "--model", "chosen", "--resume", session, "--yolo"}, stdinValue: "task"},
+		{name: "pi", want: []string{"-p", "--mode", "json", "--session", session, "--model", "chosen", "--thinking", "high"}, stdinValue: "task"},
+		{name: "omp", want: []string{"-p", "--mode", "json", "--session", session, "--model", "chosen", "--thinking", "high"}, stdinValue: "task"},
+		{name: "dsh", want: []string{"--profile", "adro", "--stdio"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -131,6 +134,8 @@ func TestRuntimeAdapterRejectsProtocolOverrides(t *testing.T) {
 		"cursor": "--output-format", "copilot": "--allow-all=false", "opencode": "--dir=/tmp",
 		"deveco": "--variant", "openclaw": "--message=other", "antigravity": "--log-file",
 		"codebuddy": "--input-format=json", "qwen": "--approval-mode=default",
+		"pi": "--session=/tmp/other", "omp": "--thinking=off",
+		"dsh": "--profile=other",
 	} {
 		if err := validateRuntimeCustomArgs(runtimeID, []string{arg}); err == nil {
 			t.Fatalf("%s accepted managed argument %q", runtimeID, arg)
@@ -165,5 +170,14 @@ func TestValidateRuntimeSelectionDistinguishesAuthoritativeCatalogs(t *testing.T
 	}
 	if err := validateRuntimeSelection(RuntimeModelCatalog{Models: []RuntimeModel{model}}, RuntimeSelection{Model: "known", ThinkingLevel: "high", ServiceTier: "fast"}); err != nil {
 		t.Fatalf("advertised options rejected: %v", err)
+	}
+}
+
+func TestRuntimeDescriptorsExposeModelSelectionLimits(t *testing.T) {
+	unsupported := map[string]bool{"qwenpaw": true, "mcode": true, "zeroclaw": true}
+	for _, descriptor := range RuntimeRegistry {
+		if descriptor.ModelSelectionUnsupported != unsupported[descriptor.ID] {
+			t.Errorf("runtime %s model_selection_unsupported=%v", descriptor.ID, descriptor.ModelSelectionUnsupported)
+		}
 	}
 }
