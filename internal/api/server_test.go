@@ -1004,6 +1004,29 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 	}
 }
 
+func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime discovery status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Items []provider.DiscoveredRuntime `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != len(provider.RuntimeRegistry) {
+		t.Fatalf("runtime discovery returned %d entries, want %d", len(body.Items), len(provider.RuntimeRegistry))
+	}
+	for _, item := range body.Items {
+		if item.Installed || item.ExecutablePath != "" {
+			t.Fatalf("empty PATH reported installed runtime: %+v", item)
+		}
+	}
+}
+
 func TestUnknownAuthModeFailsClosed(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "requred")
 	s := testServer(t)

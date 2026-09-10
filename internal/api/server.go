@@ -471,6 +471,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.providerDiagnostics(w, r)
 	case path == "/api/v1/system/diagnostics" && r.Method == http.MethodGet:
 		s.systemDiagnostics(w, r)
+	case path == "/api/v1/runtimes/discovered" && r.Method == http.MethodGet:
+		s.writeJSON(w, http.StatusOK, map[string]any{"items": provider.DiscoverLocalRuntimes()})
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {
