@@ -41,23 +41,24 @@ import (
 )
 
 type Server struct {
-	Store         *store.Memory
-	Provider      provider.ExecutionProvider
-	Artifacts     artifact.Store
-	Events        *events.Bus
-	Runners       *runner.Supervisor
-	Audit         *audit.Ledger
-	Harness       *harness.Store
-	Plugins       *plugins.Registry
-	Logger        *slog.Logger
-	Router        *provider.AgentRouteResolver
-	Auth          *adroauth.Service
-	Orchestration orchestration.ControlRepository
-	Memory        *memory.Repository
-	Tracer        telemetry.Tracer
-	uploadMu      sync.Mutex
-	materializeMu sync.Mutex
-	idempotencyMu sync.Mutex
+	Store            *store.Memory
+	Provider         provider.ExecutionProvider
+	RuntimeProviders *provider.RuntimeProviderPool
+	Artifacts        artifact.Store
+	Events           *events.Bus
+	Runners          *runner.Supervisor
+	Audit            *audit.Ledger
+	Harness          *harness.Store
+	Plugins          *plugins.Registry
+	Logger           *slog.Logger
+	Router           *provider.AgentRouteResolver
+	Auth             *adroauth.Service
+	Orchestration    orchestration.ControlRepository
+	Memory           *memory.Repository
+	Tracer           telemetry.Tracer
+	uploadMu         sync.Mutex
+	materializeMu    sync.Mutex
+	idempotencyMu    sync.Mutex
 	// legacyGraphMu serializes the compatibility adapter's read/reduce/commit
 	// sequence. The pipeline store has compare-and-swap versions, while the
 	// graph projection is loaded and committed through separate repository
@@ -219,7 +220,8 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 			}
 		}
 	}
-	return &Server{Store: s, Provider: p, Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
+	workRoot := os.Getenv("ADRO_WORK_ROOT")
+	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,

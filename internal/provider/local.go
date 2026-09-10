@@ -98,11 +98,15 @@ type localState struct {
 }
 
 type LocalProvider struct {
-	Executable string
-	Args       []string
-	WorkRoot   string
-	Bus        *events.Bus
-	StatePath  string
+	Executable    string
+	Args          []string
+	Model         string
+	ThinkingLevel string
+	ServiceTier   string
+	CustomArgs    []string
+	WorkRoot      string
+	Bus           *events.Bus
+	StatePath     string
 
 	mu       sync.RWMutex
 	startMu  sync.Mutex
@@ -115,6 +119,16 @@ type LocalProvider struct {
 	revision int64
 	runtime  *runtimekernel.Journal
 	closed   bool
+}
+
+// WithExecutionConfig returns the provider with immutable per-Agent launch
+// options. Call it only while constructing a provider, before any run starts.
+func (p *LocalProvider) WithExecutionConfig(model, thinkingLevel, serviceTier string, customArgs []string) *LocalProvider {
+	p.Model = strings.TrimSpace(model)
+	p.ThinkingLevel = strings.TrimSpace(thinkingLevel)
+	p.ServiceTier = strings.TrimSpace(serviceTier)
+	p.CustomArgs = append([]string(nil), customArgs...)
+	return p
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -496,7 +510,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	var runErr error
 	if pathErr == nil {
 		if p.executorKind() == "codex" && !codexExecMode(args) {
-			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed)
+			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier)
 		} else {
 			cmd := exec.CommandContext(ctx, path, args...)
 			configureLocalCommand(cmd)
@@ -861,14 +875,14 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 		}
 		if p.executorKind() == "codex" {
 			if !codexExecMode(args) {
-				return withCodexAppServerArgs(args)
+				return p.withRuntimeOptions(withCodexAppServerArgs(args))
 			}
-			return p.withCodexSessionArgs(args, input, sessionID, resumed)
+			return p.withRuntimeOptions(p.withCodexSessionArgs(args, input, sessionID, resumed))
 		}
 		for i, arg := range args {
 			args[i] = strings.ReplaceAll(arg, "{input}", input)
 		}
-		return p.withClaudeSessionArgs(args, sessionID, resumed)
+		return p.withRuntimeOptions(p.withClaudeSessionArgs(args, sessionID, resumed))
 	}
 	name := p.executorKind()
 	switch name {
@@ -881,12 +895,40 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 				args = append(args, "--session-id", sessionID)
 			}
 		}
-		return args
+		return p.withRuntimeOptions(args)
 	case "codex":
-		return []string{"app-server", "--listen", "stdio://"}
+		return p.withRuntimeOptions([]string{"app-server", "--listen", "stdio://"})
 	default:
-		return []string{input}
+		return append(append([]string(nil), p.CustomArgs...), input)
 	}
+}
+
+func (p *LocalProvider) withRuntimeOptions(args []string) []string {
+	result := append([]string(nil), args...)
+	switch p.executorKind() {
+	case "claude":
+		if p.Model != "" {
+			result = append(result, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			result = append(result, "--effort", p.ThinkingLevel)
+		}
+	case "codex":
+		// app-server receives model settings through its protocol. For explicit
+		// exec configurations use the CLI's stable model/config flags.
+		if codexExecMode(result) {
+			if p.Model != "" {
+				result = append(result, "--model", p.Model)
+			}
+			if p.ThinkingLevel != "" {
+				result = append(result, "-c", "model_reasoning_effort="+p.ThinkingLevel)
+			}
+			if p.ServiceTier != "" {
+				result = append(result, "-c", "service_tier="+p.ServiceTier)
+			}
+		}
+	}
+	return append(result, p.CustomArgs...)
 }
 
 func withCodexAppServerArgs(args []string) []string {

@@ -13,7 +13,20 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/provider"
 )
+
+func (s *Server) graphExecutor(owner string) orchestration.Executor {
+	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner}
+	if s.RuntimeProviders != nil {
+		executor.Provider = s.RuntimeProviders
+		executor.ProviderResolver = func(_ context.Context, agent orchestration.AgentDefinition) (provider.ExecutionProvider, error) {
+			binding := agent.ExecutorBinding
+			return s.RuntimeProviders.Resolve(provider.RuntimeSelection{RuntimeID: binding.RuntimeID, Model: binding.Model, ThinkingLevel: binding.ThinkingLevel, ServiceTier: binding.ServiceTier, CustomArgs: binding.CustomArgs})
+		}
+	}
+	return executor
+}
 
 // orchestrationRoute exposes the plan/graph contracts without coupling the
 // legacy pipeline handler to numeric stages. The in-memory repository is a
@@ -174,7 +187,8 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 			s.problem(w, r, http.StatusConflict, "projection_unavailable", projectionErr.Error(), nil)
 			return
 		}
-		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: orchestration.Executor{Provider: s.Provider, Events: s.Orchestration, Owner: r.Header.Get("X-Member-ID")}, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
+		executor := s.graphExecutor(r.Header.Get("X-Member-ID"))
+		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
 		if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 			s.problem(w, r, http.StatusConflict, "plan_resume_failed", tickErr.Error(), map[string]any{"report": report})
 			return
@@ -359,7 +373,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 		s.problem(w, r, http.StatusConflict, "projection_unavailable", err.Error(), nil)
 		return
 	}
-	executor := orchestration.Executor{Provider: s.Provider, Events: s.Orchestration, Owner: r.Header.Get("X-Member-ID")}
+	executor := s.graphExecutor(r.Header.Get("X-Member-ID"))
 	report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(context.Background(), plan, &projection, *input.Envelope, input.WorkItemID, input.AgentBindingID)
 	if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 		s.problem(w, r, http.StatusConflict, "plan_tick_failed", tickErr.Error(), map[string]any{"report": report})
@@ -418,13 +432,8 @@ func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, env
 		worker := orchestration.Worker{
 			Scheduler: orchestration.Scheduler{
 				Repository: s.Orchestration,
-				Executor: orchestration.Executor{
-					Provider:   s.Provider,
-					Repository: s.Orchestration,
-					Events:     s.Orchestration,
-					Owner:      owner,
-				},
-				Config: orchestration.SchedulerConfig{MaxConcurrent: plan.PolicySnapshot.Budget.Concurrent},
+				Executor:   s.graphExecutor(owner),
+				Config:     orchestration.SchedulerConfig{MaxConcurrent: plan.PolicySnapshot.Budget.Concurrent},
 			},
 			PollInterval: graphWatchPollInterval(),
 		}

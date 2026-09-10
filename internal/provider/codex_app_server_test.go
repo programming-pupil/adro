@@ -16,7 +16,7 @@ func TestExecuteCodexAppServerRetriesCompletelyEmptyTurn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	pid, output, err := executeCodexAppServer(ctx, executable, nil, "return evidence", t.TempDir(), "", false)
+	pid, output, err := executeCodexAppServer(ctx, executable, nil, "return evidence", t.TempDir(), "", false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestExecuteCodexAppServerFailsAfterEmptyTurnRetryLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, output, err := executeCodexAppServer(ctx, executable, nil, "return evidence", t.TempDir(), "", false)
+	_, output, err := executeCodexAppServer(ctx, executable, nil, "return evidence", t.TempDir(), "", false, "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "without assistant or tool output after 2 attempt(s)") {
 		t.Fatalf("empty turns did not fail closed: err=%v output=%s", err, output)
 	}

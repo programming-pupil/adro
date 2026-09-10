@@ -23,6 +23,7 @@ import (
 // this adapter with a queue consumer without changing the contracts.
 type Executor struct {
 	Provider         provider.ExecutionProvider
+	ProviderResolver func(context.Context, AgentDefinition) (provider.ExecutionProvider, error)
 	Repository       Repository
 	Events           interface{ AppendEvent(Event) error }
 	GateEvaluator    GateEvaluator
@@ -247,7 +248,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			break
 		}
 	}
-	if hasProviderNode && e.Provider == nil {
+	if hasProviderNode && e.Provider == nil && e.ProviderResolver == nil {
 		return nil, fmt.Errorf("provider is required for ready agent nodes")
 	}
 	started := make([]NodeAttempt, 0, len(ready))
@@ -281,6 +282,8 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		}
 		before := cloneProjection(*projection)
 		agentInstructions := ""
+		runProvider := e.Provider
+		var resolvedAgent *AgentDefinition
 		if node.Kind == NodeAgent && e.Repository != nil && node.AgentRef != nil {
 			agent, lookupErr := e.Repository.GetAgent(plan.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
 			if lookupErr != nil {
@@ -293,6 +296,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				return started, fmt.Errorf("agent node %s: %w", node.ID, capabilityErr)
 			}
 			agentInstructions = agent.Instructions
+			resolvedAgent = &agent
 		}
 		var squadDefinition *SquadDefinition
 		if node.Kind == NodeSquad {
@@ -448,6 +452,22 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				return started, fmt.Errorf("squad node %s: %w", node.ID, capabilityErr)
 			} else {
 				agentInstructions = leaderAgent.Instructions
+				resolvedAgent = &leaderAgent
+			}
+		}
+		if resolvedAgent != nil && e.ProviderResolver != nil {
+			var resolveErr error
+			runProvider, resolveErr = e.ProviderResolver(ctx, *resolvedAgent)
+			if resolveErr != nil {
+				return started, fmt.Errorf("resolve provider for agent %s: %w", resolvedAgent.ID, resolveErr)
+			}
+		}
+		if runProvider == nil {
+			return started, fmt.Errorf("provider is required for agent %s", binding)
+		}
+		if resolvedAgent != nil {
+			if capabilityErr := requireProviderCapabilities(ctx, runProvider, *resolvedAgent); capabilityErr != nil {
+				return started, fmt.Errorf("agent %s: %w", resolvedAgent.ID, capabilityErr)
 			}
 		}
 		providerCtx, finishProviderSpan := e.tracer().Start(ctx, "provider.start", map[string]string{
@@ -459,7 +479,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		if e.Repository != nil || node.Kind == NodeSquad {
 			input = nodeInput(nodeEnvelope, node, a.AttemptNo, binding, agentInstructions)
 		}
-		bindingResult, runErr := e.Provider.StartRun(providerCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: node.ID, AttemptID: a.ID, WorkItemID: workItemID, AgentBindingID: binding, Input: input, SessionID: nodeEnvelope.Manifest.SessionID, ContextEnvelope: nodeEnvelope, IdempotencyKey: key, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
+		bindingResult, runErr := runProvider.StartRun(providerCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: node.ID, AttemptID: a.ID, WorkItemID: workItemID, AgentBindingID: binding, Input: input, SessionID: nodeEnvelope.Manifest.SessionID, ContextEnvelope: nodeEnvelope, IdempotencyKey: key, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
 		if runErr != nil {
 			_ = finishProviderSpan("error", runErr.Error())
 		} else {
@@ -534,13 +554,25 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 }
 
 func (e Executor) requireAgentCapabilities(ctx context.Context, agent AgentDefinition) error {
+	providerForAgent := e.Provider
+	if e.ProviderResolver != nil {
+		var err error
+		providerForAgent, err = e.ProviderResolver(ctx, agent)
+		if err != nil {
+			return err
+		}
+	}
+	return requireProviderCapabilities(ctx, providerForAgent, agent)
+}
+
+func requireProviderCapabilities(ctx context.Context, providerForAgent provider.ExecutionProvider, agent AgentDefinition) error {
 	if len(agent.ExecutorBinding.RequiredCaps) == 0 {
 		return nil
 	}
-	if e.Provider == nil {
+	if providerForAgent == nil {
 		return errors.New("capability_unavailable: provider is required")
 	}
-	caps, err := e.Provider.Capabilities(ctx)
+	caps, err := providerForAgent.Capabilities(ctx)
 	if err != nil {
 		return fmt.Errorf("capability_unavailable: %w", err)
 	}
