@@ -58,12 +58,16 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if !runtime.Installed || strings.TrimSpace(runtime.ExecutablePath) == "" {
 		return nil, fmt.Errorf("runtime %q is not installed", runtimeID)
 	}
+	if err := validateRuntimeCustomArgs(runtimeID, selection.CustomArgs); err != nil {
+		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
+	}
 	key := strings.Join([]string{runtimeID, runtime.ExecutablePath, selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}, "\x01")
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if existing := p.items[key]; existing != nil {
+		p.mu.Unlock()
 		return selectedRuntimeProvider{pool: p, provider: existing}, nil
 	}
+	p.mu.Unlock()
 	catalog, err := DiscoverRuntimeModels(context.Background(), runtimeID)
 	if err != nil {
 		return nil, fmt.Errorf("discover runtime %q models: %w", runtimeID, err)
@@ -73,6 +77,11 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	}
 	created := NewLocalProvider(runtime.ExecutablePath, nil, p.workRoot, p.bus).
 		WithExecutionConfig(selection.Model, selection.ThinkingLevel, selection.ServiceTier, selection.CustomArgs)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if existing := p.items[key]; existing != nil {
+		return selectedRuntimeProvider{pool: p, provider: existing}, nil
+	}
 	p.items[key] = created
 	return selectedRuntimeProvider{pool: p, provider: created}, nil
 }
@@ -93,7 +102,13 @@ func validateRuntimeSelection(catalog RuntimeModelCatalog, selection RuntimeSele
 		}
 	}
 	if selected == nil {
-		return fmt.Errorf("model %q is not advertised by the installed runtime", modelID)
+		if !catalog.Fallback && len(catalog.Models) > 0 {
+			return fmt.Errorf("model %q is not advertised by the installed runtime", modelID)
+		}
+		if strings.TrimSpace(selection.ThinkingLevel) != "" || strings.TrimSpace(selection.ServiceTier) != "" {
+			return fmt.Errorf("thinking_level and service_tier require an advertised model")
+		}
+		return nil
 	}
 	if level := strings.TrimSpace(selection.ThinkingLevel); level != "" {
 		found := false

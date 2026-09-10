@@ -22,27 +22,27 @@ type DiscoveredRuntime struct {
 	ExecutablePath string `json:"executable_path,omitempty"`
 }
 
-// RuntimeRegistry mirrors the runtime identities supported by the reference
-// implementation. AdapterAvailable remains false until ADRO can execute that
-// protocol; discovery must never imply execution support.
+// RuntimeRegistry is the source of truth shared by discovery and execution.
+// AdapterAvailable remains false until the corresponding protocol has an
+// executable, tested launch contract.
 var RuntimeRegistry = []RuntimeDescriptor{
 	{ID: "claude", Name: "Claude Code", Command: "claude", ProtocolFamily: "claude", AdapterAvailable: true},
 	{ID: "codex", Name: "OpenAI Codex", Command: "codex", ProtocolFamily: "codex", AdapterAvailable: true},
-	{ID: "cursor", Name: "Cursor Agent", Command: "cursor-agent", ProtocolFamily: "cursor"},
-	{ID: "copilot", Name: "GitHub Copilot CLI", Command: "copilot", ProtocolFamily: "copilot"},
-	{ID: "opencode", Name: "OpenCode", Command: "opencode", ProtocolFamily: "opencode"},
-	{ID: "openclaw", Name: "OpenClaw", Command: "openclaw", ProtocolFamily: "openclaw"},
+	{ID: "cursor", Name: "Cursor Agent", Command: "cursor-agent", ProtocolFamily: "cursor", AdapterAvailable: true},
+	{ID: "copilot", Name: "GitHub Copilot CLI", Command: "copilot", ProtocolFamily: "copilot", AdapterAvailable: true},
+	{ID: "opencode", Name: "OpenCode", Command: "opencode", ProtocolFamily: "opencode", AdapterAvailable: true},
+	{ID: "openclaw", Name: "OpenClaw", Command: "openclaw", ProtocolFamily: "openclaw", AdapterAvailable: true},
 	{ID: "hermes", Name: "Hermes", Command: "hermes", ProtocolFamily: "hermes"},
 	{ID: "pi", Name: "Pi", Command: "pi", ProtocolFamily: "pi"},
-	{ID: "antigravity", Name: "Antigravity", Command: "agy", ProtocolFamily: "antigravity"},
-	{ID: "codebuddy", Name: "CodeBuddy", Command: "codebuddy", ProtocolFamily: "codebuddy"},
-	{ID: "deveco", Name: "DevEco Code", Command: "deveco", ProtocolFamily: "deveco"},
+	{ID: "antigravity", Name: "Antigravity", Command: "agy", ProtocolFamily: "antigravity", AdapterAvailable: true},
+	{ID: "codebuddy", Name: "CodeBuddy", Command: "codebuddy", ProtocolFamily: "codebuddy", AdapterAvailable: true},
+	{ID: "deveco", Name: "DevEco Code", Command: "deveco", ProtocolFamily: "deveco", AdapterAvailable: true},
 	{ID: "grok", Name: "Grok", Command: "grok", ProtocolFamily: "grok"},
 	{ID: "kimi", Name: "Kimi", Command: "kimi", ProtocolFamily: "kimi"},
 	{ID: "kiro", Name: "Kiro CLI", Command: "kiro-cli", ProtocolFamily: "kiro"},
 	{ID: "qoder", Name: "Qoder CLI", Command: "qodercli", ProtocolFamily: "qoder"},
 	{ID: "qoderclicn", Name: "Qoder CN", Command: "qoderclicn", ProtocolFamily: "qoderclicn"},
-	{ID: "qwen", Name: "Qwen Code", Command: "qwen", ProtocolFamily: "qwen"},
+	{ID: "qwen", Name: "Qwen Code", Command: "qwen", ProtocolFamily: "qwen", AdapterAvailable: true},
 	{ID: "qwenpaw", Name: "QwenPaw", Command: "qwenpaw", ProtocolFamily: "qwenpaw"},
 	{ID: "reasonix", Name: "Reasonix", Command: "reasonix", ProtocolFamily: "reasonix"},
 	{ID: "traecli", Name: "Trae CLI", Command: "traecli", ProtocolFamily: "traecli"},

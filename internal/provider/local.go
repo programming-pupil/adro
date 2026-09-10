@@ -361,12 +361,15 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	if workDir == "" || filepath.Clean(workDir) != filepath.Clean(command.ExpectedWorkDir) {
 		return RunBinding{}, errors.New("continuation workdir does not match the original run")
 	}
-	if p.executorKind() == "codex" {
+	if runtimeRequiresSessionProof(p.executorKind()) {
 		p.mu.RLock()
 		proven := p.hasProvenSessionLocked(workItemID, command.ExpectedSessionID)
 		p.mu.RUnlock()
 		if !proven {
-			return RunBinding{}, errors.New("codex continuation requires a proven thread.started session")
+			if p.executorKind() == "codex" {
+				return RunBinding{}, errors.New("codex continuation requires a proven thread.started session")
+			}
+			return RunBinding{}, errors.New("runtime continuation requires a proven native session")
 		}
 	}
 	if err := p.prepareWorkDir(ctx, workDir, item); err != nil {
@@ -415,7 +418,7 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// executor deadline, whichever comes first.
 	runCtx, cancel := localExecutionContext(ctx)
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, TraceParent: traceParent, TraceState: traceState, StartedAt: &now}
-	oneShot := p.executorKind() == "codex" && codexExecMode(p.commandArgs(input, sessionID, reused))
+	oneShot := p.oneShotExecution(p.commandArgs(input, sessionID, reused))
 	fencingToken := int64(0)
 	var runtimeScope runtimekernel.Scope
 	if p.runtime != nil {
@@ -503,8 +506,24 @@ func localExecutionContext(parent context.Context) (context.Context, context.Can
 func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sessionID string, resumed bool) {
 	started := time.Now()
 	baseline := gitRevision(workDir)
-	args := p.commandArgs(input, sessionID, resumed)
+	args := p.commandArgsAt(input, sessionID, resumed, workDir)
+	runtimeLogPath := ""
+	var runtimeSetupErr error
+	if p.executorKind() == "agy" && len(p.Args) == 0 {
+		logFile, err := os.CreateTemp("", "adro-antigravity-"+runID+"-*.log")
+		if err != nil {
+			runtimeSetupErr = fmt.Errorf("create runtime log: %w", err)
+		} else {
+			runtimeLogPath = logFile.Name()
+			runtimeSetupErr = logFile.Close()
+			args = append(args, "--log-file", runtimeLogPath)
+			defer os.Remove(runtimeLogPath)
+		}
+	}
 	path, pathErr := p.executablePath()
+	if pathErr == nil && runtimeSetupErr != nil {
+		pathErr = runtimeSetupErr
+	}
 	executorPID := 0
 	var output []byte
 	var runErr error
@@ -525,12 +544,15 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			cmd.WaitDelay = 250 * time.Millisecond
 			cmd.Dir = workDir
 			cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
-			// Codex `exec` reads its prompt from stdin when no prompt argv is given.
-			// This is required by some OpenAI-compatible relays and keeps prompts out
-			// of process arguments. The pipe is closed immediately after the initial
-			// prompt is written because exec is one-shot; interactive providers retain
-			// stdin for AppendInput.
+			if kind := p.executorKind(); kind == "opencode" || kind == "deveco" {
+				cmd.Env = replaceEnvironmentValue(cmd.Env, "PWD", workDir)
+			}
+			// One-shot runtimes either read the prompt from stdin or receive it in
+			// their managed argv. Close stdin after the initial request boundary;
+			// interactive custom providers retain it for AppendInput.
 			codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
+			processOneShot := p.oneShotExecution(args)
+			initialInput := p.initialInputPayload(input, args)
 			var stdin io.WriteCloser
 			var stdinErr error
 			stdin, stdinErr = cmd.StdinPipe()
@@ -565,12 +587,12 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 					if run != nil {
 						close(run.started)
 						run.inputMu.Lock()
-						if codexOneShot {
-							_, writeErr := io.WriteString(stdin, input)
+						if len(initialInput) > 0 {
+							_, writeErr := stdin.Write(initialInput)
 							if writeErr != nil {
-								runErr = fmt.Errorf("write codex prompt: %w", writeErr)
+								runErr = fmt.Errorf("write runtime prompt: %w", writeErr)
 							}
-						} else {
+						} else if !processOneShot {
 							for _, interaction := range pending {
 								var writeErr error
 								if stdin == nil {
@@ -596,10 +618,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 							}
 						}
 						run.inputMu.Unlock()
-						// `codex exec` is a one-shot command. Closing stdin after the
-						// initial prompt is part of its protocol and gives the relay a
-						// complete request boundary.
-						if codexOneShot && stdin != nil {
+						// EOF is part of every stdin-based one-shot protocol and also
+						// prevents argument-based runtimes from waiting for input.
+						if processOneShot && stdin != nil {
 							_ = stdin.Close()
 							p.mu.Lock()
 							if current := p.runs[runID]; current != nil {
@@ -636,6 +657,12 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		}
 		p.mu.Unlock()
 	}
+	if runErr == nil {
+		runErr = runtimeProtocolError(output, p.executorKind())
+	}
+	if runErr == nil {
+		runErr = runtimeTerminalOutputError(output, p.executorKind())
+	}
 	status := "completed"
 	if runErr != nil {
 		status = "failed"
@@ -657,20 +684,29 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	diffDigest, worktreeDigest := gitEvidence(workDir, head)
 	continuity := "unproven"
 	discovered := providerSessionID(output, p.executorKind())
+	if discovered == "" && runtimeLogPath != "" {
+		if data, err := os.ReadFile(runtimeLogPath); err == nil {
+			discovered = sessionIDFromAntigravityLog(data)
+		}
+	}
 	if discovered != "" {
-		if p.executorKind() == "codex" && resumed && discovered != sessionID {
+		if resumed && runtimeRequiresSessionProof(p.executorKind()) && discovered != sessionID {
 			// A resume that opens a different native thread is a new conversation,
 			// not a valid continuation. Keep the original session in the snapshot
 			// and fail closed so the pipeline cannot silently lose context.
-			runErr = fmt.Errorf("codex continuation opened thread %s, expected %s", discovered, sessionID)
+			runErr = fmt.Errorf("runtime continuation opened session %s, expected %s", discovered, sessionID)
 		} else {
 			sessionID = discovered
 			continuity = "proven"
 		}
-	} else if p.executorKind() == "codex" && resumed {
-		// Codex must emit a real thread.started record on every resumed process;
-		// without it there is no evidence that the native conversation continued.
-		runErr = errors.New("codex continuation did not prove thread.started session")
+	} else if resumed && runtimeRequiresSessionProof(p.executorKind()) {
+		// A resumed process must report its native session identity. Without it
+		// there is no evidence that provider context was actually retained.
+		if p.executorKind() == "codex" {
+			runErr = errors.New("codex continuation did not prove thread.started session")
+		} else {
+			runErr = errors.New("runtime continuation did not prove its native session")
+		}
 	}
 	if runErr != nil && status == "completed" {
 		status = "failed"
@@ -868,6 +904,10 @@ func firstString(value map[string]any, keys ...string) string {
 }
 
 func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []string {
+	return p.commandArgsAt(input, sessionID, resumed, "")
+}
+
+func (p *LocalProvider) commandArgsAt(input, sessionID string, resumed bool, workDir string) []string {
 	if len(p.Args) > 0 {
 		args := make([]string, len(p.Args))
 		for i, arg := range p.Args {
@@ -898,6 +938,87 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 		return p.withRuntimeOptions(args)
 	case "codex":
 		return p.withRuntimeOptions([]string{"app-server", "--listen", "stdio://"})
+	case "cursor-agent":
+		args := []string{"-p", "--output-format", "stream-json", "--yolo"}
+		if workDir != "" {
+			args = append(args, "--workspace", workDir)
+		}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "copilot":
+		args := []string{"-p", input, "--output-format", "json", "--allow-all", "--no-ask-user"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "opencode", "deveco":
+		args := []string{"run", "--format", "json", "--dangerously-skip-permissions"}
+		if workDir != "" {
+			args = append(args, "--dir", workDir)
+		}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--variant", p.ThinkingLevel)
+		}
+		if resumed {
+			args = append(args, "--session", sessionID)
+		}
+		args = append(args, p.CustomArgs...)
+		if name == "deveco" {
+			args = append(args, input)
+		}
+		return args
+	case "openclaw":
+		args := []string{"agent", "--local", "--json", "--session-id", sessionID}
+		if p.Model != "" {
+			args = append(args, "--agent", p.Model)
+		}
+		args = append(args, p.CustomArgs...)
+		return append(args, "--message", input)
+	case "agy":
+		args := []string{"-p", input, "--dangerously-skip-permissions", "--print-timeout", "30m"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--conversation", sessionID)
+		}
+		if workDir != "" {
+			args = append(args, "--add-dir", filepath.Clean(workDir))
+		}
+		return append(args, p.CustomArgs...)
+	case "codebuddy":
+		args := []string{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--disallowedTools", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--effort", p.ThinkingLevel)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "qwen":
+		args := []string{"--output-format", "stream-json"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		args = append(args, "--yolo")
+		return append(args, p.CustomArgs...)
 	default:
 		return append(append([]string(nil), p.CustomArgs...), input)
 	}
@@ -959,6 +1080,9 @@ func codexExecMode(args []string) bool {
 
 func (p *LocalProvider) executorKind() string {
 	name := strings.ToLower(filepath.Base(p.Executable))
+	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
 	switch name {
 	case "claude", "claude-code":
 		return "claude"
@@ -1081,24 +1205,70 @@ func (p *LocalProvider) withClaudeSessionArgs(args []string, sessionID string, r
 }
 
 func providerSessionID(output []byte, kind string) string {
-	if kind != "codex" {
-		return ""
+	if kind == "openclaw" {
+		var result struct {
+			Meta struct {
+				AgentMeta map[string]any `json:"agentMeta"`
+			} `json:"meta"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(output), &result) == nil {
+			if candidate, _ := result.Meta.AgentMeta["sessionId"].(string); validProviderSessionID(candidate) {
+				return strings.TrimSpace(candidate)
+			}
+		}
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
 	for scanner.Scan() {
-		var event struct {
-			Type     string `json:"type"`
-			ThreadID string `json:"thread_id"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "thread.started" {
+		var event map[string]any
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
 			continue
 		}
-		if codexNativeThreadPattern.MatchString(event.ThreadID) {
-			return event.ThreadID
+		if kind == "codex" {
+			typ, _ := event["type"].(string)
+			threadID, _ := event["thread_id"].(string)
+			if typ == "thread.started" && codexNativeThreadPattern.MatchString(threadID) {
+				return threadID
+			}
+			continue
+		}
+		var candidate string
+		switch kind {
+		case "cursor-agent", "codebuddy", "qwen":
+			candidate, _ = event["session_id"].(string)
+		case "copilot", "openclaw":
+			candidate, _ = event["sessionId"].(string)
+			if candidate == "" {
+				if data, ok := event["data"].(map[string]any); ok {
+					candidate, _ = data["sessionId"].(string)
+				}
+			}
+		case "opencode", "deveco":
+			candidate, _ = event["sessionID"].(string)
+			if candidate == "" {
+				if part, ok := event["part"].(map[string]any); ok {
+					candidate, _ = part["sessionID"].(string)
+				}
+			}
+		}
+		if validProviderSessionID(candidate) {
+			return strings.TrimSpace(candidate)
 		}
 	}
 	return ""
+}
+
+func validProviderSessionID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, r := range value {
+		if r <= 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // codexTerminalOutput returns true only after a JSONL stream contains both a

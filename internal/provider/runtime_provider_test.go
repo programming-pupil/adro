@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/adro-project/adro/internal/events"
@@ -62,7 +63,7 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 		t.Fatalf("resolved provider = %T", claude)
 	}
 	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "cursor"}); err == nil {
-		t.Fatal("runtime without adapter must fail")
+		t.Fatal("uninstalled runtime must fail")
 	}
 	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "missing"}); err == nil {
 		t.Fatal("unknown runtime must fail")
@@ -70,13 +71,99 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "missing-model"}); err == nil {
-		t.Fatal("unadvertised model must fail")
+	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "future-model"}); err != nil {
+		t.Fatalf("non-authoritative catalog rejected a future model: %v", err)
 	}
 	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "claude-sonnet-4-6", ThinkingLevel: "xhigh"}); err == nil {
 		t.Fatal("unsupported per-model thinking level must fail")
 	}
 	if _, err := claude.Capabilities(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeAdapterCommandContracts(t *testing.T) {
+	const session = "11111111-1111-4111-8111-111111111111"
+	tests := []struct {
+		name       string
+		want       []string
+		promptArg  bool
+		stdinValue string
+	}{
+		{name: "cursor-agent", want: []string{"-p", "--output-format", "stream-json", "--workspace", "/work", "--model", "chosen", "--resume", session}, stdinValue: "task"},
+		{name: "copilot", want: []string{"-p", "task", "--output-format", "json", "--allow-all", "--no-ask-user", "--model", "chosen", "--resume", session}, promptArg: true},
+		{name: "opencode", want: []string{"run", "--format", "json", "--dangerously-skip-permissions", "--dir", "/work", "--model", "chosen", "--variant", "high", "--session", session}, stdinValue: "task"},
+		{name: "deveco", want: []string{"run", "--format", "json", "--dangerously-skip-permissions", "--dir", "/work", "--model", "chosen", "--variant", "high", "--session", session, "task"}, promptArg: true},
+		{name: "openclaw", want: []string{"agent", "--local", "--json", "--session-id", session, "--agent", "chosen", "--message", "task"}, promptArg: true},
+		{name: "agy", want: []string{"-p", "task", "--dangerously-skip-permissions", "--print-timeout", "30m", "--model", "chosen", "--conversation", session, "--add-dir", "/work"}, promptArg: true},
+		{name: "codebuddy", want: []string{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--permission-mode", "bypassPermissions", "--model", "chosen", "--effort", "high", "--resume", session}},
+		{name: "qwen", want: []string{"--output-format", "stream-json", "--model", "chosen", "--resume", session, "--yolo"}, stdinValue: "task"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := NewLocalProvider(test.name, nil, t.TempDir(), events.NewBus()).
+				WithExecutionConfig("chosen", "high", "", nil)
+			args := provider.commandArgsAt("task", session, true, "/work")
+			for _, want := range test.want {
+				if !slices.Contains(args, want) {
+					t.Fatalf("missing %q in %v", want, args)
+				}
+			}
+			if !test.promptArg && slices.Contains(args, "task") {
+				t.Fatalf("prompt leaked into argv: %v", args)
+			}
+			payload := provider.initialInputPayload("task", args)
+			if test.stdinValue != "" && string(payload) != test.stdinValue {
+				t.Fatalf("stdin payload=%q want=%q", payload, test.stdinValue)
+			}
+			if test.name == "codebuddy" && !strings.Contains(string(payload), `"text":"task"`) {
+				t.Fatalf("structured stdin payload=%q", payload)
+			}
+			if !provider.oneShotExecution(args) {
+				t.Fatal("runtime was not marked one-shot")
+			}
+		})
+	}
+}
+
+func TestRuntimeAdapterRejectsProtocolOverrides(t *testing.T) {
+	for runtimeID, arg := range map[string]string{
+		"cursor": "--output-format", "copilot": "--allow-all=false", "opencode": "--dir=/tmp",
+		"deveco": "--variant", "openclaw": "--message=other", "antigravity": "--log-file",
+		"codebuddy": "--input-format=json", "qwen": "--approval-mode=default",
+	} {
+		if err := validateRuntimeCustomArgs(runtimeID, []string{arg}); err == nil {
+			t.Fatalf("%s accepted managed argument %q", runtimeID, arg)
+		}
+	}
+	if err := validateRuntimeCustomArgs("cursor", []string{"--sandbox", "workspace-write"}); err != nil {
+		t.Fatalf("safe custom arguments rejected: %v", err)
+	}
+}
+
+func TestValidateRuntimeSelectionDistinguishesAuthoritativeCatalogs(t *testing.T) {
+	model := RuntimeModel{
+		ID:           "known",
+		Thinking:     &RuntimeThinking{SupportedLevels: []RuntimeLevel{{Value: "high"}}},
+		ServiceTiers: []RuntimeServiceTier{{ID: "fast"}},
+	}
+	for _, catalog := range []RuntimeModelCatalog{
+		{RuntimeID: "dynamic", Models: []RuntimeModel{model}},
+		{RuntimeID: "fallback", Models: []RuntimeModel{model}, Fallback: true},
+		{RuntimeID: "empty"},
+	} {
+		err := validateRuntimeSelection(catalog, RuntimeSelection{Model: "future"})
+		if catalog.RuntimeID == "dynamic" && err == nil {
+			t.Fatal("authoritative catalog accepted an unknown model")
+		}
+		if catalog.RuntimeID != "dynamic" && err != nil {
+			t.Fatalf("%s catalog rejected a future model: %v", catalog.RuntimeID, err)
+		}
+		if err := validateRuntimeSelection(catalog, RuntimeSelection{Model: "future", ThinkingLevel: "high"}); err == nil {
+			t.Fatalf("%s catalog accepted options for an unadvertised model", catalog.RuntimeID)
+		}
+	}
+	if err := validateRuntimeSelection(RuntimeModelCatalog{Models: []RuntimeModel{model}}, RuntimeSelection{Model: "known", ThinkingLevel: "high", ServiceTier: "fast"}); err != nil {
+		t.Fatalf("advertised options rejected: %v", err)
 	}
 }

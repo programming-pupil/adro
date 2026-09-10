@@ -60,6 +60,20 @@ func DiscoverRuntimeModels(ctx context.Context, runtimeID string) (RuntimeModelC
 		return discoverCodexCatalog(ctx, runtime.ExecutablePath), nil
 	case "claude":
 		return discoverClaudeCatalog(ctx, runtime.ExecutablePath), nil
+	case "cursor":
+		return discoverCursorCatalog(ctx, runtime.ExecutablePath), nil
+	case "copilot":
+		return fallbackCopilotCatalog(), nil
+	case "opencode", "deveco":
+		return discoverOpenCodeFamilyCatalog(ctx, runtime.ID, runtime.ExecutablePath), nil
+	case "openclaw":
+		return discoverOpenClawCatalog(ctx, runtime.ExecutablePath), nil
+	case "antigravity":
+		return discoverAntigravityCatalog(ctx, runtime.ExecutablePath), nil
+	case "codebuddy":
+		return fallbackCodeBuddyCatalog(), nil
+	case "qwen":
+		return RuntimeModelCatalog{RuntimeID: runtime.ID, Models: []RuntimeModel{}, Fallback: true}, nil
 	default:
 		return RuntimeModelCatalog{RuntimeID: runtime.ID, Models: []RuntimeModel{}}, nil
 	}
@@ -136,7 +150,9 @@ func discoverClaudeCatalog(parent context.Context, path string) RuntimeModelCata
 		}
 		models[i].Thinking = &RuntimeThinking{DefaultLevel: "medium", SupportedLevels: allowed}
 	}
-	return RuntimeModelCatalog{RuntimeID: "claude", Models: models, Dynamic: true}
+	// Claude exposes effort levels through --help but does not expose an
+	// authoritative model inventory. Keep these entries as editable hints.
+	return RuntimeModelCatalog{RuntimeID: "claude", Models: models, Dynamic: true, Fallback: true}
 }
 
 func claudeModelSupports(model, level string) bool {

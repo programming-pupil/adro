@@ -49,6 +49,9 @@ func TestDiscoverRuntimeModelsUsesNativeCatalogs(t *testing.T) {
 	if sonnet == nil || opus == nil || sonnet.Thinking == nil || opus.Thinking == nil {
 		t.Fatalf("claude catalog=%+v", claudeCatalog)
 	}
+	if !claudeCatalog.Fallback {
+		t.Fatal("claude model hints must remain non-authoritative")
+	}
 	if len(sonnet.Thinking.SupportedLevels) >= len(opus.Thinking.SupportedLevels) {
 		t.Fatalf("model-specific efforts not filtered: sonnet=%+v opus=%+v", sonnet.Thinking, opus.Thinking)
 	}
@@ -62,5 +65,23 @@ func TestDiscoverRuntimeModelsRejectsUnavailableRuntime(t *testing.T) {
 	}
 	if _, err := DiscoverRuntimeModels(context.Background(), "unknown"); err == nil {
 		t.Fatal("unknown runtime catalog was returned")
+	}
+}
+
+func TestAdditionalRuntimeModelParsers(t *testing.T) {
+	cursor := parseCursorModels([]byte("Available models\nauto - Auto\ncomposer-fast - Composer Fast (default)\n"))
+	if len(cursor) != 2 || cursor[1].ID != "composer-fast" || !cursor[1].Default || cursor[1].Label != "Composer Fast" {
+		t.Fatalf("cursor models=%+v", cursor)
+	}
+	openCode := parseOpenCodeFamilyModels([]byte("provider/model-a\n{\n  \"reasoning\": true,\n  \"variants\": {\"high\": {}, \"low\": {}, \"off\": {\"disabled\": true}}\n}\nprovider/model-b metadata\n"))
+	if len(openCode) != 2 || openCode[1].ID != "provider/model-b" || openCode[0].Thinking == nil || len(openCode[0].Thinking.SupportedLevels) != 2 || openCode[0].Thinking.SupportedLevels[0].Value != "low" {
+		t.Fatalf("open code models=%+v", openCode)
+	}
+	openClaw, ok := parseOpenClawModels([]byte(`{"agents":[{"id":"reviewer","name":"Reviewer","model":"model-a"}]}`))
+	if !ok || len(openClaw) != 1 || openClaw[0].ID != "reviewer" || openClaw[0].Label != "Reviewer (model-a)" {
+		t.Fatalf("open claw models=%+v ok=%v", openClaw, ok)
+	}
+	if !fallbackCopilotCatalog().Fallback || !fallbackCodeBuddyCatalog().Fallback {
+		t.Fatal("static catalogs must be non-authoritative")
 	}
 }

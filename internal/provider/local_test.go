@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -906,6 +907,131 @@ func TestProviderSessionIDExtractsCodexThread(t *testing.T) {
 	}
 	if got := providerSessionID([]byte(`{"type":"thread.started","thread_id":"`+want+`"}`), "claude"); got != "" {
 		t.Fatalf("claude output unexpectedly changed session: %q", got)
+	}
+}
+
+func TestProviderSessionIDExtractsSupportedRuntimeEvents(t *testing.T) {
+	for _, test := range []struct {
+		kind, event, want string
+	}{
+		{"cursor-agent", `{"type":"result","session_id":"cursor-session"}`, "cursor-session"},
+		{"copilot", `{"type":"session.start","data":{"sessionId":"copilot-session"}}`, "copilot-session"},
+		{"opencode", `{"type":"text","part":{"sessionID":"opencode-session"}}`, "opencode-session"},
+		{"deveco", `{"type":"step_start","sessionID":"deveco-session"}`, "deveco-session"},
+		{"openclaw", `{"type":"result","sessionId":"openclaw-session"}`, "openclaw-session"},
+		{"codebuddy", `{"type":"result","session_id":"codebuddy-session"}`, "codebuddy-session"},
+		{"qwen", `{"type":"result","session_id":"qwen-session"}`, "qwen-session"},
+	} {
+		if got := providerSessionID([]byte(test.event), test.kind); got != test.want {
+			t.Fatalf("%s session=%q want=%q", test.kind, got, test.want)
+		}
+	}
+	wholeOpenClaw := []byte(`{"payloads":[{"text":"done"}],"meta":{"durationMs":1,"agentMeta":{"sessionId":"whole-buffer-session"}}}`)
+	if got := providerSessionID(wholeOpenClaw, "openclaw"); got != "whole-buffer-session" {
+		t.Fatalf("whole-buffer session=%q", got)
+	}
+	if got := providerSessionID([]byte(`{"type":"result","session_id":"bad session"}`), "qwen"); got != "" {
+		t.Fatalf("unsafe session id accepted: %q", got)
+	}
+	if got := sessionIDFromAntigravityLog([]byte("first conversation=11111111-1111-4111-8111-111111111111, sent\nlast conversation=22222222-2222-4222-8222-222222222222, done")); got != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("conversation id=%q", got)
+	}
+}
+
+func TestLocalProviderRunsCursorStdinProtocol(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "cursor-agent")
+	script := `#!/bin/sh
+prompt=$(cat)
+printf '{"type":"result","session_id":"cursor-session","result":"%s"}\n' "$prompt"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "cursor-stdin", Title: "cursor stdin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "ship-it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, provider, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionID != "cursor-session" || snapshot.SessionContinuity != "proven" || !strings.Contains(snapshot.Output, "ship-it") {
+		t.Fatalf("cursor snapshot=%+v", snapshot)
+	}
+	if slices.Contains(snapshot.ExecutorArgs, "ship-it") {
+		t.Fatalf("prompt leaked into executor args: %v", snapshot.ExecutorArgs)
+	}
+}
+
+func TestLocalProviderRunsAdditionalOneShotAdapters(t *testing.T) {
+	tests := []struct {
+		name    string
+		event   string
+		session string
+	}{
+		{"copilot", `{"type":"result","sessionId":"copilot-session","exitCode":0}`, "copilot-session"},
+		{"opencode", `{"type":"step_finish","sessionID":"opencode-session"}`, "opencode-session"},
+		{"deveco", `{"type":"step_finish","sessionID":"deveco-session"}`, "deveco-session"},
+		{"openclaw", `{"type":"result","sessionId":"openclaw-session"}`, "openclaw-session"},
+		{"codebuddy", `{"type":"result","session_id":"codebuddy-session"}`, "codebuddy-session"},
+		{"qwen", `{"type":"result","session_id":"qwen-session"}`, "qwen-session"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			executable := filepath.Join(root, test.name)
+			script := "#!/bin/sh\nprintf '%s\\n' '" + test.event + "'\n"
+			if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+			item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: test.name + "-run", Title: test.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "task"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot := waitSnapshot(t, provider, binding.ID)
+			if snapshot.Status != "completed" || snapshot.SessionID != test.session || snapshot.SessionContinuity != "proven" {
+				t.Fatalf("snapshot=%+v", snapshot)
+			}
+		})
+	}
+}
+
+func TestLocalProviderReadsAntigravitySessionLog(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "agy")
+	script := `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--log-file" ]; then
+    printf '%s\n' 'conversation=44444444-4444-4444-8444-444444444444, complete' > "$2"
+    break
+  fi
+  shift
+done
+printf '%s\n' 'completed'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "antigravity-run", Title: "antigravity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, provider, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionID != "44444444-4444-4444-8444-444444444444" || snapshot.SessionContinuity != "proven" {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
 
