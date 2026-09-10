@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1025,6 +1027,26 @@ func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
 		if item.Installed || item.ExecutablePath != "" {
 			t.Fatalf("empty PATH reported installed runtime: %+v", item)
 		}
+	}
+}
+
+func TestRuntimeModelsEndpointReturnsPerModelOptions(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "codex")
+	payload := `{"models":[{"slug":"model-a","display_name":"Model A","priority":1,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high"}],"service_tiers":[{"id":"priority","name":"Fast"}]}]}`
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '"+payload+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("ADRO_EXECUTOR", "")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/codex/models", "", nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model-a"`) || !strings.Contains(response.Body.String(), `"priority"`) {
+		t.Fatalf("models status=%d body=%s", response.Code, response.Body.String())
+	}
+	missing := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/claude/models", "", nil)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing runtime status=%d body=%s", missing.Code, missing.Body.String())
 	}
 }
 

@@ -64,10 +64,64 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if existing := p.items[key]; existing != nil {
 		return selectedRuntimeProvider{pool: p, provider: existing}, nil
 	}
+	catalog, err := DiscoverRuntimeModels(context.Background(), runtimeID)
+	if err != nil {
+		return nil, fmt.Errorf("discover runtime %q models: %w", runtimeID, err)
+	}
+	if err := validateRuntimeSelection(catalog, selection); err != nil {
+		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
+	}
 	created := NewLocalProvider(runtime.ExecutablePath, nil, p.workRoot, p.bus).
 		WithExecutionConfig(selection.Model, selection.ThinkingLevel, selection.ServiceTier, selection.CustomArgs)
 	p.items[key] = created
 	return selectedRuntimeProvider{pool: p, provider: created}, nil
+}
+
+func validateRuntimeSelection(catalog RuntimeModelCatalog, selection RuntimeSelection) error {
+	modelID := strings.TrimSpace(selection.Model)
+	if modelID == "" {
+		if strings.TrimSpace(selection.ThinkingLevel) != "" || strings.TrimSpace(selection.ServiceTier) != "" {
+			return fmt.Errorf("model is required when thinking_level or service_tier is set")
+		}
+		return nil
+	}
+	var selected *RuntimeModel
+	for i := range catalog.Models {
+		if catalog.Models[i].ID == modelID {
+			selected = &catalog.Models[i]
+			break
+		}
+	}
+	if selected == nil {
+		return fmt.Errorf("model %q is not advertised by the installed runtime", modelID)
+	}
+	if level := strings.TrimSpace(selection.ThinkingLevel); level != "" {
+		found := false
+		if selected.Thinking != nil {
+			for _, item := range selected.Thinking.SupportedLevels {
+				if item.Value == level {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf("thinking_level %q is not supported by model %q", level, modelID)
+		}
+	}
+	if tier := strings.TrimSpace(selection.ServiceTier); tier != "" {
+		found := false
+		for _, item := range selected.ServiceTiers {
+			if item.ID == tier {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("service_tier %q is not supported by model %q", tier, modelID)
+		}
+	}
+	return nil
 }
 
 type selectedRuntimeProvider struct {

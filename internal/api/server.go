@@ -475,6 +475,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.systemDiagnostics(w, r)
 	case path == "/api/v1/runtimes/discovered" && r.Method == http.MethodGet:
 		s.writeJSON(w, http.StatusOK, map[string]any{"items": provider.DiscoverLocalRuntimes()})
+	case strings.HasPrefix(path, "/api/v1/runtimes/") && strings.HasSuffix(path, "/models") && r.Method == http.MethodGet:
+		runtimeID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/runtimes/"), "/models")
+		catalog, err := provider.DiscoverRuntimeModels(r.Context(), runtimeID)
+		if err != nil {
+			s.problem(w, r, http.StatusNotFound, "runtime_models_unavailable", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, catalog)
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {

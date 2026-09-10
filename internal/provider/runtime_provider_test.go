@@ -54,7 +54,7 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 	if err != nil || legacy != fallback {
 		t.Fatalf("legacy resolution = %T, %v", legacy, err)
 	}
-	claude, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "opus"})
+	claude, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "claude-opus-4-8"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +69,12 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 	}
 	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "codex"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "missing-model"}); err == nil {
+		t.Fatal("unadvertised model must fail")
+	}
+	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude", Model: "claude-sonnet-4-6", ThinkingLevel: "xhigh"}); err == nil {
+		t.Fatal("unsupported per-model thinking level must fail")
 	}
 	if _, err := claude.Capabilities(context.Background()); err != nil {
 		t.Fatal(err)

@@ -8,8 +8,6 @@ const menuViews = [
   'executions', 'diffs', 'testing', 'repositories', 'agents', 'mcp',
   'skills', 'automations', 'integrations', 'artifacts', 'runners', 'cost', 'admin'
 ];
-let onboardingChecked = false;
-
 test.beforeEach(async ({ page }) => {
   const errors = [];
   const requestHosts = new Set();
@@ -22,17 +20,22 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#loginGate')).toBeVisible();
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  const agentsResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
+  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
-  if (!onboardingChecked) {
-    await page.locator('#agentDialog').waitFor({state: 'visible'});
+  const agents = await (await agentsResponse).json();
+  const onboardingDialog = page.locator('#agentDialog');
+  if ((agents.items || []).length === 0) {
+    await expect(onboardingDialog).toBeVisible();
     await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
     await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('通用 Agent');
     await expect(page.locator('#closeAgentDialog')).toBeHidden();
     await expect(page.locator('#cancelAgentDialog')).toBeHidden();
     await page.locator('#agentForm button[type="submit"]').click();
-    await expect(page.locator('#agentDialog')).not.toBeVisible();
-    onboardingChecked = true;
+    await expect(onboardingDialog).not.toBeVisible();
   }
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;
