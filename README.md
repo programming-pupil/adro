@@ -74,6 +74,13 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 Open `http://127.0.0.1:8081`. The API readiness endpoint is
 `http://127.0.0.1:8080/readyz`.
 
+The first screen is the administrator login. The local profile initializes the
+administrator from `ADRO_ADMIN_USERNAME` and `ADRO_ADMIN_PASSWORD`; it does not
+currently run a setup wizard or create an Agent automatically. The executor is
+selected once for the local profile through `ADRO_EXECUTOR` (or auto-discovered
+in the order Claude Code, Codex, `claude-code`). Per-Agent executor, model, and
+reasoning-level selection is not yet available in the browser workbench.
+
 ```bash
 ./start.sh --status
 ./start.sh --stop

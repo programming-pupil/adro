@@ -201,7 +201,7 @@ export ADRO_MEMORY_STATE_FILE="${ADRO_MEMORY_STATE_FILE:-$STATE_DIR/memory.json}
 log "Starting native ADRO API on :$API_PORT"
 start_background "$API_PID_FILE" "$API_LOG" "$BIN_DIR/adro-api" -addr ":$API_PORT" -artifact-root "$ARTIFACT_ROOT"
 log "Starting ADRO WebUI on :$WEB_PORT"
-start_background "$WEB_PID_FILE" "$WEB_LOG" "$BIN_DIR/adro-web" -addr ":$WEB_PORT" -root "$ROOT_DIR/apps/web"
+start_background "$WEB_PID_FILE" "$WEB_LOG" "$BIN_DIR/adro-web" -addr ":$WEB_PORT" -root "$ROOT_DIR/apps/web" -api "http://127.0.0.1:$API_PORT"
 
 ready=false
 for _ in $(seq 1 40); do
