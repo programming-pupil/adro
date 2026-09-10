@@ -101,6 +101,7 @@ type localState struct {
 
 type LocalProvider struct {
 	Executable            string
+	RuntimeID             string
 	Args                  []string
 	Model                 string
 	ThinkingLevel         string
@@ -125,6 +126,14 @@ type LocalProvider struct {
 	revision int64
 	runtime  *runtimekernel.Journal
 	closed   bool
+}
+
+// WithRuntimeID preserves the registry identity after executable discovery.
+// Package-manager shims commonly resolve to generic targets such as bin.js;
+// the adapter protocol must not be inferred from that implementation detail.
+func (p *LocalProvider) WithRuntimeID(runtimeID string) *LocalProvider {
+	p.RuntimeID = strings.TrimSpace(runtimeID)
+	return p
 }
 
 // WithExecutionConfig returns the provider with immutable per-Agent launch
@@ -1411,6 +1420,14 @@ func codexExecMode(args []string) bool {
 }
 
 func (p *LocalProvider) executorKind() string {
+	if runtimeID := strings.TrimSpace(p.RuntimeID); runtimeID != "" {
+		for _, descriptor := range RuntimeRegistry {
+			if descriptor.ID == runtimeID {
+				return descriptor.Command
+			}
+		}
+		return strings.ToLower(runtimeID)
+	}
 	name := strings.ToLower(filepath.Base(p.Executable))
 	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
 		name = strings.TrimSuffix(name, suffix)

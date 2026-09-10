@@ -2112,7 +2112,11 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	run, err := s.Provider.GetRun(r.Context(), id)
+	runProvider := s.Provider
+	if s.RuntimeProviders != nil {
+		runProvider = s.RuntimeProviders
+	}
+	run, err := runProvider.GetRun(r.Context(), id)
 	if err != nil {
 		if provider.ErrorCodeOf(err) == provider.ErrorCapability {
 			s.problem(w, r, http.StatusNotImplemented, "capability_unavailable", providerSafeError(err), map[string]any{"capability": capabilityName(err)})
@@ -2126,7 +2130,7 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	if len(parts) > 1 && parts[1] == "cancel" && r.Method == http.MethodPost {
-		if err := s.Provider.CancelRun(r.Context(), id); err != nil {
+		if err := runProvider.CancelRun(r.Context(), id); err != nil {
 			if provider.ErrorCodeOf(err) == provider.ErrorCapability {
 				s.problem(w, r, http.StatusNotImplemented, "capability_unavailable", providerSafeError(err), map[string]any{"capability": capabilityName(err)})
 			} else {
@@ -2151,10 +2155,10 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 			key = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 		}
 		var appendErr error
-		if keyed, ok := s.Provider.(provider.InputKeyProvider); ok && key != "" {
+		if keyed, ok := runProvider.(provider.InputKeyProvider); ok && key != "" {
 			appendErr = keyed.AppendInputWithKey(r.Context(), id, input.Input, key)
 		} else {
-			appendErr = s.Provider.AppendInput(r.Context(), id, input.Input)
+			appendErr = runProvider.AppendInput(r.Context(), id, input.Input)
 		}
 		if appendErr != nil {
 			err := appendErr
@@ -2169,7 +2173,7 @@ func (s *Server) runRoute(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	if len(parts) > 1 && parts[1] == "usage" && r.Method == http.MethodGet {
-		usage, err := s.Provider.GetUsage(r.Context(), id)
+		usage, err := runProvider.GetUsage(r.Context(), id)
 		if err != nil {
 			if provider.ErrorCodeOf(err) == provider.ErrorCapability {
 				s.problem(w, r, http.StatusNotImplemented, "capability_unavailable", providerSafeError(err), map[string]any{"capability": capabilityName(err)})

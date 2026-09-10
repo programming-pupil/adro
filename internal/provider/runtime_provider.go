@@ -100,7 +100,16 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if err := validateRuntimeConfig(runtimeID, selection.RuntimeConfig); err != nil {
 		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
 	}
-	key := runtimeSelectionKey(runtime.ExecutablePath, selection)
+	executable := runtime.ExecutablePath
+	var baseArgs []string
+	if fallback, ok := p.fallback.(*LocalProvider); ok && fallback.executorKind() == runtime.Command {
+		// An operator-configured command is authoritative for the matching
+		// runtime. This retains wrappers and global launch flags when an Agent
+		// selects that runtime explicitly in the control plane.
+		executable = fallback.Executable
+		baseArgs = append([]string(nil), fallback.Args...)
+	}
+	key := runtimeSelectionKey(executable, baseArgs, selection)
 	p.mu.Lock()
 	if existing := p.items[key]; existing != nil {
 		p.mu.Unlock()
@@ -114,7 +123,8 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	if err := validateRuntimeSelection(catalog, selection); err != nil {
 		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
 	}
-	created := NewLocalProvider(runtime.ExecutablePath, nil, p.workRoot, p.bus)
+	created := NewLocalProvider(executable, baseArgs, p.workRoot, p.bus).
+		WithRuntimeID(runtimeID)
 	if p.stateRoot != "" {
 		created.StatePath = filepath.Join(p.stateRoot, key+".json")
 		if err := created.loadState(); err != nil {
@@ -140,8 +150,8 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 	return selectedRuntimeProvider{pool: p, provider: created}, nil
 }
 
-func runtimeSelectionKey(executable string, selection RuntimeSelection) string {
-	parts := []string{selection.RuntimeID, executable, selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}
+func runtimeSelectionKey(executable string, baseArgs []string, selection RuntimeSelection) string {
+	parts := []string{selection.RuntimeID, executable, strings.Join(baseArgs, "\x00"), selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}
 	keys := make([]string, 0, len(selection.RuntimeConfig)+len(selection.Environment))
 	for key := range selection.RuntimeConfig {
 		keys = append(keys, "config:"+key)
@@ -340,6 +350,13 @@ func (p *RuntimeProviderPool) StartRun(ctx context.Context, v StartRunCommand) (
 }
 func (p *RuntimeProviderPool) AppendInput(ctx context.Context, id, input string) error {
 	return p.runProvider(id).AppendInput(ctx, id, input)
+}
+func (p *RuntimeProviderPool) AppendInputWithKey(ctx context.Context, id, input, key string) error {
+	runtime := p.runProvider(id)
+	if keyed, ok := runtime.(InputKeyProvider); ok {
+		return keyed.AppendInputWithKey(ctx, id, input, key)
+	}
+	return runtime.AppendInput(ctx, id, input)
 }
 func (p *RuntimeProviderPool) CancelRun(ctx context.Context, id string) error {
 	return p.runProvider(id).CancelRun(ctx, id)

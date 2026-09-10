@@ -36,6 +36,24 @@ func testServer(t *testing.T) *Server {
 	return New(store.NewMemory(), provider.NewMockProvider(bus), fs, bus, nil)
 }
 
+func TestRunRouteReadsRuntimeProviderPoolRuns(t *testing.T) {
+	s := testServer(t)
+	runtime := provider.NewMockProvider(events.NewBus())
+	s.RuntimeProviders = provider.NewRuntimeProviderPool(runtime, t.TempDir(), events.NewBus())
+	item, err := runtime.CreateWorkItem(context.Background(), provider.WorkItemSpec{ID: "runtime-item", Title: "runtime item"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := s.RuntimeProviders.StartRun(context.Background(), provider.StartRunCommand{WorkItemID: item.ID, Input: "run through selected provider"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+binding.ID, "", nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), binding.ID) {
+		t.Fatalf("run status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func request(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))

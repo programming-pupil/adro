@@ -208,6 +208,51 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderPreservesRegistryIdentityAndConfiguredCommand(t *testing.T) {
+	dir := t.TempDir()
+	discovered := filepath.Join(dir, "codex")
+	configured := filepath.Join(dir, "configured-codex")
+	for _, path := range []string{discovered, configured} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("SHELL", "")
+	t.Setenv("ADRO_CODEX_PATH", discovered)
+
+	fallback := NewLocalProvider(configured, []string{"app-server", "--listen", "stdio://", "--enable", "unified_exec"}, t.TempDir(), events.NewBus()).
+		WithRuntimeID("codex")
+	pool := NewRuntimeProviderPool(fallback, t.TempDir(), events.NewBus())
+	resolved, err := pool.Resolve(RuntimeSelection{RuntimeID: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, ok := resolved.(selectedRuntimeProvider)
+	if !ok {
+		t.Fatalf("resolved provider = %T", resolved)
+	}
+	local, ok := selected.provider.(*LocalProvider)
+	if !ok {
+		t.Fatalf("selected provider = %T", selected.provider)
+	}
+	if local.Executable != configured || local.executorKind() != "codex" {
+		t.Fatalf("executable=%q kind=%q", local.Executable, local.executorKind())
+	}
+	want := "app-server --listen stdio:// --enable unified_exec"
+	if got := strings.Join(local.commandArgs("ship it", "", false), " "); got != want {
+		t.Fatalf("command args=%q want=%q", got, want)
+	}
+}
+
+func TestExplicitRuntimeIdentitySurvivesResolvedLauncherFilename(t *testing.T) {
+	provider := NewLocalProvider("/opt/runtime/bin/codex.js", nil, t.TempDir(), events.NewBus()).
+		WithRuntimeID("codex")
+	if got := strings.Join(provider.commandArgs("ship it", "", false), " "); got != "app-server --listen stdio://" {
+		t.Fatalf("resolved launcher command args=%q", got)
+	}
+}
+
 func TestRuntimeAdapterCommandContracts(t *testing.T) {
 	const session = "11111111-1111-4111-8111-111111111111"
 	tests := []struct {
