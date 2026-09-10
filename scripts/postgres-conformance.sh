@@ -17,6 +17,17 @@ snapshot_fingerprint() {
   psql "$1" -X -v ON_ERROR_STOP=1 -Atqc "SELECT revision::text || ':' || md5(encode(state_json, 'hex')) FROM adro_orchestration_state WHERE id = 1"
 }
 
+require_matching_postgres_major() {
+  local dsn="$1"
+  local server_major client_major
+  server_major="$(psql "$dsn" -X -v ON_ERROR_STOP=1 -Atqc "SHOW server_version_num" | ruby -ne 'puts $_.to_i / 10000')"
+  client_major="$(pg_dump --version | ruby -ne 'puts $1 if /\(PostgreSQL\) (\d+)/')"
+  if [[ -z "$server_major" || -z "$client_major" || "$server_major" != "$client_major" ]]; then
+    printf 'PostgreSQL client/server major version mismatch: pg_dump=%s server=%s\n' "${client_major:-unknown}" "${server_major:-unknown}" >&2
+    return 2
+  fi
+}
+
 run_rehearsal() {
   local source_dsn="$1"
   local backup_dsn="$2"
@@ -94,6 +105,7 @@ if [[ -n "${ADRO_POSTGRES_TEST_DSN:-}" ]]; then
     printf 'blocked_external_prerequisite: ADRO_POSTGRES_BACKUP_DSN, ADRO_POSTGRES_ADMIN_DSN, ADRO_POSTGRES_RESTORE_DSN and ADRO_POSTGRES_RESTORE_DB are required for operational restore evidence\n' >&2
     exit 2
   fi
+  require_matching_postgres_major "$ADRO_POSTGRES_TEST_DSN"
   run_conformance "$ADRO_POSTGRES_TEST_DSN"
   evidence_root="$(mktemp -d "${TMPDIR:-/tmp}/adro-pg-evidence.XXXXXX")"
   trap 'rm -rf "$evidence_root"' EXIT

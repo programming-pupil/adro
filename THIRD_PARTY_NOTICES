@@ -8,7 +8,7 @@ github.com/chzyer/readline v1.5.1
   license: MIT
   source: https://github.com/chzyer/readline
   license-file: THIRD_PARTY_LICENSES/go-github.com_chzyer_readline@v1.5.1.txt
-  license-sha256: 3e07c02046bf3c2a73f060636997e0323dbe92a2d4ba43ef9e6b05a1031ae4c4
+  license-sha256: 3c68d6113157723615a4c1572140431922e07ffe16f01104ce469e98e73714dc
 
 github.com/dustin/go-humanize v1.0.1
   ecosystem: go
@@ -264,7 +264,7 @@ modernc.org/token v1.1.0
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
   license-file: THIRD_PARTY_LICENSES/npm-@playwright_test@1.62.1.txt
-  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb
+  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
 
 fsevents 2.3.2
   ecosystem: npm
@@ -280,7 +280,7 @@ playwright-core 1.62.1
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
   license-file: THIRD_PARTY_LICENSES/npm-playwright-core@1.62.1.txt
-  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb
+  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
 
 playwright 1.62.1
   ecosystem: npm
@@ -288,4 +288,4 @@ playwright 1.62.1
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
   license-file: THIRD_PARTY_LICENSES/npm-playwright@1.62.1.txt
-  license-sha256: 45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb
+  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9

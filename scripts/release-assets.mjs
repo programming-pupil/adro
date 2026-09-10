@@ -180,10 +180,10 @@ function generatedFiles(outputRoot) {
       fail(`license text is unavailable for ${dependencyKey(item)} at ${source}: ${error.message}`);
     }
     const target = licenseTarget(item);
-    const licenseText = license.toString();
-    const normalizedLicense = licenseText.endsWith('\n\n')
-      ? licenseText.replace(/\n+$/u, '\n')
-      : licenseText.endsWith('\n') ? licenseText : `${licenseText}\n`;
+    const normalizedLicense = license
+      .toString('utf8')
+      .replace(/\r\n?/gu, '\n')
+      .replace(/\n*$/u, '\n');
     files.set(target, normalizedLicense);
     notices.push(`${item.name} ${item.version}`);
     notices.push(`  ecosystem: ${item.ecosystem}`);
@@ -191,7 +191,7 @@ function generatedFiles(outputRoot) {
     notices.push(`  license: ${item.license}`);
     notices.push(`  source: ${item.source}`);
     notices.push(`  license-file: ${target}`);
-    notices.push(`  license-sha256: ${sha256(license)}`);
+    notices.push(`  license-sha256: ${sha256(Buffer.from(normalizedLicense, 'utf8'))}`);
     notices.push('');
   }
   files.set('THIRD_PARTY_NOTICES', `${notices.join('\n').trimEnd()}\n`);
