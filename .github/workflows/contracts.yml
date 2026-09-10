@@ -32,6 +32,14 @@ jobs:
       - run: node --check scripts/fault-matrix.mjs
       - run: bash -n scripts/orchestration-guard.sh
       - run: ./scripts/orchestration-guard.sh
+      - name: Enforce independent project identity
+        run: |
+          blocked_name="$(printf '%s%s' multi ca)"
+          blocked_acronym="$(printf '%s%s' a os)"
+          if git grep -I -n -i -E "${blocked_name}|(^|[^[:alnum:]_])${blocked_acronym}([^[:alnum:]_]|$)" -- ':!THIRD_PARTY_LICENSES/**'; then
+            echo 'References to unrelated delivery platforms are not allowed.' >&2
+            exit 1
+          fi
       - run: node scripts/check-html.mjs
       - run: ruby scripts/openapi-contract.rb
       - run: ruby scripts/coverage-ledger.rb --check

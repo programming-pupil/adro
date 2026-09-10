@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | Go API | Go tests on macOS/Linux | source and build compatibility |
 | Native startup | `start.sh`, Bash checks, local health smoke | supported single-node profile; no Docker prerequisite |
-| Local executor | PATH discovery plus real Claude Code version probe | Claude Code, Codex, and compatible argv clients |
+| Local executor | PATH discovery plus real client version probe | Supported coding clients and compatible argv executors |
 | Desktop browsers | Playwright Chromium/Firefox/WebKit matrix | responsive reference workbench |
 | Mobile browsers | Chromium/WebKit emulation | responsive regression only |
 | Kubernetes/Compose | static YAML and schema checks | deployment references; local runtime remains native |

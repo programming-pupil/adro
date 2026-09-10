@@ -9,6 +9,13 @@
   <a href="ABOUT.md">About</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/programming-pupil/adro/actions/workflows/ci.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/ci.yml/badge.svg" alt="Quality CI"></a>
+  <a href="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c9aff.svg" alt="Apache 2.0 license"></a>
+</p>
+
 # ADRO
 
 ADRO 是面向软件交付的开源控制面：从需求、Bug 或分析目标开始，编排
@@ -17,6 +24,16 @@ Agent 或 Squad 完成方案、研发、测试、修复和报告，并为每一�
 让执行既能向前推进，也能按显式路径回到任意前置节点修复。Session、
 Transcript、Checkpoint、Memory、Lease、Outbox、Artifact 和审计事实都由
 ADRO 持久化；Git、CI、部署、身份和通知通过版本化 SPI 接入。
+
+## 核心能力
+
+| 能力 | ADRO 提供的保证 |
+| --- | --- |
+| 自由交付图 | 类型化节点、条件、并行汇合与显式反馈边，而非固化流水线 |
+| 可恢复执行 | Transcript、Checkpoint、Memory、Lease 和 attempt lineage 跨重启与修复保持连续 |
+| 受治理自动化 | 租户权限、不可变运行计划、有界重试、审批和幂等副作用 |
+| 可验证结果 | 哈希关联事件、Artifact、测试证据、SBOM 和发布清单 |
+| 可替换集成 | Executor、Git、CI、部署、身份、通知和存储均通过版本化 SPI 接入 |
 
 ## 如何理解 ADRO
 
@@ -67,6 +84,18 @@ make real-e2e   # 需要已认证的真实代码客户端
 SPDX 许可证/SBOM 校验和 Playwright 浏览器矩阵。浏览器测试使用仓库内仅供
 测试的 no-op executor，不依赖开发者机器；`make real-e2e` 才是真实模型客户端
 验收路径。
+
+## 文档导航
+
+| 文档 | 用途 |
+| --- | --- |
+| [产品需求](docs/product-requirements.zh-CN.md) | 范围、角色、行为与验收标准 |
+| [技术方案](docs/architecture/adro-technical-design.zh-CN.md) | 运行时边界、持久化、安全与扩展契约 |
+| [生产部署](docs/architecture/production-deployment.md) | 本地参考实现之外必须配置的生产控制 |
+| [兼容性](docs/compatibility.md) | 运行时、浏览器和适配器支持范围 |
+| [参与贡献](CONTRIBUTING.md) | 变更与评审要求 |
+| [安全策略](SECURITY.md) | 漏洞私密报告方式及威胁模型入口 |
+| [发布流程](RELEASE.md) | 可复现门禁与真实运行时验收 |
 
 ## 目录
 

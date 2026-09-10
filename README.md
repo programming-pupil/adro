@@ -14,6 +14,8 @@
   <a href="https://github.com/programming-pupil/adro/actions/workflows/contracts.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/contracts.yml/badge.svg" alt="Contracts"></a>
   <a href="https://github.com/programming-pupil/adro/actions/workflows/browser.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/browser.yml/badge.svg" alt="Browser matrix"></a>
   <a href="https://github.com/programming-pupil/adro/actions/workflows/license.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/license.yml/badge.svg" alt="License and SBOM"></a>
+  <a href="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c9aff.svg" alt="Apache 2.0 license"></a>
 </p>
 
@@ -30,6 +32,16 @@ persists requirements, bugs, sessions, transcripts, checkpoints, memory,
 leases, outbox records, artifacts, and audit facts. External Git, CI, deploy,
 identity, and notification systems are replaceable SPI adapters rather than
 hidden core dependencies.
+
+## Why ADRO
+
+| Capability | What ADRO guarantees |
+| --- | --- |
+| Composable delivery graphs | Typed nodes, conditions, parallel joins, and explicit feedback edges instead of a fixed pipeline |
+| Recoverable execution | Durable transcripts, checkpoints, memory, leases, and attempt lineage across restart and repair |
+| Governed automation | Tenant-scoped authorization, immutable run plans, bounded retries, approvals, and idempotent side effects |
+| Verifiable outcomes | Hash-linked events, artifacts, test evidence, SBOMs, and release manifests |
+| Replaceable integrations | Versioned SPIs for executors, Git, CI, deployment, identity, notifications, and artifact storage |
 
 ## How ADRO fits together
 
@@ -83,6 +95,18 @@ make real-e2e   # requires an authenticated real coding client
 startup checks, the SPDX license/SBOM verifier, and the Playwright browser
 suite. Browser tests use the checked-in no-op executor fixture so CI does not
 depend on a developer workstation; `make real-e2e` is the model-backed path.
+
+## Documentation
+
+| Start here | Purpose |
+| --- | --- |
+| [Product requirements](docs/product-requirements.en.md) | Scope, personas, behavior, and acceptance criteria |
+| [Technical design](docs/architecture/adro-technical-design.en.md) | Runtime boundaries, persistence, security, and extension contracts |
+| [Production deployment](docs/architecture/production-deployment.md) | Controls required beyond the local reference profile |
+| [Compatibility](docs/compatibility.md) | Supported runtime, browser, and adapter surfaces |
+| [Contributing](CONTRIBUTING.md) | Change and review expectations |
+| [Security policy](SECURITY.md) | Private vulnerability reporting and threat-model links |
+| [Release process](RELEASE.md) | Reproducible gates and real-runtime acceptance |
 
 ## Repository map
 

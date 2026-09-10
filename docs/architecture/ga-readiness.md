@@ -13,18 +13,19 @@ contract is present but a production adapter is intentionally external;
 | Seven-stage pipeline and same-session repair | implemented | pipeline engine/API tests and context manifests |
 | Durable harness transcript and context recovery | implemented for local profile | long-lived fsynced append-only JSONL transcript reconciled with the snapshot, hash-linked checkpoints, automatic provider tool before/after evidence, exact archive windows, recall/integrity probes, recovery API and restart/tamper tests |
 | Lease/outbox crash recovery | implemented for local profile | durable claim/ack/nack, expiry requeue, lease heartbeats, stale runner reaping and dispatcher fault-injection tests |
-| Local client discovery and real process boundary | implemented | `LocalProvider`, `start.sh`, real Claude version/readiness smoke |
+| Local client discovery and real process boundary | implemented | `LocalProvider`, `start.sh`, real client version/readiness smoke |
 | Run snapshot, git baseline/head, checks and usage | implemented for local process | captured from process exit and git; external CI/Git adapters remain optional |
 | Evidence, artifacts, attachment receipt and audit | implemented | filesystem artifact and API tests |
 | MCP, Skill, Automation and signed plugin governance | implemented for control plane | manifests, digest/signature verification, activation, health and quarantine are durable; plugin binaries remain external |
 | GitHub/Git/CI/deploy integrations | reference-only | SPI and evidence model exist; credentials and adapters are deployment inputs |
 | Durable single-node state | implemented | atomic mode-0600 JSON snapshots and restart tests |
-| PostgreSQL/RLS, NATS, Temporal, cloud artifacts | blocked | production adapters are not shipped in this profile; the harness SDK and migration boundary are ready |
+| PostgreSQL persistence and RLS | implemented for orchestration profile | SQL repository, tenant/workspace scope, backup/restore and PostgreSQL 17 conformance gate |
+| NATS, Temporal and cloud artifacts | blocked | production adapters are not shipped in this profile; the harness SDK and migration boundary are ready |
 | Local identity, login and menu RBAC | implemented | auth and browser tests |
 | OIDC/mTLS/enterprise secret management | blocked | install and conformance external adapters before GA |
 | Web workbench and responsive menus | implemented | HTML checks and Playwright matrix |
 | Load, disaster recovery and multi-node upgrades | blocked | collect measured RTO/RPO and cross-node adapter evidence; local crash recovery is covered |
-| Open-source license/SBOM/release traceability | reference-only | run release scripts from a clean tagged checkout |
+| Open-source license/SBOM/release traceability | implemented | push/PR supply-chain gate plus signed-manifest checks; publishing still requires a clean version tag and release key |
 
 The local profile is suitable for evaluation and real client smoke tests. A
 production claim must name every installed plugin, client version, repository,

@@ -11,6 +11,10 @@
 /.adro/
 /.agent_context/
 /AGENTS.md
+/design.md
+/develop.md
+/qa.md
+/scenario.md
 *.log
 .env
 .env.*

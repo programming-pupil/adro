@@ -15,7 +15,7 @@
 
 ### 1.1 当前 ADRO 基线
 
-代码基线：ADRO `origin/main` = `4396b81d235d6c77975de15a0eea1c3165babc9a`。此前声称的 `agent/adro/deba111c9f96` 及两个相关 commit 不在 refs 中，不能作为本规格的实现依据。
+代码基线：以当前 `origin/main` 与 `ruby scripts/coverage-ledger.rb --check` 输出的 `source_sha` 为准。规格不固化历史提交号；无法从当前 refs 解析的分支或提交不能作为实现依据。
 
 | 现有能力 | 复用源码 | 当前结论 | 本次改造动作 |
 | --- | --- | --- | --- |

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added CodeQL, dependency review, automated dependency updates, and OpenSSF
+  Scorecard workflows; refreshed public documentation and removed internal
+  prompt notes from the published tree.
 - Added the provider-independent local control-plane reference profile, HTTP
   API, event cursor, artifact driver, runner supervisor, capability registry,
   multilingual workbench, migrations, OpenAPI and deployment scaffolding.
