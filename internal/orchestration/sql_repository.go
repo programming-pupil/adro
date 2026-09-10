@@ -884,6 +884,23 @@ func (r *SQLRepository) mutate(fn func() error) error {
 func (r *SQLRepository) SaveAgent(a AgentDefinition, expected int64) error {
 	return r.mutate(func() error { return r.MemoryRepository.SaveAgent(a, expected) })
 }
+func (r *SQLRepository) ImportDefinitionBundle(workspaceID string, bundle DefinitionBundle, dryRun bool) (DefinitionImportReport, error) {
+	if dryRun {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if err := r.refreshLocked(); err != nil {
+			return DefinitionImportReport{}, err
+		}
+		return r.MemoryRepository.ImportDefinitionBundle(workspaceID, bundle, true)
+	}
+	var report DefinitionImportReport
+	err := r.mutate(func() error {
+		var err error
+		report, err = r.MemoryRepository.ImportDefinitionBundle(workspaceID, bundle, dryRun)
+		return err
+	})
+	return report, err
+}
 func (r *SQLRepository) SaveSquad(s SquadDefinition, expected int64) error {
 	return r.mutate(func() error { return r.MemoryRepository.SaveSquad(s, expected) })
 }

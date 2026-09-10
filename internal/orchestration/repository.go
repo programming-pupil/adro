@@ -42,6 +42,7 @@ type Repository interface {
 // adapters add atomic projection, outbox and flush semantics.
 type ControlRepository interface {
 	Repository
+	ImportDefinitionBundle(workspaceID string, bundle DefinitionBundle, dryRun bool) (DefinitionImportReport, error)
 	// CreatePlanWithEvent commits the immutable plan, its initial projection,
 	// and the lifecycle event in one durable transaction.
 	CreatePlanWithEvent(RequirementExecutionPlan, Event) error

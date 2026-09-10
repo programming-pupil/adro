@@ -855,6 +855,13 @@ tests/
 | DEPLOY-001 | Compose volume 删除/重建、容器重启、宿主机重启、artifact 权限改变 | 持久状态和权限符合设计；不可恢复时 readyz 阻断而非丢数据继续服务 |
 | DEPLOY-002 | Helm values/schema 非法、资源限制为 0/负数、secret 未配置、探针失败 | `values.schema.json` 拒绝非法配置；探针反映真实 readiness；不把单机 chart 当 HA |
 | DEPLOY-003 | 升级前备份 state/event/audit/artifact，升级中断后恢复，再运行 API/UI/real conformance | 备份可恢复、hash 一致、迁移可重入；升级失败可回滚且不重复副作用 |
+| MIGRATE-001 | 对版本化 workspace definition bundle 执行 dry-run | 完整校验 Agent、Squad、runtime 和引用；返回确定 digest/count；repository 零写入 |
+| MIGRATE-002 | 导入包含多 Agent、leader/member Squad 和 runtime/model/thinking/custom args 的 bundle | ID 和引用保持一致；配置进入版本化定义；导入后可按各自 runtime 调度 |
+| MIGRATE-003 | 使用同一幂等键重复导入同一 bundle；再用同一键提交不同内容 | 相同内容返回 replay 且不新增 revision；不同内容返回冲突 |
+| MIGRATE-004 | bundle 内重复 ID、缺失 Agent 引用、非法 runtime/模型参数、目标 workspace 已有冲突 revision | 全批次拒绝，错误定位到实体；不得留下部分 Agent 或 Squad |
+| MIGRATE-005 | 注入 snapshot 持久化失败并重启 repository | API 非成功；内存与磁盘均恢复导入前 snapshot；重试可成功且无重复记录 |
+| MIGRATE-006 | 将源 workspace bundle 导入另一 workspace，并由无 agents/admin 权限用户请求 | 仅 workspace 字段被安全重绑定，实体引用不串租户；无权限请求为 403 且零写入 |
+| MIGRATE-007 | bundle 携带 token、cookie、credential、provider session/workdir 等运行态字段 | schema 拒绝未知敏感字段；只迁移声明式配置，不迁移密钥和机器本地运行状态 |
 | CONFORM-CLI-001 | `make real-e2e` 缺 `codex`/凭据、脚本启动失败、事件字段缺失/重复 | 非零退出和脱敏错误；成功只在真实 Codex、session/workdir、pipeline history、cursor 和 artifact evidence 满足时返回 passed；最新 main 已移除旧 `cmd/adro-conformance`，不得继续把旧 CLI 当作门禁 |
 
 ## 13. GitHub push/PR 发布门禁

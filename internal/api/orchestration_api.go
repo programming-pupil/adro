@@ -75,6 +75,31 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if kind == "agents" {
+		if tail == "import" {
+			if r.Method != http.MethodPost {
+				s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "POST is required", nil)
+				return
+			}
+			var input struct {
+				Bundle orchestration.DefinitionBundle `json:"bundle"`
+				DryRun bool                           `json:"dry_run,omitempty"`
+			}
+			if err := decodeJSON(r, &input); err != nil {
+				s.problem(w, r, http.StatusBadRequest, "invalid_definition_bundle", err.Error(), nil)
+				return
+			}
+			report, err := s.Orchestration.ImportDefinitionBundle(workspaceID, input.Bundle, input.DryRun)
+			if err != nil {
+				s.problem(w, r, http.StatusConflict, "definition_import_failed", err.Error(), nil)
+				return
+			}
+			status := http.StatusCreated
+			if input.DryRun || (report.CreatedAgents == 0 && report.CreatedSquads == 0) {
+				status = http.StatusOK
+			}
+			s.writeJSON(w, status, report)
+			return
+		}
 		if tail != "" {
 			s.orchestrationAgentResource(w, r, tail, workspaceID)
 			return

@@ -447,6 +447,42 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/workspaces/{workspace_id}/agents/import":
+    post:
+      operationId: post_api_v1_workspaces_by_workspace_id_agents_import
+      summary: Atomically validate or import a versioned workspace definition bundle
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Bundle validated or replayed without new definitions
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        '201':
+          description: Bundle imported atomically
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/execution-plans/validate":
     post:
       operationId: post_api_v1_execution_plans_validate

@@ -190,6 +190,43 @@ func TestSquadPublishPersistsLatestGraphRevision(t *testing.T) {
 	}
 }
 
+func TestDefinitionBundleImportDryRunAndIdempotency(t *testing.T) {
+	s := testServer(t)
+	agent := orchestration.AgentDefinition{
+		ID: "import-agent", Revision: 1, Name: "Imported agent", Status: orchestration.AgentActive,
+		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high"},
+		InputSchema:     orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1},
+	}
+	bundle := orchestration.DefinitionBundle{Format: orchestration.DefinitionBundleFormat, SourceWorkspaceID: "old", Agents: []orchestration.AgentDefinition{agent}}
+	body := mustJSON(map[string]any{"bundle": bundle, "dry_run": true})
+	dry := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", body, map[string]string{"X-Workspace-ID": "w1"})
+	if dry.Code != http.StatusOK || len(s.Orchestration.ListAgents("w1", "")) != 0 {
+		t.Fatalf("dry status=%d body=%s", dry.Code, dry.Body.String())
+	}
+
+	body = mustJSON(map[string]any{"bundle": bundle})
+	headers := map[string]string{"X-Workspace-ID": "w1", "Idempotency-Key": "definition-import-1"}
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", body, headers)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	replayed := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", body, headers)
+	if replayed.Code != http.StatusCreated || replayed.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("replay status=%d headers=%v body=%s", replayed.Code, replayed.Header(), replayed.Body.String())
+	}
+	if len(s.Orchestration.ListAgents("w1", "")) != 1 {
+		t.Fatal("idempotent replay duplicated agent")
+	}
+
+	changed := bundle
+	changed.Agents = append([]orchestration.AgentDefinition(nil), bundle.Agents...)
+	changed.Agents[0].Name = "Different"
+	conflict := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", mustJSON(map[string]any{"bundle": changed}), headers)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("idempotency conflict status=%d body=%s", conflict.Code, conflict.Body.String())
+	}
+}
+
 func TestQuickSquadPersistsIncompleteDraftAndReturnsValidationErrors(t *testing.T) {
 	s := testServer(t)
 	requirement, err := s.Store.CreateRequirement(domain.Requirement{WorkspaceID: "w1", Title: "quick draft", Description: "draft", AcceptanceCriteria: []string{"works"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
