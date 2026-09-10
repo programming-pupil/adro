@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,26 +236,38 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 	}
 
 	evidence.WriteString(fmt.Sprintf("{\"type\":\"thread.started\",\"thread_id\":%q}\n", threadID))
-	turnID, err := send("turn/start", map[string]any{
-		"threadId": threadID,
-		"input":    []map[string]any{{"type": "text", "text": input}},
-	})
-	if err != nil {
+	startTurn := func() error {
+		turnID, err := send("turn/start", map[string]any{
+			"threadId": threadID,
+			"input":    []map[string]any{{"type": "text", "text": input}},
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := waitResponse(turnID); err != nil {
+			return fmt.Errorf("codex turn/start failed: %w", err)
+		}
+		return nil
+	}
+	if err := startTurn(); err != nil {
 		return finish(err)
 	}
-	if _, err := waitResponse(turnID); err != nil {
-		return finish(fmt.Errorf("codex turn/start failed: %w", err))
-	}
 
+	emptyTurnRetries := codexEmptyTurnRetries()
+	emptyTurns := 0
+	turnHadActivity := false
 	for {
 		method, params, err := waitNotification()
 		if err != nil {
 			return finish(err)
 		}
-		if method != "turn/completed" {
+		if notifiedThread, _ := params["threadId"].(string); notifiedThread != "" && notifiedThread != threadID {
 			continue
 		}
-		if notifiedThread, _ := params["threadId"].(string); notifiedThread != "" && notifiedThread != threadID {
+		if codexNotificationHasActivity(method, params) {
+			turnHadActivity = true
+		}
+		if method != "turn/completed" {
 			continue
 		}
 		if turn, ok := params["turn"].(map[string]any); ok {
@@ -265,9 +278,78 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 			case "cancelled", "canceled", "aborted", "interrupted":
 				return finish(fmt.Errorf("codex turn %s", status))
 			}
+			turnHadActivity = turnHadActivity || codexTurnHasActivity(turn)
+		}
+		if !turnHadActivity {
+			emptyTurns++
+			if emptyTurns > emptyTurnRetries {
+				return finish(fmt.Errorf("codex turn completed without assistant or tool output after %d attempt(s)", emptyTurns))
+			}
+			retryEvent, _ := json.Marshal(map[string]any{"type": "codex.empty_turn.retry", "attempt": emptyTurns, "thread_id": threadID})
+			evidence.Write(retryEvent)
+			evidence.WriteByte('\n')
+			if err := waitForCodexRetry(ctx, time.Duration(emptyTurns)*time.Second); err != nil {
+				return finish(err)
+			}
+			turnHadActivity = false
+			if err := startTurn(); err != nil {
+				return finish(err)
+			}
+			continue
 		}
 		return finish(nil)
 	}
+}
+
+func codexEmptyTurnRetries() int {
+	const defaultRetries = 2
+	value := strings.TrimSpace(os.Getenv("ADRO_CODEX_EMPTY_TURN_RETRIES"))
+	if value == "" {
+		return defaultRetries
+	}
+	retries, err := strconv.Atoi(value)
+	if err != nil || retries < 0 || retries > 5 {
+		return defaultRetries
+	}
+	return retries
+}
+
+func waitForCodexRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func codexNotificationHasActivity(method string, params map[string]any) bool {
+	if !strings.HasPrefix(method, "item/") {
+		return false
+	}
+	item, _ := params["item"].(map[string]any)
+	itemType, _ := item["type"].(string)
+	switch itemType {
+	case "agentMessage", "commandExecution", "fileChange", "mcpToolCall":
+		return true
+	default:
+		return false
+	}
+}
+
+func codexTurnHasActivity(turn map[string]any) bool {
+	items, _ := turn["items"].([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		itemType, _ := item["type"].(string)
+		switch itemType {
+		case "agentMessage", "commandExecution", "fileChange", "mcpToolCall":
+			return true
+		}
+	}
+	return false
 }
 
 // Retry a resume only when Codex explicitly rejects the protocol request (for
