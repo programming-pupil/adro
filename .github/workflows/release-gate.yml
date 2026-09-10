@@ -121,42 +121,13 @@ jobs:
           name: release-gate-postgres
           path: var/test-report/postgres
 
-  real-codex:
-    name: Protected real Codex acceptance
-    runs-on: [self-hosted, adro-codex]
-    timeout-minutes: 45
-    env:
-      ADRO_REQUIRE_CODEX: '1'
-      ADRO_EXECUTOR: codex
-      ADRO_EXECUTOR_COMMAND: ${{ secrets.ADRO_CODEX_COMMAND }}
-      ADRO_AUTH_MODE: optional
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-      - name: Verify protected runner prerequisites
-        run: |
-          command -v codex
-          codex --version
-          test -n "$ADRO_EXECUTOR_COMMAND"
-      - run: ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
-      - run: ADRO_REQUIRE_CODEX=1 ADRO_REAL_E2E_TIMEOUT=1800 bash scripts/real-pipeline-e2e.sh
-      - run: ADRO_REQUIRE_CODEX=1 ADRO_GRAPH_E2E_TIMEOUT=1800 bash scripts/real-graph-orchestration-e2e.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: release-gate-real-codex
-          path: var/test-report/real-codex
-
   release-gate:
     name: Required release gate
     if: always()
-    needs: [go-quality, contracts-supply-chain, browser, postgres, real-codex]
+    needs: [go-quality, contracts-supply-chain, browser, postgres]
     runs-on: ubuntu-latest
     steps:
       - name: Require every release signal
         env:
           RESULTS: ${{ join(needs.*.result, ',') }}
-        run: test "$RESULTS" = "success,success,success,success,success"
+        run: test "$RESULTS" = "success,success,success,success"

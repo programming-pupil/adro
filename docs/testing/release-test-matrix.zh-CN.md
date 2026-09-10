@@ -55,6 +55,6 @@ ADRO_REQUIRE_CODEX=1 make real-e2e
 ## 证据要求
 
 - 每次发布保存 commit、测试命令、执行器版本、request ID、session ID、workdir、状态历史和失败日志摘要。
-- CI 的真实执行器 job 必须使用自托管 `adro-codex` runner 或等价受控环境，并通过 secret 注入凭据；凭据缺失时 job 明确标记为 blocked/failure。
+- 真实执行器验收仅通过 `workflow_dispatch` 手动触发，避免公开仓库的 push/PR 消耗私有 Provider token 或因缺少自托管 runner 长期排队。手动 job 必须使用自托管 `adro-codex` runner 或等价受控环境，并通过 secret 注入凭据；凭据缺失时 job 明确标记为 blocked/failure。
 - 浏览器 fixture 只证明 UI/控制面回归，不得被写成模型完成了交付。
 - 任何失败都要保留最小可复现输入和脱敏日志；不得上传 token、cookie、完整 prompt 或用户代码密钥。

@@ -1,15 +1,14 @@
 name: Real Codex system acceptance
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# This job intentionally targets a controlled self-hosted runner. A hosted
-# runner without a configured Codex account cannot provide real-executor proof.
+# Real-provider acceptance is opt-in because it consumes provider tokens and
+# requires credentials on a controlled self-hosted runner. Push and pull-request
+# gates remain reproducible for public contributors without private credentials.
 jobs:
   real-codex:
     name: Native Codex system and pipeline E2E
