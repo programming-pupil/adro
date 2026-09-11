@@ -148,13 +148,143 @@ func TestStandaloneChatUsesHarnessAndProjectIsolation(t *testing.T) {
 	if message.Code != http.StatusCreated {
 		t.Fatalf("message=%d %s", message.Code, message.Body.String())
 	}
+	if !strings.Contains(message.Body.String(), `"role":"assistant"`) || !strings.Contains(message.Body.String(), `"continuity":"compiled_context"`) {
+		t.Fatalf("chat response did not include the durable assistant turn: %s", message.Body.String())
+	}
+	command, ok := server.Provider.(*provider.MockProvider).LastCommand()
+	if !ok || command.ContextEnvelope.Manifest.SessionID != chat.HarnessSessionID || command.ContextEnvelope.ReplayKey == "" {
+		t.Fatalf("chat provider command lost the compiled Harness envelope: %+v", command)
+	}
+	if !strings.Contains(command.Input, "retain this context") {
+		t.Fatalf("fresh provider dispatch did not receive the rendered durable context: %q", command.Input)
+	}
+	replay := request(t, server.Routes(), http.MethodPost, "/api/v1/chats/"+chat.ID+"/messages", `{"content":"retain this context"}`, map[string]string{"X-Workspace-ID": "w", "Idempotency-Key": "m1"})
+	if replay.Code != http.StatusCreated {
+		t.Fatalf("chat replay=%d %s", replay.Code, replay.Body.String())
+	}
+	followUp := request(t, server.Routes(), http.MethodPost, "/api/v1/chats/"+chat.ID+"/messages", `{"content":"what did I ask before?"}`, map[string]string{"X-Workspace-ID": "w", "Idempotency-Key": "m2"})
+	if followUp.Code != http.StatusCreated {
+		t.Fatalf("chat follow-up=%d %s", followUp.Code, followUp.Body.String())
+	}
+	command, ok = server.Provider.(*provider.MockProvider).LastCommand()
+	if !ok || !strings.Contains(command.Input, "retain this context") || !strings.Contains(command.Input, "what did I ask before?") {
+		t.Fatalf("chat follow-up lost earlier durable context: %+v", command)
+	}
 	read := request(t, server.Routes(), http.MethodGet, "/api/v1/chats/"+chat.ID, "", map[string]string{"X-Workspace-ID": "w"})
-	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), "retain this context") || !strings.Contains(read.Body.String(), "transcript_durable") {
+	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), "retain this context") || !strings.Contains(read.Body.String(), "what did I ask before?") || !strings.Contains(read.Body.String(), "transcript_durable") || !strings.Contains(read.Body.String(), "without returning assistant text") {
 		t.Fatalf("read=%d %s", read.Code, read.Body.String())
+	}
+	var detail struct {
+		Messages []domain.ChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(read.Body.Bytes(), &detail); err != nil || len(detail.Messages) != 4 {
+		t.Fatalf("chat replay duplicated projections: messages=%d err=%v", len(detail.Messages), err)
 	}
 	foreign := request(t, server.Routes(), http.MethodGet, "/api/v1/chats/"+chat.ID, "", map[string]string{"X-Workspace-ID": "other"})
 	if foreign.Code != http.StatusNotFound {
 		t.Fatalf("foreign chat status=%d", foreign.Code)
+	}
+}
+
+func TestChatAgentBindingPinsRuntimeConfiguration(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := provider.NewMockProvider(bus)
+	server := New(store.NewMemory(), mock, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	agentID := orchestration.NewID()
+	if err := server.Orchestration.SaveAgent(orchestration.AgentDefinition{
+		ID: agentID, WorkspaceID: "w", Revision: 1, Name: "Chat reviewer", Status: orchestration.AgentActive,
+		Instructions:    "Review the durable conversation.",
+		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "chat-model", RuntimeConfig: map[string]string{"mode": "local"}},
+		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+		ConcurrencyBudget: orchestration.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	created := request(t, server.Routes(), http.MethodPost, "/api/v1/chats", `{"workspace_id":"w","agent_id":"`+agentID+`","title":"Agent chat"}`, map[string]string{"X-Workspace-ID": "w"})
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"agent_id":"`+agentID+`"`) || !strings.Contains(created.Body.String(), `"model":"chat-model"`) {
+		t.Fatalf("created chat did not retain Agent binding: %d %s", created.Code, created.Body.String())
+	}
+	var chat domain.ChatSession
+	if err := json.Unmarshal(created.Body.Bytes(), &chat); err != nil || chat.AgentRevision != 1 {
+		t.Fatalf("created chat did not pin Agent revision: %+v err=%v", chat, err)
+	}
+	updatedAgent := orchestration.AgentDefinition{
+		ID: agentID, WorkspaceID: "w", Revision: 2, Name: "Chat reviewer v2", Status: orchestration.AgentActive,
+		Instructions:    "Use the newer configuration.",
+		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "new-chat-model", RuntimeConfig: map[string]string{"mode": "new"}},
+		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+		ConcurrencyBudget: orchestration.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
+	}
+	if err := server.Orchestration.SaveAgent(updatedAgent, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, selection, _, err := server.chatProviderSelection(chat)
+	if err != nil || selection.Model != "chat-model" || selection.RuntimeConfig["mode"] != "local" {
+		t.Fatalf("chat did not retain pinned Agent configuration: selection=%+v err=%v", selection, err)
+	}
+}
+
+func TestChatAssistantTextExtractsDSHResultFrame(t *testing.T) {
+	output := "{\"v\":1,\"type\":\"ready\"}\n" +
+		"{\"v\":1,\"type\":\"result\",\"status\":\"completed\",\"output\":\"historical answer\"}\n"
+	if got := chatAssistantText(output); got != "historical answer" {
+		t.Fatalf("chatAssistantText=%q", got)
+	}
+}
+
+func TestChatRunRoutesRespectChatWorkspaceOwnership(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(store.NewMemory(), provider.NewMockProvider(bus), fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	created := request(t, server.Routes(), http.MethodPost, "/api/v1/chats", `{"workspace_id":"chat-workspace","title":"run ownership"}`, map[string]string{"X-Workspace-ID": "chat-workspace"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", created.Code, created.Body.String())
+	}
+	var chat domain.ChatSession
+	if err := json.Unmarshal(created.Body.Bytes(), &chat); err != nil {
+		t.Fatal(err)
+	}
+	message := request(t, server.Routes(), http.MethodPost, "/api/v1/chats/"+chat.ID+"/messages", `{"content":"expose this run"}`, map[string]string{"X-Workspace-ID": "chat-workspace", "Idempotency-Key": "chat-run-ownership"})
+	if message.Code != http.StatusCreated {
+		t.Fatalf("message=%d %s", message.Code, message.Body.String())
+	}
+	var response struct {
+		Run provider.RunSnapshot `json:"run"`
+	}
+	if err := json.Unmarshal(message.Body.Bytes(), &response); err != nil || response.Run.ID == "" {
+		t.Fatalf("run=%+v body=%s err=%v", response.Run, message.Body.String(), err)
+	}
+	owned := request(t, server.Routes(), http.MethodGet, "/api/v1/runs/"+response.Run.ID, "", map[string]string{"X-Workspace-ID": "chat-workspace"})
+	if owned.Code != http.StatusOK {
+		t.Fatalf("owned run=%d %s", owned.Code, owned.Body.String())
+	}
+	foreign := request(t, server.Routes(), http.MethodGet, "/api/v1/runs/"+response.Run.ID, "", map[string]string{"X-Workspace-ID": "other-workspace"})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign run=%d %s", foreign.Code, foreign.Body.String())
+	}
+}
+
+func TestChatAssistantTextExtractsCodexJSONRPCAgentMessage(t *testing.T) {
+	output := `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"type":"agentMessage","text":"nested assistant answer"}}}` + "\n" +
+		`{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}}` + "\n"
+	if got := chatAssistantText(output); got != "nested assistant answer" {
+		t.Fatalf("chatAssistantText=%q", got)
+	}
+}
+
+func TestChatAssistantTextExtractsCodexAgentMessageContentParts(t *testing.T) {
+	output := `{"type":"item.completed","item":{"type":"agent_message","content":[{"type":"output_text","text":"part one"},{"type":"output_text","text":"part two"}]}}`
+	if got := chatAssistantText(output); got != "part onepart two" {
+		t.Fatalf("chatAssistantText=%q", got)
 	}
 }
 

@@ -4137,6 +4137,18 @@ func (s *Server) runBelongsToWorkspace(run provider.RunSnapshot, workspaceID str
 	if err == nil {
 		return s.workItemBelongsToWorkspace(item, workspaceID)
 	}
+	// Ordinary durable chats use their chat-session ID as the provider work
+	// item ID. They are not requirements and therefore have no WorkItem row, but
+	// the chat projection carries the same authoritative workspace boundary.
+	if chat, chatErr := s.Store.GetChatSession(run.WorkItemID); chatErr == nil {
+		return strings.TrimSpace(chat.WorkspaceID) == workspaceID
+	}
+	// Agent-builder runs do not have a requirement or WorkItem row. Their
+	// synthetic ID carries only a one-way workspace marker so the run endpoint
+	// can enforce the same tenant boundary while still exposing compose evidence.
+	if parts := strings.Split(run.WorkItemID, "-"); len(parts) == 4 && parts[0] == "agent" && parts[1] == "builder" {
+		return parts[2] == agentBuilderWorkspaceMarker(workspaceID)
+	}
 	// Comment follow-ups can start before a durable WorkItem exists. The local
 	// provider still carries the synthetic comment work-item id, while ADRO's
 	// provenance record retains the requirement/bug ownership boundary. Resolve

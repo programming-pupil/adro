@@ -85,10 +85,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await page.locator('#newPlan').click();
   await page.locator('#nativePlanRequirement').selectOption(requirementID);
   await page.locator('#nativePlanTarget').selectOption(`agent:${agentID}`);
-  await expect(page.locator('#nativePlanGraph')).toBeVisible();
-  const graph = JSON.parse(await page.locator('#nativePlanGraph').inputValue());
-  graph.id = `browser-created-graph-${Date.now()}`;
-  await page.locator('#nativePlanGraph').fill(JSON.stringify(graph, null, 2));
+  await expect(page.locator('#nativePlanGraphSummary')).toBeVisible();
   await page.locator('#nativePlanGraphValidate').click();
   await expect(page.locator('#nativePlanGraphStatus')).toContainText('计划图已通过检查');
   await page.locator('#nativePlanForm button[type="submit"]').click();

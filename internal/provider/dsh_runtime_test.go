@@ -3,6 +3,8 @@ package provider
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -200,6 +202,43 @@ func TestDSHRealRuntimeSmoke(t *testing.T) {
 	content, err = os.ReadFile(filepath.Join(workDir, "dsh-proof.txt"))
 	if err != nil || string(content) != "dsh-real-first\ndsh-real-second\n" {
 		t.Fatalf("resumed DSH file evidence=%q err=%v", content, err)
+	}
+	if evidencePath := strings.TrimSpace(os.Getenv("ADRO_DSH_REAL_EVIDENCE_PATH")); evidencePath != "" {
+		writeDSHRealEvidence(t, evidencePath, workDir, content, firstSnapshot, secondSnapshot)
+	}
+}
+
+func writeDSHRealEvidence(t *testing.T, path, workDir string, artifact []byte, first, second RunSnapshot) {
+	t.Helper()
+	artifactDigest := sha256.Sum256(artifact)
+	report := map[string]any{
+		"runtime":        "dsh",
+		"model":          "deepseek-official/deepseek-v4-flash",
+		"work_dir":       workDir,
+		"session_id":     first.SessionID,
+		"session_reused": second.SessionID == first.SessionID,
+		"first": map[string]any{
+			"run_id": first.ID, "status": first.Status, "executor_pid": first.ExecutorPID,
+			"work_dir": first.WorkDir, "session_id": first.SessionID, "session_continuity": first.SessionContinuity,
+			"event_cursor": first.LastEventID, "stdout_sha256": first.OutputSHA256, "stderr_sha256": first.OutputSHA256,
+			"tool_events_sha256": first.ToolEventsSHA256,
+		},
+		"second": map[string]any{
+			"run_id": second.ID, "status": second.Status, "executor_pid": second.ExecutorPID,
+			"work_dir": second.WorkDir, "session_id": second.SessionID, "session_continuity": second.SessionContinuity,
+			"event_cursor": second.LastEventID, "stdout_sha256": second.OutputSHA256, "stderr_sha256": second.OutputSHA256,
+			"tool_events_sha256": second.ToolEventsSHA256,
+		},
+		"artifact_sha256":  hex.EncodeToString(artifactDigest[:]),
+		"stream_capture":   "provider transcript combines DSH stdout and stderr; process-level stdout/stderr are hashed by the wrapper script",
+		"secret_redaction": map[string]any{"api_keys_written": false},
+	}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

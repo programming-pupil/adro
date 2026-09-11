@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -49,6 +50,22 @@ func TestComposeAgentDraftUsesSelectedRuntimeAndReturnsEvidence(t *testing.T) {
 	}
 	if got := s.Orchestration.ListAgents("local", ""); len(got) != 0 {
 		t.Fatalf("compose unexpectedly persisted %d Agents", len(got))
+	}
+	var composed struct {
+		Evidence struct {
+			RunID string `json:"run_id"`
+		} `json:"evidence"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &composed); err != nil || composed.Evidence.RunID == "" {
+		t.Fatalf("compose evidence=%+v err=%v", composed.Evidence, err)
+	}
+	owned := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+composed.Evidence.RunID, "", map[string]string{"X-Workspace-ID": "local"})
+	if owned.Code != http.StatusOK {
+		t.Fatalf("owned compose run=%d %s", owned.Code, owned.Body.String())
+	}
+	foreign := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+composed.Evidence.RunID, "", map[string]string{"X-Workspace-ID": "other"})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign compose run=%d %s", foreign.Code, foreign.Body.String())
 	}
 }
 

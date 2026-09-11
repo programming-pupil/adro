@@ -4,9 +4,41 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 )
 
 var ErrConflict = errors.New("provider state conflict")
+
+const RecoveryNativeContinuationUnavailable = "native_continuation_unavailable"
+
+// NativeContinuationUnavailableError means the provider rejected the native
+// resume request before a new turn was submitted. Callers may safely retry
+// the same user turn through the durable ADRO context instead.
+type NativeContinuationUnavailableError struct {
+	Runtime string
+	Cause   error
+}
+
+func (e *NativeContinuationUnavailableError) Error() string {
+	if e == nil {
+		return RecoveryNativeContinuationUnavailable
+	}
+	runtime := strings.TrimSpace(e.Runtime)
+	if runtime == "" {
+		runtime = "provider"
+	}
+	if e.Cause == nil {
+		return runtime + " native continuation unavailable"
+	}
+	return runtime + " native continuation unavailable: " + e.Cause.Error()
+}
+
+func (e *NativeContinuationUnavailableError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
 
 type ErrorCode string
 

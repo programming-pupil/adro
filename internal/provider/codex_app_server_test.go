@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,21 @@ func TestCodexEmptyTurnRetryBackoff(t *testing.T) {
 	}
 }
 
+func TestExecuteCodexAppServerStopsBeforeTurnWhenResumeIsRejected(t *testing.T) {
+	executable := writeResumeRejectingCodexAppServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	_, output, err := executeCodexAppServer(ctx, executable, nil, "must not execute", t.TempDir(), "old-thread-123456789", true, "", "", "", nil)
+	var continuationErr *NativeContinuationUnavailableError
+	if !errors.As(err, &continuationErr) {
+		t.Fatalf("err=%v output=%s", err, output)
+	}
+	if strings.Contains(string(output), `"method":"turn/start"`) {
+		t.Fatalf("resume rejection submitted a new turn: %s", output)
+	}
+}
+
 func writeFakeCodexAppServer(t *testing.T, alwaysEmpty bool) string {
 	t.Helper()
 	executable := filepath.Join(t.TempDir(), "codex")
@@ -102,6 +118,26 @@ while IFS= read -r request; do
 ` + finalTurn + `
       fi
       ;;
+  esac
+done
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	return executable
+}
+
+func writeResumeRejectingCodexAppServer(t *testing.T) string {
+	t.Helper()
+	executable := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+set -eu
+while IFS= read -r request; do
+  case "$request" in
+    *'"method":"initialize"'*) printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"fake"}}}' ;;
+    *'"method":"thread/resume"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"message":"thread not found"}}' ;;
+    *'"method":"thread/start"'*) printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"thread":{"id":"new-thread-123456789"}}}' ;;
+    *'"method":"turn/start"'*) printf '%s\n' '{"jsonrpc":"2.0","id":4,"result":{"turn":{"id":"turn"}}}' ;;
   esac
 done
 `

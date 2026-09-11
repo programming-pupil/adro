@@ -128,6 +128,38 @@ func (m *Memory) GetChatSession(id string) (domain.ChatSession, error) {
 	return session, nil
 }
 
+// UpdateChatSession persists provider/runtime state without changing the
+// durable chat identity. Provider-native sessions are an optimization; the
+// Harness transcript remains the source of truth when this state is absent or
+// cannot be resumed.
+func (m *Memory) UpdateChatSession(session domain.ChatSession) (domain.ChatSession, error) {
+	if err := session.Validate(); err != nil {
+		return domain.ChatSession{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous, ok := m.chatSessions[session.ID]
+	if !ok {
+		return domain.ChatSession{}, ErrNotFound
+	}
+	if previous.WorkspaceID != session.WorkspaceID || previous.HarnessSessionID != session.HarnessSessionID {
+		return domain.ChatSession{}, ErrConflict
+	}
+	session.CreatedAt = previous.CreatedAt
+	if session.Status == "" {
+		session.Status = previous.Status
+	}
+	if session.UpdatedAt.IsZero() {
+		session.UpdatedAt = time.Now().UTC()
+	}
+	m.chatSessions[session.ID] = session
+	if err := m.persistLocked(); err != nil {
+		m.chatSessions[session.ID] = previous
+		return domain.ChatSession{}, fmt.Errorf("persist chat session update: %w", err)
+	}
+	return session, nil
+}
+
 func (m *Memory) ListChatSessions(workspaceID, projectID string) []domain.ChatSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -159,9 +191,16 @@ func (m *Memory) AppendChatMessage(message domain.ChatMessage) (domain.ChatMessa
 	}
 	message.Role = strings.ToLower(strings.TrimSpace(message.Role))
 	message.Content = strings.TrimSpace(message.Content)
+	message.RequestKey = strings.TrimSpace(message.RequestKey)
 	message.CreatedAt = time.Now().UTC()
 	for _, existing := range m.chatMessages[message.ChatSessionID] {
 		if existing.ID == message.ID {
+			return existing, nil
+		}
+		if message.RequestKey != "" && existing.RequestKey == message.RequestKey {
+			if existing.Role != message.Role || existing.Content != message.Content || !sameStringSlice(existing.AttachmentIDs, message.AttachmentIDs) {
+				return domain.ChatMessage{}, ErrConflict
+			}
 			return existing, nil
 		}
 	}
@@ -174,6 +213,18 @@ func (m *Memory) AppendChatMessage(message domain.ChatMessage) (domain.ChatMessa
 		return domain.ChatMessage{}, fmt.Errorf("persist chat message: %w", err)
 	}
 	return message, nil
+}
+
+func sameStringSlice(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Memory) ListChatMessages(sessionID string) ([]domain.ChatMessage, error) {

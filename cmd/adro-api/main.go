@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -160,7 +161,13 @@ func main() {
 		}
 		srv.Audit = ledger
 	}
-	httpServer := &http.Server{Addr: *addr, Handler: withRequestLogging(srv.Routes()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	writeTimeout := 10 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("ADRO_HTTP_WRITE_TIMEOUT")); raw != "" {
+		if configured, parseErr := time.ParseDuration(raw); parseErr == nil && configured >= time.Second {
+			writeTimeout = configured
+		}
+	}
+	httpServer := &http.Server{Addr: *addr, Handler: withRequestLogging(srv.Routes()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: writeTimeout, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Keep durable harness claims moving independently of HTTP traffic. The

@@ -140,16 +140,26 @@ func NormalizeWorkflow(steps []WorkflowStep) []WorkflowStep {
 func (w WorkflowTemplate) StepsForRun() []WorkflowStep { return NormalizeWorkflow(w.Steps) }
 
 type ChatSession struct {
-	ID               string    `json:"id"`
-	WorkspaceID      string    `json:"workspace_id"`
-	AgentID          string    `json:"agent_id,omitempty"`
-	ProjectID        string    `json:"project_id,omitempty"`
-	Title            string    `json:"title"`
-	HarnessSessionID string    `json:"harness_session_id"`
-	Status           string    `json:"status"`
-	CreatedBy        string    `json:"created_by,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	WorkspaceID        string    `json:"workspace_id"`
+	AgentID            string    `json:"agent_id,omitempty"`
+	AgentRevision      int64     `json:"agent_revision,omitempty"`
+	ProjectID          string    `json:"project_id,omitempty"`
+	Title              string    `json:"title"`
+	HarnessSessionID   string    `json:"harness_session_id"`
+	RuntimeID          string    `json:"runtime_id,omitempty"`
+	Model              string    `json:"model,omitempty"`
+	ThinkingLevel      string    `json:"thinking_level,omitempty"`
+	ServiceTier        string    `json:"service_tier,omitempty"`
+	ProviderRuntimeKey string    `json:"provider_runtime_key,omitempty"`
+	ProviderSessionID  string    `json:"provider_session_id,omitempty"`
+	ProviderWorkDir    string    `json:"provider_work_dir,omitempty"`
+	ProviderRunID      string    `json:"provider_run_id,omitempty"`
+	ContinuityMode     string    `json:"continuity_mode,omitempty"`
+	Status             string    `json:"status"`
+	CreatedBy          string    `json:"created_by,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 func (c ChatSession) Validate() error {
@@ -169,8 +179,10 @@ type ChatMessage struct {
 	Role          string    `json:"role"`
 	Content       string    `json:"content"`
 	AttachmentIDs []string  `json:"attachment_ids,omitempty"`
+	RequestKey    string    `json:"request_key,omitempty"`
 	TurnID        string    `json:"turn_id,omitempty"`
 	TurnHash      string    `json:"turn_hash,omitempty"`
+	ProviderRunID string    `json:"provider_run_id,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 

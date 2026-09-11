@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e real-evidence test-expert test-all verify run local
+.PHONY: test test-race vet build coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e dsh-real real-evidence test-expert test-all verify run local
 
 GO ?= ./scripts/e2e-go.sh
 
@@ -27,6 +27,8 @@ contracts:
 	bash -n scripts/real-graph-orchestration-e2e.sh
 	bash -n scripts/browser-graph-real-e2e.sh
 	bash -n scripts/comment-handoff-real-e2e.sh
+	bash -n scripts/chat-compose-real-e2e.sh
+	bash -n scripts/dsh-real-e2e.sh
 	bash -n scripts/lib/real-codex.sh
 	bash -n scripts/test-real-codex-config.sh
 	./scripts/test-real-codex-config.sh
@@ -71,6 +73,10 @@ real-e2e:
 	ADRO_REQUIRE_CODEX=1 bash scripts/release-system-e2e.sh
 	ADRO_REQUIRE_CODEX=1 bash scripts/real-pipeline-e2e.sh
 	ADRO_REQUIRE_CODEX=1 bash scripts/real-graph-orchestration-e2e.sh
+	ADRO_REQUIRE_CODEX=1 bash scripts/chat-compose-real-e2e.sh
+
+dsh-real:
+	ADRO_RUN_REAL_DSH=1 bash scripts/dsh-real-e2e.sh
 
 real-evidence:
 	node scripts/verify-real-evidence.mjs

@@ -177,8 +177,17 @@ func agentBuilderPrompt(request string, current map[string]any) (string, error) 
 }
 
 func agentBuilderWorkItemID(workspaceID, key string) string {
-	sum := sha256.Sum256([]byte(workspaceID + "\x00" + key))
-	return "agent-builder-" + hex.EncodeToString(sum[:12])
+	workspaceSum := sha256.Sum256([]byte(workspaceID))
+	requestSum := sha256.Sum256([]byte(workspaceID + "\x00" + key))
+	// Keep the workspace boundary recoverable by the run API without exposing
+	// raw workspace identifiers or the caller's idempotency key in provider
+	// work-item paths.
+	return "agent-builder-" + hex.EncodeToString(workspaceSum[:8]) + "-" + hex.EncodeToString(requestSum[:12])
+}
+
+func agentBuilderWorkspaceMarker(workspaceID string) string {
+	sum := sha256.Sum256([]byte(workspaceID))
+	return hex.EncodeToString(sum[:8])
 }
 
 func waitForAgentDraftRun(ctx context.Context, executor provider.ExecutionProvider, runID string) (provider.RunSnapshot, error) {

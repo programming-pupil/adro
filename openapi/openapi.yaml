@@ -5848,6 +5848,41 @@ paths:
           headers:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
+    patch:
+      operationId: patch_api_v1_chats_by_id
+      summary: Change the Agent or runtime bound to a durable chat
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ChatSessionPatch"
+      responses:
+        '200':
+          description: Updated chat session
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ChatSession"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/chats/{id}/messages":
     parameters:
     - name: id
@@ -5857,7 +5892,7 @@ paths:
         type: string
     post:
       operationId: post_api_v1_chats_by_id_messages
-      summary: Append a user turn to a durable chat
+      summary: Dispatch a durable chat turn and persist the assistant response
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6837,6 +6872,20 @@ components:
           type: string
         project_id:
           type: string
+        agent_id:
+          type: string
+          description: Optional active Agent whose runtime settings are pinned to the chat.
+        agent_revision:
+          type: integer
+          format: int64
+        runtime_id:
+          type: string
+        model:
+          type: string
+        thinking_level:
+          type: string
+        service_tier:
+          type: string
         title:
           type: string
         budget_tokens:
@@ -6866,10 +6915,33 @@ components:
           type: string
         project_id:
           type: string
+        agent_id:
+          type: string
+        agent_revision:
+          type: integer
+          format: int64
+        runtime_id:
+          type: string
+        model:
+          type: string
+        thinking_level:
+          type: string
+        service_tier:
+          type: string
         title:
           type: string
         harness_session_id:
           type: string
+        provider_session_id:
+          type: string
+        provider_run_id:
+          type: string
+        continuity_mode:
+          type: string
+          enum:
+          - native_session
+          - compiled_context
+          - ''
         status:
           type: string
         created_at:
@@ -6878,6 +6950,24 @@ components:
         updated_at:
           type: string
           format: date-time
+    ChatSessionPatch:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+        project_id:
+          type: string
+        agent_id:
+          type: string
+        runtime_id:
+          type: string
+        model:
+          type: string
+        thinking_level:
+          type: string
+        service_tier:
+          type: string
     ChatMessageCreate:
       type: object
       required:
@@ -6889,6 +6979,44 @@ components:
           type: array
           items:
             type: string
+    ChatMessage:
+      type: object
+      required:
+      - id
+      - chat_session_id
+      - workspace_id
+      - role
+      - content
+      properties:
+        id:
+          type: string
+        chat_session_id:
+          type: string
+        workspace_id:
+          type: string
+        role:
+          type: string
+          enum:
+          - user
+          - assistant
+          - system
+        content:
+          type: string
+        attachment_ids:
+          type: array
+          items:
+            type: string
+        request_key:
+          type: string
+        turn_id:
+          type: string
+        turn_hash:
+          type: string
+        provider_run_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     HarnessSessionCreate:
       type: object
       required:

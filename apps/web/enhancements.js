@@ -25,7 +25,7 @@
     menuPermissions: '菜单权限', menuPermissionsHelp: '管理员拥有全部菜单；其他角色可按人精确分配。',
     userManagement: '用户与菜单权限', identityCount: '个身份', permissionSummary: '菜单', edit: '编辑', userSaveFailed: '用户保存失败，请检查用户名、密码和管理员约束',
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
-    runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限',
+    runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量', runnerAddEnv: '添加变量', runnerEnvName: '变量名', runnerEnvValue: '变量值', runnerRemoveEnv: '移除变量', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限', automationEvent: '触发条件', automationEventRequirement: '需求发生变化', automationEventFailure: '执行失败', automationEventComment: '收到新评论', automationAction: '执行动作', automationActionNotify: '通知相关人员', automationActionAgent: '调用 Agent', automationActionRepair: '进入修复流程',
     workspaceMigration: '工作区迁移', exportWorkspace: '导出工作区', chooseBundle: '选择迁移包', preflightBundle: '预检', importWorkspace: '导入工作区', migrationReady: '预检通过，可以导入', migrationFailed: '迁移失败，请检查文件和冲突策略', migrationDone: '工作区导入完成', conflictMode: '冲突策略', conflictRename: '重映射 ID', conflictSkip: '跳过冲突', conflictFail: '发现冲突即停止', migrationEmpty: '尚未选择迁移包', migrationEntities: '项实体', migrateExisting: '迁移已有工作区',
     agentEditTitle: '编辑 Agent', agentSave: '保存 Agent', agentAvatarLabel: '头像 URL', agentSkillsLabel: '可用 Skills', agentMCPServersLabel: 'MCP 服务', agentRuntimeConfigLabel: '运行时配置', agentRuntimeConfigPlaceholder: '每行 key=value，例如 sandbox_mode=workspace-write', agentEnvironmentLabel: '密钥环境变量', agentEnvironmentPlaceholder: '每行 NAME=env:SECRET_NAME，不填写明文密钥', agentNoResources: '当前没有可选择的资源'
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
@@ -50,7 +50,7 @@
     menuPermissions: 'Menu access', menuPermissionsHelp: 'Administrators receive every menu; other roles can be assigned per user.',
     userManagement: 'Users and menu access', identityCount: 'identities', permissionSummary: 'menus', edit: 'Edit', userSaveFailed: 'Could not save the user; check the username, password, and administrator constraints',
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
-    runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions',
+    runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment variables', runnerAddEnv: 'Add variable', runnerEnvName: 'Variable name', runnerEnvValue: 'Variable value', runnerRemoveEnv: 'Remove variable', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions', automationEvent: 'Trigger condition', automationEventRequirement: 'Requirement changes', automationEventFailure: 'Execution fails', automationEventComment: 'A new comment arrives', automationAction: 'Action', automationActionNotify: 'Notify people', automationActionAgent: 'Invoke an agent', automationActionRepair: 'Start repair',
     workspaceMigration: 'Workspace migration', exportWorkspace: 'Export workspace', chooseBundle: 'Choose bundle', preflightBundle: 'Preflight', importWorkspace: 'Import workspace', migrationReady: 'Preflight passed; ready to import', migrationFailed: 'Migration failed; check the bundle and conflict policy', migrationDone: 'Workspace import completed', conflictMode: 'Conflict policy', conflictRename: 'Remap IDs', conflictSkip: 'Skip conflicts', conflictFail: 'Stop on conflict', migrationEmpty: 'No migration bundle selected', migrationEntities: 'entities', migrateExisting: 'Migrate an existing workspace',
     agentEditTitle: 'Edit agent', agentSave: 'Save agent', agentAvatarLabel: 'Avatar URL', agentSkillsLabel: 'Available skills', agentMCPServersLabel: 'MCP servers', agentRuntimeConfigLabel: 'Runtime configuration', agentRuntimeConfigPlaceholder: 'One key=value per line, for example sandbox_mode=workspace-write', agentEnvironmentLabel: 'Secret-backed environment', agentEnvironmentPlaceholder: 'One NAME=env:SECRET_NAME per line; never enter plaintext secrets', agentNoResources: 'No selectable resources yet'
     ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
@@ -669,6 +669,11 @@
   function ensureGraphDialog() {
     if ($('#graphEditorDialog')) return;
     document.body.insertAdjacentHTML('beforeend', `<dialog id="graphEditorDialog" class="orchestration-dialog graph-editor-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / WORKFLOW GRAPH</p><h2>${escapeHTML(t('graphEditor'))}</h2><p id="graphEditorTarget" class="mono"></p></div><button class="dialog-close" id="closeGraphEditor" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><form id="graphEditorForm"><section class="graph-studio-toolbar"><strong>${escapeHTML(t('graphCanvas'))}</strong><div><button class="secondary" id="graphAddAgent" type="button">+ ${escapeHTML(t('addAgentNode'))}</button><button class="secondary" id="graphAddSquad" type="button">+ ${escapeHTML(t('addSquadNode'))}</button><button class="secondary" id="graphAddGate" type="button">+ ${escapeHTML(t('addGateNode'))}</button><button class="secondary" id="graphAddMerge" type="button">+ ${escapeHTML(t('addMergeNode'))}</button><button class="secondary" id="graphAddRepair" type="button">+ ${escapeHTML(t('addRepairNode'))}</button><button class="secondary" id="graphAddHuman" type="button">+ ${escapeHTML(t('addHumanNode'))}</button><button class="secondary" id="graphConnect" type="button">${escapeHTML(t('connectNodes'))}</button></div></section><div id="graphEditorCanvas" class="graph-editor-canvas" role="application" aria-label="${escapeHTML(t('graphCanvas'))}"></div><section id="graphEditorEdges" class="graph-edge-editor"></section><label class="graph-json-fallback"><span>${escapeHTML(t('graphJSON'))}</span><textarea id="graphEditorJSON" spellcheck="false"></textarea><small class="form-help">${escapeHTML(t('graphJSONHelp'))}</small></label><div id="graphEditorSummary" class="graph-editor-summary"></div><p id="graphEditorStatus" class="form-error" role="status"></p><div class="form-actions"><button class="secondary" id="graphEditorFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="graphEditorValidate" type="button">${escapeHTML(t('validateGraph'))}</button><button class="primary" id="graphEditorSave" type="submit">${escapeHTML(t('saveGraph'))}</button></div></form></dialog>`);
+    const graphJSONField = $('#graphEditorJSON');
+    graphJSONField.hidden = true;
+    graphJSONField.setAttribute('aria-hidden', 'true');
+    graphJSONField.closest('label').hidden = true;
+    $('#graphEditorFormat').hidden = true;
     $('#closeGraphEditor').onclick = () => $('#graphEditorDialog').close();
     $('#graphEditorDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
     $('#graphEditorFormat').onclick = () => {
@@ -1024,7 +1029,7 @@
     renderGraphCanvas(graph);
     setGraphEditorStatus('');
     $('#graphEditorDialog').showModal();
-    setTimeout(() => $('#graphEditorJSON').focus(), 0);
+    setTimeout(() => $('#graphEditorCanvas')?.focus(), 0);
   }
 
   async function saveGraphEditor(event) {
@@ -1140,17 +1145,9 @@
     const host = $('#nativePlanGraphControls');
     if (!host || host.dataset.ready === 'true') return;
     host.dataset.ready = 'true';
-    host.innerHTML = `<div class="plan-graph-head"><strong>${escapeHTML(t('planGraph'))}</strong><button class="secondary" id="nativePlanGraphLoad" type="button">${escapeHTML(t('planGraphLoad'))}</button></div><textarea id="nativePlanGraph" spellcheck="false" aria-label="${escapeHTML(t('planGraph'))}"></textarea><small class="form-help">${escapeHTML(t('planGraphHelp'))}</small><div id="nativePlanGraphSummary" class="graph-editor-summary"></div><p id="nativePlanGraphStatus" class="form-help" role="status"></p><div class="form-actions plan-graph-actions"><button class="secondary" id="nativePlanGraphFormat" type="button">${escapeHTML(t('formatGraph'))}</button><button class="secondary" id="nativePlanGraphValidate" type="button">${escapeHTML(t('planGraphValidate'))}</button></div>`;
+    host.innerHTML = `<div class="plan-graph-head"><strong>${escapeHTML(t('planGraph'))}</strong><button class="secondary" id="nativePlanGraphLoad" type="button">${escapeHTML(t('planGraphLoad'))}</button></div><textarea id="nativePlanGraph" hidden aria-hidden="true" tabindex="-1"></textarea><div id="nativePlanGraphSummary" class="graph-editor-summary"></div><p id="nativePlanGraphStatus" class="form-help" role="status"></p><div class="form-actions plan-graph-actions"><button class="secondary" id="nativePlanGraphValidate" type="button">${escapeHTML(t('planGraphValidate'))}</button></div>`;
     $('#nativePlanTarget').addEventListener('change', loadNativePlanGraph);
     $('#nativePlanGraphLoad').onclick = loadNativePlanGraph;
-    $('#nativePlanGraphFormat').onclick = () => {
-      const graph = nativePlanGraphInput();
-      if (graph) {
-        $('#nativePlanGraph').value = JSON.stringify(graph, null, 2);
-        renderNativePlanGraphSummary(graph);
-        setNativePlanGraphStatus('');
-      }
-    };
     $('#nativePlanGraphValidate').onclick = () => validateNativePlanGraph(String($('#nativePlanRequirement')?.value || ''));
   }
 
@@ -1366,10 +1363,34 @@
   $('#runnerExecuteDialog').addEventListener('click', event => {
     if (event.target === event.currentTarget) closeRunnerExecuteDialog();
   });
+  function addRunnerEnvRow(name = '', value = '') {
+    const host = $('#runnerEnvRows');
+    if (!host) return;
+    const row = document.createElement('div');
+    row.className = 'runner-env-row';
+    row.dataset.runnerEnvRow = 'true';
+    row.innerHTML = `<input data-runner-env-name type="text" autocomplete="off" placeholder="${escapeHTML(t('runnerEnvName'))}"><input data-runner-env-value type="text" autocomplete="off" placeholder="${escapeHTML(t('runnerEnvValue'))}"><button class="icon-button" type="button" data-runner-env-remove title="${escapeHTML(t('runnerRemoveEnv'))}" aria-label="${escapeHTML(t('runnerRemoveEnv'))}"><span aria-hidden="true">×</span></button>`;
+    row.querySelector('[data-runner-env-name]').value = name;
+    row.querySelector('[data-runner-env-value]').value = value;
+    row.querySelector('[data-runner-env-remove]').onclick = () => {
+      row.remove();
+      if (!host.children.length) addRunnerEnvRow();
+    };
+    host.append(row);
+  }
+  function renderRunnerEnvRows(entries = []) {
+    const host = $('#runnerEnvRows');
+    if (!host) return;
+    host.replaceChildren();
+    const values = Object.entries(entries || {});
+    (values.length ? values : [['', '']]).forEach(([name, value]) => addRunnerEnvRow(name, value));
+  }
+  $('#runnerAddEnv').onclick = () => addRunnerEnvRow();
   window.adroOpenRunnerExecuteDialog = runnerID => {
     const form = $('#runnerExecuteForm');
     form.reset();
     form.elements.runner_id.value = runnerID;
+    renderRunnerEnvRows();
     $('#runnerExecuteID').textContent = runnerID;
     $('#runnerExecuteError').textContent = '';
     $('#runnerExecuteDialog').showModal();
@@ -1384,16 +1405,18 @@
     const form = event.currentTarget;
     const data = new FormData(form);
     const command = parseRunnerCommand(data.get('command'));
-    let env = {};
-    try {
-      const rawEnv = String(data.get('env') || '').trim();
-      if (rawEnv) {
-        env = JSON.parse(rawEnv);
-        if (!env || Array.isArray(env) || typeof env !== 'object') throw new Error('env must be an object');
+    const env = {};
+    const names = new Set();
+    for (const row of form.querySelectorAll('[data-runner-env-row]')) {
+      const name = String(row.querySelector('[data-runner-env-name]')?.value || '').trim();
+      const value = String(row.querySelector('[data-runner-env-value]')?.value || '');
+      if (!name && !value.trim()) continue;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || names.has(name)) {
+        $('#runnerExecuteError').textContent = t('runnerExecuteFailed');
+        return;
       }
-    } catch (_) {
-      $('#runnerExecuteError').textContent = t('runnerExecuteFailed');
-      return;
+      names.add(name);
+      env[name] = value;
     }
     if (!command.length) {
       $('#runnerExecuteError').textContent = t('runnerExecuteFailed');
@@ -1509,6 +1532,16 @@
     customArgs.insertAdjacentHTML('beforebegin', `
       <label><span data-i18n="agentRuntimeConfigLabel"></span><textarea name="runtime_config" data-i18n-placeholder="agentRuntimeConfigPlaceholder"></textarea></label>
       <label><span data-i18n="agentEnvironmentLabel"></span><textarea name="environment" data-i18n-placeholder="agentEnvironmentPlaceholder"></textarea></label>`);
+    // Keep provider-specific raw launch fields as an internal compatibility
+    // buffer for imported/existing Agents. End users configure the supported
+    // settings through the runtime controls above; they should not need to
+    // write key=value or secret-reference syntax by hand.
+    customArgs.hidden = true;
+    customArgs.setAttribute('aria-hidden', 'true');
+    form.elements.runtime_config.closest('label').hidden = true;
+    form.elements.runtime_config.closest('label').setAttribute('aria-hidden', 'true');
+    form.elements.environment.closest('label').hidden = true;
+    form.elements.environment.closest('label').setAttribute('aria-hidden', 'true');
     applyTranslations();
   }
 
@@ -2395,12 +2428,31 @@
     $('#pageTitle').textContent = t('chats');
     $('#pageSubtitle').textContent = t('chatSubtitle');
     $('#pageActions').innerHTML = `<button class="primary" id="chatNew"><span aria-hidden="true">＋</span>${escapeHTML(t('newChat'))}</button>`;
-    const list = chats.map(item => `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(item.project_id || t('project'))}</small></button>`).join('');
+    const list = chats.map(item => {
+      const agent = nativeAgents.find(candidate => candidate.id === item.agent_id);
+      const detail = [item.project_id || t('project'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
+      return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(detail)}</small></button>`;
+    }).join('');
     const messages = activeChatData?.messages || [];
     const messageHTML = messages.length ? messages.map(item => `<article class="chat-message ${item.role === 'user' ? 'user' : 'assistant'}"><header><span>${escapeHTML(item.role)}</span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${item.attachment_ids?.length ? `<small>${escapeHTML(item.attachment_ids.length)} ${escapeHTML(t('attachments'))}</small>` : ''}</article>`).join('') : `<p class="chat-empty">${escapeHTML(t('noMessages'))}</p>`;
     const projectOptions = repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('');
-    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><strong>${escapeHTML(t('chats'))}</strong><span>${escapeHTML(chats.length)} ${escapeHTML(t('items'))}</span></div><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer"><div class="chat-compose-meta"><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatProject'))}</option>${projectOptions}</select><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}">＋ <input id="chatFiles" type="file" multiple hidden></label></div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-actions"><span id="chatComposerStatus" role="status"></span><button class="primary" type="submit">${escapeHTML(t('sendMessage'))}</button></div></form></section></div>`;
+    const agentOptions = nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
+    const selectedAgent = activeChatData?.chat?.agent_id || '';
+    const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
+    const continuityLabel = activeChatData?.chat?.continuity_mode === 'native_session' ? t('chatNativeContinuity') : activeChatData?.chat?.provider_session_id ? t('chatCompiledContinuity') : t('chatReadyContinuity');
+    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><strong>${escapeHTML(t('chats'))}</strong><span>${escapeHTML(chats.length)} ${escapeHTML(t('items'))}</span></div><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><div class="chat-panel-meta"><span>${escapeHTML(t('chatRuntime'))}: <strong>${escapeHTML(runtimeLabel)}</strong></span><span>${escapeHTML(continuityLabel)}</span></div><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer"><div class="chat-compose-meta"><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatProject'))}</option>${projectOptions}</select><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatAgent'))}</option>${agentOptions}</select><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}">＋ <input id="chatFiles" type="file" multiple hidden></label></div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-actions"><span id="chatComposerStatus" role="status"></span><button class="primary" type="submit">${escapeHTML(t('sendMessage'))}</button></div></form></section></div>`;
     if ($('#chatProject') && activeChatData?.chat?.project_id) $('#chatProject').value = activeChatData.chat.project_id;
+    if ($('#chatAgent')) $('#chatAgent').value = selectedAgent;
+    if ($('#chatAgent') && activeChatData?.chat) {
+      $('#chatAgent').onchange = async event => {
+        try {
+          await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({agent_id: event.currentTarget.value})});
+          await loadChatDetail(activeChatID);
+        } catch (_) {
+          event.currentTarget.value = selectedAgent;
+        }
+      };
+    }
     document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
     $('#chatNew').onclick = createChatFromUI;
     $('#chatComposer').onsubmit = sendChatFromUI;
@@ -2423,8 +2475,9 @@
     const title = window.prompt(t('chatTitle'), t('newChat'));
     if (!title) return;
     const projectID = $('#chatProject')?.value || '';
+    const agentID = $('#chatAgent')?.value || '';
     try {
-      const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, title: title.trim()})});
+      const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
       chats = [created, ...chats.filter(item => item.id !== created.id)]; activeChatID = created.id; await loadChatDetail(activeChatID);
     } catch (_) { window.alert(t('chatCreateFailed')); }
   }
@@ -2439,11 +2492,24 @@
       for (const file of files) { const payload = new FormData(); payload.append('owner_type', 'chat_session'); payload.append('owner_id', activeChatID); payload.append('file', file); const attachment = await api('/api/v1/attachments', {method: 'POST', body: payload}); attachmentIDs.push(attachment.id); }
       await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}/messages`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({content: input.value, attachment_ids: attachmentIDs})});
       form.reset(); await loadChatDetail(activeChatID);
-    } catch (_) { status.textContent = t('chatSendFailed'); }
+    } catch (_) {
+      // The user turn is durable before provider execution starts. Reload the
+      // authoritative transcript so a provider failure does not make the
+      // message appear lost in the browser.
+      await loadChatDetail(activeChatID);
+      status.textContent = t('chatSendFailed');
+    }
   }
 
   const baseRender = render;
-  render = function enhancedRender() { baseRender(); if (currentView === 'chats') renderChatPage(); };
+  render = function enhancedRender() {
+    // Core polling refreshes the shared data model every 20 seconds. Keep an
+    // active chat DOM stable during that refresh; chat-specific operations
+    // already reload the transcript and own their render cycle.
+    if (currentView === 'chats' && $('#chatComposer')) return;
+    baseRender();
+    if (currentView === 'chats') renderChatPage();
+  };
   const chatNav = document.querySelector('[data-view="chats"]');
   if (chatNav) chatNav.addEventListener('click', () => { setTimeout(loadChatList, 0); });
 
