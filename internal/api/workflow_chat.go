@@ -541,7 +541,8 @@ func cloneRuntimeConfig(input map[string]string) map[string]string {
 }
 
 func chatRuntimeKey(selection provider.RuntimeSelection) string {
-	keys := make([]string, 0, len(selection.RuntimeConfig)+len(selection.Environment)+len(selection.CustomArgs)+len(selection.MCPServers)+len(selection.DisabledRuntimeSkills))
+	// Avoid summing attacker-controlled lengths into a capacity calculation.
+	keys := make([]string, 0, len(selection.CustomArgs))
 	for index, arg := range selection.CustomArgs {
 		keys = append(keys, fmt.Sprintf("arg:%d=%s", index, arg))
 	}
