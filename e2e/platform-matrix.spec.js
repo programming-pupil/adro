@@ -11,8 +11,18 @@ test('login, navigation, locale, and responsive layout remain usable', async ({ 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  const agentsResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
+  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  const agents = await (await agentsResponse).json();
+  if ((agents.items || []).length === 0) {
+    await expect(page.locator('#agentDialog')).toBeVisible();
+    await page.locator('#agentForm button[type="submit"]').click();
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+  }
 
   for (const view of ['workbench', 'requirements', 'bugs', 'repositories', 'agents', 'integrations', 'artifacts', 'admin']) {
     const item = page.locator(`.nav-item[data-view="${view}"]`);

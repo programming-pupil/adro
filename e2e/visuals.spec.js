@@ -15,8 +15,28 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.screenshot({ path: 'var/adro-login-cyber.png', fullPage: true });
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  const agentsResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
+  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  const agents = await (await agentsResponse).json();
+  if ((agents.items || []).length === 0) {
+    await expect(page.locator('#agentDialog')).toBeVisible();
+    await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
+    await page.locator('#agentForm button[type="submit"]').scrollIntoViewIfNeeded();
+    expect(await page.locator('#agentForm button[type="submit"]').evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+    })).toBe(true);
+    await page.locator('#agentForm').evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: 'var/adro-first-agent-setup.png', fullPage: true });
+    await page.locator('#agentForm button[type="submit"]').click();
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+  } else {
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+  }
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   await page.screenshot({ path: 'var/adro-workbench-cyber.png', fullPage: true });
 
@@ -42,12 +62,14 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('design-reviewer');
+  const ownerSelect = page.locator('#agentForm select[name="member"]');
+  await ownerSelect.selectOption({ index: 0 });
+  const ownerID = await ownerSelect.inputValue();
   await page.locator('#agentForm input[name="name"]').fill('Design Review Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Review architecture, risk, and evidence before engineering.');
   await page.locator('#agentForm input[name="role"]').fill('reviewer');
   await page.locator('#agentForm button[type="submit"]').click();
-  await expect(page.locator('#appView')).toContainText('design-reviewer');
+  await expect(page.locator('#appView')).toContainText(ownerID);
   await page.screenshot({ path: 'var/adro-agents-cyber.png', fullPage: true });
 
   await page.locator('.nav-item[data-view="artifacts"]').click();

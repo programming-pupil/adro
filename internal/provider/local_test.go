@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -609,6 +610,14 @@ func TestUsageFromOutputParsesClaudeResult(t *testing.T) {
 	}
 }
 
+func TestUsageFromOutputParsesJSONLAndCamelCase(t *testing.T) {
+	usage := usageFromOutput([]byte("{\"type\":\"update\",\"usage\":{\"inputTokens\":9,\"outputTokens\":2}}\n" +
+		"{\"type\":\"result\",\"usage\":{\"inputTokens\":9,\"outputTokens\":4,\"cachedReadTokens\":3}}\n"))
+	if usage.InputTokens != 9 || usage.OutputTokens != 4 || usage.CacheReadTokens != 3 {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
 func TestLocalProviderClaudeSessionArguments(t *testing.T) {
 	p := NewLocalProvider("claude", nil, t.TempDir(), newTestBus())
 	sessionID := "11111111-1111-4111-8111-111111111111"
@@ -906,6 +915,264 @@ func TestProviderSessionIDExtractsCodexThread(t *testing.T) {
 	}
 	if got := providerSessionID([]byte(`{"type":"thread.started","thread_id":"`+want+`"}`), "claude"); got != "" {
 		t.Fatalf("claude output unexpectedly changed session: %q", got)
+	}
+}
+
+func TestProviderSessionIDExtractsSupportedRuntimeEvents(t *testing.T) {
+	for _, test := range []struct {
+		kind, event, want string
+	}{
+		{"cursor-agent", `{"type":"result","session_id":"cursor-session"}`, "cursor-session"},
+		{"copilot", `{"type":"session.start","data":{"sessionId":"copilot-session"}}`, "copilot-session"},
+		{"opencode", `{"type":"text","part":{"sessionID":"opencode-session"}}`, "opencode-session"},
+		{"deveco", `{"type":"step_start","sessionID":"deveco-session"}`, "deveco-session"},
+		{"openclaw", `{"type":"result","sessionId":"openclaw-session"}`, "openclaw-session"},
+		{"codebuddy", `{"type":"result","session_id":"codebuddy-session"}`, "codebuddy-session"},
+		{"qwen", `{"type":"result","session_id":"qwen-session"}`, "qwen-session"},
+	} {
+		if got := providerSessionID([]byte(test.event), test.kind); got != test.want {
+			t.Fatalf("%s session=%q want=%q", test.kind, got, test.want)
+		}
+	}
+	wholeOpenClaw := []byte(`{"payloads":[{"text":"done"}],"meta":{"durationMs":1,"agentMeta":{"sessionId":"whole-buffer-session"}}}`)
+	if got := providerSessionID(wholeOpenClaw, "openclaw"); got != "whole-buffer-session" {
+		t.Fatalf("whole-buffer session=%q", got)
+	}
+	if got := providerSessionID([]byte(`{"type":"result","session_id":"bad session"}`), "qwen"); got != "" {
+		t.Fatalf("unsafe session id accepted: %q", got)
+	}
+	if got := sessionIDFromAntigravityLog([]byte("first conversation=11111111-1111-4111-8111-111111111111, sent\nlast conversation=22222222-2222-4222-8222-222222222222, done")); got != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("conversation id=%q", got)
+	}
+}
+
+func TestLocalProviderRunsCursorStdinProtocol(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "cursor-agent")
+	script := `#!/bin/sh
+prompt=$(cat)
+printf '{"type":"result","session_id":"cursor-session","result":"%s"}\n' "$prompt"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "cursor-stdin", Title: "cursor stdin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "ship-it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, provider, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionID != "cursor-session" || snapshot.SessionContinuity != "proven" || !strings.Contains(snapshot.Output, "ship-it") {
+		t.Fatalf("cursor snapshot=%+v", snapshot)
+	}
+	if slices.Contains(snapshot.ExecutorArgs, "ship-it") {
+		t.Fatalf("prompt leaked into executor args: %v", snapshot.ExecutorArgs)
+	}
+}
+
+func TestLocalProviderRunsAdditionalOneShotAdapters(t *testing.T) {
+	tests := []struct {
+		name    string
+		event   string
+		session string
+	}{
+		{"copilot", `{"type":"result","sessionId":"copilot-session","exitCode":0}`, "copilot-session"},
+		{"opencode", `{"type":"step_finish","sessionID":"opencode-session"}`, "opencode-session"},
+		{"deveco", `{"type":"step_finish","sessionID":"deveco-session"}`, "deveco-session"},
+		{"openclaw", `{"type":"result","sessionId":"openclaw-session"}`, "openclaw-session"},
+		{"codebuddy", `{"type":"result","session_id":"codebuddy-session"}`, "codebuddy-session"},
+		{"qwen", `{"type":"result","session_id":"qwen-session"}`, "qwen-session"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			executable := filepath.Join(root, test.name)
+			script := "#!/bin/sh\nprintf '%s\\n' '" + test.event + "'\n"
+			if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+			item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: test.name + "-run", Title: test.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "task"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot := waitSnapshot(t, provider, binding.ID)
+			if snapshot.Status != "completed" || snapshot.SessionID != test.session || snapshot.SessionContinuity != "proven" {
+				t.Fatalf("snapshot=%+v", snapshot)
+			}
+		})
+	}
+}
+
+func TestLocalProviderRunsAndResumesPiSession(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "pi")
+	argsLog := filepath.Join(root, "args.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + argsLog + `"
+prompt=$(cat)
+printf '{"type":"tool_execution_start","toolCallId":"call-1","toolName":"write","args":{"prompt":"%s"}}\n' "$prompt"
+printf '{"type":"tool_execution_end","toolCallId":"call-1","toolName":"write","result":"ok"}\n'
+printf '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"done"}}\n'
+printf '{"type":"turn_end","message":{"role":"assistant","model":"provider/model","usage":{"input":11,"output":5,"cacheRead":2}}}\n'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus()).
+		WithExecutionConfig("provider/model", "high", "", nil)
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "pi-run", Title: "pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := waitSnapshot(t, provider, first.ID)
+	if initial.Status != "completed" || initial.SessionContinuity != "proven" || !strings.HasSuffix(initial.SessionID, ".jsonl") {
+		t.Fatalf("initial snapshot=%+v", initial)
+	}
+	if initial.Usage.InputTokens != 11 || initial.Usage.OutputTokens != 5 || initial.Usage.CacheReadTokens != 2 {
+		t.Fatalf("usage=%+v", initial.Usage)
+	}
+	if len(initial.ToolEvents) != 2 || initial.ToolEvents[0].Phase != "before" || initial.ToolEvents[1].Phase != "after" {
+		t.Fatalf("tool events=%+v", initial.ToolEvents)
+	}
+	continued, err := provider.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: item.ID, Input: "second", ExpectedSessionID: initial.SessionID, ExpectedWorkDir: initial.WorkDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := waitSnapshot(t, provider, continued.ID)
+	if resumed.Status != "completed" || resumed.SessionID != initial.SessionID || resumed.SessionContinuity != "proven" {
+		t.Fatalf("resumed snapshot=%+v", resumed)
+	}
+	logged, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(logged), "--session "+initial.SessionID) != 2 || strings.Contains(string(logged), "first") || strings.Contains(string(logged), "second") {
+		t.Fatalf("args log=%q", logged)
+	}
+}
+
+func TestLocalProviderRunsAndResumesDSHSession(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "dsh")
+	requestLog := filepath.Join(root, "requests.jsonl")
+	argsLog := filepath.Join(root, "args.log")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "` + argsLog + `"
+IFS= read -r request
+printf '%s\n' "$request" >> "` + requestLog + `"
+request_id=$(printf '%s' "$request" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{"v":1,"type":"ready","runtime":"dsh","protocol_version":1}\n'
+printf '{"v":1,"type":"session","request_id":"%s","session_id":"dsh-native-session"}\n' "$request_id"
+printf '{"v":1,"type":"result","request_id":"%s","session_id":"dsh-native-session","status":"completed","output":"done"}\n' "$request_id"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus()).
+		WithExecutionConfig("provider/model", "high", "", nil)
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "dsh-run", Title: "dsh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := waitSnapshot(t, provider, first.ID)
+	if initial.Status != "completed" || initial.SessionID != "dsh-native-session" || initial.SessionContinuity != "proven" {
+		t.Fatalf("initial snapshot=%+v", initial)
+	}
+	continued, err := provider.ContinueWorkItem(context.Background(), ContinuationCommand{
+		IssueID: item.ID, Input: "second", ExpectedSessionID: initial.SessionID, ExpectedWorkDir: initial.WorkDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := waitSnapshot(t, provider, continued.ID)
+	if resumed.Status != "completed" || resumed.SessionID != initial.SessionID || resumed.SessionContinuity != "proven" {
+		t.Fatalf("resumed snapshot=%+v", resumed)
+	}
+	requests, err := os.ReadFile(requestLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(requests), `"type":"execute"`) != 2 || !strings.Contains(string(requests), `"resume_session_id":"dsh-native-session"`) {
+		t.Fatalf("requests=%s", requests)
+	}
+	args, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(args), "--profile "+dshProfile+" --stdio") != 2 {
+		t.Fatalf("args=%q", args)
+	}
+}
+
+func TestPiRuntimeOutputFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "missing terminal", output: `{"type":"agent_start"}`, want: "terminal turn"},
+		{name: "turn error", output: `{"type":"turn_end","message":{"stopReason":"error","errorMessage":"quota exhausted"}}`, want: "quota exhausted"},
+		{name: "retry exhausted", output: `{"type":"auto_retry_end","success":false,"finalError":"network unavailable"}`, want: "network unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := piRuntimeOutputError([]byte(test.output), "pi"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+	if err := piRuntimeOutputError([]byte(`{"type":"turn_end","message":{"stopReason":"end_turn"}}`), "pi"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalProviderReadsAntigravitySessionLog(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "agy")
+	script := `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--log-file" ]; then
+    printf '%s\n' 'conversation=44444444-4444-4444-8444-444444444444, complete' > "$2"
+    break
+  fi
+  shift
+done
+printf '%s\n' 'completed'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalProvider(executable, nil, filepath.Join(root, "workspaces"), newTestBus())
+	item, err := provider.CreateWorkItem(context.Background(), WorkItemSpec{ID: "antigravity-run", Title: "antigravity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := provider.StartRun(context.Background(), StartRunCommand{WorkItemID: item.ID, Input: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitSnapshot(t, provider, binding.ID)
+	if snapshot.Status != "completed" || snapshot.SessionID != "44444444-4444-4444-8444-444444444444" || snapshot.SessionContinuity != "proven" {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
 

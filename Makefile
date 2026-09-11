@@ -37,6 +37,7 @@ contracts:
 	node --check e2e/visuals.spec.js
 	node --check e2e/platform-matrix.spec.js
 	node --check e2e/graph-browser.spec.js
+	node --check e2e/coverage-ledger.spec.js
 	node --check playwright.matrix.config.js
 	node --check playwright.real-graph.config.js
 	node --check scripts/release-assets.mjs

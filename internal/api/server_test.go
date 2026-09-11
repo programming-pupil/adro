@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +34,24 @@ func testServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	return New(store.NewMemory(), provider.NewMockProvider(bus), fs, bus, nil)
+}
+
+func TestRunRouteReadsRuntimeProviderPoolRuns(t *testing.T) {
+	s := testServer(t)
+	runtime := provider.NewMockProvider(events.NewBus())
+	s.RuntimeProviders = provider.NewRuntimeProviderPool(runtime, t.TempDir(), events.NewBus())
+	item, err := runtime.CreateWorkItem(context.Background(), provider.WorkItemSpec{ID: "runtime-item", Title: "runtime item"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := s.RuntimeProviders.StartRun(context.Background(), provider.StartRunCommand{WorkItemID: item.ID, Input: "run through selected provider"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+binding.ID, "", nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), binding.ID) {
+		t.Fatalf("run status=%d body=%s", response.Code, response.Body.String())
+	}
 }
 
 func request(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
@@ -867,12 +887,21 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(mcp.Body.Bytes(), &server)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/mcp/servers/"+server.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read MCP server status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID, `{"tool":"search","request":{}}`, nil).Code; got != http.StatusConflict {
+		t.Fatalf("unapproved MCP invocation status=%d", got)
+	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID+"/discover", "", nil).Code; got != http.StatusOK {
 		t.Fatal(got)
 	}
 	healthCheck := request(t, s.Routes(), http.MethodPost, "/api/v1/mcp/servers/"+server.ID+"/health-check", "", nil)
 	if healthCheck.Code != http.StatusOK || !strings.Contains(healthCheck.Body.String(), `"reachable":false`) || !strings.Contains(healthCheck.Body.String(), `"status":"unreachable"`) {
 		t.Fatalf("health check status=%d body=%s", healthCheck.Code, healthCheck.Body.String())
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/mcp/servers/"+server.ID, `{"name":"search-v2"}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update MCP server status=%d", got)
 	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/agents/agent-1/mcp-bindings", `{"workspace_id":"w","capability_id":"`+server.ID+`"}`, nil).Code; got != http.StatusCreated {
 		t.Fatal(got)
@@ -885,6 +914,12 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(skill.Body.Bytes(), &skillID)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/skills/"+skillID.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read Skill status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/skills/"+skillID.ID, `{"name":"verify-v2","version":"1.0.1"}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update Skill status=%d", got)
+	}
 	if got := request(t, s.Routes(), http.MethodPost, "/api/v1/skills/"+skillID.ID+"/publish", "", nil).Code; got != http.StatusOK {
 		t.Fatal(got)
 	}
@@ -896,9 +931,28 @@ func TestWorkflowGatesDiffAndGovernanceActions(t *testing.T) {
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(automation.Body.Bytes(), &automationID)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/automations/"+automationID.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read automation status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodPatch, "/api/v1/automations/"+automationID.ID, `{"name":"on-failure-v2","enabled":true}`, nil).Code; got != http.StatusOK {
+		t.Fatalf("update automation status=%d", got)
+	}
 	trigger := request(t, s.Routes(), http.MethodPost, "/api/v1/automations/"+automationID.ID+"/trigger", `{}`, nil)
 	if trigger.Code != http.StatusAccepted {
 		t.Fatal(trigger.Code, trigger.Body.String())
+	}
+	var automationRun struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(trigger.Body.Bytes(), &automationRun)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/automation-runs/"+automationRun.ID, "", nil).Code; got != http.StatusOK {
+		t.Fatalf("read automation run status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodDelete, "/api/v1/automations/"+automationID.ID, "", nil).Code; got != http.StatusNoContent {
+		t.Fatalf("delete automation status=%d", got)
+	}
+	if got := request(t, s.Routes(), http.MethodDelete, "/api/v1/skills/"+skillID.ID, "", nil).Code; got != http.StatusNoContent {
+		t.Fatalf("delete Skill status=%d", got)
 	}
 }
 
@@ -1001,6 +1055,53 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 	}
 	if got := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil).Code; got != http.StatusOK {
 		t.Fatalf("health status=%d", got)
+	}
+}
+
+func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ADRO_EXECUTOR", "")
+	// Pin Codex to an unavailable path so this test remains independent of the
+	// macOS desktop fallback on developer machines that have Codex installed.
+	t.Setenv("ADRO_CODEX_PATH", filepath.Join(t.TempDir(), "missing-codex"))
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime discovery status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Items []provider.DiscoveredRuntime `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != len(provider.RuntimeRegistry) {
+		t.Fatalf("runtime discovery returned %d entries, want %d", len(body.Items), len(provider.RuntimeRegistry))
+	}
+	for _, item := range body.Items {
+		if item.Installed || item.ExecutablePath != "" {
+			t.Fatalf("empty PATH reported installed runtime: %+v", item)
+		}
+	}
+}
+
+func TestRuntimeModelsEndpointReturnsPerModelOptions(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "codex")
+	payload := `{"models":[{"slug":"model-a","display_name":"Model A","priority":1,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high"}],"service_tiers":[{"id":"priority","name":"Fast"}]}]}`
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '"+payload+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("ADRO_EXECUTOR", "")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/codex/models", "", nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model-a"`) || !strings.Contains(response.Body.String(), `"priority"`) {
+		t.Fatalf("models status=%d body=%s", response.Code, response.Body.String())
+	}
+	missing := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/claude/models", "", nil)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing runtime status=%d body=%s", missing.Code, missing.Body.String())
 	}
 }
 

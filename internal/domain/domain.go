@@ -95,22 +95,32 @@ func Transition(from, to RequirementStatus) error {
 }
 
 type Requirement struct {
-	ID                 string            `json:"id"`
-	WorkspaceID        string            `json:"workspace_id"`
-	Key                string            `json:"key"`
-	Title              string            `json:"title"`
-	Description        string            `json:"description"`
-	AcceptanceCriteria []string          `json:"acceptance_criteria"`
-	Priority           string            `json:"priority"`
-	Status             RequirementStatus `json:"status"`
-	CreatedBy          string            `json:"created_by"`
-	AssigneeMemberIDs  []string          `json:"assignee_member_ids"`
-	RepositoryIDs      []string          `json:"repository_ids"`
-	WorkflowTemplateID string            `json:"workflow_template_id,omitempty"`
-	WorkflowMode       WorkflowMode      `json:"workflow_mode,omitempty"`
-	Version            int64             `json:"version"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	ID                  string            `json:"id"`
+	WorkspaceID         string            `json:"workspace_id"`
+	Key                 string            `json:"key"`
+	Title               string            `json:"title"`
+	Description         string            `json:"description"`
+	AcceptanceCriteria  []string          `json:"acceptance_criteria"`
+	Priority            string            `json:"priority"`
+	Status              RequirementStatus `json:"status"`
+	CreatedBy           string            `json:"created_by"`
+	AssigneeMemberIDs   []string          `json:"assignee_member_ids"`
+	AssigneeTargetType  string            `json:"assignee_target_type,omitempty"`
+	AssigneeTargetID    string            `json:"assignee_target_id,omitempty"`
+	RepositoryIDs       []string          `json:"repository_ids"`
+	TeamWorkspaceID     string            `json:"team_workspace_id,omitempty"`
+	ParentRequirementID string            `json:"parent_requirement_id,omitempty"`
+	Stage               int               `json:"stage,omitempty"`
+	Position            float64           `json:"position,omitempty"`
+	StartDate           *time.Time        `json:"start_date,omitempty"`
+	DueDate             *time.Time        `json:"due_date,omitempty"`
+	Metadata            map[string]any    `json:"metadata,omitempty"`
+	Properties          map[string]any    `json:"properties,omitempty"`
+	WorkflowTemplateID  string            `json:"workflow_template_id,omitempty"`
+	WorkflowMode        WorkflowMode      `json:"workflow_mode,omitempty"`
+	Version             int64             `json:"version"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 // Comment is an immutable, provider-neutral discussion entry attached to a
@@ -301,8 +311,16 @@ func (r Requirement) Validate() error {
 	if len(r.AcceptanceCriteria) == 0 {
 		return errors.New("at least one acceptance criterion is required")
 	}
-	if len(r.AssigneeMemberIDs) == 0 {
-		return errors.New("at least one assignee_member_id is required")
+	targetType := strings.ToLower(strings.TrimSpace(r.AssigneeTargetType))
+	targetID := strings.TrimSpace(r.AssigneeTargetID)
+	if (targetType == "") != (targetID == "") {
+		return errors.New("assignee_target_type and assignee_target_id must be provided together")
+	}
+	if targetType != "" && targetType != "member" && targetType != "agent" && targetType != "squad" {
+		return errors.New("assignee_target_type must be member, agent, or squad")
+	}
+	if len(r.AssigneeMemberIDs) == 0 && targetID == "" {
+		return errors.New("at least one member, Agent, or Squad assignee is required")
 	}
 	return nil
 }

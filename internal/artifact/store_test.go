@@ -105,7 +105,7 @@ func TestFileStoreFailsClosedOnContentAndMetadataTampering(t *testing.T) {
 	if _, err := s.Put(context.Background(), key, strings.NewReader("trusted"), PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
 		t.Fatal(err)
 	}
-	contentPath := filepath.Join(dir, key.TenantID, key.ArtifactID, "1")
+	contentPath := filepath.Join(dir, pathComponentDigest(key.TenantID), pathComponentDigest(key.ArtifactID), "1")
 	if err := os.WriteFile(contentPath, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}

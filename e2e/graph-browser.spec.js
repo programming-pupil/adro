@@ -54,7 +54,11 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('browser-real-graph-owner');
+  const runtimeSelect = page.locator('#agentForm select[name="runtime"]');
+  await expect(runtimeSelect.locator('option[value="codex"]')).toBeEnabled();
+  await runtimeSelect.selectOption('codex');
+  await expect(runtimeSelect).toHaveValue('codex');
+  await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill('Browser Real Graph Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill([
     'You are the real Codex executor for a browser-created ADRO graph.',
@@ -63,6 +67,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
     'The marker must be valid JSON with outcome pass, reason_code browser_graph_real, summary browser graph real execution passed, evidence_ids [browser-graph-real-1], and fields {browser_created_graph:true}.',
   ].join('\n'));
   await page.locator('#agentForm input[name="role"]').fill('browser-real-graph');
+  await page.locator('#agentForm select[name="access_mode"]').selectOption('workspace');
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
 
@@ -70,6 +75,12 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await expect(agentRow).toContainText('active');
   const agentID = (await agentRow.locator('.orchestration-id').textContent()).trim();
   expect(agentID).toBeTruthy();
+  const agentResponse = await page.request.get(`${apiURL}/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}`, { headers: apiHeaders });
+  evidence.agent = { status: agentResponse.status(), ok: agentResponse.ok(), body: parseJSON(await agentResponse.text()) };
+  writeEvidence(evidence);
+  expect(agentResponse.ok()).toBeTruthy();
+  expect(evidence.agent.body.access_policy).toEqual({ mode: 'workspace' });
+  expect(evidence.agent.body.executor_binding.runtime_id).toBe('codex');
 
   await page.locator('#newPlan').click();
   await page.locator('#nativePlanRequirement').selectOption(requirementID);
@@ -131,6 +142,12 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   }
   expect(terminalTimeline).toBeTruthy();
   evidence.timeline = terminalTimeline;
+  for (const attempt of Object.values(terminalTimeline.projection.attempts || {})) {
+    if (!attempt.run_id) continue;
+    const runResponse = await page.request.get(`${apiURL}/api/v1/runs/${encodeURIComponent(attempt.run_id)}`, { headers: apiHeaders });
+    expect(runResponse.ok()).toBeTruthy();
+    evidence.runs.push(await runResponse.json());
+  }
   writeEvidence(evidence);
   expect(terminalTimeline.projection.terminal_outcome).toBe('succeeded');
   expect(terminalTimeline.events.some(event => (event.type || event.event_type) === 'attempt.finished')).toBeTruthy();
@@ -142,12 +159,6 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   expect(evidence.replay.projection.status).toBe('terminal');
   expect(evidence.replay.projection.terminal_outcome).toBe('succeeded');
 
-  for (const attempt of Object.values(terminalTimeline.projection.attempts || {})) {
-    if (!attempt.run_id) continue;
-    const runResponse = await page.request.get(`${apiURL}/api/v1/runs/${encodeURIComponent(attempt.run_id)}`, { headers: apiHeaders });
-    expect(runResponse.ok()).toBeTruthy();
-    evidence.runs.push(await runResponse.json());
-  }
   writeEvidence(evidence);
   await page.screenshot({ path: process.env.ADRO_GRAPH_BROWSER_SCREENSHOT || path.join(path.dirname(reportFile), 'browser-graph.png'), fullPage: true });
 });

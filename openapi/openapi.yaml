@@ -314,6 +314,152 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/workspaces/{workspace_id}/migration/export":
+    get:
+      operationId: get_api_v1_workspaces_by_workspace_id_migration_export
+      summary: Export a verified portable workspace bundle
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Portable workspace ZIP archive
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Digest:
+              description: SHA-256 digest of the portable manifest
+              schema:
+                type: string
+          content:
+            application/vnd.adro.workspace+zip:
+              schema:
+                type: string
+                format: binary
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workspaces/{workspace_id}/migration/preflight":
+    post:
+      operationId: post_api_v1_workspaces_by_workspace_id_migration_preflight
+      summary: Validate a portable workspace bundle without changing state
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflict
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - fail
+          - skip
+          - rename
+          default: rename
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/vnd.adro.workspace+zip:
+            schema:
+              type: string
+              format: binary
+          application/zip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Workspace migration preflight report
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workspaces/{workspace_id}/migration/import":
+    post:
+      operationId: post_api_v1_workspaces_by_workspace_id_migration_import
+      summary: Validate and atomically import a portable workspace bundle
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: conflict
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - fail
+          - skip
+          - rename
+          default: rename
+      - name: dry_run
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/vnd.adro.workspace+zip:
+            schema:
+              type: string
+              format: binary
+          application/zip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Workspace migration import receipt
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/workspaces/{workspace_id}/agents":
     get:
       operationId: get_api_v1_workspaces_by_workspace_id_agents
@@ -447,6 +593,138 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/runtimes/discovered":
+    get:
+      operationId: get_api_v1_runtimes_discovered
+      summary: Discover installed local execution runtimes
+      responses:
+        '200':
+          description: Runtime discovery result
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/runtimes/{runtime_id}/models":
+    get:
+      operationId: get_api_v1_runtimes_by_runtime_id_models
+      summary: Discover the model and per-model execution option catalog
+      parameters:
+      - name: runtime_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Model, thinking-level, and service-tier catalog
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/runtimes/{runtime_id}/skills":
+    get:
+      operationId: get_api_v1_runtimes_by_runtime_id_skills
+      summary: Discover runtime-local Skills without reading their bodies
+      parameters:
+      - name: runtime_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Runtime-local Skill metadata
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workspaces/{workspace_id}/agents/import":
+    post:
+      operationId: post_api_v1_workspaces_by_workspace_id_agents_import
+      summary: Atomically validate or import a versioned workspace definition bundle
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Bundle validated or replayed without new definitions
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        '201':
+          description: Bundle imported atomically
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workspaces/{workspace_id}/agents/compose":
+    post:
+      operationId: post_api_v1_workspaces_by_workspace_id_agents_compose
+      summary: Generate a validated Agent configuration draft with a selected local runtime
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Validated Agent draft and runtime execution evidence
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/execution-plans/validate":
     post:
       operationId: post_api_v1_execution_plans_validate
@@ -3729,6 +4007,105 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/mcp/servers/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      operationId: get_api_v1_mcp_servers_by_id
+      summary: Read an MCP server
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    post:
+      operationId: post_api_v1_mcp_servers_by_id
+      summary: Invoke an approved MCP server tool
+      responses:
+        '200':
+          description: MCP invocation receipt
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    patch:
+      operationId: patch_api_v1_mcp_servers_by_id
+      summary: Update an MCP server
+      responses:
+        '200':
+          description: MCP server
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    delete:
+      operationId: delete_api_v1_mcp_servers_by_id
+      summary: Delete an MCP server
+      responses:
+        '204':
+          description: MCP server deleted
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/mcp/servers/{id}/discover":
     parameters:
     - name: id
@@ -3918,6 +4295,79 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/skills/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      operationId: get_api_v1_skills_by_id
+      summary: Read a Skill
+      responses:
+        '200':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    patch:
+      operationId: patch_api_v1_skills_by_id
+      summary: Update a Skill draft
+      responses:
+        '200':
+          description: Skill
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    delete:
+      operationId: delete_api_v1_skills_by_id
+      summary: Delete a Skill
+      responses:
+        '204':
+          description: Skill deleted
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/skills/{id}/versions":
     parameters:
     - name: id
@@ -4081,6 +4531,79 @@ paths:
                 "$ref": "#/components/schemas/JsonObject"
       parameters:
       - "$ref": "#/components/parameters/IdempotencyKey"
+  "/api/v1/automations/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      operationId: get_api_v1_automations_by_id
+      summary: Read an automation
+      responses:
+        '200':
+          description: Automation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    patch:
+      operationId: patch_api_v1_automations_by_id
+      summary: Update an automation
+      responses:
+        '200':
+          description: Automation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+    delete:
+      operationId: delete_api_v1_automations_by_id
+      summary: Delete an automation
+      responses:
+        '204':
+          description: Automation deleted
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/automations/{id}/publish":
     parameters:
     - name: id
@@ -4221,6 +4744,35 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/automation-runs/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      operationId: get_api_v1_automation_runs_by_id
+      summary: Read an automation run
+      responses:
+        '200':
+          description: Automation run
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/automation-runs/{id}/cancel":
     parameters:
     - name: id
@@ -6806,7 +7358,12 @@ components:
       - title
       - description
       - acceptance_criteria
-      - assignee_member_ids
+      anyOf:
+      - required:
+        - assignee_member_ids
+      - required:
+        - assignee_target_type
+        - assignee_target_id
       properties:
         workspace_id:
           type: string
@@ -6826,6 +7383,15 @@ components:
           minItems: 1
           items:
             type: string
+        assignee_target_type:
+          type: string
+          enum:
+          - member
+          - agent
+          - squad
+        assignee_target_id:
+          type: string
+          minLength: 1
         repository_ids:
           type: array
           items:

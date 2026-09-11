@@ -16,7 +16,9 @@ if [ -x "$configured_path" ] && [ "$configured_real" != "$script_path" ]; then
   if [ -f "$root/VERSION" ] && [ -d "$root/pkg/tool" ]; then
     exec env GOROOT="$root" "$candidate" "$@"
   fi
-  exec "$candidate" "$@"
+  # A caller-selected binary must not inherit a GOROOT belonging to another
+  # installation; that produces opaque compiler/tool version mismatches.
+  exec env -u GOROOT "$candidate" "$@"
 fi
 for candidate in \
   /Users/shareit/.gvm/gos/go1.24.1/bin/go \
@@ -29,4 +31,4 @@ for candidate in \
     exec "$candidate" "$@"
   fi
 done
-exec go "$@"
+exec env -u GOROOT go "$@"

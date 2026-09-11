@@ -25,7 +25,9 @@
     menuPermissions: '菜单权限', menuPermissionsHelp: '管理员拥有全部菜单；其他角色可按人精确分配。',
     userManagement: '用户与菜单权限', identityCount: '个身份', permissionSummary: '菜单', edit: '编辑', userSaveFailed: '用户保存失败，请检查用户名、密码和管理员约束',
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
-    runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限'
+    runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量 JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限',
+    workspaceMigration: '工作区迁移', exportWorkspace: '导出工作区', chooseBundle: '选择迁移包', preflightBundle: '预检', importWorkspace: '导入工作区', migrationReady: '预检通过，可以导入', migrationFailed: '迁移失败，请检查文件和冲突策略', migrationDone: '工作区导入完成', conflictMode: '冲突策略', conflictRename: '重映射 ID', conflictSkip: '跳过冲突', conflictFail: '发现冲突即停止', migrationEmpty: '尚未选择迁移包', migrationEntities: '项实体', migrateExisting: '迁移已有工作区',
+    agentEditTitle: '编辑 Agent', agentSave: '保存 Agent', agentAvatarLabel: '头像 URL', agentSkillsLabel: '可用 Skills', agentMCPServersLabel: 'MCP 服务', agentRuntimeConfigLabel: '运行时配置', agentRuntimeConfigPlaceholder: '每行 key=value，例如 sandbox_mode=workspace-write', agentEnvironmentLabel: '密钥环境变量', agentEnvironmentPlaceholder: '每行 NAME=env:SECRET_NAME，不填写明文密钥', agentNoResources: '当前没有可选择的资源'
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.en, {
@@ -48,8 +50,74 @@
     menuPermissions: 'Menu access', menuPermissionsHelp: 'Administrators receive every menu; other roles can be assigned per user.',
     userManagement: 'Users and menu access', identityCount: 'identities', permissionSummary: 'menus', edit: 'Edit', userSaveFailed: 'Could not save the user; check the username, password, and administrator constraints',
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
-    runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions'
+    runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment JSON', runnerEnvPlaceholder: '{"CI":"true"}', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions',
+    workspaceMigration: 'Workspace migration', exportWorkspace: 'Export workspace', chooseBundle: 'Choose bundle', preflightBundle: 'Preflight', importWorkspace: 'Import workspace', migrationReady: 'Preflight passed; ready to import', migrationFailed: 'Migration failed; check the bundle and conflict policy', migrationDone: 'Workspace import completed', conflictMode: 'Conflict policy', conflictRename: 'Remap IDs', conflictSkip: 'Skip conflicts', conflictFail: 'Stop on conflict', migrationEmpty: 'No migration bundle selected', migrationEntities: 'entities', migrateExisting: 'Migrate an existing workspace',
+    agentEditTitle: 'Edit agent', agentSave: 'Save agent', agentAvatarLabel: 'Avatar URL', agentSkillsLabel: 'Available skills', agentMCPServersLabel: 'MCP servers', agentRuntimeConfigLabel: 'Runtime configuration', agentRuntimeConfigPlaceholder: 'One key=value per line, for example sandbox_mode=workspace-write', agentEnvironmentLabel: 'Secret-backed environment', agentEnvironmentPlaceholder: 'One NAME=env:SECRET_NAME per line; never enter plaintext secrets', agentNoResources: 'No selectable resources yet'
     ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
+  });
+  Object.assign(translations.zh, {
+    agentRuntimeControls: '运行时策略',
+    agentCodexSandbox: 'Codex 沙箱',
+    agentCodexApproval: 'Codex 审批策略',
+    agentSandboxReadOnly: '只读',
+    agentSandboxWorkspace: '可写工作区',
+    agentSandboxUnrestricted: '不限制',
+    agentApprovalUntrusted: '仅可信命令免审批',
+    agentApprovalOnRequest: '按需审批',
+    agentApprovalOnFailure: '失败后审批',
+    agentApprovalNever: '从不审批',
+    agentOpenClawMode: 'OpenClaw 模式',
+    agentOpenClawLocal: '本地',
+    agentOpenClawGateway: '网关',
+    agentGatewayHost: '网关地址',
+    agentGatewayPort: '网关端口',
+    agentGatewayTLS: '使用 TLS',
+    agentGatewayAuthEnv: '运行时令牌变量',
+    agentGatewaySecretEnv: '本机密钥变量',
+    agentRuntimeSkills: '本地运行时 Skills',
+    agentRuntimeSkillsLoading: '正在读取本地 Skills',
+    agentRuntimeSkillsEmpty: '此运行时没有发现本地 Skill',
+    agentRuntimeSkillsUnavailable: '无法读取此运行时的本地 Skills',
+    agentRuntimeSkillLocked: '由运行时管理，始终启用'
+  });
+  Object.assign(translations.en, {
+    agentRuntimeControls: 'Runtime policy',
+    agentCodexSandbox: 'Codex sandbox',
+    agentCodexApproval: 'Codex approval policy',
+    agentSandboxReadOnly: 'Read only',
+    agentSandboxWorkspace: 'Workspace write',
+    agentSandboxUnrestricted: 'Unrestricted',
+    agentApprovalUntrusted: 'Approve untrusted commands',
+    agentApprovalOnRequest: 'On request',
+    agentApprovalOnFailure: 'After failure',
+    agentApprovalNever: 'Never approve',
+    agentOpenClawMode: 'OpenClaw mode',
+    agentOpenClawLocal: 'Local',
+    agentOpenClawGateway: 'Gateway',
+    agentGatewayHost: 'Gateway host',
+    agentGatewayPort: 'Gateway port',
+    agentGatewayTLS: 'Use TLS',
+    agentGatewayAuthEnv: 'Runtime token variable',
+    agentGatewaySecretEnv: 'Host secret variable',
+    agentRuntimeSkills: 'Local runtime skills',
+    agentRuntimeSkillsLoading: 'Reading local skills',
+    agentRuntimeSkillsEmpty: 'No local skills were found for this runtime',
+    agentRuntimeSkillsUnavailable: 'Local skills are unavailable for this runtime',
+    agentRuntimeSkillLocked: 'Managed by the runtime and always enabled'
+  });
+  Object.assign(translations.zh, {
+    agentMemberLabel: '负责人',
+    agentAccessMembersLabel: '可使用成员',
+    agentBuilderCreate: '生成并创建',
+    agentExistingOwner: '现有负责人',
+    agentNoMembers: '当前没有可选择的成员'
+  });
+  Object.assign(translations.en, {
+    agentMemberLabel: 'Owner',
+    agentAccessMembersLabel: 'Allowed members',
+    agentBuilderCreate: 'Generate and create',
+    agentExistingOwner: 'Existing owner',
+    agentNoMembers: 'No members are available'
   });
   Object.assign(translations.en, {
     requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
@@ -82,6 +150,15 @@
   let activeCommentTargetID = '';
   let activeCommentItems = [];
   let commentActivity = new Map();
+  let onboardingPrompted = false;
+  let workspaceMigrationFile = null;
+  let workspaceMigrationReport = null;
+  let agentRuntimeSkillItems = [];
+  let agentDisabledRuntimeSkills = [];
+  let agentRuntimeSkillRequest = 0;
+  let agentRuntimeConfigs = new Map();
+  let agentRuntimeEnvironments = new Map();
+  let agentPreservedCustomArgs = [];
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -159,6 +236,10 @@
     if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
     if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
     if (currentView === 'agents') render();
+    if (!onboardingPrompted && currentUser?.role === 'admin' && nativeAgents.length === 0) {
+      onboardingPrompted = true;
+      await showAgentDialog(true);
+    }
   }
 
   const focusIfPresent = selector => {
@@ -505,8 +586,81 @@
     const userRows = managedUsers.map(user => `<tr><td><strong>${escapeHTML(user.display_name)}</strong><div class="mono">${escapeHTML(user.username)}</div></td><td><span class="status ${user.role === 'admin' ? 'active' : ''}">${escapeHTML(roleLabel(user.role))}</span></td><td><span class="status ${user.status === 'active' ? 'good' : 'bad'}">${escapeHTML(t(user.status === 'active' ? 'activeAccount' : 'disabledAccount'))}</span></td><td><span class="permission-count">${user.menu_ids.length} / ${menuIDs.length}</span></td><td><button class="action-button" type="button" data-edit-user="${escapeHTML(user.id)}">${escapeHTML(t('edit'))}</button></td></tr>`);
     const usersPanel = `<section class="panel"><div class="panel-head"><h2>${escapeHTML(t('userManagement'))}</h2><small>${managedUsers.length} ${escapeHTML(t('identityCount'))}</small></div><div class="admin-toolbar"><p>${escapeHTML(t('menuPermissionsHelp'))}</p><button class="primary" id="newUser" type="button"><span aria-hidden="true">＋</span>${escapeHTML(t('createUser'))}</button></div><div class="table-scroll"><table><thead><tr><th>${escapeHTML(t('displayName'))}</th><th>${escapeHTML(t('role'))}</th><th>${escapeHTML(t('accountStatus'))}</th><th>${escapeHTML(t('permissionSummary'))}</th><th>${escapeHTML(t('actions'))}</th></tr></thead><tbody>${userRows.length ? userRows.join('') : `<tr><td colspan="5" class="empty">${escapeHTML(t('noItems'))}</td></tr>`}</tbody></table></div></section>`;
     const audit = genericTable(t('auditChain'), [t('key'), t('eventType'), t('source'), t('time')], auditItems.slice(-25).reverse().map(item => `<tr><td class="mono">${escapeHTML(String(item.sequence || '').padStart(4, '0'))}</td><td>${escapeHTML(item.action || '-')}</td><td class="muted">${escapeHTML(item.actor_id || '-')}</td><td class="muted">${escapeHTML(new Date(item.created_at || Date.now()).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US'))}</td></tr>`), t('noEvents'));
-    return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('accessControl'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div>${usersPanel}${audit}</div>`;
+    const migration = workspaceMigrationPanel();
+    return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('accessControl'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div>${migration}${usersPanel}${audit}</div>`;
   };
+
+  function workspaceMigrationPanel(onboarding = false) {
+    return `<section class="panel workspace-migration ${onboarding ? 'onboarding-migration' : ''}" data-workspace-migration><div class="panel-head"><h2>${escapeHTML(t(onboarding ? 'migrateExisting' : 'workspaceMigration'))}</h2><small data-migration-name>${escapeHTML(workspaceMigrationFile?.name || t('migrationEmpty'))}</small></div><div class="migration-controls">${onboarding ? '' : `<button class="secondary" type="button" data-migration-export><span aria-hidden="true">↓</span>${escapeHTML(t('exportWorkspace'))}</button>`}<label class="secondary migration-file-button"><span aria-hidden="true">↑</span>${escapeHTML(t('chooseBundle'))}<input type="file" accept=".zip,application/zip,application/vnd.adro.workspace+zip" data-migration-file hidden></label><label><span>${escapeHTML(t('conflictMode'))}</span><select data-migration-conflict><option value="rename">${escapeHTML(t('conflictRename'))}</option><option value="skip">${escapeHTML(t('conflictSkip'))}</option><option value="fail">${escapeHTML(t('conflictFail'))}</option></select></label><button class="secondary" type="button" data-migration-preflight disabled>${escapeHTML(t('preflightBundle'))}</button><button class="primary" type="button" data-migration-import disabled>${escapeHTML(t('importWorkspace'))}</button></div><div class="migration-report" data-migration-report role="status"></div></section>`;
+  }
+
+  function bindWorkspaceMigration(root = document) {
+    root.querySelectorAll('[data-workspace-migration]').forEach(panel => {
+      if (panel.dataset.bound === 'true') return;
+      panel.dataset.bound = 'true';
+      const fileInput = panel.querySelector('[data-migration-file]');
+      const preflight = panel.querySelector('[data-migration-preflight]');
+      const importButton = panel.querySelector('[data-migration-import]');
+      const exportButton = panel.querySelector('[data-migration-export]');
+      fileInput.onchange = () => {
+        workspaceMigrationFile = fileInput.files?.[0] || null;
+        workspaceMigrationReport = null;
+        panel.querySelector('[data-migration-name]').textContent = workspaceMigrationFile?.name || t('migrationEmpty');
+        preflight.disabled = !workspaceMigrationFile;
+        importButton.disabled = true;
+        panel.querySelector('[data-migration-report]').textContent = '';
+      };
+      panel.querySelector('[data-migration-conflict]').onchange = () => { workspaceMigrationReport = null; importButton.disabled = true; };
+      preflight.onclick = () => preflightWorkspaceMigration(panel);
+      importButton.onclick = () => importWorkspaceMigration(panel);
+      if (exportButton) exportButton.onclick = exportWorkspaceMigration;
+    });
+  }
+
+  async function migrationRequest(action, panel) {
+    if (!workspaceMigrationFile) throw new Error('bundle required');
+    const policy = panel.querySelector('[data-migration-conflict]').value;
+    const response = await fetch(`${apiOrigin}/api/v1/workspaces/local/migration/${action}?conflict=${encodeURIComponent(policy)}`, {method: 'POST', headers: {'X-Workspace-ID': 'local', ...(action === 'import' ? {'Idempotency-Key': idempotencyKey()} : {})}, credentials: 'include', body: workspaceMigrationFile});
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async function preflightWorkspaceMigration(panel) {
+    const status = panel.querySelector('[data-migration-report]');
+    const button = panel.querySelector('[data-migration-preflight]');
+    button.disabled = true;
+    try {
+      workspaceMigrationReport = await migrationRequest('preflight', panel);
+      const counts = workspaceMigrationReport.counts || {};
+      const total = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
+      status.className = 'migration-report good';
+      status.textContent = `${t('migrationReady')} · ${total} ${t('migrationEntities')} · ${String(workspaceMigrationReport.digest || '').slice(0, 12)}`;
+      panel.querySelector('[data-migration-import]').disabled = false;
+    } catch (_) {
+      status.className = 'migration-report bad'; status.textContent = t('migrationFailed'); workspaceMigrationReport = null;
+    } finally { button.disabled = !workspaceMigrationFile; }
+  }
+
+  async function importWorkspaceMigration(panel) {
+    if (!workspaceMigrationReport) return;
+    const status = panel.querySelector('[data-migration-report]');
+    const button = panel.querySelector('[data-migration-import]');
+    button.disabled = true;
+    try {
+      await migrationRequest('import', panel);
+      status.className = 'migration-report good'; status.textContent = t('migrationDone');
+      const agentForm = $('#agentForm');
+      if (agentForm?.dataset.onboarding === 'true') { delete agentForm.dataset.onboarding; document.body.classList.remove('onboarding-active'); closeAgentDialog(); }
+      onboardingPrompted = true;
+      await loadCore(true);
+    } catch (_) { status.className = 'migration-report bad'; status.textContent = t('migrationFailed'); button.disabled = false; }
+  }
+
+  async function exportWorkspaceMigration() {
+    const response = await fetch(`${apiOrigin}/api/v1/workspaces/local/migration/export`, {headers: {'X-Workspace-ID': 'local'}, credentials: 'include'});
+    if (!response.ok) return;
+    const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'adro-workspace-local.zip'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
 
   function orchestrationAction(id, kind, action, label, variant = '') {
     return `<button class="action-button ${variant}" type="button" data-orchestration-kind="${escapeHTML(kind)}" data-orchestration-id="${escapeHTML(id)}" data-orchestration-action="${escapeHTML(action)}">${escapeHTML(t(label || action))}</button>`;
@@ -1006,7 +1160,8 @@
         ? orchestrationAction(agent.id, 'agent', 'disable', 'disable')
         : agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'enable', 'enable', 'accent') : '';
       const archive = agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'archive', 'archive', 'danger') : '';
-      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td>${escapeHTML(agent.role || '-')}</td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td class="mono">r${escapeHTML(String(agent.revision || 0))}</td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
+      const runtime = agent.executor_binding?.runtime_id || agent.executor_binding?.provider_id || '-';
+      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td><strong>${escapeHTML(agent.owner_id || '-')}</strong><div class="muted">${escapeHTML(agent.role || '-')}</div></td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td><span class="mono">${escapeHTML(runtime)}</span><div class="muted">r${escapeHTML(String(agent.revision || 0))}</div></td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'edit', 'edit')}${orchestrationAction(agent.id, 'agent', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
     });
     const squadRows = nativeSquads.map(squad => {
       const publish = squad.status === 'draft' ? orchestrationAction(squad.id, 'squad', 'publish', 'publish', 'accent') : '';
@@ -1016,7 +1171,7 @@
     });
     const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
     const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
-    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status" role="status"></div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('role'), t('status'), t('revision'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
+    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status" role="status"></div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
   };
 
   function ensureOrchestrationDialogs() {
@@ -1275,32 +1430,539 @@
     const newPlan = $('#newPlan');
     if (newPlan) newPlan.onclick = openNativePlanDialog;
     document.querySelectorAll('[data-orchestration-action]').forEach(button => {
-      button.onclick = () => applyOrchestrationAction(button.dataset.orchestrationKind, button.dataset.orchestrationId, button.dataset.orchestrationAction);
+      button.onclick = () => {
+        if (button.dataset.orchestrationKind === 'agent' && button.dataset.orchestrationAction === 'edit') {
+          const agent = nativeAgents.find(item => item.id === button.dataset.orchestrationId);
+          if (agent) showAgentDialog(false, agent);
+          return;
+        }
+        applyOrchestrationAction(button.dataset.orchestrationKind, button.dataset.orchestrationId, button.dataset.orchestrationAction);
+      };
     });
+    bindWorkspaceMigration();
   };
 
+  function ensureAgentConfigurationFields() {
+    const form = $('#agentForm');
+    if (!form || form.elements.avatar_url) return;
+    form.elements.description.maxLength = 255;
+    const ownerInput = form.elements.member;
+    const ownerSelect = document.createElement('select');
+    ownerSelect.name = 'member';
+    ownerSelect.required = true;
+    ownerInput.replaceWith(ownerSelect);
+    const modelInput = form.elements.model;
+    const modelSelect = document.createElement('select');
+    modelSelect.name = 'model';
+    modelSelect.id = 'agentModel';
+    modelInput.replaceWith(modelSelect);
+    $('#agentModelOptions')?.remove();
+    const accessField = $('#agentAccessMembersField');
+    accessField.outerHTML = `<fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>`;
+    const builderActions = form.querySelector('.agent-builder-actions');
+    builderActions.insertAdjacentHTML('afterbegin', `<button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">＋</span><span data-i18n="agentBuilderCreate"></span></button>`);
+    const starters = form.querySelector('.agent-starters');
+    starters.insertAdjacentHTML('beforebegin', `
+      <label><span data-i18n="agentAvatarLabel"></span><input name="avatar_url" type="url" placeholder="https://..."></label>
+      <div class="two-fields agent-resource-fields">
+        <fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset>
+        <fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset>
+      </div>`);
+    form.elements.thinking.closest('.two-fields').insertAdjacentHTML('afterend', `
+      <section id="agentRuntimeControls" class="agent-runtime-controls" aria-labelledby="agentRuntimeControlsTitle">
+        <h3 id="agentRuntimeControlsTitle" data-i18n="agentRuntimeControls"></h3>
+        <div class="two-fields agent-runtime-policy" data-runtime-policy="codex" hidden>
+          <label><span data-i18n="agentCodexSandbox"></span><select name="codex_sandbox">
+            <option value="" data-i18n="runtimeDefault"></option>
+            <option value="read-only" data-i18n="agentSandboxReadOnly"></option>
+            <option value="workspace-write" data-i18n="agentSandboxWorkspace"></option>
+            <option value="danger-full-access" data-i18n="agentSandboxUnrestricted"></option>
+          </select></label>
+          <label><span data-i18n="agentCodexApproval"></span><select name="codex_approval">
+            <option value="" data-i18n="runtimeDefault"></option>
+            <option value="untrusted" data-i18n="agentApprovalUntrusted"></option>
+            <option value="on-request" data-i18n="agentApprovalOnRequest"></option>
+            <option value="on-failure" data-i18n="agentApprovalOnFailure"></option>
+            <option value="never" data-i18n="agentApprovalNever"></option>
+          </select></label>
+        </div>
+        <div class="agent-runtime-policy" data-runtime-policy="openclaw" hidden>
+          <div class="two-fields">
+            <label><span data-i18n="agentOpenClawMode"></span><select name="openclaw_mode">
+              <option value="local" data-i18n="agentOpenClawLocal"></option>
+              <option value="gateway" data-i18n="agentOpenClawGateway"></option>
+            </select></label>
+            <label class="toggle-line"><input name="openclaw_tls" type="checkbox"><span data-i18n="agentGatewayTLS"></span></label>
+          </div>
+          <div class="two-fields" data-openclaw-gateway>
+            <label><span data-i18n="agentGatewayHost"></span><input name="openclaw_host" type="text" autocomplete="off"></label>
+            <label><span data-i18n="agentGatewayPort"></span><input name="openclaw_port" type="number" min="1" max="65535" inputmode="numeric"></label>
+          </div>
+          <div class="two-fields" data-openclaw-gateway>
+            <label><span data-i18n="agentGatewayAuthEnv"></span><input name="openclaw_auth_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label>
+            <label><span data-i18n="agentGatewaySecretEnv"></span><input name="openclaw_secret_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label>
+          </div>
+        </div>
+        <fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset>
+      </section>`);
+    const customArgs = form.elements.custom_args.closest('label');
+    customArgs.insertAdjacentHTML('beforebegin', `
+      <label><span data-i18n="agentRuntimeConfigLabel"></span><textarea name="runtime_config" data-i18n-placeholder="agentRuntimeConfigPlaceholder"></textarea></label>
+      <label><span data-i18n="agentEnvironmentLabel"></span><textarea name="environment" data-i18n-placeholder="agentEnvironmentPlaceholder"></textarea></label>`);
+    applyTranslations();
+  }
+
+  function renderAgentOwnerOptions(agent = null) {
+    const select = $('#agentForm').elements.member;
+    const members = directory.filter(item => item.status !== 'disabled');
+    const currentMember = members.find(item => item.id === currentUser?.id || item.username === currentUser?.username);
+    const selected = agent?.owner_id || currentMember?.id || members[0]?.id || currentUser?.id || currentUser?.username || '';
+    select.innerHTML = members.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(`${item.display_name || item.username} · ${item.username}`)}</option>`).join('');
+    if (selected && !members.some(item => item.id === selected || item.username === selected)) {
+      select.insertAdjacentHTML('beforeend', `<option value="${escapeHTML(selected)}">${escapeHTML(t('agentExistingOwner'))}</option>`);
+    }
+    select.value = members.find(item => item.id === selected || item.username === selected)?.id || selected;
+  }
+
+  function renderAgentAccessMemberOptions(selectedIDs = []) {
+    const target = $('#agentAccessMemberOptions');
+    const selected = new Set(selectedIDs || []);
+    const members = directory.filter(item => item.status !== 'disabled');
+    target.innerHTML = members.length ? members.map(item => `<label class="agent-resource-option"><input type="checkbox" name="agent_access_member_ids" value="${escapeHTML(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span><strong>${escapeHTML(item.display_name || item.username)}</strong><small>${escapeHTML(item.username)}</small></span></label>`).join('') : `<span class="form-help">${escapeHTML(t('agentNoMembers'))}</span>`;
+  }
+
+  function renderAgentResourceOptions(agent = null) {
+    const renderOptions = (target, name, items, selectedIDs, label) => {
+      const selected = new Set(selectedIDs || []);
+      target.innerHTML = items.length ? items.map(item => {
+        const status = String(item.status || '');
+        return `<label class="agent-resource-option"><input type="checkbox" name="${name}" value="${escapeHTML(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span><strong>${escapeHTML(item.name || item.id)}</strong><small>${escapeHTML(label(item))}${status ? ` · ${escapeHTML(status)}` : ''}</small></span></label>`;
+      }).join('') : `<span class="form-help">${escapeHTML(t('agentNoResources'))}</span>`;
+    };
+	const executableSkills = skills.filter(item => item.status === 'active' || item.status === 'published');
+	const executableMCPServers = mcpServers.filter(item => !['disabled', 'unreachable', 'failed'].includes(item.status));
+	renderOptions($('#agentSkillOptions'), 'agent_skill_ids', executableSkills, agent?.skill_ids, item => item.version || item.kind || 'Skill');
+	renderOptions($('#agentMCPServerOptions'), 'agent_mcp_server_ids', executableMCPServers, agent?.mcp_server_ids, item => item.protocol || 'MCP');
+  }
+
+  function parseAgentKeyValueLines(value, secretReferences = false) {
+    const result = secretReferences ? [] : {};
+    const seen = new Set();
+    for (const rawLine of String(value || '').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const separator = line.indexOf('=');
+      if (separator < 1) throw new Error('invalid key/value line');
+      const key = line.slice(0, separator).trim();
+      const entryValue = line.slice(separator + 1).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key) || !entryValue || seen.has(key)) throw new Error('invalid key/value line');
+      if (secretReferences) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || !/^env:[A-Za-z_][A-Za-z0-9_]*$/.test(entryValue)) throw new Error('invalid secret reference');
+        result.push({name: key, secret_ref: entryValue});
+      } else {
+        result[key] = entryValue;
+      }
+      seen.add(key);
+    }
+    return result;
+  }
+
+  function parseAgentCustomArgs(value) {
+    const args = [];
+    for (const rawLine of String(value || '').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.includes('\u0000')) throw new Error('invalid custom argument');
+      args.push(line);
+    }
+    return args;
+  }
+
+  function selectedAgentResourceIDs(name) {
+    return Array.from(document.querySelectorAll(`#agentForm input[name="${name}"]:checked`)).map(input => input.value);
+  }
+
+  const runtimeManagedConfigKeys = {
+    codex: new Set(['sandbox_mode', 'approval_policy']),
+    openclaw: new Set(['mode', 'gateway.host', 'gateway.port', 'gateway.tls', 'gateway.auth_env'])
+  };
+
+  function runtimeSkillIdentity(skill) {
+    return [skill.runtime_id || skill.provider, skill.provider, skill.root, skill.key, skill.plugin || ''].join('\u0000');
+  }
+
+  function captureAgentRuntimeSkills() {
+    const visible = new Set(agentRuntimeSkillItems.filter(item => item.can_disable).map(item => runtimeSkillIdentity({...item, runtime_id: item.runtime_id || item.provider})));
+    agentDisabledRuntimeSkills = agentDisabledRuntimeSkills.filter(item => !visible.has(runtimeSkillIdentity(item)));
+    document.querySelectorAll('#agentRuntimeSkillOptions input[data-runtime-skill-index]').forEach(input => {
+      if (input.checked) return;
+      const item = agentRuntimeSkillItems[Number(input.dataset.runtimeSkillIndex)];
+      if (!item?.can_disable) return;
+      agentDisabledRuntimeSkills.push({runtime_id: item.runtime_id || item.provider, provider: item.provider, root: item.root, key: item.key, name: item.name || '', plugin: item.plugin || ''});
+    });
+  }
+
+  async function loadAgentRuntimeSkills(runtimeID) {
+    const target = $('#agentRuntimeSkillOptions');
+    const requestID = ++agentRuntimeSkillRequest;
+    agentRuntimeSkillItems = [];
+    target.innerHTML = `<span class="form-help">${escapeHTML(t('agentRuntimeSkillsLoading'))}</span>`;
+    if (!runtimeID) {
+      target.innerHTML = `<span class="form-help">${escapeHTML(t('agentRuntimeSkillsEmpty'))}</span>`;
+      return;
+    }
+    try {
+      const response = await api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/skills`);
+      if (requestID !== agentRuntimeSkillRequest) return;
+      agentRuntimeSkillItems = (response.items || []).map(item => ({...item, runtime_id: runtimeID}));
+      const disabled = new Set(agentDisabledRuntimeSkills.map(runtimeSkillIdentity));
+      target.innerHTML = agentRuntimeSkillItems.length ? agentRuntimeSkillItems.map((item, index) => {
+        const identity = runtimeSkillIdentity(item);
+        const checked = !disabled.has(identity);
+        const detail = [item.description, item.source_path, item.can_disable ? '' : t('agentRuntimeSkillLocked')].filter(Boolean).join(' · ');
+        return `<label class="agent-resource-option ${item.can_disable ? '' : 'locked'}"><input type="checkbox" data-runtime-skill-index="${index}" ${checked ? 'checked' : ''} ${item.can_disable ? '' : 'disabled'}><span><strong>${escapeHTML(item.name || item.key)}</strong><small>${escapeHTML(detail || item.key)}</small></span></label>`;
+      }).join('') : `<span class="form-help">${escapeHTML(t('agentRuntimeSkillsEmpty'))}</span>`;
+    } catch (_) {
+      if (requestID !== agentRuntimeSkillRequest) return;
+      target.innerHTML = `<span class="form-help">${escapeHTML(t('agentRuntimeSkillsUnavailable'))}</span>`;
+    }
+  }
+
+  function updateOpenClawGatewayFields() {
+    const form = $('#agentForm');
+    if (!form?.elements.openclaw_mode) return;
+    const enabled = form.elements.openclaw_mode.value === 'gateway';
+    form.querySelectorAll('[data-openclaw-gateway]').forEach(element => { element.hidden = !enabled; });
+    form.elements.openclaw_tls.disabled = !enabled;
+    for (const name of ['openclaw_host', 'openclaw_port', 'openclaw_auth_env', 'openclaw_secret_env']) {
+      form.elements[name].disabled = !enabled;
+    }
+  }
+
+  function renderAgentRuntimeConfiguration(form, runtimeID, config = {}, environment = []) {
+    form.querySelectorAll('[data-runtime-policy]').forEach(panel => { panel.hidden = panel.dataset.runtimePolicy !== runtimeID; });
+    const managed = runtimeManagedConfigKeys[runtimeID] || new Set();
+    form.elements.runtime_config.value = Object.entries(config).filter(([key]) => !managed.has(key)).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('\n');
+    form.elements.environment.value = (environment || []).map(item => `${item.name}=${item.secret_ref}`).join('\n');
+    form.elements.codex_sandbox.value = runtimeID === 'codex' ? (config.sandbox_mode || '') : '';
+    form.elements.codex_approval.value = runtimeID === 'codex' ? (config.approval_policy || '') : '';
+    form.elements.openclaw_mode.value = runtimeID === 'openclaw' ? (config.mode || 'local') : 'local';
+    form.elements.openclaw_host.value = runtimeID === 'openclaw' ? (config['gateway.host'] || '') : '';
+    form.elements.openclaw_port.value = runtimeID === 'openclaw' ? (config['gateway.port'] || '') : '';
+    form.elements.openclaw_tls.checked = runtimeID === 'openclaw' && config['gateway.tls'] === 'true';
+    const authEnv = runtimeID === 'openclaw' ? (config['gateway.auth_env'] || '') : '';
+    form.elements.openclaw_auth_env.value = authEnv;
+    const authReference = (environment || []).find(item => item.name === authEnv)?.secret_ref || '';
+    form.elements.openclaw_secret_env.value = authReference.startsWith('env:') ? authReference.slice(4) : '';
+    updateOpenClawGatewayFields();
+  }
+
+  function collectAgentRuntimeConfiguration(form, runtimeID) {
+    const config = parseAgentKeyValueLines(form.elements.runtime_config.value);
+    const environment = parseAgentKeyValueLines(form.elements.environment.value, true);
+    if (runtimeID === 'codex') {
+      delete config.sandbox_mode;
+      delete config.approval_policy;
+      if (form.elements.codex_sandbox.value) config.sandbox_mode = form.elements.codex_sandbox.value;
+      if (form.elements.codex_approval.value) config.approval_policy = form.elements.codex_approval.value;
+    }
+    if (runtimeID === 'openclaw') {
+      config.mode = form.elements.openclaw_mode.value || 'local';
+      for (const key of ['gateway.host', 'gateway.port', 'gateway.tls', 'gateway.auth_env']) delete config[key];
+      if (config.mode === 'gateway') {
+        const host = form.elements.openclaw_host.value.trim();
+        const port = form.elements.openclaw_port.value.trim();
+        const authEnv = form.elements.openclaw_auth_env.value.trim();
+        const secretEnv = form.elements.openclaw_secret_env.value.trim();
+        if (host) config['gateway.host'] = host;
+        if (port) config['gateway.port'] = port;
+        if (form.elements.openclaw_tls.checked) config['gateway.tls'] = 'true';
+        if (authEnv) config['gateway.auth_env'] = authEnv;
+        if (authEnv && secretEnv) {
+          const index = environment.findIndex(item => item.name === authEnv);
+          const reference = {name: authEnv, secret_ref: `env:${secretEnv}`};
+          if (index >= 0) environment[index] = reference;
+          else environment.push(reference);
+        }
+      }
+    }
+    return {config, environment};
+  }
+
+  function saveCurrentAgentRuntimeState(form) {
+    const runtimeID = form.dataset.loadedRuntime || '';
+    if (!runtimeID) return;
+    captureAgentRuntimeSkills();
+    try {
+      const state = collectAgentRuntimeConfiguration(form, runtimeID);
+      agentRuntimeConfigs.set(runtimeID, state.config);
+      agentRuntimeEnvironments.set(runtimeID, state.environment);
+    } catch (_) {}
+  }
+
+  async function changeAgentRuntime() {
+    const form = $('#agentForm');
+    saveCurrentAgentRuntimeState(form);
+    const runtimeID = form.elements.runtime.value;
+    form.dataset.loadedRuntime = runtimeID;
+    form.elements.model.value = '';
+    form.elements.thinking.value = '';
+    form.elements.service_tier.value = '';
+    renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
+    await Promise.all([loadAgentModelCatalog(), loadAgentRuntimeSkills(runtimeID)]);
+  }
+
+  ensureAgentConfigurationFields();
+  renderAgentModelOptions = function renderAgentModelSelectOptions() {
+    const model = $('#agentModel');
+    const thinking = $('#agentThinking');
+    const tier = $('#agentServiceTier');
+    const previous = model.value;
+    model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + agentModelCatalog.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.label || item.id)}</option>`).join('');
+    if (agentModelCatalog.some(item => item.id === previous)) model.value = previous;
+    else model.value = agentModelCatalog.find(item => item.default)?.id || '';
+    const refresh = () => {
+      const selected = agentModelCatalog.find(item => item.id === model.value);
+      thinking.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + ((selected?.thinking?.supported_levels) || []).map(item => `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label || item.value)}</option>`).join('');
+      tier.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + (selected?.service_tiers || []).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)}</option>`).join('');
+      thinking.value = selected?.thinking?.default_level || '';
+    };
+    model.onchange = refresh;
+    refresh();
+  };
+  showAgentDialog = async function showAgentDialogWithMigration(onboarding = false, agent = null) {
+    onboarding = onboarding === true;
+    const form = $('#agentForm');
+    form.reset();
+    delete form.dataset.agentId;
+    delete form.dataset.agentRevision;
+    delete form.dataset.loadedRuntime;
+    agentRuntimeConfigs = new Map();
+    agentRuntimeEnvironments = new Map();
+    agentPreservedCustomArgs = (agent?.executor_binding?.custom_args || []).slice();
+    agentDisabledRuntimeSkills = (agent?.disabled_runtime_skills || []).map(item => ({...item}));
+    agentRuntimeSkillItems = [];
+    form.dataset.onboarding = onboarding ? 'true' : '';
+    document.body.classList.toggle('onboarding-active', onboarding);
+    $('#closeAgentDialog').hidden = onboarding;
+    $('#cancelAgentDialog').hidden = onboarding;
+    $('#agentFormError').textContent = '';
+    renderAgentOwnerOptions(agent);
+    renderAgentAccessMemberOptions(agent?.access_policy?.member_ids || []);
+    if (onboarding) {
+      form.elements.name.value = t('defaultAgentName');
+      form.elements.role.value = 'generalist';
+      form.elements.instructions.value = t('defaultAgentInstructions');
+    }
+    const runtimeSelect = form.elements.runtime;
+    runtimeSelect.innerHTML = '';
+    try {
+      const result = await api('/api/v1/runtimes/discovered');
+      for (const runtime of result.items || []) {
+        const option = document.createElement('option');
+        option.value = runtime.id;
+        option.dataset.modelUnsupported = runtime.model_selection_unsupported ? 'true' : 'false';
+        option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
+        option.disabled = !runtime.installed || !runtime.adapter_available;
+        runtimeSelect.append(option);
+      }
+      await loadAgentModelCatalog();
+    } catch (_) {
+      $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
+    }
+    if (!$('#agentDialog').open) $('#agentDialog').showModal();
+    form.dataset.agentId = agent?.id || '';
+    form.dataset.agentRevision = agent?.revision ? String(agent.revision) : '';
+    $('#agentBuilderStatus').textContent = '';
+    const title = $('#agentDialog h2');
+    title.dataset.i18n = agent ? 'agentEditTitle' : 'agentCreateTitle';
+    title.textContent = t(title.dataset.i18n);
+    const submitLabel = form.querySelector('button[type="submit"] [data-i18n]');
+    submitLabel.dataset.i18n = agent ? 'agentSave' : 'agentCreate';
+    submitLabel.textContent = t(submitLabel.dataset.i18n);
+    let panel = form.querySelector('[data-workspace-migration]');
+    if (onboarding && !panel) {
+      form.insertAdjacentHTML('afterbegin', workspaceMigrationPanel(true));
+      panel = form.querySelector('[data-workspace-migration]');
+    }
+    if (panel) panel.hidden = !onboarding;
+    bindWorkspaceMigration(form);
+    renderAgentResourceOptions(agent);
+    if (agent) {
+      form.elements.name.value = agent.name || '';
+      form.elements.description.value = agent.description || '';
+      form.elements.avatar_url.value = agent.avatar_url || '';
+      form.elements.role.value = agent.role || '';
+      form.elements.instructions.value = agent.instructions || '';
+      form.elements.runtime.value = agent.executor_binding?.runtime_id || '';
+      await loadAgentModelCatalog();
+      form.elements.model.value = agent.executor_binding?.model || '';
+      renderAgentModelOptions();
+      form.elements.thinking.value = agent.executor_binding?.thinking_level || '';
+      form.elements.service_tier.value = agent.executor_binding?.service_tier || '';
+      form.elements.custom_args.value = agentPreservedCustomArgs.join('\n');
+      form.elements.access_mode.value = agent.access_policy?.mode || 'private';
+      form.elements.concurrent.value = String(agent.concurrency_budget?.concurrent || 1);
+      form.elements.tokens.value = String(agent.concurrency_budget?.tokens || 120000);
+      form.elements.tool_calls.value = String(agent.concurrency_budget?.tool_calls || 200);
+      form.elements.network.checked = agent.tool_policy?.network === true;
+      agentRuntimeConfigs.set(form.elements.runtime.value, {...(agent.executor_binding?.runtime_config || {})});
+      agentRuntimeEnvironments.set(form.elements.runtime.value, (agent.executor_binding?.environment || []).map(item => ({...item})));
+      applyAgentDraft(form, {...agent, network_access: agent.tool_policy?.network, max_concurrent_tasks: agent.concurrency_budget?.concurrent, token_budget: agent.concurrency_budget?.tokens, tool_call_budget: agent.concurrency_budget?.tool_calls});
+    }
+    const runtimeID = form.elements.runtime.value;
+    form.dataset.loadedRuntime = runtimeID;
+    renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
+    form.elements.runtime.onchange = changeAgentRuntime;
+    form.elements.openclaw_mode.onchange = updateOpenClawGatewayFields;
+    await loadAgentRuntimeSkills(runtimeID);
+    setTimeout(() => form.elements.builder_prompt.focus(), 0);
+  };
+
+  function agentFormStarters(form) {
+    const starters = [];
+    for (let index = 1; index <= 3; index += 1) {
+      const label = String(form.elements[`starter_label_${index}`]?.value || '').trim();
+      const prompt = String(form.elements[`starter_prompt_${index}`]?.value || '').trim();
+      if (!label && !prompt) continue;
+      if (!label || !prompt) throw new Error('incomplete conversation starter');
+      starters.push({label, prompt});
+    }
+    return starters;
+  }
+
+  function currentAgentDraft(form) {
+    return {
+      name: String(form.elements.name.value || '').trim(),
+      description: String(form.elements.description.value || '').trim(),
+      role: String(form.elements.role.value || '').trim(),
+      instructions: String(form.elements.instructions.value || '').trim(),
+      conversation_starters: agentFormStarters(form),
+      access_policy: {mode: String(form.elements.access_mode.value || 'private')},
+      skill_ids: selectedAgentResourceIDs('agent_skill_ids'),
+      mcp_server_ids: selectedAgentResourceIDs('agent_mcp_server_ids'),
+      network_access: form.elements.network.checked,
+      max_concurrent_tasks: Number(form.elements.concurrent.value || 1),
+      token_budget: Number(form.elements.tokens.value || 120000),
+      tool_call_budget: Number(form.elements.tool_calls.value || 200)
+    };
+  }
+
+  function applyAgentDraft(form, draft) {
+    form.elements.name.value = draft.name || '';
+    form.elements.description.value = draft.description || '';
+    form.elements.role.value = draft.role || '';
+    form.elements.instructions.value = draft.instructions || '';
+    form.elements.access_mode.value = draft.access_policy?.mode || 'private';
+    form.elements.network.checked = draft.network_access === true;
+    form.elements.concurrent.value = String(draft.max_concurrent_tasks || 1);
+    form.elements.tokens.value = String(draft.token_budget || 120000);
+    form.elements.tool_calls.value = String(draft.tool_call_budget || 200);
+    const starters = Array.isArray(draft.conversation_starters) ? draft.conversation_starters : [];
+    for (let index = 1; index <= 3; index += 1) {
+      form.elements[`starter_label_${index}`].value = starters[index - 1]?.label || '';
+      form.elements[`starter_prompt_${index}`].value = starters[index - 1]?.prompt || '';
+    }
+    if (Array.isArray(draft.skill_ids)) {
+      form.querySelectorAll('input[name="agent_skill_ids"]').forEach(input => { input.checked = draft.skill_ids.includes(input.value); });
+    }
+    if (Array.isArray(draft.mcp_server_ids)) {
+      form.querySelectorAll('input[name="agent_mcp_server_ids"]').forEach(input => { input.checked = draft.mcp_server_ids.includes(input.value); });
+    }
+    updateAgentAccessFields();
+  }
+
+  function updateAgentAccessFields() {
+    const field = $('#agentAccessMembersField');
+    if (field) field.hidden = $('#agentAccessMode').value !== 'members';
+  }
+
+  async function composeAgentDraft(createAfter = false) {
+    const form = $('#agentForm');
+    const buttons = [$('#composeAgentDraft'), $('#composeAndCreateAgent')].filter(Boolean);
+    const status = $('#agentBuilderStatus');
+    const prompt = String(form.elements.builder_prompt.value || '').trim();
+    if (!prompt) {
+      status.textContent = t('agentBuilderFailed');
+      return false;
+    }
+    buttons.forEach(button => { button.disabled = true; });
+    status.textContent = t('agentBuilderRunning');
+    $('#agentFormError').textContent = '';
+    try {
+      const body = {
+        prompt,
+        runtime_id: String(form.elements.runtime.value || '').trim(),
+        model: String(form.elements.model.value || '').trim(),
+        thinking_level: String(form.elements.thinking.value || '').trim(),
+        service_tier: String(form.elements.service_tier.value || '').trim(),
+        current_draft: currentAgentDraft(form)
+      };
+      const response = await api('/api/v1/workspaces/local/agents/compose', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      applyAgentDraft(form, response.draft || {});
+      status.textContent = t('agentBuilderDone');
+      if (createAfter) form.requestSubmit();
+      return true;
+    } catch (_) {
+      status.textContent = t('agentBuilderFailed');
+      return false;
+    } finally {
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  }
+
   ensureOrchestrationDialogs();
+	$('#composeAgentDraft').onclick = () => composeAgentDraft(false);
+	$('#composeAndCreateAgent').onclick = () => composeAgentDraft(true);
+	$('#agentAccessMode').onchange = updateAgentAccessFields;
+	updateAgentAccessFields();
   $('#agentForm').onsubmit = async event => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     const member = String(data.get('member') || '').trim();
     const name = String(data.get('name') || '').trim();
+	const description = String(data.get('description') || '').trim();
     const instructions = String(data.get('instructions') || '').trim();
     const role = String(data.get('role') || '').trim() || 'developer';
+    const runtime = String(data.get('runtime') || '').trim();
+    const model = String(data.get('model') || '').trim();
+    const thinking = String(data.get('thinking') || '').trim();
+    const serviceTier = String(data.get('service_tier') || '').trim();
+    let customArgs, runtimeConfig, environment;
+    try {
+      customArgs = parseAgentCustomArgs(String(data.get('custom_args') || ''));
+      const runtimeState = collectAgentRuntimeConfiguration(form, runtime);
+      runtimeConfig = runtimeState.config;
+      environment = runtimeState.environment;
+      captureAgentRuntimeSkills();
+    } catch (_) {
+      $('#agentFormError').textContent = t('agentSaveFailed');
+      return;
+    }
+    const accessMode = String(data.get('access_mode') || 'private').trim();
+    const accessMembers = selectedAgentResourceIDs('agent_access_member_ids');
+    let starters;
+    try { starters = agentFormStarters(form); } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); return; }
     const nativeBody = {
-      name, role, instructions, status: 'active', created_by: currentUser?.id || member,
+      name, owner_id: member, description, avatar_url: String(data.get('avatar_url') || '').trim(), role, instructions, conversation_starters: starters,
+      access_policy: {mode: accessMode, member_ids: accessMode === 'members' ? accessMembers : []},
+      skill_ids: selectedAgentResourceIDs('agent_skill_ids'), disabled_runtime_skills: agentDisabledRuntimeSkills, mcp_server_ids: selectedAgentResourceIDs('agent_mcp_server_ids'),
+      status: 'active', created_by: currentUser?.id || member,
       capabilities: [{name: 'session.start', version: 'v1'}, {name: 'stream.events', version: 'v1'}],
-      executor_binding: {provider_id: rootInfo.provider || 'local', required_caps: ['run.snapshot.v1'], config_version: 'web-v1'},
-      concurrency_budget: {tokens: 120000, tool_calls: 200, concurrent: 1},
+      executor_binding: {provider_id: rootInfo.provider || 'local', runtime_id: runtime, model, thinking_level: thinking, service_tier: serviceTier, custom_args: customArgs, runtime_config: runtimeConfig, environment, required_caps: ['run.snapshot.v1'], config_version: 'web-v4'},
+      concurrency_budget: {tokens: Number(data.get('tokens') || 120000), tool_calls: Number(data.get('tool_calls') || 200), concurrent: Number(data.get('concurrent') || 1)},
       input_schema: {id: 'adro.context-envelope', version: 1}, output_schema: {id: 'adro.structured-result', version: 1},
-      tool_policy: {network: false}, memory_policy: {require_evidence: true}
+      tool_policy: {network: data.get('network') === 'on'}, memory_policy: {require_evidence: true}
     };
     $('#agentFormError').textContent = '';
     try {
-      await api('/api/v1/workspaces/local/agents', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(nativeBody)});
-      await api('/api/v1/agents', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({workspace_id: 'local', member_id: member, name, instructions, role})});
-      closeAgentDialog(); form.reset(); await loadCore(true);
+      const agentID = String(form.dataset.agentId || '');
+      const requestBody = agentID ? {...nativeBody, expected_revision: Number(form.dataset.agentRevision)} : nativeBody;
+      if (agentID) delete requestBody.created_by;
+      await api(agentID ? `/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}` : '/api/v1/workspaces/local/agents', {method: agentID ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(requestBody)});
+      agentPreservedCustomArgs = customArgs;
+      delete form.dataset.onboarding; delete form.dataset.agentId; delete form.dataset.agentRevision; delete form.dataset.loadedRuntime; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
     } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
   };
 

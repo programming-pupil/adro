@@ -144,9 +144,13 @@ end
 
 def validate(document)
   errors = []
+  operation_ids = []
   document.fetch('paths').each do |path, item|
     item.each do |method, operation|
       next unless METHODS.include?(method)
+      operation_id = operation['operationId'].to_s.strip
+      errors << "#{method.upcase} #{path} lacks operationId" if operation_id.empty?
+      operation_ids << operation_id unless operation_id.empty?
       if MUTATIONS.include?(method) && api_operation?(path) && !exempt_idempotency?(path)
         refs = (operation['parameters'] || []).map { |parameter| parameter['$ref'] }
         errors << "#{method.upcase} #{path} lacks Idempotency-Key" unless refs.include?('#/components/parameters/IdempotencyKey')
@@ -159,6 +163,8 @@ def validate(document)
       end
     end
   end
+  duplicates = operation_ids.group_by(&:itself).select { |_operation_id, values| values.length > 1 }.keys
+  errors << "duplicate operationId values: #{duplicates.sort.join(', ')}" unless duplicates.empty?
   errors
 end
 
@@ -173,4 +179,4 @@ unless errors.empty?
   warn errors.join("\n")
   exit 1
 end
-puts "OpenAPI response, Problem Details, and idempotency contracts are complete"
+puts "OpenAPI operation IDs, response, Problem Details, and idempotency contracts are complete"

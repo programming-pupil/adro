@@ -7,6 +7,7 @@ REPORT_DIR="${ADRO_POSTGRES_EVIDENCE_DIR:-$ROOT_DIR/var/test-report/postgres}"
 
 run_conformance() {
   (cd "$ROOT_DIR" && ADRO_POSTGRES_TEST_DSN="$1" "$GO_BIN" test ./internal/orchestration -run TestPostgresDriverConformance -count=1 -v)
+  (cd "$ROOT_DIR" && ADRO_POSTGRES_MIGRATION_TEST_DSN="$1" "$GO_BIN" test ./internal/workspacebundle -run TestPostgresWorkspaceMigrationConformance -count=1 -v)
 }
 
 millis() {

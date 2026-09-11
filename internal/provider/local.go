@@ -19,6 +19,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -98,11 +100,20 @@ type localState struct {
 }
 
 type LocalProvider struct {
-	Executable string
-	Args       []string
-	WorkRoot   string
-	Bus        *events.Bus
-	StatePath  string
+	Executable            string
+	RuntimeID             string
+	Args                  []string
+	Model                 string
+	ThinkingLevel         string
+	ServiceTier           string
+	CustomArgs            []string
+	RuntimeConfig         map[string]string
+	Environment           map[string]string
+	MCPServers            []RuntimeMCPServer
+	DisabledRuntimeSkills []RuntimeSkillRef
+	WorkRoot              string
+	Bus                   *events.Bus
+	StatePath             string
 
 	mu       sync.RWMutex
 	startMu  sync.Mutex
@@ -115,6 +126,50 @@ type LocalProvider struct {
 	revision int64
 	runtime  *runtimekernel.Journal
 	closed   bool
+}
+
+// WithRuntimeID preserves the registry identity after executable discovery.
+// Package-manager shims commonly resolve to generic targets such as bin.js;
+// the adapter protocol must not be inferred from that implementation detail.
+func (p *LocalProvider) WithRuntimeID(runtimeID string) *LocalProvider {
+	p.RuntimeID = strings.TrimSpace(runtimeID)
+	return p
+}
+
+// WithExecutionConfig returns the provider with immutable per-Agent launch
+// options. Call it only while constructing a provider, before any run starts.
+func (p *LocalProvider) WithExecutionConfig(model, thinkingLevel, serviceTier string, customArgs []string) *LocalProvider {
+	p.Model = strings.TrimSpace(model)
+	p.ThinkingLevel = strings.TrimSpace(thinkingLevel)
+	p.ServiceTier = strings.TrimSpace(serviceTier)
+	p.CustomArgs = append([]string(nil), customArgs...)
+	return p
+}
+
+func (p *LocalProvider) WithRuntimeConfig(config map[string]string) *LocalProvider {
+	p.RuntimeConfig = make(map[string]string, len(config))
+	for key, value := range config {
+		p.RuntimeConfig[key] = value
+	}
+	return p
+}
+
+func (p *LocalProvider) WithRuntimeEnvironment(environment map[string]string) *LocalProvider {
+	p.Environment = make(map[string]string, len(environment))
+	for key, value := range environment {
+		p.Environment[key] = value
+	}
+	return p
+}
+
+func (p *LocalProvider) WithMCPServers(servers []RuntimeMCPServer) *LocalProvider {
+	p.MCPServers = append([]RuntimeMCPServer(nil), servers...)
+	return p
+}
+
+func (p *LocalProvider) WithDisabledRuntimeSkills(skills []RuntimeSkillRef) *LocalProvider {
+	p.DisabledRuntimeSkills = append([]RuntimeSkillRef(nil), skills...)
+	return p
 }
 
 func NewLocalProvider(executable string, args []string, workRoot string, bus *events.Bus) *LocalProvider {
@@ -157,9 +212,10 @@ func NewPersistentLocalProvider(executable string, args []string, workRoot, stat
 	return p, nil
 }
 
-// DiscoverLocalProvider scans the operator's PATH in a stable order. An
-// explicit ADRO_EXECUTOR path always wins; ADRO_EXECUTOR_COMMAND may provide
-// extra argv (the first token is the executable).
+// DiscoverLocalProvider scans the same runtime registry exposed by first-run
+// setup. An explicit ADRO_EXECUTOR path always wins;
+// ADRO_EXECUTOR_COMMAND may provide extra argv (the first token is the
+// executable).
 func DiscoverLocalProvider(workRoot string, bus *events.Bus) (*LocalProvider, error) {
 	command := strings.TrimSpace(os.Getenv("ADRO_EXECUTOR_COMMAND"))
 	var executable string
@@ -174,15 +230,19 @@ func DiscoverLocalProvider(workRoot string, bus *events.Bus) (*LocalProvider, er
 		executable = explicit
 	}
 	if executable == "" {
-		for _, candidate := range []string{"claude", "codex", "claude-code"} {
-			if path, err := exec.LookPath(candidate); err == nil {
-				executable = path
+		discovered := make(map[string]DiscoveredRuntime, len(RuntimeRegistry))
+		for _, runtime := range DiscoverLocalRuntimes() {
+			discovered[runtime.ID] = runtime
+		}
+		for _, descriptor := range RuntimeRegistry {
+			if runtime := discovered[descriptor.ID]; runtime.Installed && runtime.AdapterAvailable {
+				executable = runtime.ExecutablePath
 				break
 			}
 		}
 	}
 	if executable == "" {
-		return nil, errors.New("no supported coding client found; install claude, codex, or claude-code, or set ADRO_EXECUTOR")
+		return nil, errors.New("no supported coding client found; install a supported local runtime or set ADRO_EXECUTOR")
 	}
 	if path, err := exec.LookPath(executable); err == nil {
 		executable = path
@@ -347,12 +407,15 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 	if workDir == "" || filepath.Clean(workDir) != filepath.Clean(command.ExpectedWorkDir) {
 		return RunBinding{}, errors.New("continuation workdir does not match the original run")
 	}
-	if p.executorKind() == "codex" {
+	if runtimeRequiresSessionProof(p.executorKind()) {
 		p.mu.RLock()
 		proven := p.hasProvenSessionLocked(workItemID, command.ExpectedSessionID)
 		p.mu.RUnlock()
 		if !proven {
-			return RunBinding{}, errors.New("codex continuation requires a proven thread.started session")
+			if p.executorKind() == "codex" {
+				return RunBinding{}, errors.New("codex continuation requires a proven thread.started session")
+			}
+			return RunBinding{}, errors.New("runtime continuation requires a proven native session")
 		}
 	}
 	if err := p.prepareWorkDir(ctx, workDir, item); err != nil {
@@ -401,7 +464,7 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 	// executor deadline, whichever comes first.
 	runCtx, cancel := localExecutionContext(ctx)
 	snapshot := RunSnapshot{ID: id, WorkItemID: workItemID, ProviderIssueID: issueID, InputHash: sha256Hex(input), Status: "running", SessionID: sessionID, SessionContinuity: "unproven", WorkDir: workDir, TraceParent: traceParent, TraceState: traceState, StartedAt: &now}
-	oneShot := p.executorKind() == "codex" && codexExecMode(p.commandArgs(input, sessionID, reused))
+	oneShot := p.oneShotExecution(p.commandArgs(input, sessionID, reused))
 	fencingToken := int64(0)
 	var runtimeScope runtimekernel.Scope
 	if p.runtime != nil {
@@ -489,14 +552,83 @@ func localExecutionContext(parent context.Context) (context.Context, context.Can
 func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sessionID string, resumed bool) {
 	started := time.Now()
 	baseline := gitRevision(workDir)
-	args := p.commandArgs(input, sessionID, resumed)
+	runtimeLogPath := ""
+	var runtimeSetupErr error
+	runtimeEnvironment := make(map[string]string, len(p.Environment)+1)
+	for key, value := range p.Environment {
+		runtimeEnvironment[key] = value
+	}
+	runtimeCleanup := func() {}
+	if p.executorKind() == "openclaw" {
+		var overlay map[string]string
+		overlay, runtimeCleanup, runtimeSetupErr = p.openclawRuntimeEnvironment(runID)
+		for key, value := range overlay {
+			runtimeEnvironment[key] = value
+		}
+	}
+	defer runtimeCleanup()
+	if kind := p.executorKind(); (kind == "pi" || kind == "omp") && len(p.Args) == 0 {
+		sessionID, runtimeSetupErr = p.piSessionPath(sessionID, resumed, kind)
+	}
+	args := p.commandArgsAt(input, sessionID, resumed, workDir)
+	if p.executorKind() == "agy" && len(p.Args) == 0 {
+		logFile, err := os.CreateTemp("", "adro-antigravity-"+runID+"-*.log")
+		if err != nil {
+			runtimeSetupErr = fmt.Errorf("create runtime log: %w", err)
+		} else {
+			runtimeLogPath = logFile.Name()
+			runtimeSetupErr = logFile.Close()
+			args = append(args, "--log-file", runtimeLogPath)
+			defer os.Remove(runtimeLogPath)
+		}
+	}
 	path, pathErr := p.executablePath()
+	if pathErr == nil && runtimeSetupErr != nil {
+		pathErr = runtimeSetupErr
+	}
 	executorPID := 0
 	var output []byte
 	var runErr error
 	if pathErr == nil {
 		if p.executorKind() == "codex" && !codexExecMode(args) {
-			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed)
+			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier, runtimeEnvironment)
+		} else if p.executorKind() == "dsh" && len(p.Args) == 0 {
+			executorPID, output, runErr = executeDSHRuntime(
+				ctx, path, args, runID, input, workDir, sessionID, p.Model, p.ThinkingLevel, resumed, p.Environment,
+				func(int) {
+					p.mu.Lock()
+					if run := p.runs[runID]; run != nil {
+						close(run.started)
+					}
+					p.mu.Unlock()
+				},
+			)
+			if executorPID == 0 {
+				p.mu.Lock()
+				if run := p.runs[runID]; run != nil {
+					close(run.started)
+				}
+				p.mu.Unlock()
+			}
+		} else if isACPRuntime(p.executorKind()) && len(p.Args) == 0 {
+			executorPID, output, runErr = executeACPRuntime(
+				ctx, path, args, input, workDir, sessionID, resumed,
+				p.Model, p.ThinkingLevel, p.executorKind(), p.CustomArgs, p.Environment,
+				func(int) {
+					p.mu.Lock()
+					if run := p.runs[runID]; run != nil {
+						close(run.started)
+					}
+					p.mu.Unlock()
+				},
+			)
+			if executorPID == 0 {
+				p.mu.Lock()
+				if run := p.runs[runID]; run != nil {
+					close(run.started)
+				}
+				p.mu.Unlock()
+			}
 		} else {
 			cmd := exec.CommandContext(ctx, path, args...)
 			configureLocalCommand(cmd)
@@ -510,13 +642,16 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			// has been fenced and killed.
 			cmd.WaitDelay = 250 * time.Millisecond
 			cmd.Dir = workDir
-			cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
-			// Codex `exec` reads its prompt from stdin when no prompt argv is given.
-			// This is required by some OpenAI-compatible relays and keeps prompts out
-			// of process arguments. The pipe is closed immediately after the initial
-			// prompt is written because exec is one-shot; interactive providers retain
-			// stdin for AppendInput.
+			cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), runtimeEnvironment)
+			if kind := p.executorKind(); kind == "opencode" || kind == "deveco" {
+				cmd.Env = replaceEnvironmentValue(cmd.Env, "PWD", workDir)
+			}
+			// One-shot runtimes either read the prompt from stdin or receive it in
+			// their managed argv. Close stdin after the initial request boundary;
+			// interactive custom providers retain it for AppendInput.
 			codexOneShot := p.executorKind() == "codex" && codexExecMode(args)
+			processOneShot := p.oneShotExecution(args)
+			initialInput := p.initialInputPayload(input, args)
 			var stdin io.WriteCloser
 			var stdinErr error
 			stdin, stdinErr = cmd.StdinPipe()
@@ -551,12 +686,12 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 					if run != nil {
 						close(run.started)
 						run.inputMu.Lock()
-						if codexOneShot {
-							_, writeErr := io.WriteString(stdin, input)
+						if len(initialInput) > 0 {
+							_, writeErr := stdin.Write(initialInput)
 							if writeErr != nil {
-								runErr = fmt.Errorf("write codex prompt: %w", writeErr)
+								runErr = fmt.Errorf("write runtime prompt: %w", writeErr)
 							}
-						} else {
+						} else if !processOneShot {
 							for _, interaction := range pending {
 								var writeErr error
 								if stdin == nil {
@@ -582,10 +717,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 							}
 						}
 						run.inputMu.Unlock()
-						// `codex exec` is a one-shot command. Closing stdin after the
-						// initial prompt is part of its protocol and gives the relay a
-						// complete request boundary.
-						if codexOneShot && stdin != nil {
+						// EOF is part of every stdin-based one-shot protocol and also
+						// prevents argument-based runtimes from waiting for input.
+						if processOneShot && stdin != nil {
 							_ = stdin.Close()
 							p.mu.Lock()
 							if current := p.runs[runID]; current != nil {
@@ -622,6 +756,16 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		}
 		p.mu.Unlock()
 	}
+	if runErr == nil {
+		runErr = runtimeProtocolError(output, p.executorKind())
+	}
+	if runErr == nil {
+		runErr = runtimeTerminalOutputError(output, p.executorKind())
+	}
+	if runErr == nil && (p.executorKind() == "pi" || p.executorKind() == "omp") {
+		terminal, _ := json.Marshal(map[string]any{"type": "result", "runtime": p.executorKind(), "session_id": sessionID})
+		output = append(output, append(terminal, '\n')...)
+	}
 	status := "completed"
 	if runErr != nil {
 		status = "failed"
@@ -643,20 +787,29 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	diffDigest, worktreeDigest := gitEvidence(workDir, head)
 	continuity := "unproven"
 	discovered := providerSessionID(output, p.executorKind())
+	if discovered == "" && runtimeLogPath != "" {
+		if data, err := os.ReadFile(runtimeLogPath); err == nil {
+			discovered = sessionIDFromAntigravityLog(data)
+		}
+	}
 	if discovered != "" {
-		if p.executorKind() == "codex" && resumed && discovered != sessionID {
+		if resumed && runtimeRequiresSessionProof(p.executorKind()) && discovered != sessionID {
 			// A resume that opens a different native thread is a new conversation,
 			// not a valid continuation. Keep the original session in the snapshot
 			// and fail closed so the pipeline cannot silently lose context.
-			runErr = fmt.Errorf("codex continuation opened thread %s, expected %s", discovered, sessionID)
+			runErr = fmt.Errorf("runtime continuation opened session %s, expected %s", discovered, sessionID)
 		} else {
 			sessionID = discovered
 			continuity = "proven"
 		}
-	} else if p.executorKind() == "codex" && resumed {
-		// Codex must emit a real thread.started record on every resumed process;
-		// without it there is no evidence that the native conversation continued.
-		runErr = errors.New("codex continuation did not prove thread.started session")
+	} else if resumed && runtimeRequiresSessionProof(p.executorKind()) {
+		// A resumed process must report its native session identity. Without it
+		// there is no evidence that provider context was actually retained.
+		if p.executorKind() == "codex" {
+			runErr = errors.New("codex continuation did not prove thread.started session")
+		} else {
+			runErr = errors.New("runtime continuation did not prove its native session")
+		}
 	}
 	if runErr != nil && status == "completed" {
 		status = "failed"
@@ -762,7 +915,7 @@ func traceEnvironment(base, carrier []string) []string {
 // without trusting free-form model text. Unknown records are ignored. The
 // resulting sequence is stable and can be replayed into harness checkpoints.
 func extractToolEvents(output []byte, kind string) []ToolEvent {
-	if kind != "codex" && kind != "claude" {
+	if kind != "codex" && kind != "claude" && kind != "pi" && kind != "omp" && kind != "dsh" && !isACPRuntime(kind) {
 		return nil
 	}
 	events := make([]ToolEvent, 0)
@@ -810,25 +963,40 @@ func collectToolEvent(value map[string]any, events *[]ToolEvent, sequence *int) 
 		item = value
 	}
 	itemType, _ := item["type"].(string)
+	updateType := firstString(item, "sessionUpdate", "session_update")
 	callID := firstString(item, "call_id", "tool_call_id", "id")
-	name := firstString(item, "name", "tool_name")
+	if callID == "" {
+		callID = firstString(item, "toolCallId")
+	}
+	name := firstString(item, "name", "tool_name", "toolName")
+	if name == "" {
+		name = firstString(item, "title")
+	}
 	if name == "" {
 		name = itemType
 	}
 	phase := ""
-	lower := strings.ToLower(typ + " " + method + " " + itemType)
+	lower := strings.ToLower(typ + " " + method + " " + itemType + " " + updateType)
 	switch {
+	case updateType == "tool_call_update" && strings.Contains(strings.ToLower(firstString(item, "status")), "complete"):
+		phase = "after"
+	case strings.Contains(lower, "tool") && strings.Contains(lower, "_end"):
+		phase = "after"
 	case strings.Contains(lower, "completed") || strings.Contains(lower, "complete") || strings.Contains(lower, "tool_result") || strings.Contains(lower, "result"):
+		phase = "after"
+	case updateType == "tool_call" || typ == "tool_call":
+		phase = "before"
+	case typ == "tool_result":
 		phase = "after"
 	case strings.Contains(lower, "started") || strings.Contains(lower, "start") || strings.Contains(lower, "tool_use") || strings.Contains(lower, "function_call"):
 		phase = "before"
 	}
 	if callID != "" && phase != "" && (strings.Contains(lower, "tool") || strings.Contains(lower, "function") || itemType == "command_execution" || itemType == "commandExecution" || itemType == "fileChange" || itemType == "mcpToolCall") {
-		payload := firstString(item, "arguments", "input", "output", "aggregated_output", "content")
+		payload := firstString(item, "arguments", "args", "input", "rawInput", "raw_input", "output", "aggregated_output", "content", "result")
 		*sequence++
 		*events = append(*events, ToolEvent{CallID: callID, Name: name, Phase: phase, Payload: payload, Sequence: *sequence})
 	}
-	for _, key := range []string{"params", "tool", "content_block", "data"} {
+	for _, key := range []string{"params", "update", "tool", "content_block", "data"} {
 		if child := value[key]; child != nil {
 			collectToolValue(child, events, sequence)
 		}
@@ -854,6 +1022,10 @@ func firstString(value map[string]any, keys ...string) string {
 }
 
 func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []string {
+	return p.commandArgsAt(input, sessionID, resumed, "")
+}
+
+func (p *LocalProvider) commandArgsAt(input, sessionID string, resumed bool, workDir string) []string {
 	if len(p.Args) > 0 {
 		args := make([]string, len(p.Args))
 		for i, arg := range p.Args {
@@ -861,14 +1033,14 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 		}
 		if p.executorKind() == "codex" {
 			if !codexExecMode(args) {
-				return withCodexAppServerArgs(args)
+				return p.withRuntimeOptions(withCodexAppServerArgs(args))
 			}
-			return p.withCodexSessionArgs(args, input, sessionID, resumed)
+			return p.withRuntimeOptions(p.withCodexSessionArgs(args, input, sessionID, resumed))
 		}
 		for i, arg := range args {
 			args[i] = strings.ReplaceAll(arg, "{input}", input)
 		}
-		return p.withClaudeSessionArgs(args, sessionID, resumed)
+		return p.withRuntimeOptions(p.withClaudeSessionArgs(args, sessionID, resumed))
 	}
 	name := p.executorKind()
 	switch name {
@@ -881,12 +1053,344 @@ func (p *LocalProvider) commandArgs(input, sessionID string, resumed bool) []str
 				args = append(args, "--session-id", sessionID)
 			}
 		}
-		return args
+		return p.withRuntimeOptions(args)
 	case "codex":
-		return []string{"app-server", "--listen", "stdio://"}
+		return p.withRuntimeOptions([]string{"app-server", "--listen", "stdio://"})
+	case "cursor-agent":
+		args := []string{"-p", "--output-format", "stream-json", "--yolo"}
+		if workDir != "" {
+			args = append(args, "--workspace", workDir)
+		}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "copilot":
+		args := []string{"-p", input, "--output-format", "json", "--allow-all", "--no-ask-user"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "opencode", "deveco":
+		args := []string{"run", "--format", "json", "--dangerously-skip-permissions"}
+		if workDir != "" {
+			args = append(args, "--dir", workDir)
+		}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--variant", p.ThinkingLevel)
+		}
+		if resumed {
+			args = append(args, "--session", sessionID)
+		}
+		args = append(args, p.CustomArgs...)
+		if name == "deveco" {
+			args = append(args, input)
+		}
+		return args
+	case "openclaw":
+		args := []string{"agent"}
+		if strings.TrimSpace(p.RuntimeConfig["mode"]) != "gateway" {
+			args = append(args, "--local")
+		}
+		args = append(args, "--json", "--session-id", sessionID)
+		if p.Model != "" {
+			args = append(args, "--agent", p.Model)
+		}
+		args = append(args, p.CustomArgs...)
+		return append(args, "--message", input)
+	case "agy":
+		args := []string{"-p", input, "--dangerously-skip-permissions", "--print-timeout", "30m"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--conversation", sessionID)
+		}
+		if workDir != "" {
+			args = append(args, "--add-dir", filepath.Clean(workDir))
+		}
+		return append(args, p.CustomArgs...)
+	case "codebuddy":
+		args := []string{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--disallowedTools", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--effort", p.ThinkingLevel)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		return append(args, p.CustomArgs...)
+	case "qwen":
+		args := []string{"--output-format", "stream-json"}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if resumed {
+			args = append(args, "--resume", sessionID)
+		}
+		args = append(args, "--yolo")
+		return append(args, p.CustomArgs...)
+	case "pi", "omp":
+		args := []string{"-p", "--mode", "json", "--session", sessionID}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			args = append(args, "--thinking", p.ThinkingLevel)
+		}
+		return append(args, piForwardedCustomArgs(p.CustomArgs)...)
+	case "dsh":
+		return dshLaunchArgs(p.CustomArgs)
 	default:
-		return []string{input}
+		if isACPRuntime(name) {
+			return acpRuntimeLaunchArgs(name, p.ThinkingLevel, p.CustomArgs)
+		}
+		return append(append([]string(nil), p.CustomArgs...), input)
 	}
+}
+
+func (p *LocalProvider) withRuntimeOptions(args []string) []string {
+	result := append([]string(nil), args...)
+	switch p.executorKind() {
+	case "claude":
+		if p.Model != "" {
+			result = append(result, "--model", p.Model)
+		}
+		if p.ThinkingLevel != "" {
+			result = append(result, "--effort", p.ThinkingLevel)
+		}
+		if settings := p.claudeDisabledSkillSettings(); settings != "" {
+			result = append(result, "--settings", settings)
+		}
+	case "codex":
+		configKeys := make([]string, 0, len(p.RuntimeConfig))
+		for key := range p.RuntimeConfig {
+			configKeys = append(configKeys, key)
+		}
+		sort.Strings(configKeys)
+		configArgs := make([]string, 0, len(configKeys)*2)
+		for _, key := range configKeys {
+			configArgs = append(configArgs, "-c", key+"="+p.RuntimeConfig[key])
+		}
+		if disabled := p.codexDisabledSkillConfig(); disabled != "" {
+			configArgs = append(configArgs, "-c", disabled)
+		}
+		// app-server receives model settings through its protocol. For explicit
+		// exec configurations use the CLI's stable model/config flags.
+		if codexExecMode(result) {
+			if p.Model != "" {
+				result = append(result, "--model", p.Model)
+			}
+			if p.ThinkingLevel != "" {
+				result = append(result, "-c", "model_reasoning_effort="+p.ThinkingLevel)
+			}
+			if p.ServiceTier != "" {
+				result = append(result, "-c", "service_tier="+p.ServiceTier)
+			}
+			mcpArgs := p.codexMCPArgs()
+			result = append(result, configArgs...)
+			result = append(result, mcpArgs...)
+		} else {
+			globalArgs, appServerArgs := codexAppServerCustomArgs(p.CustomArgs)
+			prefix := append(configArgs, p.codexMCPArgs()...)
+			prefix = append(prefix, globalArgs...)
+			if len(prefix) > 0 {
+				result = append(prefix, result...)
+			}
+			return append(result, appServerArgs...)
+		}
+	}
+	return append(result, p.CustomArgs...)
+}
+
+func codexAppServerCustomArgs(args []string) (global, appServer []string) {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		name, _, inline := strings.Cut(arg, "=")
+		switch name {
+		case "--analytics-default-enabled":
+			appServer = append(appServer, arg)
+		case "--code-mode-host":
+			appServer = append(appServer, arg)
+			if !inline && index+1 < len(args) {
+				index++
+				appServer = append(appServer, args[index])
+			}
+		default:
+			global = append(global, arg)
+		}
+	}
+	return global, appServer
+}
+
+func (p *LocalProvider) scopedDisabledRuntimeSkills(providerID string) []RuntimeSkillRef {
+	result := make([]RuntimeSkillRef, 0, len(p.DisabledRuntimeSkills))
+	for _, skill := range p.DisabledRuntimeSkills {
+		if skill.RuntimeID == providerID && skill.Provider == providerID {
+			result = append(result, skill)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.Join([]string{result[i].Root, result[i].Key, result[i].Plugin}, "\x00") < strings.Join([]string{result[j].Root, result[j].Key, result[j].Plugin}, "\x00")
+	})
+	return result
+}
+
+func (p *LocalProvider) codexDisabledSkillConfig() string {
+	skills := p.scopedDisabledRuntimeSkills("codex")
+	if len(skills) == 0 {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	items := make([]string, 0, len(skills))
+	seen := map[string]bool{}
+	for _, skill := range skills {
+		var root string
+		switch skill.Root {
+		case "provider":
+			root = filepath.Join(codexHome, "skills")
+		case "universal":
+			root = filepath.Join(home, ".agents", "skills")
+		default:
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(skill.Key), "SKILL.md")
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		items = append(items, `{path=`+strconv.Quote(filepath.ToSlash(path))+`,enabled=false}`)
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return "skills.config=[" + strings.Join(items, ",") + "]"
+}
+
+func (p *LocalProvider) claudeDisabledSkillSettings() string {
+	skills := p.scopedDisabledRuntimeSkills("claude")
+	if len(skills) == 0 {
+		return ""
+	}
+	overrides := map[string]string{}
+	deny := make([]string, 0, len(skills)*2)
+	seen := map[string]bool{}
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" {
+			name = filepath.Base(filepath.FromSlash(skill.Key))
+		}
+		if skill.Root != "plugin" {
+			overrides[name] = "off"
+		} else {
+			name = skill.Key
+		}
+		for _, rule := range []string{"Skill(" + name + ")", "Skill(" + name + " *)"} {
+			if !seen[rule] {
+				seen[rule] = true
+				deny = append(deny, rule)
+			}
+		}
+	}
+	payload, err := json.Marshal(map[string]any{"skillOverrides": overrides, "permissions": map[string]any{"deny": deny}})
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
+func (p *LocalProvider) openclawRuntimeEnvironment(runID string) (map[string]string, func(), error) {
+	if strings.TrimSpace(p.RuntimeConfig["mode"]) != "gateway" {
+		return nil, func() {}, nil
+	}
+	host := strings.TrimSpace(p.RuntimeConfig["gateway.host"])
+	portText := strings.TrimSpace(p.RuntimeConfig["gateway.port"])
+	tlsText := strings.TrimSpace(p.RuntimeConfig["gateway.tls"])
+	authEnv := strings.TrimSpace(p.RuntimeConfig["gateway.auth_env"])
+	if host == "" && portText == "" && tlsText == "" && authEnv == "" {
+		return nil, func() {}, nil
+	}
+	gateway := map[string]any{}
+	if host != "" {
+		gateway["host"] = host
+	}
+	if portText != "" {
+		port, _ := strconv.Atoi(portText)
+		gateway["port"] = port
+	}
+	if tlsText == "true" {
+		gateway["tls"] = true
+	}
+	if authEnv != "" {
+		token, ok := p.Environment[authEnv]
+		if !ok || token == "" {
+			return nil, func() {}, fmt.Errorf("openclaw gateway credential environment %q is unavailable", authEnv)
+		}
+		gateway["auth"] = map[string]any{"mode": "token", "token": token}
+	}
+	config := map[string]any{"gateway": gateway}
+	activePath := strings.TrimSpace(os.Getenv("OPENCLAW_CONFIG_PATH"))
+	if activePath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			activePath = filepath.Join(home, ".openclaw", "openclaw.json")
+		}
+	}
+	if activePath != "" {
+		if info, err := os.Stat(activePath); err == nil && !info.IsDir() {
+			config["$include"] = activePath
+		}
+	}
+	payload, err := json.Marshal(config)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("encode openclaw runtime config: %w", err)
+	}
+	directory := filepath.Join(p.WorkRoot, ".runtime-config")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, func() {}, fmt.Errorf("create openclaw runtime config directory: %w", err)
+	}
+	path := filepath.Join(directory, "openclaw-"+runID+".json")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return nil, func() {}, fmt.Errorf("write openclaw runtime config: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(path) }
+	return map[string]string{"OPENCLAW_CONFIG_PATH": path}, cleanup, nil
+}
+
+func (p *LocalProvider) codexMCPArgs() []string {
+	servers := append([]RuntimeMCPServer(nil), p.MCPServers...)
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+	args := make([]string, 0, len(servers)*4)
+	for _, server := range servers {
+		name, endpoint := strings.TrimSpace(server.Name), strings.TrimSpace(server.Endpoint)
+		protocol := strings.ToLower(strings.TrimSpace(server.Protocol))
+		if name == "" || endpoint == "" || (protocol != "" && protocol != "http" && protocol != "https" && protocol != "mcp.v1") {
+			continue
+		}
+		prefix := `mcp_servers.` + strconv.Quote(name)
+		args = append(args, "-c", prefix+`.url=`+strconv.Quote(endpoint))
+		if envName := strings.TrimSpace(server.BearerTokenEnvVar); envName != "" {
+			args = append(args, "-c", prefix+`.bearer_token_env_var=`+strconv.Quote(envName))
+		}
+	}
+	return args
 }
 
 func withCodexAppServerArgs(args []string) []string {
@@ -916,7 +1420,18 @@ func codexExecMode(args []string) bool {
 }
 
 func (p *LocalProvider) executorKind() string {
+	if runtimeID := strings.TrimSpace(p.RuntimeID); runtimeID != "" {
+		for _, descriptor := range RuntimeRegistry {
+			if descriptor.ID == runtimeID {
+				return descriptor.Command
+			}
+		}
+		return strings.ToLower(runtimeID)
+	}
 	name := strings.ToLower(filepath.Base(p.Executable))
+	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
 	switch name {
 	case "claude", "claude-code":
 		return "claude"
@@ -1039,24 +1554,77 @@ func (p *LocalProvider) withClaudeSessionArgs(args []string, sessionID string, r
 }
 
 func providerSessionID(output []byte, kind string) string {
-	if kind != "codex" {
-		return ""
+	if kind == "openclaw" {
+		var result struct {
+			Meta struct {
+				AgentMeta map[string]any `json:"agentMeta"`
+			} `json:"meta"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(output), &result) == nil {
+			if candidate, _ := result.Meta.AgentMeta["sessionId"].(string); validProviderSessionID(candidate) {
+				return strings.TrimSpace(candidate)
+			}
+		}
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
 	for scanner.Scan() {
-		var event struct {
-			Type     string `json:"type"`
-			ThreadID string `json:"thread_id"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "thread.started" {
+		var event map[string]any
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
 			continue
 		}
-		if codexNativeThreadPattern.MatchString(event.ThreadID) {
-			return event.ThreadID
+		if kind == "codex" {
+			typ, _ := event["type"].(string)
+			threadID, _ := event["thread_id"].(string)
+			if typ == "thread.started" && codexNativeThreadPattern.MatchString(threadID) {
+				return threadID
+			}
+			continue
+		}
+		var candidate string
+		switch kind {
+		case "cursor-agent", "codebuddy", "qwen", "pi", "omp", "dsh":
+			candidate, _ = event["session_id"].(string)
+		case "copilot", "openclaw":
+			candidate, _ = event["sessionId"].(string)
+			if candidate == "" {
+				if data, ok := event["data"].(map[string]any); ok {
+					candidate, _ = data["sessionId"].(string)
+				}
+			}
+		case "opencode", "deveco":
+			candidate, _ = event["sessionID"].(string)
+			if candidate == "" {
+				if part, ok := event["part"].(map[string]any); ok {
+					candidate, _ = part["sessionID"].(string)
+				}
+			}
+		default:
+			if isACPRuntime(kind) {
+				candidate, _ = event["session_id"].(string)
+				if candidate == "" {
+					candidate, _ = event["sessionId"].(string)
+				}
+			}
+		}
+		if validProviderSessionID(candidate) {
+			return strings.TrimSpace(candidate)
 		}
 	}
 	return ""
+}
+
+func validProviderSessionID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, r := range value {
+		if r <= 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // codexTerminalOutput returns true only after a JSONL stream contains both a
@@ -1169,6 +1737,48 @@ func (p *LocalProvider) workDir(workItemID, sessionID string) (string, error) {
 		key = domain.NewID()
 	}
 	return filepath.Join(p.WorkRoot, workItemID, key), nil
+}
+
+func (p *LocalProvider) piSessionPath(sessionID string, resumed bool, kind string) (string, error) {
+	root, err := filepath.Abs(filepath.Join(p.WorkRoot, ".sessions", kind))
+	if err != nil {
+		return "", fmt.Errorf("resolve %s session root: %w", kind, err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", fmt.Errorf("create %s session root: %w", kind, err)
+	}
+	managedRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return "", fmt.Errorf("open %s session root: %w", kind, err)
+	}
+	defer managedRoot.Close()
+	if resumed {
+		candidate := filepath.Clean(sessionID)
+		if !filepath.IsAbs(candidate) {
+			return "", fmt.Errorf("%s session must be an absolute managed path", kind)
+		}
+		relative, err := filepath.Rel(root, candidate)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("%s session is outside the managed session root", kind)
+		}
+		info, err := managedRoot.Stat(relative)
+		if err != nil {
+			return "", fmt.Errorf("load %s session: %w", kind, err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("%s session is not a regular file", kind)
+		}
+		return filepath.Join(root, relative), nil
+	}
+	path := filepath.Join(root, sha256Hex(sessionID)+".jsonl")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create %s session: %w", kind, err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close %s session: %w", kind, err)
+	}
+	return path, nil
 }
 
 func (p *LocalProvider) executablePath() (string, error) {
@@ -1863,36 +2473,85 @@ func truncateOutput(value []byte) string {
 	return string(value)
 }
 
-// usageFromOutput extracts the stable usage fields emitted by non-interactive
-// coding CLIs. Unknown output formats deliberately produce an empty usage
-// record; the process result remains valid and the duration is still captured.
+// usageFromOutput extracts usage from either a single JSON result or a JSONL
+// protocol transcript. Providers commonly repeat cumulative usage in several
+// events, so each field keeps the greatest observed value instead of summing
+// duplicates.
 func usageFromOutput(output []byte) Usage {
-	var result struct {
-		Usage struct {
-			InputTokens               int64 `json:"input_tokens"`
-			OutputTokens              int64 `json:"output_tokens"`
-			CacheReadTokens           int64 `json:"cache_read_input_tokens"`
-			CacheWriteTokens          int64 `json:"cache_creation_input_tokens"`
-			CacheReadTokensAlternate  int64 `json:"cache_read_tokens"`
-			CacheWriteTokensAlternate int64 `json:"cache_write_tokens"`
-		} `json:"usage"`
-		TotalCostUSD float64 `json:"total_cost_usd"`
-		CostUSD      float64 `json:"cost_usd"`
+	result := Usage{}
+	collect := func(raw []byte) bool {
+		var value any
+		if json.Unmarshal(bytes.TrimSpace(raw), &value) != nil {
+			return false
+		}
+		collectUsageValue(value, &result)
+		return true
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(output), &result); err != nil {
-		return Usage{}
+	if collect(output) {
+		return result
 	}
-	cacheRead := result.Usage.CacheReadTokens
-	if cacheRead == 0 {
-		cacheRead = result.Usage.CacheReadTokensAlternate
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 8<<20)
+	for scanner.Scan() {
+		collect(scanner.Bytes())
 	}
-	cacheWrite := result.Usage.CacheWriteTokens
-	if cacheWrite == 0 {
-		cacheWrite = result.Usage.CacheWriteTokensAlternate
+	return result
+}
+
+func collectUsageValue(value any, result *Usage) {
+	switch item := value.(type) {
+	case map[string]any:
+		result.InputTokens = maxInt64(result.InputTokens, numberField(item, "input_tokens", "inputTokens", "input"))
+		result.OutputTokens = maxInt64(result.OutputTokens, numberField(item, "output_tokens", "outputTokens", "output"))
+		result.CacheReadTokens = maxInt64(result.CacheReadTokens, numberField(item, "cache_read_input_tokens", "cache_read_tokens", "cacheReadTokens", "cachedReadTokens", "cachedInputTokens", "cacheRead"))
+		result.CacheWriteTokens = maxInt64(result.CacheWriteTokens, numberField(item, "cache_creation_input_tokens", "cache_write_tokens", "cacheWriteTokens", "cachedWriteTokens", "cacheWrite"))
+		result.EstimatedCost = maxFloat64(result.EstimatedCost, floatField(item, "total_cost_usd", "cost_usd", "costUsd"))
+		for _, child := range item {
+			collectUsageValue(child, result)
+		}
+	case []any:
+		for _, child := range item {
+			collectUsageValue(child, result)
+		}
 	}
-	cost := result.TotalCostUSD
-	if cost == 0 {
-		cost = result.CostUSD
+}
+
+func numberField(value map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		switch number := value[key].(type) {
+		case float64:
+			return int64(number)
+		case json.Number:
+			result, _ := number.Int64()
+			return result
+		}
 	}
-	return Usage{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite, EstimatedCost: cost}
+	return 0
+}
+
+func floatField(value map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		switch number := value[key].(type) {
+		case float64:
+			return number
+		case json.Number:
+			result, _ := number.Float64()
+			return result
+		}
+	}
+	return 0
+}
+
+func maxInt64(left, right int64) int64 {
+	if right > left {
+		return right
+	}
+	return left
+}
+
+func maxFloat64(left, right float64) float64 {
+	if right > left {
+		return right
+	}
+	return left
 }

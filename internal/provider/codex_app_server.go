@@ -36,13 +36,13 @@ func (e *codexRPCError) Error() string {
 // executeCodexAppServer puts the thread proof obtained from thread/start or
 // thread/resume into the provider's existing JSONL evidence stream. It is
 // derived from the RPC result, never from model text or a fixture.
-func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool) (int, []byte, error) {
+func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool, model, thinkingLevel, serviceTier string, environment map[string]string) (int, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	configureLocalCommand(cmd)
 	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
 	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = workDir
-	cmd.Env = traceEnvironment(os.Environ(), telemetry.Environment(ctx))
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -209,7 +209,9 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 
 	threadID := ""
 	if resumed && priorSession != "" {
-		resumeID, err := send("thread/resume", map[string]any{"threadId": priorSession, "cwd": workDir, "model": nil, "developerInstructions": nil})
+		params := map[string]any{"threadId": priorSession, "cwd": workDir, "model": nilIfBlank(model), "developerInstructions": nil}
+		applyCodexRuntimeOptions(params, thinkingLevel, serviceTier)
+		resumeID, err := send("thread/resume", params)
 		if err != nil {
 			return finish(fmt.Errorf("codex thread/resume failed: %w", err))
 		}
@@ -221,7 +223,9 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 		}
 	}
 	if threadID == "" {
-		startID, err := send("thread/start", map[string]any{"cwd": workDir, "developerInstructions": nil, "persistExtendedHistory": true})
+		params := map[string]any{"cwd": workDir, "model": nilIfBlank(model), "developerInstructions": nil, "persistExtendedHistory": true}
+		applyCodexRuntimeOptions(params, thinkingLevel, serviceTier)
+		startID, err := send("thread/start", params)
 		if err != nil {
 			return finish(err)
 		}
@@ -304,6 +308,22 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 			continue
 		}
 		return finish(nil)
+	}
+}
+
+func nilIfBlank(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.TrimSpace(value)
+}
+
+func applyCodexRuntimeOptions(params map[string]any, thinkingLevel, serviceTier string) {
+	if level := strings.TrimSpace(thinkingLevel); level != "" {
+		params["config"] = map[string]any{"model_reasoning_effort": level}
+	}
+	if tier := strings.TrimSpace(serviceTier); tier != "" {
+		params["serviceTier"] = tier
 	}
 }
 
