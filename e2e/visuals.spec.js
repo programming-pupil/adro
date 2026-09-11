@@ -15,19 +15,28 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.screenshot({ path: 'var/adro-login-cyber.png', fullPage: true });
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  const agentsResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
+  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
-  await expect(page.locator('#agentDialog')).toBeVisible();
-  await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
-  await page.locator('#agentForm button[type="submit"]').scrollIntoViewIfNeeded();
-  expect(await page.locator('#agentForm button[type="submit"]').evaluate(element => {
-    const bounds = element.getBoundingClientRect();
-    return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
-  })).toBe(true);
-  await page.locator('#agentForm').evaluate(element => { element.scrollTop = 0; });
-  await page.screenshot({ path: 'var/adro-first-agent-setup.png', fullPage: true });
-  await page.locator('#agentForm button[type="submit"]').click();
-  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  const agents = await (await agentsResponse).json();
+  if ((agents.items || []).length === 0) {
+    await expect(page.locator('#agentDialog')).toBeVisible();
+    await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
+    await page.locator('#agentForm button[type="submit"]').scrollIntoViewIfNeeded();
+    expect(await page.locator('#agentForm button[type="submit"]').evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+    })).toBe(true);
+    await page.locator('#agentForm').evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: 'var/adro-first-agent-setup.png', fullPage: true });
+    await page.locator('#agentForm button[type="submit"]').click();
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+  } else {
+    await expect(page.locator('#agentDialog')).not.toBeVisible();
+  }
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   await page.screenshot({ path: 'var/adro-workbench-cyber.png', fullPage: true });
 

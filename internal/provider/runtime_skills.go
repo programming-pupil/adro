@@ -59,6 +59,12 @@ type claudePluginManifest struct {
 // managed Skill links work without allowing unbounded filesystem walks.
 func DiscoverRuntimeSkills(runtimeID string) ([]RuntimeSkillSummary, bool, error) {
 	runtimeID = strings.TrimSpace(runtimeID)
+	if runtimeID == "local" {
+		// The configured local executor has no provider-owned skill directory.
+		// It is still a valid runtime selection, so return an empty catalog
+		// instead of making the workbench surface a false 404.
+		return []RuntimeSkillSummary{}, true, nil
+	}
 	known := false
 	for _, descriptor := range RuntimeRegistry {
 		if descriptor.ID == runtimeID {

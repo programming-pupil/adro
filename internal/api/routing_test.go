@@ -147,4 +147,8 @@ func TestRuntimeSkillsRouteReturnsMetadataAndRejectsUnknownRuntime(t *testing.T)
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("unknown runtime status=%d body=%s", missing.Code, missing.Body.String())
 	}
+	local := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/local/skills", "", map[string]string{"X-Workspace-ID": "local"})
+	if local.Code != http.StatusOK || !strings.Contains(local.Body.String(), `"runtime_id":"local"`) || !strings.Contains(local.Body.String(), `"items":[]`) {
+		t.Fatalf("local runtime status=%d body=%s", local.Code, local.Body.String())
+	}
 }

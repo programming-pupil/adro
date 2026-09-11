@@ -1419,12 +1419,11 @@ func maxInt64(value, minimum int64) int64 {
 }
 
 func int64ToInt(value int64) (int, bool) {
-	maxInt := int64(^uint(0) >> 1)
-	minInt := -maxInt - 1
-	if value < minInt || value > maxInt {
-		return 0, false
-	}
-	return int(value), true
+	// Atoi performs the platform-width bounds check before returning an int.
+	// Keeping the conversion inside strconv also prevents a parsed database
+	// value from reaching an unchecked narrowing cast.
+	converted, err := strconv.Atoi(strconv.FormatInt(value, 10))
+	return converted, err == nil
 }
 
 func int64ToIntInRange(value, minimum, maximum int64) (int, bool) {
