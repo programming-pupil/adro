@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "adro-0.1.0",
-  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-3f92760ee60698e8bc49c75064cb5c815c80866edd3aaa4ee2ab368604410f88",
+  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-7a7de930538af7f6852b9a36869a3064e873a1e91b912c9eced5c3c20eb77462",
   "creationInfo": {
     "created": "1970-01-01T00:00:00Z",
     "creators": [
@@ -602,9 +602,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-npm--playwright-test-1.62.1",
+      "SPDXID": "SPDXRef-npm--playwright-test-1.63.0",
       "name": "@playwright/test",
-      "versionInfo": "1.62.1",
+      "versionInfo": "1.63.0",
       "downloadLocation": "https://github.com/microsoft/playwright",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -615,32 +615,14 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:npm/%40playwright/test@1.62.1"
+          "referenceLocator": "pkg:npm/%40playwright/test@1.63.0"
         }
       ]
     },
     {
-      "SPDXID": "SPDXRef-npm-fsevents-2.3.2",
-      "name": "fsevents",
-      "versionInfo": "2.3.2",
-      "downloadLocation": "https://github.com/fsevents/fsevents",
-      "filesAnalyzed": false,
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "copyrightText": "NOASSERTION",
-      "supplier": "Organization: fsevents contributors",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:npm/fsevents@2.3.2"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-npm-playwright-core-1.62.1",
+      "SPDXID": "SPDXRef-npm-playwright-core-1.63.0",
       "name": "playwright-core",
-      "versionInfo": "1.62.1",
+      "versionInfo": "1.63.0",
       "downloadLocation": "https://github.com/microsoft/playwright",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -651,14 +633,14 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:npm/playwright-core@1.62.1"
+          "referenceLocator": "pkg:npm/playwright-core@1.63.0"
         }
       ]
     },
     {
-      "SPDXID": "SPDXRef-npm-playwright-1.62.1",
+      "SPDXID": "SPDXRef-npm-playwright-1.63.0",
       "name": "playwright",
-      "versionInfo": "1.62.1",
+      "versionInfo": "1.63.0",
       "downloadLocation": "https://github.com/microsoft/playwright",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -669,7 +651,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:npm/playwright@1.62.1"
+          "referenceLocator": "pkg:npm/playwright@1.63.0"
         }
       ]
     }
@@ -836,22 +818,17 @@
       "relatedSpdxElement": "SPDXRef-go-modernc.org-token-v1.1.0"
     },
     {
-      "spdxElementId": "SPDXRef-npm--playwright-test-1.62.1",
+      "spdxElementId": "SPDXRef-npm--playwright-test-1.63.0",
       "relationshipType": "DEV_DEPENDENCY_OF",
       "relatedSpdxElement": "SPDXRef-Package-ADRO"
     },
     {
-      "spdxElementId": "SPDXRef-npm-fsevents-2.3.2",
+      "spdxElementId": "SPDXRef-npm-playwright-core-1.63.0",
       "relationshipType": "DEV_DEPENDENCY_OF",
       "relatedSpdxElement": "SPDXRef-Package-ADRO"
     },
     {
-      "spdxElementId": "SPDXRef-npm-playwright-core-1.62.1",
-      "relationshipType": "DEV_DEPENDENCY_OF",
-      "relatedSpdxElement": "SPDXRef-Package-ADRO"
-    },
-    {
-      "spdxElementId": "SPDXRef-npm-playwright-1.62.1",
+      "spdxElementId": "SPDXRef-npm-playwright-1.63.0",
       "relationshipType": "DEV_DEPENDENCY_OF",
       "relatedSpdxElement": "SPDXRef-Package-ADRO"
     }

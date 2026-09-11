@@ -258,34 +258,26 @@ modernc.org/token v1.1.0
   license-file: THIRD_PARTY_LICENSES/go-modernc.org_token@v1.1.0.txt
   license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
 
-@playwright/test 1.62.1
+@playwright/test 1.63.0
   ecosystem: npm
   scope: development
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-@playwright_test@1.62.1.txt
+  license-file: THIRD_PARTY_LICENSES/npm-@playwright_test@1.63.0.txt
   license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
 
-fsevents 2.3.2
-  ecosystem: npm
-  scope: optional-development
-  license: MIT
-  source: https://github.com/fsevents/fsevents
-  license-file: THIRD_PARTY_LICENSES/npm-fsevents@2.3.2.txt
-  license-sha256: 2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1
-
-playwright-core 1.62.1
+playwright-core 1.63.0
   ecosystem: npm
   scope: development
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-playwright-core@1.62.1.txt
+  license-file: THIRD_PARTY_LICENSES/npm-playwright-core@1.63.0.txt
   license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
 
-playwright 1.62.1
+playwright 1.63.0
   ecosystem: npm
   scope: development
   license: Apache-2.0
   source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-playwright@1.62.1.txt
+  license-file: THIRD_PARTY_LICENSES/npm-playwright@1.63.0.txt
   license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
