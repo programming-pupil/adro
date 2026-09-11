@@ -19,6 +19,15 @@ test.beforeEach(async ({ page }, testInfo) => {
     }));
   }
   if (testInfo.title.includes('AI-assisted Agent creation')) {
+    await page.route('**/api/v1/directory', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [
+        { id: 'agent-owner', username: 'owner', display_name: 'Agent owner', status: 'active' },
+        { id: 'member-a', username: 'alice', display_name: 'Alice', status: 'active' },
+        { id: 'member-b', username: 'bob', display_name: 'Bob', status: 'active' }
+      ] })
+    }));
     await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -209,19 +218,23 @@ test('AI-assisted Agent creation fills human controls and persists execution set
 	await expect(page.locator('#agentForm input[name="agent_mcp_server_ids"][value="mcp-disabled"]')).toHaveCount(0);
   await expect(page.locator('#agentBuilderStatus')).toContainText('草稿已生成');
 
-  await page.locator('#agentForm input[name="member"]').fill('agent-owner');
+  await page.locator('#agentForm select[name="member"]').selectOption('agent-owner');
   await page.locator('#agentForm select[name="access_mode"]').selectOption('members');
   await expect(page.locator('#agentAccessMembersField')).toBeVisible();
-  await page.locator('#agentForm input[name="access_members"]').fill('member-a, member-b');
+  await page.locator('#agentForm input[name="agent_access_member_ids"][value="member-a"]').check();
+  await page.locator('#agentForm input[name="agent_access_member_ids"][value="member-b"]').check();
   await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
   await page.locator('#agentForm input[name="network"]').check();
-  await page.locator('#agentForm textarea[name="custom_args"]').fill('--ephemeral\n--quiet');
+  await expect(page.locator('#agentForm textarea[name="custom_args"]')).toHaveCount(1);
+  await expect(page.locator('#agentForm textarea[name="runtime_config"]')).toHaveCount(1);
+  await expect(page.locator('#agentForm textarea[name="environment"]')).toHaveCount(1);
+  await page.locator('#agentForm textarea[name="custom_args"]').fill('--ephemeral\n--json');
+  await page.locator('#agentForm textarea[name="runtime_config"]').fill('trace_mode=compact');
+  await page.locator('#agentForm textarea[name="environment"]').fill('RELEASE_TOKEN=env:ADRO_RELEASE_TOKEN');
   await expect(page.locator('[data-runtime-policy="codex"]')).toBeVisible();
   await page.locator('#agentForm select[name="codex_sandbox"]').selectOption('workspace-write');
   await page.locator('#agentForm select[name="codex_approval"]').selectOption('on-request');
   await page.locator('#agentForm input[data-runtime-skill-index="0"]').uncheck();
-  await page.locator('#agentForm textarea[name="runtime_config"]').fill('feature_toggle=true');
-  await page.locator('#agentForm textarea[name="environment"]').fill('CI_TOKEN=env:ADRO_CI_TOKEN');
 
   const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
   await page.locator('#agentForm button[type="submit"]').click();
@@ -234,9 +247,49 @@ test('AI-assisted Agent creation fills human controls and persists execution set
 	expect(body.mcp_server_ids).toEqual(['mcp-release']);
   expect(body.concurrency_budget).toEqual({ tokens: 60000, tool_calls: 80, concurrent: 2 });
   expect(body.tool_policy.network).toBe(true);
-  expect(body.executor_binding.custom_args).toEqual(['--ephemeral', '--quiet']);
-  expect(body.executor_binding.runtime_config).toEqual({ feature_toggle: 'true', sandbox_mode: 'workspace-write', approval_policy: 'on-request' });
-  expect(body.executor_binding.environment).toEqual([{ name: 'CI_TOKEN', secret_ref: 'env:ADRO_CI_TOKEN' }]);
+  expect(body.executor_binding.custom_args).toEqual(['--ephemeral', '--json']);
+  expect(body.executor_binding.runtime_config).toEqual({ trace_mode: 'compact', sandbox_mode: 'workspace-write', approval_policy: 'on-request' });
+  expect(body.executor_binding.environment).toEqual([{ name: 'RELEASE_TOKEN', secret_ref: 'env:ADRO_RELEASE_TOKEN' }]);
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('AI-assisted Agent creation supports one-click generation and creation', async ({ page }) => {
+  await page.route('**/api/v1/workspaces/local/agents', route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    return route.fulfill({ status: 201, contentType: 'application/json', body: route.request().postData() || '{}' });
+  });
+  await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      draft: {
+        name: 'Incident coordinator',
+        description: 'Coordinates incident response.',
+        role: 'coordinator',
+        instructions: 'Coordinate responders and preserve evidence.',
+        conversation_starters: [],
+        access_policy: { mode: 'workspace' },
+        skill_ids: [],
+        mcp_server_ids: [],
+        network_access: false,
+        max_concurrent_tasks: 1,
+        token_budget: 120000,
+        tool_call_budget: 200
+      },
+      evidence: { run_id: 'real-runtime-shaped-builder-run', runtime_id: 'codex', output_sha256: 'abc' }
+    })
+  }));
+
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  await page.locator('#agentBuilderPrompt').fill('Create an incident response coordinator');
+  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
+  await page.locator('#composeAndCreateAgent').click();
+  const body = JSON.parse((await createRequest).postData());
+  expect(body.name).toBe('Incident coordinator');
+  expect(body.owner_id).toBe('agent-owner');
+  expect(body.executor_binding.runtime_id).toBe('codex');
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   expect(page.__adroErrors).toEqual([]);
 });
@@ -250,14 +303,13 @@ test('OpenClaw gateway policy stores only a secret reference', async ({ page }) 
   await page.locator('#newAgent').click();
   await expect(page.locator('[data-runtime-policy="openclaw"]')).toBeVisible();
   await expect(page.locator('#agentRuntimeSkillOptions input')).toBeDisabled();
-  await page.locator('#agentForm input[name="member"]').fill('gateway-owner');
   await page.locator('#agentForm input[name="name"]').fill('Gateway agent');
   await page.locator('#agentForm select[name="openclaw_mode"]').selectOption('gateway');
   await page.locator('#agentForm input[name="openclaw_host"]').fill('gateway.internal');
   await page.locator('#agentForm input[name="openclaw_port"]').fill('18789');
+  await page.locator('#agentForm input[name="openclaw_auth_env"]').fill('OPENCLAW_TOKEN');
+  await page.locator('#agentForm input[name="openclaw_secret_env"]').fill('ADRO_OPENCLAW_TOKEN');
   await page.locator('#agentForm input[name="openclaw_tls"]').check();
-  await page.locator('#agentForm input[name="openclaw_auth_env"]').fill('OPENCLAW_GATEWAY_TOKEN');
-  await page.locator('#agentForm input[name="openclaw_secret_env"]').fill('HOST_OPENCLAW_TOKEN');
 
   const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
   await page.locator('#agentForm button[type="submit"]').click();
@@ -268,9 +320,9 @@ test('OpenClaw gateway policy stores only a secret reference', async ({ page }) 
     'gateway.host': 'gateway.internal',
     'gateway.port': '18789',
     'gateway.tls': 'true',
-    'gateway.auth_env': 'OPENCLAW_GATEWAY_TOKEN'
+    'gateway.auth_env': 'OPENCLAW_TOKEN'
   });
-  expect(body.executor_binding.environment).toEqual([{ name: 'OPENCLAW_GATEWAY_TOKEN', secret_ref: 'env:HOST_OPENCLAW_TOKEN' }]);
+  expect(body.executor_binding.environment).toEqual([{ name: 'OPENCLAW_TOKEN', secret_ref: 'env:ADRO_OPENCLAW_TOKEN' }]);
   expect(request.postData()).not.toContain('do-not-persist');
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   expect(page.__adroErrors).toEqual([]);
@@ -370,7 +422,7 @@ test('posts a structured mention comment with an attachment and reply', async ({
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('comment-evidence-owner');
+  await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill('Comment Evidence Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Process the comment acceptance evidence.');
   await page.locator('#agentForm input[name="role"]').fill('delivery');
@@ -451,27 +503,31 @@ test('captures the screenshot delivery path through ArtifactStore and provider',
 test('creates an ADRO agent binding from the workspace UI', async ({ page }) => {
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('browser-agent-owner');
+  const ownerSelect = page.locator('#agentForm select[name="member"]');
+  await ownerSelect.selectOption({ index: 0 });
+  const ownerID = await ownerSelect.inputValue();
   await page.locator('#agentForm input[name="name"]').fill('Browser Delivery Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Run the acceptance workflow and return evidence.');
   await page.locator('#agentForm input[name="role"]').fill('developer');
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   const row = page.locator('tr').filter({ hasText: 'Browser Delivery Agent' }).first();
-  await expect(row).toContainText('browser-agent-owner');
+  await expect(row).toContainText(ownerID);
   await expect(row).toContainText('r1');
 
   await row.locator('[data-orchestration-action="edit"]').click();
   await expect(page.locator('#agentDialog')).toBeVisible();
-  await expect(page.locator('#agentForm input[name="member"]')).toHaveValue('browser-agent-owner');
+  await expect(page.locator('#agentForm select[name="member"]')).toHaveValue(ownerID);
   await page.locator('#agentForm textarea[name="description"]').fill('Owns browser delivery acceptance.');
   await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
+  await page.locator('#agentForm textarea[name="custom_args"]').fill('--resume\n--json');
   await page.locator('#agentForm textarea[name="runtime_config"]').fill('sandbox_mode=workspace-write');
   await page.locator('#agentForm textarea[name="environment"]').fill('RELEASE_TOKEN=env:ADRO_RELEASE_TOKEN');
   const patchRequest = page.waitForRequest(request => request.method() === 'PATCH' && new URL(request.url()).pathname.includes('/api/v1/workspaces/local/agents/'));
   await page.locator('#agentForm button[type="submit"]').click();
   const patch = JSON.parse((await patchRequest).postData());
   expect(patch.created_by).toBeUndefined();
+  expect(patch.executor_binding.custom_args).toEqual(['--resume', '--json']);
   expect(patch.executor_binding.runtime_config).toEqual({ sandbox_mode: 'workspace-write' });
   expect(patch.executor_binding.environment).toEqual([{ name: 'RELEASE_TOKEN', secret_ref: 'env:ADRO_RELEASE_TOKEN' }]);
   await expect(page.locator('tr').filter({ hasText: 'Browser Delivery Agent' }).first()).toContainText('r2');
@@ -515,7 +571,7 @@ test('disables ineffective model settings for runtime-managed profiles', async (
   await expect(page.locator('#agentModel')).toBeEnabled();
   await expect(page.locator('#agentThinking')).toBeEnabled();
   await expect(page.locator('#agentServiceTier')).toBeEnabled();
-  await expect(page.locator('#agentModelOptions option')).toHaveCount(1);
+  await expect(page.locator('#agentModel option[value="model-a"]')).toHaveCount(1);
   expect(page.__adroErrors).toEqual([]);
 });
 
@@ -545,7 +601,7 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('native-orchestration-owner');
+  await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill(agentName);
   await page.locator('#agentForm textarea[name="instructions"]').fill('Execute the frozen graph with evidence.');
   await page.locator('#agentForm input[name="role"]').fill('delivery-lead');

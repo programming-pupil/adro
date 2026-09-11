@@ -53,12 +53,14 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await page.locator('#agentForm input[name="member"]').fill('design-reviewer');
+  const ownerSelect = page.locator('#agentForm select[name="member"]');
+  await ownerSelect.selectOption({ index: 0 });
+  const ownerID = await ownerSelect.inputValue();
   await page.locator('#agentForm input[name="name"]').fill('Design Review Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Review architecture, risk, and evidence before engineering.');
   await page.locator('#agentForm input[name="role"]').fill('reviewer');
   await page.locator('#agentForm button[type="submit"]').click();
-  await expect(page.locator('#appView')).toContainText('design-reviewer');
+  await expect(page.locator('#appView')).toContainText(ownerID);
   await page.screenshot({ path: 'var/adro-agents-cyber.png', fullPage: true });
 
   await page.locator('.nav-item[data-view="artifacts"]').click();

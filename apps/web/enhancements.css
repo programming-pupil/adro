@@ -416,6 +416,8 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 .agent-builder-actions .form-help { margin: 0; }
 .agent-resource-fields { align-items: stretch; }
 .agent-resource-fields fieldset { min-width: 0; margin: 0; border: 1px solid var(--border); padding: 10px; }
+.agent-access-members { min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--line); }
+.agent-access-members legend { padding: 0 5px; color: var(--muted); font-size: 11px; }
 .agent-resource-options { display: grid; gap: 6px; max-height: 160px; overflow-y: auto; }
 .agent-resource-option { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; margin: 0; padding: 6px; border: 1px solid transparent; }
 .agent-resource-option:has(input:checked) { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 10%, transparent); }

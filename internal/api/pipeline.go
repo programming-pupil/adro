@@ -801,7 +801,7 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 		}
 	}
 	for _, candidate := range []string{snapshot.Output, extractProviderResult(snapshot.Output)} {
-		if marker := parsePipelineResultMarker(candidate); marker != nil {
+		if marker := parsePipelineResultMarkerForStage(candidate, result.Stage); marker != nil {
 			// Provider provenance is measured by the adapter, never trusted from
 			// model text. A model can describe the result, but it cannot forge the
 			// execution item or session that produced it.
@@ -814,6 +814,16 @@ func pipelineResultFromSnapshot(run domain.PipelineRun, snapshot provider.RunSna
 				marker.Outcome = "pass"
 			case "failure", "failed", "error":
 				marker.Outcome = "fail"
+			case "bug":
+				// The compatibility pipeline accepts pass/fail. An integration
+				// defect is a failed result and is materialized as a linked Bug.
+				marker.Outcome = "fail"
+			case "pass", "fail":
+			default:
+				marker.Outcome = "fail"
+				if strings.TrimSpace(marker.ErrorLog) == "" {
+					marker.ErrorLog = "provider returned an invalid pipeline outcome"
+				}
 			}
 			if marker.Stage == 0 {
 				marker.Stage = result.Stage
@@ -883,13 +893,24 @@ func providerNarrative(output string) string {
 }
 
 func parsePipelineResultMarker(output string) *domain.PipelineStepResult {
+	return parsePipelineResultMarkerForStage(output, 0)
+}
+
+// parsePipelineResultMarkerForStage prevents a resumed transcript from using
+// an earlier stage's ADRO_RESULT_JSON as the current result. Thread history is
+// valid context evidence, but only the active stage can advance the pipeline.
+func parsePipelineResultMarkerForStage(output string, stage domain.PipelineStage) *domain.PipelineStepResult {
 	// Codex --json is a JSONL stream. Only agent_message items are eligible
 	// evidence; command output can contain old marker strings (for example
 	// when an agent searches a state file) and must never advance a pipeline.
 	if isJSONLEventStream(output) {
-		return parseCodexAgentMessageMarker(output)
+		return parseCodexAgentMessageMarkerForStage(output, stage)
 	}
-	return parseMarkerText(output)
+	marker := parseMarkerText(output)
+	if marker != nil && stage != 0 && marker.Stage != 0 && marker.Stage != stage {
+		return nil
+	}
+	return marker
 }
 
 func isJSONLEventStream(output string) bool {
@@ -913,6 +934,10 @@ func isJSONLEventStream(output string) bool {
 }
 
 func parseCodexAgentMessageMarker(output string) *domain.PipelineStepResult {
+	return parseCodexAgentMessageMarkerForStage(output, 0)
+}
+
+func parseCodexAgentMessageMarkerForStage(output string, stage domain.PipelineStage) *domain.PipelineStepResult {
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
 	var marker *domain.PipelineStepResult
@@ -922,7 +947,9 @@ func parseCodexAgentMessageMarker(output string) *domain.PipelineStepResult {
 			continue
 		}
 		if candidate := parseMarkerText(itemText); candidate != nil {
-			marker = candidate
+			if stage == 0 || candidate.Stage == 0 || candidate.Stage == stage {
+				marker = candidate
+			}
 		}
 	}
 	return marker

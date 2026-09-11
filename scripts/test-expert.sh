@@ -28,7 +28,11 @@ run_step() {
   printf '%s\t%s\t%s\t%s\n' "$name" "$status" "$code" "$log" >> "$STEPS_FILE"
 }
 
-run_step go_test "$GO_BIN" test ./... -count=1
+# The provider/API suites launch real child processes and exercise shared local
+# runtime limits. Keep package scheduling deterministic so the baseline gate
+# does not turn host contention into a false timeout; race already uses the
+# same serial package boundary below.
+run_step go_test "$GO_BIN" test ./... -count=1 -p 1
 run_step go_race "$GO_BIN" test -race ./... -count=1 -p 1
 run_step go_vet "$GO_BIN" vet ./...
 run_step go_build "$GO_BIN" build ./...

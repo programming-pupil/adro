@@ -58,7 +58,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await expect(runtimeSelect.locator('option[value="codex"]')).toBeEnabled();
   await runtimeSelect.selectOption('codex');
   await expect(runtimeSelect).toHaveValue('codex');
-  await page.locator('#agentForm input[name="member"]').fill('browser-real-graph-owner');
+  await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill('Browser Real Graph Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill([
     'You are the real Codex executor for a browser-created ADRO graph.',

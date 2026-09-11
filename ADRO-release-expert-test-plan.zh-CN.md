@@ -1,8 +1,8 @@
 # ADRO 发布前专家级测试用例规范
 
-版本：`v0.6.0`（同步自由编排、运行时发现、工作区迁移与当前 coverage inventory；以测试执行时检出的提交为准）
-编写日期：2026-09-05
-源码复核基线：以每次执行 `ruby scripts/coverage-ledger.rb --check` 输出并写入报告的 `source_sha` 为准；文档不固化历史 SHA，避免测试计划与源码提交再次漂移。文档提交目标：`main`
+版本：`v0.7.0`（发布前最终源码审计整改版：显式 operationId、行为级 coverage、真实运行时联合证据和当前 SHA 校验）
+编写日期：2026-09-11
+源码复核输入基线：以执行时 checkout 的 `git rev-parse HEAD` 为准。发布候选基线必须以每次执行 `ruby scripts/coverage-ledger.rb --check` 写入报告的 `source_sha` 为准，并由 evidence completeness 门禁断言等于执行时 `HEAD`；文档不能用历史 SHA 或历史数量覆盖当前源码事实。文档提交目标：`main`
 适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
 
 ## 1. 目的与执行边界
@@ -12,7 +12,7 @@
 本规范以 ADRO 源码为准，当前源码事实包括：
 
 - Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，最新 main 共 19 个视图（含 `chats`）。
-- API 契约在 `openapi/openapi.yaml` 中定义；当前 checkout 按 YAML 解析得到 196 个 method/path operation，旧的 112/113/152/177/185 只作为历史对照，不能作为当前发布基线。`scripts/coverage-ledger.rb` 为每项生成稳定 `operation_id`（若 YAML 缺少 `operationId` 会标记 `operation_id_source=derived`），并同时生成 19 个菜单、90 个 DOM button/action 和共 305 行 ledger inventory。当前门禁检出 0 个 handler/contract gap；不能把 YAML 文本行数当成 operation 数，也不能用 inventory-only 代替行为测试。
+- API 契约在 `openapi/openapi.yaml` 中定义；method/path operation、菜单、DOM action 以及 schema v2 账本行数都必须由 `scripts/coverage-ledger.rb --check` 在当前 checkout 重新解析并写入报告，旧的 112/113/152/177/185 只作为历史对照，不能作为当前发布基线。每个 operation 必须显式声明唯一 `operationId`；派生 ID、空 ID、重复 ID、代码路由缺契约或契约缺 handler 均是 CI 非零退出的 S1 缺口。不能把 YAML 文本行数、菜单可打开或 `inventory-only` 行当作行为覆盖证明。
 - Go 单元/集成测试位于 `internal/**`；浏览器测试位于 `e2e/**`；`package.json` 提供 `test:e2e`、`test:e2e:adro` 和 `test:e2e:matrix` 三个 Playwright 入口。仓库还提供 `scripts/release-system-e2e.sh`、`scripts/real-pipeline-e2e.sh` 和 `make real-e2e`，但真实执行仍必须在受控 Codex runner 产生证据。
 - Context 编译器默认保持 `rune4-v1` 兼容估算，同时提供 `context.Tokenizer`/`ModelAwareTokenizer` 与 `harness.Store.SetContextTokenizer`；模型 tokenizer ID、预算和压缩记录必须进入 immutable manifest，不能只在运行日志中声明。
 - Memory repository 的默认查询由仓库侧 deterministic scorer/index 负责排序；可注入的 `VersionedRetrievalScorer` 和 `Repository.Evaluate` 输出 scorer/index 版本、precision、recall、faithfulness 与 pollution，`AddInput` 中的历史分数不得作为最终排序依据。
@@ -23,7 +23,7 @@ PostgreSQL driver conformance、备份/恢复指纹校验和兼容工作区迁�
 
 ### 1.1 当前自动化基线的诚实结论
 
-从当前源码配置可以确认：三个 Playwright 入口覆盖常规浏览器、ADRO 产品流程和跨平台矩阵；Go/API/browser 测试已覆盖自由图、Squad、评论触发、首次设置和迁移的主要确定性路径，但不能因此推断本文全部并发、故障和真实 Provider Case 已执行。`real-e2e` 及专用 workflow 依赖真实 Codex self-hosted runner，缺凭据或缺二进制时必须失败/阻塞，不能把本地 Mock 或静态 fixture 算作通过。
+从输入基线可以确认：三个 Playwright 入口覆盖常规浏览器、ADRO 产品流程和跨平台矩阵；Go/API/browser 测试已覆盖自由图、Squad、评论触发、首次设置和迁移的主要确定性路径，但旧 ledger 没有逐 operation/menu/action 的可执行行为映射。最终执行必须在同一 `HEAD` 上跑完 Chromium/Firefox/WebKit desktop/mobile、`GRAPH-REAL`、`COMMENT-HANDOFF`、`GRAPH-BROWSER`、`RELEASE-REAL`、真实 Codex Agent 创建/启动/恢复/修复，以及已安装 DSH 的 DeepSeek 全流程。缺二进制、凭据、真实 PID 或当前 SHA 证据时必须失败/阻塞，不能把 Mock、route fixture 或静态清单算作通过。
 
 ## 2. 结果、严重性和证据规则
 
@@ -47,10 +47,26 @@ PostgreSQL driver conformance、备份/恢复指纹校验和兼容工作区迁�
 生成 `var/test-report/coverage-ledger/<source_sha>/`，其中 `ledger.json`
 的每一行都包含 `operation_id/menu_id/action_id`、`case_id`、`test_file`、
 `test_function`、`layer`、`fixture`、`last_sha`、`evidence` 和
-`verification_status`。该门禁保证新增 API、菜单或可识别 DOM action 不会
-无账本进入 CI；`inventory-only` 只证明条目被登记，不把行为测试或真实
+`verification_status`。每个 operation、菜单和 action 至少同时具有 inventory
+行和可执行行为行；行为行必须指向仓库中真实存在的测试文件与测试函数，且
+适用 Agent/provider 的入口还必须有 real-runtime 行。任何派生 operationId、
+不存在的测试符号、缺行为层、缺 handler/action 映射或新增未登记条目都必须
+令 CI 非零退出。按输入基线计算，196 个 operation、19 个菜单和 100 个 action
+至少需要按当前报告的 operation/menu/action counts 自动计算的 inventory + behavior
+记录，尚未计入额外的 L4 real-runtime 记录；`inventory-only` 只证明条目被登记，不把行为测试或真实
 Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` 只存生成物，
 不得提交覆盖源代码、正式测试计划或许可证。
+
+### 2.2 Ledger 行级最低契约
+
+| 对象 | 强制行 | 可接受的测试映射 | 发布拒绝条件 |
+|---|---|---|---|
+| OpenAPI operation | `L0-contract-inventory` + `L2-api-integration` | 参数化 operation matrix 可复用测试函数，但每个 operation 必须独立 case/evidence key，并记录实际 handler | derived/重复 `operationId`、handler 不存在、只登记不执行、证据 SHA 不同 |
+| 菜单 | `L0-ui-inventory` + `L3-browser` | 19 个菜单逐项导航、权限、刷新、断网/恢复矩阵 | 菜单新增无 case、只检查数组长度、只跑 Chromium |
+| DOM action | `L0-ui-inventory` + `L3-browser` | action registry 参数化点击成功/失败/权限/重复点击；动态生成按钮也必须有稳定 `action_id` | source-line 临时 selector、按钮无 action_id、测试函数不存在 |
+| Agent/provider operation | 上述各层 + `L4-real-runtime` | 真实 Codex 与 DSH 脚本及其 manifest/assertion | provider fixture/mock、PID/workdir/context/cursor/hash 任一缺失 |
+
+行为账本不得把一个静态脚本同时冒充所有操作的成功、失败、权限和恢复测试。参数化测试可以共用实现，但 evidence 中必须保留每个 `operation_id/menu_id/action_id` 的独立结果。
 
 ## 3. 单机执行基线
 
@@ -524,7 +540,7 @@ COMMENT-002 是“方案 Agent 完成后，人类在评论下 @研发 Agent 询�
 
 `API-BASE-001` 的统一步骤：用 admin 建立合法资源并保存 ID；以合法 JSON 调用 operation；重复请求和修改请求体；分别去掉 Cookie、替换为 viewer、换 workspace；使用未知 ID、空字符串、负数、超长字符串、错误 enum、错误 Content-Type；检查状态码、problem type、响应 schema、审计、事件和持久化快照。对上传接口追加 0/1MB/超限、分片重复/乱序/缺片、hash 不匹配和断点续传。
 
-为避免分组表中的缩写造成漏测，历史文档的 112/113/152/177/185 只保留为迁移对照。当前源码必须由 `scripts/coverage-ledger.rb` 生成完整 inventory；本次基线为 196 个 method/path operation、19 个菜单、90 个可识别 DOM button/action 和 305 行 ledger（数量随源码变更自动更新）。QA 应为每一项建立独立结果行，不能用一个接口或一个菜单的结果代表同组其它条目。当前 handler/contract gap 为 0；下列节选只用于说明逐 operation 记录格式，完整清单以 SHA 绑定的 `ledger.json` 为准：
+为避免分组表中的缩写造成漏测，历史文档的 112/113/152/177/185 只保留为迁移对照。当前源码必须由 `scripts/coverage-ledger.rb` 生成完整 inventory；method/path operation、菜单、DOM action 和 ledger 行数以该次报告的 `counts` 为唯一基线，并随源码变更自动更新。QA 应为每一项建立独立结果行，不能用一个接口或一个菜单的结果代表同组其它条目。当前 handler/contract gap 为 0；下列节选只用于说明逐 operation 记录格式，完整清单以 SHA 绑定的 `ledger.json` 为准：
 
 ```text
 POST /api/v1/auth/login
@@ -881,7 +897,7 @@ tests/
 ## 14. 发布签字清单
 
 - [ ] 19 个菜单均完成 UI-001..021 适用项，桌面/移动/三浏览器证据齐全。
-- [ ] Coverage ledger 当前全部 OpenAPI operation 均有正常、鉴权、权限、输入边界、资源不存在和幂等结果；当前基线为 196 项、19 个菜单、90 个 DOM action、305 行 ledger，数量由脚本复核。
+- [ ] Coverage ledger 当前全部 OpenAPI operation 均有正常、鉴权、权限、输入边界、资源不存在和幂等结果；operation/menu/action/ledger counts 与当次 `scripts/coverage-ledger.rb --check` 报告一致，数量由脚本复核。
 - [ ] FLOW-001..013 至少一次完整执行；同用户并发和多用户隔离有独立证据。
 - [ ] AGC-001..017、SQUAD-001..017、BIDI-001..025 均有逐 Case 结果；反馈回路的每轮 attempt、decision、条件、证据和终止原因可重放。
 - [ ] COMMENT-001..016 均有逐 Case 结果；评论树、真实 mention URI、trigger outcome、follow-up receipt、权限、@all/member/issue 语义、附件和 repair/rerun 证据齐全；未验证项必须明确标为 BLOCKED/S1。

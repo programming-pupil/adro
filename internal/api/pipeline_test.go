@@ -762,6 +762,31 @@ func TestPipelineResultFromSnapshotParsesCodexAppServerTurnItems(t *testing.T) {
 	}
 }
 
+func TestPipelineResultFromSnapshotIgnoresEarlierStageMarkerFromResumedThread(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineUnitTest,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"ADRO_RESULT_JSON={\"stage\":2,\"outcome\":\"pass\"}"}}}` + "\n" +
+		`{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"ADRO_RESULT_JSON={\"stage\":3,\"outcome\":\"pass\",\"summary\":\"current unit stage\"}"}}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Stage != domain.PipelineUnitTest || result.Summary != "current unit stage" {
+		t.Fatalf("resumed transcript selected stale marker: ok=%v result=%+v", ok, result)
+	}
+}
+
+func TestPipelineResultFromSnapshotRejectsOnlyStaleStageMarkers(t *testing.T) {
+	run := domain.PipelineRun{
+		PipelineStage: domain.PipelineIntegration,
+		Roles:         domain.PipelineAgentRoles{Tester: "tester"},
+	}
+	output := `{"method":"item/completed","params":{"item":{"type":"agentMessage","text":"ADRO_RESULT_JSON={\"stage\":3,\"outcome\":\"pass\"}"}}}`
+	result, ok := pipelineResultFromSnapshot(run, provider.RunSnapshot{ID: "provider-run", Status: "completed", Output: output})
+	if !ok || result.Outcome != "fail" || !strings.Contains(result.ErrorLog, "without ADRO_RESULT_JSON") {
+		t.Fatalf("stale-only transcript advanced the pipeline: ok=%v result=%+v", ok, result)
+	}
+}
+
 func TestPipelineResultFromSnapshotAcceptsStructuredCoverageAndErrorLog(t *testing.T) {
 	run := domain.PipelineRun{
 		PipelineStage: domain.PipelineReport,

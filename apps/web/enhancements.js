@@ -105,6 +105,20 @@
     agentRuntimeSkillsUnavailable: 'Local skills are unavailable for this runtime',
     agentRuntimeSkillLocked: 'Managed by the runtime and always enabled'
   });
+  Object.assign(translations.zh, {
+    agentMemberLabel: '负责人',
+    agentAccessMembersLabel: '可使用成员',
+    agentBuilderCreate: '生成并创建',
+    agentExistingOwner: '现有负责人',
+    agentNoMembers: '当前没有可选择的成员'
+  });
+  Object.assign(translations.en, {
+    agentMemberLabel: 'Owner',
+    agentAccessMembersLabel: 'Allowed members',
+    agentBuilderCreate: 'Generate and create',
+    agentExistingOwner: 'Existing owner',
+    agentNoMembers: 'No members are available'
+  });
   Object.assign(translations.en, {
     requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
   });
@@ -144,6 +158,7 @@
   let agentRuntimeSkillRequest = 0;
   let agentRuntimeConfigs = new Map();
   let agentRuntimeEnvironments = new Map();
+  let agentPreservedCustomArgs = [];
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -1431,6 +1446,21 @@
     const form = $('#agentForm');
     if (!form || form.elements.avatar_url) return;
     form.elements.description.maxLength = 255;
+    const ownerInput = form.elements.member;
+    const ownerSelect = document.createElement('select');
+    ownerSelect.name = 'member';
+    ownerSelect.required = true;
+    ownerInput.replaceWith(ownerSelect);
+    const modelInput = form.elements.model;
+    const modelSelect = document.createElement('select');
+    modelSelect.name = 'model';
+    modelSelect.id = 'agentModel';
+    modelInput.replaceWith(modelSelect);
+    $('#agentModelOptions')?.remove();
+    const accessField = $('#agentAccessMembersField');
+    accessField.outerHTML = `<fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>`;
+    const builderActions = form.querySelector('.agent-builder-actions');
+    builderActions.insertAdjacentHTML('afterbegin', `<button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">＋</span><span data-i18n="agentBuilderCreate"></span></button>`);
     const starters = form.querySelector('.agent-starters');
     starters.insertAdjacentHTML('beforebegin', `
       <label><span data-i18n="agentAvatarLabel"></span><input name="avatar_url" type="url" placeholder="https://..."></label>
@@ -1482,6 +1512,25 @@
     applyTranslations();
   }
 
+  function renderAgentOwnerOptions(agent = null) {
+    const select = $('#agentForm').elements.member;
+    const members = directory.filter(item => item.status !== 'disabled');
+    const currentMember = members.find(item => item.id === currentUser?.id || item.username === currentUser?.username);
+    const selected = agent?.owner_id || currentMember?.id || members[0]?.id || currentUser?.id || currentUser?.username || '';
+    select.innerHTML = members.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(`${item.display_name || item.username} · ${item.username}`)}</option>`).join('');
+    if (selected && !members.some(item => item.id === selected || item.username === selected)) {
+      select.insertAdjacentHTML('beforeend', `<option value="${escapeHTML(selected)}">${escapeHTML(t('agentExistingOwner'))}</option>`);
+    }
+    select.value = members.find(item => item.id === selected || item.username === selected)?.id || selected;
+  }
+
+  function renderAgentAccessMemberOptions(selectedIDs = []) {
+    const target = $('#agentAccessMemberOptions');
+    const selected = new Set(selectedIDs || []);
+    const members = directory.filter(item => item.status !== 'disabled');
+    target.innerHTML = members.length ? members.map(item => `<label class="agent-resource-option"><input type="checkbox" name="agent_access_member_ids" value="${escapeHTML(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span><strong>${escapeHTML(item.display_name || item.username)}</strong><small>${escapeHTML(item.username)}</small></span></label>`).join('') : `<span class="form-help">${escapeHTML(t('agentNoMembers'))}</span>`;
+  }
+
   function renderAgentResourceOptions(agent = null) {
     const renderOptions = (target, name, items, selectedIDs, label) => {
       const selected = new Set(selectedIDs || []);
@@ -1516,6 +1565,17 @@
       seen.add(key);
     }
     return result;
+  }
+
+  function parseAgentCustomArgs(value) {
+    const args = [];
+    for (const rawLine of String(value || '').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.includes('\u0000')) throw new Error('invalid custom argument');
+      args.push(line);
+    }
+    return args;
   }
 
   function selectedAgentResourceIDs(name) {
@@ -1601,6 +1661,8 @@
     const config = parseAgentKeyValueLines(form.elements.runtime_config.value);
     const environment = parseAgentKeyValueLines(form.elements.environment.value, true);
     if (runtimeID === 'codex') {
+      delete config.sandbox_mode;
+      delete config.approval_policy;
       if (form.elements.codex_sandbox.value) config.sandbox_mode = form.elements.codex_sandbox.value;
       if (form.elements.codex_approval.value) config.approval_policy = form.elements.codex_approval.value;
     }
@@ -1651,6 +1713,23 @@
   }
 
   ensureAgentConfigurationFields();
+  renderAgentModelOptions = function renderAgentModelSelectOptions() {
+    const model = $('#agentModel');
+    const thinking = $('#agentThinking');
+    const tier = $('#agentServiceTier');
+    const previous = model.value;
+    model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + agentModelCatalog.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.label || item.id)}</option>`).join('');
+    if (agentModelCatalog.some(item => item.id === previous)) model.value = previous;
+    else model.value = agentModelCatalog.find(item => item.default)?.id || '';
+    const refresh = () => {
+      const selected = agentModelCatalog.find(item => item.id === model.value);
+      thinking.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + ((selected?.thinking?.supported_levels) || []).map(item => `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label || item.value)}</option>`).join('');
+      tier.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + (selected?.service_tiers || []).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)}</option>`).join('');
+      thinking.value = selected?.thinking?.default_level || '';
+    };
+    model.onchange = refresh;
+    refresh();
+  };
   showAgentDialog = async function showAgentDialogWithMigration(onboarding = false, agent = null) {
     onboarding = onboarding === true;
     const form = $('#agentForm');
@@ -1660,6 +1739,7 @@
     delete form.dataset.loadedRuntime;
     agentRuntimeConfigs = new Map();
     agentRuntimeEnvironments = new Map();
+    agentPreservedCustomArgs = (agent?.executor_binding?.custom_args || []).slice();
     agentDisabledRuntimeSkills = (agent?.disabled_runtime_skills || []).map(item => ({...item}));
     agentRuntimeSkillItems = [];
     form.dataset.onboarding = onboarding ? 'true' : '';
@@ -1667,8 +1747,9 @@
     $('#closeAgentDialog').hidden = onboarding;
     $('#cancelAgentDialog').hidden = onboarding;
     $('#agentFormError').textContent = '';
+    renderAgentOwnerOptions(agent);
+    renderAgentAccessMemberOptions(agent?.access_policy?.member_ids || []);
     if (onboarding) {
-      form.elements.member.value = 'admin';
       form.elements.name.value = t('defaultAgentName');
       form.elements.role.value = 'generalist';
       form.elements.instructions.value = t('defaultAgentInstructions');
@@ -1708,7 +1789,6 @@
     bindWorkspaceMigration(form);
     renderAgentResourceOptions(agent);
     if (agent) {
-      form.elements.member.value = agent.owner_id || '';
       form.elements.name.value = agent.name || '';
       form.elements.description.value = agent.description || '';
       form.elements.avatar_url.value = agent.avatar_url || '';
@@ -1720,13 +1800,12 @@
       renderAgentModelOptions();
       form.elements.thinking.value = agent.executor_binding?.thinking_level || '';
       form.elements.service_tier.value = agent.executor_binding?.service_tier || '';
+      form.elements.custom_args.value = agentPreservedCustomArgs.join('\n');
       form.elements.access_mode.value = agent.access_policy?.mode || 'private';
-      form.elements.access_members.value = (agent.access_policy?.member_ids || []).join(', ');
       form.elements.concurrent.value = String(agent.concurrency_budget?.concurrent || 1);
       form.elements.tokens.value = String(agent.concurrency_budget?.tokens || 120000);
       form.elements.tool_calls.value = String(agent.concurrency_budget?.tool_calls || 200);
       form.elements.network.checked = agent.tool_policy?.network === true;
-      form.elements.custom_args.value = (agent.executor_binding?.custom_args || []).join('\n');
       agentRuntimeConfigs.set(form.elements.runtime.value, {...(agent.executor_binding?.runtime_config || {})});
       agentRuntimeEnvironments.set(form.elements.runtime.value, (agent.executor_binding?.environment || []).map(item => ({...item})));
       applyAgentDraft(form, {...agent, network_access: agent.tool_policy?.network, max_concurrent_tasks: agent.concurrency_budget?.concurrent, token_budget: agent.concurrency_budget?.tokens, tool_call_budget: agent.concurrency_budget?.tool_calls});
@@ -1798,16 +1877,16 @@
     if (field) field.hidden = $('#agentAccessMode').value !== 'members';
   }
 
-  async function composeAgentDraft() {
+  async function composeAgentDraft(createAfter = false) {
     const form = $('#agentForm');
-    const button = $('#composeAgentDraft');
+    const buttons = [$('#composeAgentDraft'), $('#composeAndCreateAgent')].filter(Boolean);
     const status = $('#agentBuilderStatus');
     const prompt = String(form.elements.builder_prompt.value || '').trim();
     if (!prompt) {
       status.textContent = t('agentBuilderFailed');
-      return;
+      return false;
     }
-    button.disabled = true;
+    buttons.forEach(button => { button.disabled = true; });
     status.textContent = t('agentBuilderRunning');
     $('#agentFormError').textContent = '';
     try {
@@ -1822,15 +1901,19 @@
       const response = await api('/api/v1/workspaces/local/agents/compose', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
       applyAgentDraft(form, response.draft || {});
       status.textContent = t('agentBuilderDone');
+      if (createAfter) form.requestSubmit();
+      return true;
     } catch (_) {
       status.textContent = t('agentBuilderFailed');
+      return false;
     } finally {
-      button.disabled = false;
+      buttons.forEach(button => { button.disabled = false; });
     }
   }
 
   ensureOrchestrationDialogs();
-	$('#composeAgentDraft').onclick = composeAgentDraft;
+	$('#composeAgentDraft').onclick = () => composeAgentDraft(false);
+	$('#composeAndCreateAgent').onclick = () => composeAgentDraft(true);
 	$('#agentAccessMode').onchange = updateAgentAccessFields;
 	updateAgentAccessFields();
   $('#agentForm').onsubmit = async event => {
@@ -1846,9 +1929,9 @@
     const model = String(data.get('model') || '').trim();
     const thinking = String(data.get('thinking') || '').trim();
     const serviceTier = String(data.get('service_tier') || '').trim();
-    const customArgs = String(data.get('custom_args') || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-    let runtimeConfig, environment;
+    let customArgs, runtimeConfig, environment;
     try {
+      customArgs = parseAgentCustomArgs(String(data.get('custom_args') || ''));
       const runtimeState = collectAgentRuntimeConfiguration(form, runtime);
       runtimeConfig = runtimeState.config;
       environment = runtimeState.environment;
@@ -1858,7 +1941,7 @@
       return;
     }
     const accessMode = String(data.get('access_mode') || 'private').trim();
-    const accessMembers = String(data.get('access_members') || '').split(',').map(value => value.trim()).filter(Boolean);
+    const accessMembers = selectedAgentResourceIDs('agent_access_member_ids');
     let starters;
     try { starters = agentFormStarters(form); } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); return; }
     const nativeBody = {
@@ -1867,7 +1950,7 @@
       skill_ids: selectedAgentResourceIDs('agent_skill_ids'), disabled_runtime_skills: agentDisabledRuntimeSkills, mcp_server_ids: selectedAgentResourceIDs('agent_mcp_server_ids'),
       status: 'active', created_by: currentUser?.id || member,
       capabilities: [{name: 'session.start', version: 'v1'}, {name: 'stream.events', version: 'v1'}],
-      executor_binding: {provider_id: rootInfo.provider || 'local', runtime_id: runtime, model, thinking_level: thinking, service_tier: serviceTier, custom_args: customArgs, runtime_config: runtimeConfig, environment, required_caps: ['run.snapshot.v1'], config_version: 'web-v3'},
+      executor_binding: {provider_id: rootInfo.provider || 'local', runtime_id: runtime, model, thinking_level: thinking, service_tier: serviceTier, custom_args: customArgs, runtime_config: runtimeConfig, environment, required_caps: ['run.snapshot.v1'], config_version: 'web-v4'},
       concurrency_budget: {tokens: Number(data.get('tokens') || 120000), tool_calls: Number(data.get('tool_calls') || 200), concurrent: Number(data.get('concurrent') || 1)},
       input_schema: {id: 'adro.context-envelope', version: 1}, output_schema: {id: 'adro.structured-result', version: 1},
       tool_policy: {network: data.get('network') === 'on'}, memory_policy: {require_evidence: true}
@@ -1878,6 +1961,7 @@
       const requestBody = agentID ? {...nativeBody, expected_revision: Number(form.dataset.agentRevision)} : nativeBody;
       if (agentID) delete requestBody.created_by;
       await api(agentID ? `/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}` : '/api/v1/workspaces/local/agents', {method: agentID ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(requestBody)});
+      agentPreservedCustomArgs = customArgs;
       delete form.dataset.onboarding; delete form.dataset.agentId; delete form.dataset.agentRevision; delete form.dataset.loadedRuntime; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
     } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
   };
