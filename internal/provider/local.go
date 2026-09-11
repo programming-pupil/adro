@@ -1747,23 +1747,28 @@ func (p *LocalProvider) piSessionPath(sessionID string, resumed bool, kind strin
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", fmt.Errorf("create %s session root: %w", kind, err)
 	}
+	managedRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return "", fmt.Errorf("open %s session root: %w", kind, err)
+	}
+	defer managedRoot.Close()
 	if resumed {
-		candidate, err := filepath.Abs(filepath.Clean(sessionID))
-		if err != nil {
-			return "", fmt.Errorf("resolve %s session: %w", kind, err)
+		candidate := filepath.Clean(sessionID)
+		if !filepath.IsAbs(candidate) {
+			return "", fmt.Errorf("%s session must be an absolute managed path", kind)
 		}
 		relative, err := filepath.Rel(root, candidate)
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return "", fmt.Errorf("%s session is outside the managed session root", kind)
 		}
-		info, err := os.Stat(candidate)
+		info, err := managedRoot.Stat(relative)
 		if err != nil {
 			return "", fmt.Errorf("load %s session: %w", kind, err)
 		}
 		if !info.Mode().IsRegular() {
 			return "", fmt.Errorf("%s session is not a regular file", kind)
 		}
-		return candidate, nil
+		return filepath.Join(root, relative), nil
 	}
 	path := filepath.Join(root, sha256Hex(sessionID)+".jsonl")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)

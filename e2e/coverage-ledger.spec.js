@@ -20,6 +20,11 @@ async function login(page) {
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
+  const onboarding = page.locator('#agentDialog');
+  if (await onboarding.isVisible()) {
+    await onboarding.locator('button[type="submit"]').click();
+    await expect(onboarding).not.toBeVisible();
+  }
 }
 
 function writeEvidence(name, value) {

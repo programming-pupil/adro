@@ -640,6 +640,10 @@ func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTa
 		status = orchestration.AgentArchived
 	}
 	runtimeConfig := mapPostgresRuntimeConfig(rowMap(row, "runtime_config"), runtimeID)
+	concurrency, ok := int64ToInt(maxInt64(rowInt64(row, "max_concurrent_tasks"), 1))
+	if !ok || concurrency < 1 {
+		concurrency = 1
+	}
 	return orchestration.AgentDefinition{
 		ID:                    rowString(row, "id"),
 		WorkspaceID:           workspaceID,
@@ -662,7 +666,7 @@ func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTa
 			RuntimeConfig: runtimeConfig,
 			ConfigVersion: "postgres-import-v1",
 		},
-		ConcurrencyBudget: orchestration.Budget{Concurrent: int(maxInt64(rowInt64(row, "max_concurrent_tasks"), 1))},
+		ConcurrencyBudget: orchestration.Budget{Concurrent: concurrency},
 		InputSchema:       orchestration.SchemaRef{ID: "portable.agent.input", Version: 1},
 		OutputSchema:      orchestration.SchemaRef{ID: "portable.agent.output", Version: 1},
 		Status:            status,
@@ -686,7 +690,7 @@ func mapPostgresRuntimeConfig(raw map[string]any, runtimeID string) map[string]s
 		if host := mapString(gateway, "host"); host != "" && !isAbsolutePortablePath(host) && !strings.ContainsAny(host, "\r\n\x00") {
 			result["gateway.host"] = host
 		}
-		if port := int(rowInt64(sourceRow(gateway), "port")); port > 0 && port <= 65535 {
+		if port, ok := int64ToIntInRange(rowInt64(sourceRow(gateway), "port"), 1, 65535); ok {
 			result["gateway.port"] = strconv.Itoa(port)
 		}
 		if tls, exists := gateway["tls"]; exists {
@@ -919,6 +923,7 @@ func mapPostgresIssue(row sourceRow, workspaceID string, projectRepositories map
 	if len(metadata) == 0 {
 		metadata = nil
 	}
+	stage, _ := int64ToInt(rowInt64(row, "stage"))
 	return domain.Requirement{
 		ID:                  rowString(row, "id"),
 		WorkspaceID:         workspaceID,
@@ -935,7 +940,7 @@ func mapPostgresIssue(row sourceRow, workspaceID string, projectRepositories map
 		RepositoryIDs:       append([]string(nil), projectRepositories[projectID]...),
 		TeamWorkspaceID:     projectID,
 		ParentRequirementID: rowString(row, "parent_issue_id"),
-		Stage:               int(rowInt64(row, "stage")),
+		Stage:               stage,
 		Position:            rowFloat64(row, "position"),
 		StartDate:           rowTimePointer(row, "start_date"),
 		DueDate:             rowTimePointer(row, "due_date"),
@@ -1411,6 +1416,22 @@ func maxInt64(value, minimum int64) int64 {
 		return minimum
 	}
 	return value
+}
+
+func int64ToInt(value int64) (int, bool) {
+	maxInt := int64(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if value < minInt || value > maxInt {
+		return 0, false
+	}
+	return int(value), true
+}
+
+func int64ToIntInRange(value, minimum, maximum int64) (int, bool) {
+	if value < minimum || value > maximum {
+		return 0, false
+	}
+	return int64ToInt(value)
 }
 
 func defaultString(value, fallback string) string {

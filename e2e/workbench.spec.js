@@ -90,6 +90,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
   });
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+  });
   page.on('request', request => requestHosts.add(new URL(request.url()).hostname));
   await page.goto(`/${apiQuery}`);
   await expect(page.locator('#loginGate')).toBeVisible();

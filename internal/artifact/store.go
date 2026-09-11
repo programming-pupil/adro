@@ -89,8 +89,16 @@ func (s *FileStore) path(k Key) (string, error) {
 			return "", errors.New("invalid artifact key")
 		}
 	}
-	dir := filepath.Join(s.root, k.TenantID, k.ArtifactID)
+	// Keep tenant and artifact identifiers in metadata/URIs, but never use
+	// caller-controlled text as a filesystem component. Hash-derived names are
+	// stable across restarts and make traversal and separator tricks inert.
+	dir := filepath.Join(s.root, pathComponentDigest(k.TenantID), pathComponentDigest(k.ArtifactID))
 	return filepath.Join(dir, strconv.FormatInt(k.Version, 10)), nil
+}
+
+func pathComponentDigest(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
 }
 
 func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions) (ObjectMeta, error) {

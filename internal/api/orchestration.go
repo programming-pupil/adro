@@ -531,9 +531,22 @@ func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, env
 		}
 		_, runErr := worker.Run(ctx, plan, &projection, envelope, workItemID, agentBindingID)
 		if runErr != nil && s.Logger != nil {
-			s.Logger.Error("graph watcher stopped", "plan_id", plan.ID, "error", runErr)
+			s.Logger.Error("graph watcher stopped", "plan_id", plan.ID, "error_class", orchestrationErrorClass(runErr))
 		}
 	}()
+}
+
+func orchestrationErrorClass(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, orchestration.ErrDeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, orchestration.ErrNotFound):
+		return "not_found"
+	default:
+		return "execution_failed"
+	}
 }
 
 func graphWatchTimeout() time.Duration {
