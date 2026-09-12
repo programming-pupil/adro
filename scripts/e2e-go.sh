@@ -8,10 +8,12 @@ script_path="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")"
 configured_path="${ADRO_GO_BIN:-}"
 configured_real=""
 if [ -n "$configured_path" ] && [ -e "$configured_path" ]; then
-  configured_real="$(CDPATH= cd -- "$(dirname -- "$configured_path")" && pwd)/$(basename -- "$configured_path")"
+  if ! configured_real="$(realpath "$configured_path" 2>/dev/null)"; then
+    configured_real="$(CDPATH= cd -- "$(dirname -- "$configured_path")" && pwd)/$(basename -- "$configured_path")"
+  fi
 fi
 if [ -x "$configured_path" ] && [ "$configured_real" != "$script_path" ]; then
-  candidate="${ADRO_GO_BIN}"
+  candidate="$configured_real"
   root="$(CDPATH= cd -- "$(dirname -- "$candidate")/.." && pwd)"
   if [ -f "$root/VERSION" ] && [ -d "$root/pkg/tool" ]; then
     exec env GOROOT="$root" "$candidate" "$@"

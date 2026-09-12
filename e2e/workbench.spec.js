@@ -93,7 +93,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
   });
   page.on('request', request => requestHosts.add(new URL(request.url()).hostname));
-  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
   await page.goto('/');
   await expect(page.locator('#loginGate')).toBeVisible();
   await page.locator('#loginForm input[name="username"]').fill('admin');

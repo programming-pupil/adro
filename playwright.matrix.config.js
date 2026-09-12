@@ -35,7 +35,7 @@ module.exports = defineConfig({
       reuseExistingServer: false
     },
     {
-      command: 'node e2e/static-server.js 18081',
+      command: `${JSON.stringify(e2eGo)} run ./cmd/adro-web -addr :18081 -root ./apps/web -api http://127.0.0.1:18080`,
       url: 'http://127.0.0.1:18081',
       timeout: 30_000,
       reuseExistingServer: false

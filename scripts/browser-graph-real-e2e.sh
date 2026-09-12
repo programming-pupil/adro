@@ -128,8 +128,6 @@ export ADRO_GRAPH_WATCH_TIMEOUT="${ADRO_GRAPH_WATCH_TIMEOUT:-30m}" ADRO_GRAPH_WA
 
 "$ROOT_DIR/start.sh" --no-open >"$START_LOG" 2>&1 || { cat "$START_LOG" >&2; fail "ADRO did not start"; }
 curl -fsS "$API/readyz" >/dev/null || fail "ADRO is not ready"
-node "$ROOT_DIR/e2e/static-server.js" "$WEB_PORT" >"$WEB_LOG" 2>&1 &
-WEB_PID=$!
 for _ in $(seq 1 60); do curl -fsS "$WEB/" >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS "$WEB/" >/dev/null || fail "browser server is not ready"
 

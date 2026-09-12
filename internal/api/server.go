@@ -444,7 +444,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		scoped.SetScope(tenant(r), requestWorkspace(r, r.URL.Query().Get("workspace_id")))
 	}
 	switch {
-	case path == "/" && r.Method == http.MethodGet:
+	case (path == "/" || path == "/api" || path == "/api/") && r.Method == http.MethodGet:
 		capabilities, capabilityErr := s.Provider.Capabilities(r.Context())
 		health, healthErr := s.Provider.Health(r.Context())
 		providerName := capabilities.Provider

@@ -5,12 +5,13 @@
 # the environment overrides it, so prefer the binary's validated install root.
 select_go_bin() {
   local configured_path="${ADRO_GO_BIN:-}"
-  if [ -n "$configured_path" ] && [ -x "$configured_path" ]; then
+  if [ -n "$configured_path" ] && [ -x "$configured_path" ] && [ "$(basename "$configured_path")" != "e2e-go.sh" ]; then
     printf '%s' "$configured_path"
     return 0
   fi
-  if [ -n "${ROOT_DIR:-}" ] && [ -x "$ROOT_DIR/scripts/e2e-go.sh" ]; then
-    printf '%s' "$ROOT_DIR/scripts/e2e-go.sh"
+  local path_go="$(command -v go 2>/dev/null || true)"
+  if [ -n "$path_go" ] && [ -x "$path_go" ]; then
+    printf '%s' "$path_go"
     return 0
   fi
   if [ -x "/Users/shareit/.gvm/gos/go1.25.0/bin/go" ]; then
@@ -24,6 +25,16 @@ resolve_go_root() {
   local go_bin="$1"
   local resolved_bin=""
   local candidate_root=""
+
+  # The repository wrapper delegates to Go and must never be asked to resolve
+  # its own GOROOT; that would recurse indefinitely.
+  if [ "$(basename "$go_bin")" = "e2e-go.sh" ]; then
+    go_bin="$(select_go_bin || true)"
+  fi
+
+  if [ -n "$go_bin" ] && [ -e "$go_bin" ]; then
+    go_bin="$(realpath "$go_bin" 2>/dev/null || printf '%s' "$go_bin")"
+  fi
 
   if [ -x "$go_bin" ]; then
     resolved_bin="$go_bin"
