@@ -121,10 +121,7 @@ json_field() {
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v ruby >/dev/null 2>&1 || fail "ruby is required"
-GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
-if [ ! -x "$GO_BIN" ]; then
-  GO_BIN="$(command -v go 2>/dev/null || true)"
-fi
+GO_BIN="$(select_go_bin || true)"
 [ -n "$GO_BIN" ] && [ -x "$GO_BIN" ] || fail "go is required"
 # Keep the API build and the fixture's verification command on one Go
 # toolchain. The child Codex process inherits this explicit setting when the
