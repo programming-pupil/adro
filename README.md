@@ -70,6 +70,12 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 ./start.sh --no-docker --no-open
 ```
 
+The initial administrator password must contain at least 10 characters. The
+variable is used only when the local profile has no `auth.json`; restarting
+with a different value does not replace an existing password. For a local
+profile where the password is unknown, stop ADRO, back up and remove its
+`auth.json`, then start once with a new password of at least 10 characters.
+
 Open `http://127.0.0.1:8081`. The API readiness endpoint is
 `http://127.0.0.1:8080/readyz`.
 
@@ -84,6 +90,10 @@ before creating an Agent.
 ./start.sh --status
 ./start.sh --stop
 ```
+
+`--status` reports every discovered coding client, including the Codex binary
+bundled inside ChatGPT on macOS. Set `ADRO_EXECUTOR` when the API should use a
+specific client as its default executor.
 
 Set `ADRO_HOME`, `ADRO_API_PORT`, and `ADRO_WEB_PORT` to isolate state or run
 multiple local profiles. Use `ADRO_EXECUTOR` to pin one executable;

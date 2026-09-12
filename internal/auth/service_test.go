@@ -57,3 +57,32 @@ func TestCannotDisableLastAdministrator(t *testing.T) {
 		t.Fatalf("expected ErrLastAdmin, got %v", err)
 	}
 }
+
+func TestNewServiceRejectsShortInitialAdministratorPassword(t *testing.T) {
+	_, err := NewService(filepath.Join(t.TempDir(), "auth.json"), "admin", "111111")
+	if err == nil || !strings.Contains(err.Error(), "at least 10 characters") {
+		t.Fatalf("expected short initial password error, got %v", err)
+	}
+}
+
+func TestExistingAuthStateDoesNotChangeWithSeedEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	service, err := NewService(path, "admin", "OriginalPass123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Authenticate("admin", "OriginalPass123!"); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := NewService(path, "admin", "ReplacementPass123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reloaded.Authenticate("admin", "OriginalPass123!"); err != nil {
+		t.Fatalf("existing password was not preserved: %v", err)
+	}
+	if _, err := reloaded.Authenticate("admin", "ReplacementPass123!"); err != ErrInvalidCredentials {
+		t.Fatalf("seed password unexpectedly replaced existing password: %v", err)
+	}
+}
