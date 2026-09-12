@@ -620,7 +620,7 @@
   async function migrationRequest(action, panel) {
     if (!workspaceMigrationFile) throw new Error('bundle required');
     const policy = panel.querySelector('[data-migration-conflict]').value;
-    const response = await fetch(`${apiOrigin}/api/v1/workspaces/local/migration/${action}?conflict=${encodeURIComponent(policy)}`, {method: 'POST', headers: {'X-Workspace-ID': 'local', ...(action === 'import' ? {'Idempotency-Key': idempotencyKey()} : {})}, credentials: 'include', body: workspaceMigrationFile});
+    const response = await fetch(`/api/v1/workspaces/local/migration/${action}?conflict=${encodeURIComponent(policy)}`, {method: 'POST', headers: {'X-Workspace-ID': 'local', ...(action === 'import' ? {'Idempotency-Key': idempotencyKey()} : {})}, credentials: 'include', body: workspaceMigrationFile});
     if (!response.ok) throw new Error(`${response.status}`);
     return response.json();
   }
@@ -657,7 +657,7 @@
   }
 
   async function exportWorkspaceMigration() {
-    const response = await fetch(`${apiOrigin}/api/v1/workspaces/local/migration/export`, {headers: {'X-Workspace-ID': 'local'}, credentials: 'include'});
+    const response = await fetch('/api/v1/workspaces/local/migration/export', {headers: {'X-Workspace-ID': 'local'}, credentials: 'include'});
     if (!response.ok) return;
     const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'adro-workspace-local.zip'; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
@@ -1789,21 +1789,8 @@
     }
     const runtimeSelect = form.elements.runtime;
     runtimeSelect.innerHTML = '';
-    try {
-      const result = await api('/api/v1/runtimes/discovered');
-      for (const runtime of result.items || []) {
-        const option = document.createElement('option');
-        option.value = runtime.id;
-        option.dataset.modelUnsupported = runtime.model_selection_unsupported ? 'true' : 'false';
-        option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
-        option.disabled = !runtime.installed || !runtime.adapter_available;
-        runtimeSelect.append(option);
-      }
-      await loadAgentModelCatalog();
-    } catch (_) {
-      $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
-    }
-    if (!$('#agentDialog').open) $('#agentDialog').showModal();
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
     form.dataset.agentId = agent?.id || '';
     form.dataset.agentRevision = agent?.revision ? String(agent.revision) : '';
     $('#agentBuilderStatus').textContent = '';
@@ -1821,6 +1808,23 @@
     if (panel) panel.hidden = !onboarding;
     bindWorkspaceMigration(form);
     renderAgentResourceOptions(agent);
+    if (!$('#agentDialog').open) $('#agentDialog').showModal();
+    try {
+      const result = await api('/api/v1/runtimes/discovered');
+      for (const runtime of result.items || []) {
+        const option = document.createElement('option');
+        option.value = runtime.id;
+        option.dataset.modelUnsupported = runtime.model_selection_unsupported ? 'true' : 'false';
+        option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
+        option.disabled = !runtime.installed || !runtime.adapter_available;
+        runtimeSelect.append(option);
+      }
+      await loadAgentModelCatalog();
+      submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled);
+    } catch (_) {
+      $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
+      submitButton.disabled = true;
+    }
     if (agent) {
       form.elements.name.value = agent.name || '';
       form.elements.description.value = agent.description || '';

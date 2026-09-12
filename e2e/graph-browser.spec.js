@@ -25,7 +25,6 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   const evidence = { api_url: apiURL, browser_created: true, repository_url: repositoryURL.startsWith('file://') ? 'file://<fixture-repo>' : repositoryURL, commit_sha: process.env.ADRO_COMMIT_SHA || '', timeline: null, replay: null, runs: [] };
   const apiHeaders = { 'X-Workspace-ID': 'local', 'X-Member-ID': 'admin' };
 
-  await page.addInitScript(api => { window.ADRO_API_ORIGIN = api; }, apiURL);
   await page.goto('/');
   await expect(page.locator('#loginGate')).toBeVisible();
   await page.locator('#loginForm input[name="username"]').fill('admin');

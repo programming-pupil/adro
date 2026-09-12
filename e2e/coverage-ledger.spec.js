@@ -14,7 +14,6 @@ const actions = JSON.parse(fs.readFileSync(path.join(reportRoot, 'dom_actions.js
 const browserEvidenceRoot = path.join(root, 'var', 'test-report', 'browser', sourceSha);
 
 async function login(page) {
-  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
   await page.goto('/');
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
@@ -29,7 +28,9 @@ async function login(page) {
   const onboarding = page.locator('#agentDialog');
   if ((agents.items || []).length === 0) {
     await expect(onboarding).toBeVisible();
-    await onboarding.locator('button[type="submit"]').click();
+    const submit = onboarding.locator('button[type="submit"]');
+    await expect(submit).toBeEnabled();
+    await submit.click();
     await expect(onboarding).not.toBeVisible();
   }
 }

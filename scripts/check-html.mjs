@@ -17,6 +17,7 @@ if (duplicateIDs.length) throw new Error(`duplicate HTML ids: ${[...new Set(dupl
 function inlineScripts(source) {
   const lower = source.toLowerCase();
   const scripts = [];
+  const isHTMLWhitespace = character => character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f';
   let cursor = 0;
   while (true) {
     const start = lower.indexOf('<script', cursor);
@@ -25,8 +26,9 @@ function inlineScripts(source) {
     if (openEnd < 0) throw new Error('unterminated script start tag');
     const closeStart = lower.indexOf('</script', openEnd + 1);
     if (closeStart < 0) throw new Error('unterminated inline script');
-    const closeEnd = lower.indexOf('>', closeStart);
-    if (closeEnd < 0) throw new Error('unterminated script end tag');
+    let closeEnd = closeStart + '</script'.length;
+    while (isHTMLWhitespace(source[closeEnd])) closeEnd += 1;
+    if (source[closeEnd] !== '>') throw new Error('invalid script end tag');
     scripts.push(source.slice(openEnd + 1, closeStart));
     cursor = closeEnd + 1;
   }

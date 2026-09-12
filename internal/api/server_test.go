@@ -65,6 +65,16 @@ func request(t *testing.T, h http.Handler, method, path, body string, headers ma
 	return rr
 }
 
+func TestRootMetadataIsAvailableThroughSameOriginAPIProxy(t *testing.T) {
+	s := testServer(t)
+	for _, path := range []string{"/", "/api", "/api/"} {
+		response := request(t, s.Routes(), http.MethodGet, path, "", nil)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"name":"ADRO"`) {
+			t.Fatalf("path=%s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 	s := testServer(t)
 	body := `{"workspace_id":"w1","title":"Invite API","description":"add invite","acceptance_criteria":["returns 200"],"assignee_member_ids":["alice","bob"],"repository_ids":["provider","caller"]}`
