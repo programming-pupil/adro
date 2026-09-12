@@ -505,7 +505,7 @@ func providerStringSliceField(fields map[string]any, key string) []string {
 
 func appendProviderEvidence(values []string, additions ...string) []string {
 	result := append([]string(nil), values...)
-	seen := make(map[string]struct{}, len(result)+len(additions))
+	seen := make(map[string]struct{})
 	for _, value := range result {
 		if strings.TrimSpace(value) != "" {
 			seen[value] = struct{}{}
