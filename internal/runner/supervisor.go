@@ -366,7 +366,7 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	if len(request.Command) > 64 {
 		return ExecuteResult{}, errors.New("command has too many arguments")
 	}
-	commandKind, args, err := resolveCommand(request.Command)
+	executableName, args, err := resolveCommand(request.Command)
 	if err != nil {
 		return ExecuteResult{}, err
 	}
@@ -469,7 +469,7 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, request.Timeout)
 	defer cancel()
-	cmd := commandForContext(commandCtx, commandKind, args)
+	cmd := commandForContext(commandCtx, executableName, args)
 	if cmd == nil {
 		return ExecuteResult{}, errors.New("unsupported runner executable")
 	}
@@ -505,89 +505,63 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 // path. Runner execution is intentionally argv-based, but accepting an
 // arbitrary executable still lets an API caller select a different program.
 // Shells are excluded so command text cannot be turned back into a shell.
-type commandKind uint8
-
-const (
-	commandCat commandKind = iota + 1
-	commandEcho
-	commandFalse
-	commandGo
-	commandGit
-	commandMake
-	commandNode
-	commandNPM
-	commandNPX
-	commandPrintf
-	commandPython
-	commandTrue
-)
-
-func resolveCommand(command []string) (commandKind, []string, error) {
+func resolveCommand(command []string) (string, []string, error) {
 	name := filepath.Base(strings.TrimSpace(command[0]))
 	if name != strings.TrimSpace(command[0]) && !filepath.IsAbs(strings.TrimSpace(command[0])) {
-		return 0, nil, errors.New("command must be a supported executable name or absolute path")
+		return "", nil, errors.New("command must be a supported executable name or absolute path")
 	}
-	var kind commandKind
 	switch name {
 	case "cat":
-		kind = commandCat
 	case "echo":
-		kind = commandEcho
 	case "false":
-		kind = commandFalse
 	case "go":
-		kind = commandGo
 	case "git":
-		kind = commandGit
 	case "make":
-		kind = commandMake
 	case "node":
-		kind = commandNode
 	case "npm":
-		kind = commandNPM
 	case "npx":
-		kind = commandNPX
 	case "printf":
-		kind = commandPrintf
 	case "python", "python3":
-		kind = commandPython
+		name = "python3"
 	case "true":
-		kind = commandTrue
 	default:
-		return 0, nil, fmt.Errorf("unsupported runner executable %q", name)
+		return "", nil, fmt.Errorf("unsupported runner executable %q", name)
 	}
-	return kind, append([]string(nil), command[1:]...), nil
+	return name, append([]string(nil), command[1:]...), nil
 }
 
-func commandForContext(ctx context.Context, kind commandKind, args []string) *exec.Cmd {
-	switch kind {
-	case commandCat:
-		return exec.CommandContext(ctx, "cat", args...)
-	case commandEcho:
-		return exec.CommandContext(ctx, "echo", args...)
-	case commandFalse:
-		return exec.CommandContext(ctx, "false", args...)
-	case commandGo:
-		return exec.CommandContext(ctx, "go", args...)
-	case commandGit:
-		return exec.CommandContext(ctx, "git", args...)
-	case commandMake:
-		return exec.CommandContext(ctx, "make", args...)
-	case commandNode:
-		return exec.CommandContext(ctx, "node", args...)
-	case commandNPM:
-		return exec.CommandContext(ctx, "npm", args...)
-	case commandNPX:
-		return exec.CommandContext(ctx, "npx", args...)
-	case commandPrintf:
-		return exec.CommandContext(ctx, "printf", args...)
-	case commandPython:
-		return exec.CommandContext(ctx, "python3", args...)
-	case commandTrue:
-		return exec.CommandContext(ctx, "true", args...)
+func commandForContext(ctx context.Context, executableName string, args []string) *exec.Cmd {
+	var cmd *exec.Cmd
+	switch executableName {
+	case "cat":
+		cmd = exec.CommandContext(ctx, "cat")
+	case "echo":
+		cmd = exec.CommandContext(ctx, "echo")
+	case "false":
+		cmd = exec.CommandContext(ctx, "false")
+	case "go":
+		cmd = exec.CommandContext(ctx, "go")
+	case "git":
+		cmd = exec.CommandContext(ctx, "git")
+	case "make":
+		cmd = exec.CommandContext(ctx, "make")
+	case "node":
+		cmd = exec.CommandContext(ctx, "node")
+	case "npm":
+		cmd = exec.CommandContext(ctx, "npm")
+	case "npx":
+		cmd = exec.CommandContext(ctx, "npx")
+	case "printf":
+		cmd = exec.CommandContext(ctx, "printf")
+	case "python3":
+		cmd = exec.CommandContext(ctx, "python3")
+	case "true":
+		cmd = exec.CommandContext(ctx, "true")
 	default:
 		return nil
 	}
+	cmd.Args = append(cmd.Args, args...)
+	return cmd
 }
 
 type limitedWriter struct {
