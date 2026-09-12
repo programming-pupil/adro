@@ -568,16 +568,26 @@ func buildPostgresArchive(ctx context.Context, data postgresDataset, uploadRoot 
 		}
 		chatSessionIDs[sessionID] = true
 		control.ChatSessions = append(control.ChatSessions, domain.ChatSession{
-			ID:               sessionID,
-			WorkspaceID:      sourceWorkspace,
-			AgentID:          agentID,
-			ProjectID:        projectID,
-			Title:            defaultString(rowString(row, "title"), "Imported conversation"),
-			HarnessSessionID: "portable-chat-" + sessionID,
-			Status:           defaultString(rowString(row, "status"), "active"),
-			CreatedBy:        rowString(row, "creator_id"),
-			CreatedAt:        rowTime(row, "created_at"),
-			UpdatedAt:        rowTime(row, "updated_at"),
+			ID:                 sessionID,
+			WorkspaceID:        sourceWorkspace,
+			AgentID:            agentID,
+			AgentRevision:      rowInt64(row, "agent_revision"),
+			ProjectID:          projectID,
+			Title:              defaultString(rowString(row, "title"), "Imported conversation"),
+			HarnessSessionID:   "portable-chat-" + sessionID,
+			RuntimeID:          rowString(row, "runtime_id"),
+			Model:              rowString(row, "model"),
+			ThinkingLevel:      rowString(row, "thinking_level"),
+			ServiceTier:        rowString(row, "service_tier"),
+			ProviderRuntimeKey: rowString(row, "provider_runtime_key"),
+			ProviderSessionID:  rowString(row, "provider_session_id"),
+			ProviderWorkDir:    rowString(row, "provider_work_dir"),
+			ProviderRunID:      rowString(row, "provider_run_id"),
+			ContinuityMode:     rowString(row, "continuity_mode"),
+			Status:             defaultString(rowString(row, "status"), "active"),
+			CreatedBy:          rowString(row, "creator_id"),
+			CreatedAt:          rowTime(row, "created_at"),
+			UpdatedAt:          rowTime(row, "updated_at"),
 		})
 	}
 	chatMessageIDs := make(map[string]bool)
@@ -597,6 +607,11 @@ func buildPostgresArchive(ctx context.Context, data postgresDataset, uploadRoot 
 			WorkspaceID:   sourceWorkspace,
 			Role:          mapChatRole(rowString(row, "role")),
 			Content:       rowString(row, "content"),
+			AttachmentIDs: rowStringSlice(row, "attachment_ids"),
+			RequestKey:    rowString(row, "request_key"),
+			TurnID:        rowString(row, "turn_id"),
+			TurnHash:      rowString(row, "turn_hash"),
+			ProviderRunID: rowString(row, "provider_run_id"),
 			CreatedAt:     rowTime(row, "created_at"),
 		})
 	}

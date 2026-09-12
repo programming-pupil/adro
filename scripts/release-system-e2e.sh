@@ -153,7 +153,10 @@ printf '%s\n' 'not an image' > "$RUN_ROOT/not-image.txt"
 expect_code 415 -X POST "$API/api/v1/screenshots" -H "X-Workspace-ID: $WORKSPACE_A" -F file=@"$RUN_ROOT/not-image.txt;type=text/plain"
 
 message_json="$(api_json -X POST "$API/api/v1/chats/$chat_id/messages" -H "X-Workspace-ID: $WORKSPACE_A" -H 'Content-Type: application/json' -H 'Idempotency-Key: chat-combination-1' -d "$(ATTACHMENT="$attachment_id" ruby -rjson -e 'puts JSON.generate(content: "Review the attached brief and screenshot in this project", attachment_ids: [ENV.fetch("ATTACHMENT")])')")"
-printf '%s' "$message_json" | ATTACHMENT="$attachment_id" ruby -rjson -e 'v=JSON.parse(STDIN.read); abort("chat message missing attachment") unless v.dig("message", "attachment_ids").include?(ENV.fetch("ATTACHMENT"))'
+# The response exposes the completed assistant turn as `message` and the
+# durable user projection as `user_message`; keep the attachment assertion on
+# the user projection instead of treating the assistant response as the input.
+printf '%s' "$message_json" | ATTACHMENT="$attachment_id" ruby -rjson -e 'v=JSON.parse(STDIN.read); attachment=ENV.fetch("ATTACHMENT"); abort("chat user message missing attachment") unless v.dig("user_message", "attachment_ids").to_a.include?(attachment)'
 chat_read="$(api_json "$API/api/v1/chats/$chat_id" -H "X-Workspace-ID: $WORKSPACE_A")"
 printf '%s' "$chat_read" | ruby -rjson -e 'v=JSON.parse(STDIN.read); abort("chat transcript is not durable") unless v.dig("context", "transcript_durable") == true'
 
@@ -219,7 +222,7 @@ expect_code 404 "$API/api/v1/requirements/$req_b_workspace_id" -H "X-Workspace-I
 "$ROOT_DIR/start.sh" --no-open >>"$LOG" 2>&1 || { cat "$LOG" >&2; fail "restart failed"; }
 curl -fsS "$API/readyz" >/dev/null
 persisted="$(api_json "$API/api/v1/chats/$chat_id" -H "X-Workspace-ID: $WORKSPACE_A")"
-printf '%s' "$persisted" | CHAT="$chat_id" ruby -rjson -e 'v=JSON.parse(STDIN.read); abort("chat was lost after restart") unless v.dig("chat", "id") == ENV.fetch("CHAT") && v["messages"].length == 1'
+printf '%s' "$persisted" | CHAT="$chat_id" ruby -rjson -e 'v=JSON.parse(STDIN.read); abort("chat was lost after restart") unless v.dig("chat", "id") == ENV.fetch("CHAT") && v["messages"].length == 2 && v["messages"].map { |item| item["role"] } == %w[user assistant]'
 
 log "PASS: project chat + attachment + screenshot + custom agents/workflow + concurrent requirements + multi-workspace isolation + idempotency + errors + restart recovery"
 log "Evidence: workspace_a=$WORKSPACE_A chat=$chat_id requirements=$req_a_id,$req_b_id template=$template_id"

@@ -441,4 +441,9 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 .agent-advanced summary { cursor: pointer; color: var(--text); font-size: 11px; font-weight: 700; }
 .toggle-line { display: flex; min-height: 58px; align-items: center; gap: 9px; }
 .toggle-line input { width: 17px; height: 17px; margin: 0; }
+.runner-env-fields { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line); }
+.runner-env-fields legend { padding: 0 5px; color: var(--muted); font-size: 11px; }
+.runner-env-row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 1.2fr) 30px; gap: 7px; align-items: center; }
+.runner-env-row input { min-width: 0; }
+@media (max-width: 640px) { .runner-env-row { grid-template-columns: 1fr 1fr 30px; } }
 @media (max-width: 640px) { .agent-builder-actions { align-items: flex-start; flex-direction: column; } .agent-runtime-controls { padding: 10px; } }

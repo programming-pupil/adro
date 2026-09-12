@@ -814,6 +814,13 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	if runErr != nil && status == "completed" {
 		status = "failed"
 	}
+	recoveryState := ""
+	recoveryReason := ""
+	var nativeContinuationErr *NativeContinuationUnavailableError
+	if errors.As(runErr, &nativeContinuationErr) {
+		recoveryState = RecoveryNativeContinuationUnavailable
+		recoveryReason = runErr.Error()
+	}
 	done := time.Now().UTC()
 	usage := usageFromOutput(output)
 	usage.DurationMS = time.Since(started).Milliseconds()
@@ -839,6 +846,8 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		run.snapshot.ToolEvents = append([]ToolEvent(nil), toolEvents...)
 		run.snapshot.ToolEventsSHA256 = hashJSON(toolEvents)
 		run.snapshot.Output = truncateOutput(output)
+		run.snapshot.RecoveryState = recoveryState
+		run.snapshot.RecoveryReason = recoveryReason
 		if status == "timed_out" {
 			run.snapshot.Error = "executor deadline exceeded"
 		} else if runErr != nil {
@@ -863,6 +872,8 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			run.snapshot.ExecutorArgs = append([]string(nil), args...)
 			run.snapshot.Usage = usage
 			run.snapshot.Output = truncateOutput(output)
+			run.snapshot.RecoveryState = recoveryState
+			run.snapshot.RecoveryReason = recoveryReason
 			run.snapshot.OutputSHA256 = outputDigest
 			run.snapshot.SourceDiffSHA256 = diffDigest
 			run.snapshot.WorktreeSHA256 = worktreeDigest

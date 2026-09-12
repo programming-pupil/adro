@@ -42,10 +42,21 @@ retrying a comment recomputes only that revision's pending targets.
 `POST /api/v1/chats` creates an ADRO-owned conversation that is independent of
 requirements. It can carry a project ID, and files are uploaded through the
 existing ArtifactStore attachment API using `owner_type=chat_session`.
-`POST /api/v1/chats/{id}/messages` appends a user message to both the chat
-projection and the harness transcript. The response includes the turn hash and
-context status, so clients can render compaction, archive, memory, and
-checkpoint health without provider-specific state.
+It may bind an active Agent; ADRO snapshots that Agent's runtime, model,
+reasoning, service tier, Skills, MCP resources, and safe execution settings at
+chat creation time. `PATCH /api/v1/chats/{id}` changes the binding and clears
+only the provider-native session, never the ADRO transcript.
+`POST /api/v1/chats/{id}/messages` appends the user turn to both the chat
+projection and the Harness transcript, compiles the durable context, dispatches
+the selected local runtime, waits for its terminal result, and persists the
+assistant turn. The request key is stored on both projections so a lost HTTP
+response can be replayed without duplicating the user message or provider run.
+
+When the same runtime proves a native session, the next turn uses native
+continuation. If CCSwitch changes the relay/profile, the native continuation is
+allowed to fail closed; ADRO then starts a fresh provider run with the complete
+Harness-rendered transcript. Follow-up questions therefore retain history
+across provider changes instead of becoming a new conversation.
 
 The chat projection is persisted in the same versioned control-plane snapshot
 as requirements and workflow templates. Production adapters should map the

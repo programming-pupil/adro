@@ -220,6 +220,12 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 			threadID = codexThreadID(result)
 		} else if !isRecoverableCodexResumeError(responseErr) {
 			return finish(fmt.Errorf("codex thread/resume failed: %w", responseErr))
+		} else {
+			// The resume request was rejected before turn/start. Stop here and
+			// let the API retry with the complete ADRO transcript. Starting a new
+			// thread inside this process would execute the user turn without the
+			// native history and make a failed continuation look successful.
+			return finish(&NativeContinuationUnavailableError{Runtime: "codex", Cause: responseErr})
 		}
 	}
 	if threadID == "" {
@@ -405,11 +411,11 @@ func codexTurnHasActivity(turn map[string]any) bool {
 	return false
 }
 
-// Retry a resume only when Codex explicitly rejects the protocol request (for
-// example, an unknown thread or an incompatible schema). A
-// broken stdio transport, EOF, or context cancellation leaves the native
-// session state uncertain and must fail closed instead of silently starting a
-// new conversation.
+// A resume is recoverable only when Codex explicitly rejects the protocol
+// request (for example, an unknown thread or an incompatible schema). A broken
+// stdio transport, EOF, or context cancellation leaves the native session
+// state uncertain and must fail closed instead of silently starting a new
+// conversation.
 func isRecoverableCodexResumeError(err error) bool {
 	var rpcErr *codexRPCError
 	return errors.As(err, &rpcErr)

@@ -20,8 +20,12 @@ func TestWorkflowAndChatPersistAcrossMemoryRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := first.AppendChatMessage(domain.ChatMessage{ChatSessionID: chat.ID, WorkspaceID: "w", Role: "user", Content: "durable"}); err != nil {
+	if _, err := first.AppendChatMessage(domain.ChatMessage{ChatSessionID: chat.ID, WorkspaceID: "w", Role: "user", Content: "durable", RequestKey: "chat-key"}); err != nil {
 		t.Fatal(err)
+	}
+	replayed, err := first.AppendChatMessage(domain.ChatMessage{ChatSessionID: chat.ID, WorkspaceID: "w", Role: "user", Content: "durable", RequestKey: "chat-key"})
+	if err != nil || replayed.RequestKey != "chat-key" {
+		t.Fatalf("chat message replay=%+v err=%v", replayed, err)
 	}
 	second, err := NewPersistentMemory(path)
 	if err != nil {

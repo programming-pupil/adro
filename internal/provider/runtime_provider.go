@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -286,6 +287,20 @@ type selectedRuntimeProvider struct {
 
 func (p selectedRuntimeProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBinding, error) {
 	binding, err := p.provider.StartRun(ctx, cmd)
+	if err == nil {
+		p.pool.mu.Lock()
+		p.pool.runs[binding.ProviderRunID] = p.provider
+		p.pool.runs[binding.ID] = p.provider
+		p.pool.mu.Unlock()
+	}
+	return binding, err
+}
+func (p selectedRuntimeProvider) ContinueWorkItem(ctx context.Context, cmd ContinuationCommand) (RunBinding, error) {
+	continuity, ok := p.provider.(ContinuityProvider)
+	if !ok {
+		return RunBinding{}, errors.New("selected runtime does not support native session continuation")
+	}
+	binding, err := continuity.ContinueWorkItem(ctx, cmd)
 	if err == nil {
 		p.pool.mu.Lock()
 		p.pool.runs[binding.ProviderRunID] = p.provider
