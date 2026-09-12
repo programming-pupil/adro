@@ -62,7 +62,7 @@ from intent to proof, including the bidirectional repair loop.
 
 ## Quick start
 
-Requirements: Go 1.24+, Git, curl, and an installed coding client. Docker is
+Requirements: Go 1.25+, Git, curl, and an installed coding client. Docker is
 not required for the local profile.
 
 ```bash

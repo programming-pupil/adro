@@ -21,7 +21,7 @@ if [ -x "$configured_path" ] && [ "$configured_real" != "$script_path" ]; then
   exec env -u GOROOT "$candidate" "$@"
 fi
 for candidate in \
-  /Users/shareit/.gvm/gos/go1.24.1/bin/go \
+  /Users/shareit/.gvm/gos/go1.25.0/bin/go \
   "${GOROOT:-}/bin/go"; do
   if [ -n "$candidate" ] && [ -x "$candidate" ]; then
     root="$(CDPATH= cd -- "$(dirname -- "$candidate")/.." && pwd)"
@@ -31,4 +31,16 @@ for candidate in \
     exec "$candidate" "$@"
   fi
 done
+fallback="$(command -v go 2>/dev/null || true)"
+if [ -n "$fallback" ] && [ -x "$fallback" ]; then
+  root="$(CDPATH= cd -- "$(dirname -- "$fallback")/.." && pwd)"
+  if [ -f "$root/VERSION" ] && [ -d "$root/pkg/tool" ]; then
+    exec env GOROOT="$root" "$fallback" "$@"
+  fi
+  configured_root="$($fallback env GOROOT 2>/dev/null || true)"
+  if [ -n "$configured_root" ] && [ -x "$configured_root/bin/go" ] && [ -f "$configured_root/VERSION" ] && [ -d "$configured_root/pkg/tool" ]; then
+    exec env GOROOT="$configured_root" "$configured_root/bin/go" "$@"
+  fi
+  exec env -u GOROOT "$fallback" "$@"
+fi
 exec env -u GOROOT go "$@"

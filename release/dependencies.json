@@ -1,14 +1,6 @@
 {
   "go": [
     {
-      "name": "github.com/chzyer/readline",
-      "version": "v1.5.1",
-      "license": "MIT",
-      "scope": "runtime",
-      "source": "https://github.com/chzyer/readline",
-      "supplier": "Chzyer"
-    },
-    {
       "name": "github.com/dustin/go-humanize",
       "version": "v1.0.1",
       "license": "MIT",
@@ -17,16 +9,8 @@
       "supplier": "Dustin Go Humanize Authors"
     },
     {
-      "name": "github.com/google/go-cmp",
-      "version": "v0.5.8",
-      "license": "BSD-3-Clause",
-      "scope": "runtime",
-      "source": "https://github.com/google/go-cmp",
-      "supplier": "The Go Authors"
-    },
-    {
       "name": "github.com/google/pprof",
-      "version": "v0.0.0-20250317173921-a4b03ec1a45e",
+      "version": "v0.0.0-20260802141513-ef3492d7dac3",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://github.com/google/pprof",
@@ -49,24 +33,16 @@
       "supplier": "Gorilla WebSocket Authors"
     },
     {
-      "name": "github.com/ianlancetaylor/demangle",
-      "version": "v0.0.0-20240312041847-bd984b5ce465",
-      "license": "BSD-3-Clause",
+      "name": "github.com/hashicorp/golang-lru/v2",
+      "version": "v2.0.7",
+      "license": "MPL-2.0",
       "scope": "runtime",
-      "source": "https://github.com/ianlancetaylor/demangle",
-      "supplier": "The Go Authors"
-    },
-    {
-      "name": "github.com/kballard/go-shellquote",
-      "version": "v0.0.0-20180428030007-95032a82bc51",
-      "license": "MIT",
-      "scope": "runtime",
-      "source": "https://github.com/kballard/go-shellquote",
-      "supplier": "Kevin Ballard"
+      "source": "https://github.com/hashicorp/golang-lru",
+      "supplier": "HashiCorp"
     },
     {
       "name": "github.com/lib/pq",
-      "version": "v1.10.9",
+      "version": "v1.12.3",
       "license": "MIT",
       "scope": "runtime",
       "source": "https://github.com/lib/pq",
@@ -74,7 +50,7 @@
     },
     {
       "name": "github.com/mattn/go-isatty",
-      "version": "v0.0.20",
+      "version": "v0.0.24",
       "license": "MIT",
       "scope": "runtime",
       "source": "https://github.com/mattn/go-isatty",
@@ -82,7 +58,7 @@
     },
     {
       "name": "github.com/ncruces/go-strftime",
-      "version": "v0.1.9",
+      "version": "v1.0.0",
       "license": "MIT",
       "scope": "runtime",
       "source": "https://github.com/ncruces/go-strftime",
@@ -97,16 +73,8 @@
       "supplier": "Remy Oudompheng"
     },
     {
-      "name": "golang.org/x/exp",
-      "version": "v0.0.0-20230315142452-642cacee5cc0",
-      "license": "BSD-3-Clause",
-      "scope": "runtime",
-      "source": "https://cs.opensource.google/go/x/exp",
-      "supplier": "The Go Authors"
-    },
-    {
       "name": "golang.org/x/mod",
-      "version": "v0.19.0",
+      "version": "v0.38.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/mod",
@@ -114,7 +82,7 @@
     },
     {
       "name": "golang.org/x/sync",
-      "version": "v0.7.0",
+      "version": "v0.22.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/sync",
@@ -122,7 +90,7 @@
     },
     {
       "name": "golang.org/x/sys",
-      "version": "v0.31.0",
+      "version": "v0.47.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/sys",
@@ -130,47 +98,23 @@
     },
     {
       "name": "golang.org/x/tools",
-      "version": "v0.23.0",
+      "version": "v0.48.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/tools",
       "supplier": "The Go Authors"
     },
     {
-      "name": "lukechampine.com/uint128",
-      "version": "v1.2.0",
-      "license": "MIT",
-      "scope": "runtime",
-      "source": "https://github.com/lukechampine/uint128",
-      "supplier": "Luke Champine"
-    },
-    {
-      "name": "modernc.org/cc/v3",
-      "version": "v3.41.0",
-      "license": "BSD-3-Clause",
-      "scope": "runtime",
-      "source": "https://modernc.org/cc/v3",
-      "supplier": "modernc.org"
-    },
-    {
       "name": "modernc.org/cc/v4",
-      "version": "v4.24.4",
+      "version": "v4.29.2",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/cc/v4",
       "supplier": "modernc.org"
     },
     {
-      "name": "modernc.org/ccgo/v3",
-      "version": "v3.17.0",
-      "license": "BSD-3-Clause",
-      "scope": "runtime",
-      "source": "https://modernc.org/ccgo/v3",
-      "supplier": "modernc.org"
-    },
-    {
       "name": "modernc.org/ccgo/v4",
-      "version": "v4.23.16",
+      "version": "v4.35.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/ccgo/v4",
@@ -178,7 +122,7 @@
     },
     {
       "name": "modernc.org/fileutil",
-      "version": "v1.3.0",
+      "version": "v1.4.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/fileutil",
@@ -186,15 +130,31 @@
     },
     {
       "name": "modernc.org/gc/v2",
-      "version": "v2.6.3",
+      "version": "v2.6.5",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/gc/v2",
       "supplier": "modernc.org"
     },
     {
+      "name": "modernc.org/gc/v3",
+      "version": "v3.1.5",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://modernc.org/gc/v3",
+      "supplier": "modernc.org"
+    },
+    {
+      "name": "modernc.org/goabi0",
+      "version": "v0.2.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://modernc.org/goabi0",
+      "supplier": "modernc.org"
+    },
+    {
       "name": "modernc.org/libc",
-      "version": "v1.61.13",
+      "version": "v1.75.6",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/libc",
@@ -210,7 +170,7 @@
     },
     {
       "name": "modernc.org/memory",
-      "version": "v1.8.2",
+      "version": "v1.12.1",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/memory",
@@ -218,7 +178,7 @@
     },
     {
       "name": "modernc.org/opt",
-      "version": "v0.1.4",
+      "version": "v0.2.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/opt",
@@ -234,7 +194,7 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "version": "v1.36.3",
+      "version": "v1.58.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://modernc.org/sqlite",
