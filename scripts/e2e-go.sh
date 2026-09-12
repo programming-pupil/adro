@@ -20,17 +20,6 @@ if [ -x "$configured_path" ] && [ "$configured_real" != "$script_path" ]; then
   # installation; that produces opaque compiler/tool version mismatches.
   exec env -u GOROOT "$candidate" "$@"
 fi
-for candidate in \
-  /Users/shareit/.gvm/gos/go1.25.0/bin/go \
-  "${GOROOT:-}/bin/go"; do
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-    root="$(CDPATH= cd -- "$(dirname -- "$candidate")/.." && pwd)"
-    if [ -f "$root/VERSION" ] && [ -d "$root/pkg/tool" ]; then
-      exec env GOROOT="$root" "$candidate" "$@"
-    fi
-    exec "$candidate" "$@"
-  fi
-done
 fallback="$(command -v go 2>/dev/null || true)"
 if [ -n "$fallback" ] && [ -x "$fallback" ]; then
   root="$(CDPATH= cd -- "$(dirname -- "$fallback")/.." && pwd)"
@@ -43,4 +32,15 @@ if [ -n "$fallback" ] && [ -x "$fallback" ]; then
   fi
   exec env -u GOROOT "$fallback" "$@"
 fi
+for candidate in \
+  /Users/shareit/.gvm/gos/go1.25.0/bin/go \
+  "${GOROOT:-}/bin/go"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    root="$(CDPATH= cd -- "$(dirname -- "$candidate")/.." && pwd)"
+    if [ -f "$root/VERSION" ] && [ -d "$root/pkg/tool" ]; then
+      exec env GOROOT="$root" "$candidate" "$@"
+    fi
+    exec "$candidate" "$@"
+  fi
+done
 exec env -u GOROOT go "$@"
