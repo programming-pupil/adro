@@ -399,7 +399,7 @@
     Object.assign(translations.en,{defaultAgentName:'General Agent',defaultAgentInstructions:'Receive, plan, and deliver general engineering work with verifiable evidence.'});
     let locale=localStorage.getItem('adro.locale')||'zh';
     let currentView='workbench',requirements=[],pipelines=[],workItems=[],bugs=[],repositories=[],runners=[],mcpServers=[],skills=[],automations=[],chats=[],auditItems=[],eventItems=[],agentProfiles=[],rootInfo={},lastCursor='',stream=null,streamRetry=null,screenshotFile=null,coreLoadPromise=null,coreLoadAbort=null,coreLoadGeneration=0;
-    const apiOrigin=(window.ADRO_API_ORIGIN||new URLSearchParams(location.search).get('api')||'').replace(/\/$/,'');
+    const apiOrigin=(typeof window.ADRO_API_ORIGIN==='string'?window.ADRO_API_ORIGIN:'').replace(/\/$/,'');
     const $=selector=>document.querySelector(selector);
     const t=key=>(translations[locale]&&translations[locale][key])||translations.en[key]||key;
     const escapeHTML=value=>String(value??'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));

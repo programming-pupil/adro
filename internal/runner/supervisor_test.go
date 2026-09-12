@@ -35,7 +35,7 @@ func TestExecuteConfinesCommandAndCapturesOutput(t *testing.T) {
 	if _, err := s.Heartbeat(r.ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.Execute(context.Background(), ExecuteRequest{RunnerID: r.ID, WorkDir: root, Command: []string{"/bin/sh", "-c", "printf ready"}, Env: map[string]string{"ADRO_TEST": "1"}, Timeout: time.Second})
+	result, err := s.Execute(context.Background(), ExecuteRequest{RunnerID: r.ID, WorkDir: root, Command: []string{"printf", "ready"}, Env: map[string]string{"ADRO_TEST": "1"}, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +47,9 @@ func TestExecuteConfinesCommandAndCapturesOutput(t *testing.T) {
 	}
 	if _, err := s.Execute(context.Background(), ExecuteRequest{RunnerID: r.ID, WorkDir: root, Command: []string{"/bin/echo"}, Env: map[string]string{"BAD=KEY": "x"}}); err == nil {
 		t.Fatal("accepted invalid environment key")
+	}
+	if _, err := s.Execute(context.Background(), ExecuteRequest{RunnerID: r.ID, WorkDir: root, Command: []string{"sh", "-c", "printf unsafe"}}); err == nil {
+		t.Fatal("accepted an unapproved shell executable")
 	}
 	if _, err := os.Stat(root); err != nil {
 		t.Fatal(err)

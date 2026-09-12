@@ -14,7 +14,8 @@ const actions = JSON.parse(fs.readFileSync(path.join(reportRoot, 'dom_actions.js
 const browserEvidenceRoot = path.join(root, 'var', 'test-report', 'browser', sourceSha);
 
 async function login(page) {
-  await page.goto('/?api=http://127.0.0.1:18080');
+  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
+  await page.goto('/');
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
   const agentsResponse = page.waitForResponse(response => {

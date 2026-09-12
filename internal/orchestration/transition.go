@@ -633,7 +633,7 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 		if a.Result.Fields == nil {
 			a.Result.Fields = map[string]any{}
 		} else {
-			fields := make(map[string]any, len(a.Result.Fields)+1)
+			fields := make(map[string]any)
 			for key, value := range a.Result.Fields {
 				fields[key] = value
 			}
@@ -1075,8 +1075,8 @@ func intValue(value any) int {
 }
 
 func appendUnique(values []string, additions ...string) []string {
-	seen := make(map[string]bool, len(values)+len(additions))
-	result := make([]string, 0, len(values)+len(additions))
+	seen := make(map[string]bool)
+	result := make([]string, 0)
 	for _, value := range append(append([]string(nil), values...), additions...) {
 		if value == "" || seen[value] {
 			continue

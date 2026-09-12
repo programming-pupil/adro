@@ -1,10 +1,9 @@
 const { test, expect } = require('@playwright/test');
 
-const apiQuery = '?api=http://127.0.0.1:18080';
-
 test('captures the ADRO technical console on desktop and mobile', async ({ page }) => {
   test.setTimeout(90_000);
-  await page.goto(`/${apiQuery}`);
+  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
+  await page.goto('/');
   await expect(page.locator('#loginGate')).toBeVisible();
   await expect(page.locator('#loginLocaleToggle')).toHaveText('EN');
   await page.locator('#loginLocaleToggle').click();
