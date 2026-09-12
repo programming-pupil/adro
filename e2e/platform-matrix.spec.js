@@ -6,7 +6,8 @@ test('login, navigation, locale, and responsive layout remain usable', async ({ 
   page.on('console', message => {
     if (message.type() === 'error') browserErrors.push(message.text());
   });
-  await page.goto('/?api=http://127.0.0.1:18080');
+  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
+  await page.goto('/');
   await page.locator('#loginLocaleToggle').click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.locator('#loginForm input[name="username"]').fill('admin');

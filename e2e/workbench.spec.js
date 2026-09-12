@@ -2,7 +2,6 @@ const { test, expect } = require('@playwright/test');
 
 test.setTimeout(90_000);
 
-const apiQuery = '?api=http://127.0.0.1:18080';
 const menuViews = [
   'workbench', 'requirements', 'bugs', 'humanQA', 'designReview',
   'executions', 'diffs', 'testing', 'repositories', 'agents', 'mcp',
@@ -94,7 +93,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
   });
   page.on('request', request => requestHosts.add(new URL(request.url()).hostname));
-  await page.goto(`/${apiQuery}`);
+  await page.addInitScript(() => { window.ADRO_API_ORIGIN = 'http://127.0.0.1:18080'; });
+  await page.goto('/');
   await expect(page.locator('#loginGate')).toBeVisible();
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');

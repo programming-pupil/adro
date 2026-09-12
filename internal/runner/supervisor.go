@@ -366,7 +366,7 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	if len(request.Command) > 64 {
 		return ExecuteResult{}, errors.New("command has too many arguments")
 	}
-	executable, args, err := resolveCommand(request.Command)
+	commandKind, args, err := resolveCommand(request.Command)
 	if err != nil {
 		return ExecuteResult{}, err
 	}
@@ -426,10 +426,18 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 		s.mu.Unlock()
 		return ExecuteResult{}, errors.New("work_dir is outside runner workspace_root")
 	}
-	if info, statErr := os.Stat(resolvedWorkDir); statErr != nil || !info.IsDir() {
+	rootDir, openErr := os.OpenInRoot(resolvedRoot, rel)
+	if openErr != nil {
+		s.mu.Unlock()
+		return ExecuteResult{}, errors.New("work_dir cannot be opened within runner workspace_root")
+	}
+	info, statErr := rootDir.Stat()
+	closeErr := rootDir.Close()
+	if statErr != nil || closeErr != nil || !info.IsDir() {
 		s.mu.Unlock()
 		return ExecuteResult{}, errors.New("work_dir is not an existing directory")
 	}
+	workDir = resolvedWorkDir
 	previous := r
 	r.ActiveRuns++
 	s.runners[r.ID] = r
@@ -461,7 +469,10 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, request.Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(commandCtx, executable, args...)
+	cmd := commandForContext(commandCtx, commandKind, args)
+	if cmd == nil {
+		return ExecuteResult{}, errors.New("unsupported runner executable")
+	}
 	cmd.Dir = workDir
 	cmd.Env = []string{"PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Join(workDir, ".home"), "LANG=C.UTF-8"}
 	for key, value := range request.Env {
@@ -494,41 +505,89 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 // path. Runner execution is intentionally argv-based, but accepting an
 // arbitrary executable still lets an API caller select a different program.
 // Shells are excluded so command text cannot be turned back into a shell.
-func resolveCommand(command []string) (string, []string, error) {
+type commandKind uint8
+
+const (
+	commandCat commandKind = iota + 1
+	commandEcho
+	commandFalse
+	commandGo
+	commandGit
+	commandMake
+	commandNode
+	commandNPM
+	commandNPX
+	commandPrintf
+	commandPython
+	commandTrue
+)
+
+func resolveCommand(command []string) (commandKind, []string, error) {
 	name := filepath.Base(strings.TrimSpace(command[0]))
 	if name != strings.TrimSpace(command[0]) && !filepath.IsAbs(strings.TrimSpace(command[0])) {
-		return "", nil, errors.New("command must be a supported executable name or absolute path")
+		return 0, nil, errors.New("command must be a supported executable name or absolute path")
 	}
-	var executable string
+	var kind commandKind
 	switch name {
 	case "cat":
-		executable = "cat"
+		kind = commandCat
 	case "echo":
-		executable = "echo"
+		kind = commandEcho
 	case "false":
-		executable = "false"
+		kind = commandFalse
 	case "go":
-		executable = "go"
+		kind = commandGo
 	case "git":
-		executable = "git"
+		kind = commandGit
 	case "make":
-		executable = "make"
+		kind = commandMake
 	case "node":
-		executable = "node"
+		kind = commandNode
 	case "npm":
-		executable = "npm"
+		kind = commandNPM
 	case "npx":
-		executable = "npx"
+		kind = commandNPX
 	case "printf":
-		executable = "printf"
+		kind = commandPrintf
 	case "python", "python3":
-		executable = name
+		kind = commandPython
 	case "true":
-		executable = "true"
+		kind = commandTrue
 	default:
-		return "", nil, fmt.Errorf("unsupported runner executable %q", name)
+		return 0, nil, fmt.Errorf("unsupported runner executable %q", name)
 	}
-	return executable, append([]string(nil), command[1:]...), nil
+	return kind, append([]string(nil), command[1:]...), nil
+}
+
+func commandForContext(ctx context.Context, kind commandKind, args []string) *exec.Cmd {
+	switch kind {
+	case commandCat:
+		return exec.CommandContext(ctx, "cat", args...)
+	case commandEcho:
+		return exec.CommandContext(ctx, "echo", args...)
+	case commandFalse:
+		return exec.CommandContext(ctx, "false", args...)
+	case commandGo:
+		return exec.CommandContext(ctx, "go", args...)
+	case commandGit:
+		return exec.CommandContext(ctx, "git", args...)
+	case commandMake:
+		return exec.CommandContext(ctx, "make", args...)
+	case commandNode:
+		return exec.CommandContext(ctx, "node", args...)
+	case commandNPM:
+		return exec.CommandContext(ctx, "npm", args...)
+	case commandNPX:
+		return exec.CommandContext(ctx, "npx", args...)
+	case commandPrintf:
+		return exec.CommandContext(ctx, "printf", args...)
+	case commandPython:
+		return exec.CommandContext(ctx, "python3", args...)
+	case commandTrue:
+		return exec.CommandContext(ctx, "true", args...)
+	default:
+		return nil
+	}
 }
 
 type limitedWriter struct {
