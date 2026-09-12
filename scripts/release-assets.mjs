@@ -82,7 +82,7 @@ function spdxID(item) {
 }
 
 function purl(item) {
-  const name = item.ecosystem === 'npm' ? item.name.replace('@', '%40') : item.name;
+  const name = item.ecosystem === 'npm' ? item.name.replaceAll('@', '%40') : item.name;
   const type = item.ecosystem === 'go' ? 'golang' : 'npm';
   return `pkg:${type}/${name}@${item.version}`;
 }

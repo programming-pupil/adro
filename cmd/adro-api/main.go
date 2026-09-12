@@ -204,6 +204,9 @@ func withRequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		next.ServeHTTP(w, r)
-		slog.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds(), "request_id", w.Header().Get("X-Request-ID"))
+		method := strings.ReplaceAll(strings.ReplaceAll(r.Method, "\n", "\\n"), "\r", "\\r")
+		path := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", "\\n"), "\r", "\\r")
+		requestID := strings.ReplaceAll(strings.ReplaceAll(w.Header().Get("X-Request-ID"), "\n", "\\n"), "\r", "\\r")
+		slog.Info("http request", "method", method, "path", path, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestID)
 	})
 }

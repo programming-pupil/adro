@@ -245,7 +245,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Trace-ID", serverSpan.TraceID)
 	if traceErr != nil && s.Logger != nil {
-		s.Logger.Warn("ignored invalid incoming trace context", "request_path", r.URL.Path)
+		requestPath := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", "\\n"), "\r", "\\r")
+		s.Logger.Warn("ignored invalid incoming trace context", "request_path", requestPath)
 	}
 	requestCtx, finishSpan := s.Tracer.Start(r.Context(), "http."+strings.ToLower(r.Method), map[string]string{"route": r.URL.Path, "method": r.Method})
 	r = r.WithContext(requestCtx)
@@ -395,7 +396,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// acknowledged as successful: a retry could otherwise apply it twice.
 				// Keep the storage detail in server logs and return a stable problem.
 				if s.Logger != nil {
-					s.Logger.Error("persist idempotency record", "error", err, "request_id", requestID)
+					errorText := strings.ReplaceAll(strings.ReplaceAll(err.Error(), "\n", "\\n"), "\r", "\\r")
+					requestIDText := strings.ReplaceAll(strings.ReplaceAll(requestID, "\n", "\\n"), "\r", "\\r")
+					s.Logger.Error("persist idempotency record", "error", errorText, "request_id", requestIDText)
 				}
 				body, _ := json.Marshal(map[string]any{
 					"type":       "https://adro.dev/problems/idempotency-storage",
@@ -3843,7 +3846,9 @@ func (s *Server) recordAudit(r *http.Request, workspaceID, action, correlationID
 		actorID, actorType = "local-user", "system"
 	}
 	if _, err := s.Audit.Append(audit.Event{TenantID: tenant(r), WorkspaceID: workspaceID, ActorType: actorType, ActorID: actorID, Action: action, CorrelationID: correlationID, Payload: payload}); err != nil {
-		s.Logger.Warn("audit append failed", "action", action, "error", err)
+		action = strings.ReplaceAll(strings.ReplaceAll(action, "\n", "\\n"), "\r", "\\r")
+		errorText := strings.ReplaceAll(strings.ReplaceAll(err.Error(), "\n", "\\n"), "\r", "\\r")
+		s.Logger.Warn("audit append failed", "action", action, "error", errorText)
 	}
 }
 func (s *Server) problem(w http.ResponseWriter, r *http.Request, status int, code, detail string, extra map[string]any) {

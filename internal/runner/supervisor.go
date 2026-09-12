@@ -366,6 +366,10 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	if len(request.Command) > 64 {
 		return ExecuteResult{}, errors.New("command has too many arguments")
 	}
+	executable, args, err := resolveCommand(request.Command)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
 	s.mu.Lock()
 	r, ok := s.runners[request.RunnerID]
 	if !ok {
@@ -404,9 +408,13 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 		s.mu.Unlock()
 		return ExecuteResult{}, errors.New("invalid work_dir")
 	}
-	if info, statErr := os.Stat(workDir); statErr != nil || !info.IsDir() {
+	// Validate the lexical path before touching the filesystem. This prevents a
+	// request-controlled path from reaching a filesystem sink before the root
+	// boundary has been established.
+	lexicalRel, relErr := filepath.Rel(root, workDir)
+	if relErr != nil || lexicalRel == ".." || strings.HasPrefix(lexicalRel, ".."+string(filepath.Separator)) {
 		s.mu.Unlock()
-		return ExecuteResult{}, errors.New("work_dir is not an existing directory")
+		return ExecuteResult{}, errors.New("work_dir is outside runner workspace_root")
 	}
 	resolvedWorkDir, resolveErr := filepath.EvalSymlinks(workDir)
 	if resolveErr != nil {
@@ -417,6 +425,10 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		s.mu.Unlock()
 		return ExecuteResult{}, errors.New("work_dir is outside runner workspace_root")
+	}
+	if info, statErr := os.Stat(resolvedWorkDir); statErr != nil || !info.IsDir() {
+		s.mu.Unlock()
+		return ExecuteResult{}, errors.New("work_dir is not an existing directory")
 	}
 	previous := r
 	r.ActiveRuns++
@@ -449,9 +461,9 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, request.Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(commandCtx, request.Command[0], request.Command[1:]...)
+	cmd := exec.CommandContext(commandCtx, executable, args...)
 	cmd.Dir = workDir
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(workDir, ".home"), "LANG=C.UTF-8"}
+	cmd.Env = []string{"PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Join(workDir, ".home"), "LANG=C.UTF-8"}
 	for key, value := range request.Env {
 		if !validEnvKey(key) || strings.ContainsAny(value, "\x00\r\n") {
 			return ExecuteResult{}, fmt.Errorf("invalid environment variable %q", key)
@@ -476,6 +488,47 @@ func (s *Supervisor) Execute(ctx context.Context, request ExecuteRequest) (resul
 		}
 	}
 	return result, nil
+}
+
+// resolveCommand converts the user-facing command name into a fixed executable
+// path. Runner execution is intentionally argv-based, but accepting an
+// arbitrary executable still lets an API caller select a different program.
+// Shells are excluded so command text cannot be turned back into a shell.
+func resolveCommand(command []string) (string, []string, error) {
+	name := filepath.Base(strings.TrimSpace(command[0]))
+	if name != strings.TrimSpace(command[0]) && !filepath.IsAbs(strings.TrimSpace(command[0])) {
+		return "", nil, errors.New("command must be a supported executable name or absolute path")
+	}
+	var executable string
+	switch name {
+	case "cat":
+		executable = "cat"
+	case "echo":
+		executable = "echo"
+	case "false":
+		executable = "false"
+	case "go":
+		executable = "go"
+	case "git":
+		executable = "git"
+	case "make":
+		executable = "make"
+	case "node":
+		executable = "node"
+	case "npm":
+		executable = "npm"
+	case "npx":
+		executable = "npx"
+	case "printf":
+		executable = "printf"
+	case "python", "python3":
+		executable = name
+	case "true":
+		executable = "true"
+	default:
+		return "", nil, fmt.Errorf("unsupported runner executable %q", name)
+	}
+	return executable, append([]string(nil), command[1:]...), nil
 }
 
 type limitedWriter struct {

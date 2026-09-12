@@ -134,7 +134,7 @@ func (s *Server) runDiagnostics(w http.ResponseWriter, r *http.Request, runID st
 }
 
 func planTimelineItems(plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, events []orchestration.Event) []map[string]any {
-	items := make([]map[string]any, 0, len(events)+len(projection.Attempts)+len(projection.Decisions))
+	items := make([]map[string]any, 0)
 	for _, event := range events {
 		items = append(items, map[string]any{"sequence": event.Sequence, "kind": "event", "event_type": event.Type, "event_id": event.ID, "attempt_id": event.AttemptID, "node_id": event.NodeID, "reason_code": eventReasonCode(event)})
 	}

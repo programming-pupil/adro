@@ -1348,7 +1348,7 @@ func (s *Store) ListTurns(sessionID string, after int64, limit int) ([]Turn, int
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	items := make([]Turn, 0, limit)
+	items := make([]Turn, 0)
 	for _, turn := range state.Turns {
 		if turn.Sequence <= after {
 			continue

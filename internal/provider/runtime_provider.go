@@ -153,7 +153,7 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 
 func runtimeSelectionKey(executable string, baseArgs []string, selection RuntimeSelection) string {
 	parts := []string{selection.RuntimeID, executable, strings.Join(baseArgs, "\x00"), selection.Model, selection.ThinkingLevel, selection.ServiceTier, strings.Join(selection.CustomArgs, "\x00")}
-	keys := make([]string, 0, len(selection.RuntimeConfig)+len(selection.Environment))
+	keys := make([]string, 0)
 	for key := range selection.RuntimeConfig {
 		keys = append(keys, "config:"+key)
 	}

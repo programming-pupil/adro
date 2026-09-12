@@ -813,7 +813,7 @@ func (b *Bus) ReplayScoped(consumerID, tenantID, workspaceID, aggregateID, curso
 			return nil, "", ErrInvalidCursor
 		}
 	}
-	items := make([]Envelope, 0, limit)
+	items := make([]Envelope, 0)
 	for _, event := range b.events[start+1:] {
 		if event.WorkspaceID != workspaceID || (tenantID != "" && event.TenantID != tenantID) || (aggregateID != "" && event.AggregateID != aggregateID) {
 			continue
@@ -1053,7 +1053,7 @@ func (b *Bus) ListChecked(aggregateID, cursor string, limit int) ([]Envelope, st
 			return nil, "", ErrInvalidCursor
 		}
 	}
-	items := make([]Envelope, 0, limit)
+	items := make([]Envelope, 0)
 	for _, e := range b.events[start:] {
 		if aggregateID != "" && e.AggregateID != aggregateID {
 			continue
