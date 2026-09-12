@@ -13,8 +13,8 @@ select_go_bin() {
     printf '%s' "$ROOT_DIR/scripts/e2e-go.sh"
     return 0
   fi
-  if [ -x "/Users/shareit/.gvm/gos/go1.24.1/bin/go" ]; then
-    printf '%s' "/Users/shareit/.gvm/gos/go1.24.1/bin/go"
+  if [ -x "/Users/shareit/.gvm/gos/go1.25.0/bin/go" ]; then
+    printf '%s' "/Users/shareit/.gvm/gos/go1.25.0/bin/go"
     return 0
   fi
   command -v go 2>/dev/null
