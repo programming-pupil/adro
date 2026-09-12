@@ -13,6 +13,7 @@ WEB_PID_FILE="$STATE_DIR/adro-web.pid"
 API_LOG="$STATE_DIR/adro-api.log"
 WEB_LOG="$STATE_DIR/adro-web.log"
 PROFILE_FILE="$STATE_DIR/local-profile"
+AUTH_STATE_FILE="${ADRO_AUTH_STATE_FILE:-$STATE_DIR/auth.json}"
 MODE="start"
 OPEN_BROWSER=true
 
@@ -51,6 +52,7 @@ Options:
 Environment:
   ADRO_EXECUTOR           Executable path (otherwise discovers every supported local runtime).
   ADRO_EXECUTOR_COMMAND   Executable plus arguments; use {input} as prompt placeholder.
+  ADRO_CODEX_PATH         Optional Codex executable path; set empty to disable macOS desktop fallback.
   ADRO_EXECUTOR_TIMEOUT   Optional per-run deadline (Go duration, e.g. 15m).
   ADRO_PIPELINE_WATCH_TIMEOUT  Local pipeline watchdog deadline (Go duration, e.g. 30m).
   ADRO_HARNESS_RECOVERY_INTERVAL  Harness recovery worker interval (default: 1s).
@@ -72,7 +74,7 @@ Environment:
   ADRO_WEB_PORT           WebUI port (default: 8081).
   ADRO_PUBLIC_API_URL     API URL exposed to executor callbacks (defaults to the local API port).
   ADRO_ADMIN_USERNAME     Initial local administrator (default: admin).
-  ADRO_ADMIN_PASSWORD     Initial local administrator password.
+  ADRO_ADMIN_PASSWORD     Initial local administrator password (at least 10 characters; ignored after auth state exists).
 EOF
 }
 
@@ -88,7 +90,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-executor_path() {
+configured_executor_path() {
 	if [ -n "${ADRO_EXECUTOR:-}" ]; then
     if [ -x "$ADRO_EXECUTOR" ]; then printf '%s' "$ADRO_EXECUTOR"; return 0; fi
     command -v "$ADRO_EXECUTOR" 2>/dev/null && return 0
@@ -99,17 +101,27 @@ executor_path() {
 		if [ -x "$command_name" ]; then printf '%s' "$command_name"; return 0; fi
 		if command -v "$command_name" >/dev/null 2>&1; then command -v "$command_name"; return 0; fi
 	fi
-	local candidate runtime_id path_variable pinned_path
-	while IFS=: read -r runtime_id candidate; do
-		[ -n "$runtime_id" ] || continue
-		path_variable="ADRO_${runtime_id}_PATH"
-		pinned_path="${!path_variable:-}"
-		if [ -n "$pinned_path" ]; then
-			if [ -x "$pinned_path" ]; then printf '%s' "$pinned_path"; return 0; fi
-			if command -v "$pinned_path" >/dev/null 2>&1; then command -v "$pinned_path"; return 0; fi
+	return 1
+}
+
+codex_desktop_path() {
+	[ "$(uname -s)" = "Darwin" ] || return 1
+	local candidate
+	for candidate in \
+		/Applications/ChatGPT.app/Contents/Resources/codex \
+		/Applications/Codex.app/Contents/Resources/codex \
+		"${HOME:-}/Applications/ChatGPT.app/Contents/Resources/codex" \
+		"${HOME:-}/Applications/Codex.app/Contents/Resources/codex"; do
+		if [ -x "$candidate" ]; then
+			printf '%s' "$candidate"
+			return 0
 		fi
-		if has "$candidate"; then command -v "$candidate"; return 0; fi
-	done <<'EOF'
+	done
+	return 1
+}
+
+runtime_candidates() {
+	cat <<'EOF'
 CLAUDE:claude
 CODEX:codex
 CURSOR:cursor-agent
@@ -136,7 +148,55 @@ MCODE:mcode
 DIM:dim
 ZEROCLAW:zeroclaw
 EOF
-  return 1
+}
+
+executor_path() {
+	if configured_executor_path; then
+		return 0
+	fi
+	local candidate runtime_id path_variable pinned_path
+	while IFS=: read -r runtime_id candidate; do
+		[ -n "$runtime_id" ] || continue
+		path_variable="ADRO_${runtime_id}_PATH"
+		pinned_path="${!path_variable:-}"
+		if [ -n "$pinned_path" ]; then
+			if [ -x "$pinned_path" ]; then printf '%s' "$pinned_path"; return 0; fi
+			if command -v "$pinned_path" >/dev/null 2>&1; then command -v "$pinned_path"; return 0; fi
+		fi
+		if has "$candidate"; then command -v "$candidate"; return 0; fi
+		if [ "$runtime_id" = "CODEX" ] && path="$(codex_desktop_path 2>/dev/null || true)" && [ -n "$path" ]; then
+			printf '%s' "$path"
+			return 0
+		fi
+	done < <(runtime_candidates)
+	return 1
+}
+
+all_executor_paths() {
+	local configured runtime_id_lc configured_seen=false
+	configured="$(configured_executor_path 2>/dev/null || true)"
+
+	local candidate runtime_id path_variable pinned_path path
+	while IFS=: read -r runtime_id candidate; do
+		[ -n "$runtime_id" ] || continue
+		path_variable="ADRO_${runtime_id}_PATH"
+		pinned_path="${!path_variable:-}"
+		path=""
+		if [ -n "$pinned_path" ]; then
+			if [ -x "$pinned_path" ]; then path="$pinned_path"; fi
+			if [ -z "$path" ] && command -v "$pinned_path" >/dev/null 2>&1; then path="$(command -v "$pinned_path")"; fi
+		fi
+		if [ -z "$path" ] && has "$candidate"; then path="$(command -v "$candidate")"; fi
+		if [ -z "$path" ] && [ "$runtime_id" = "CODEX" ]; then path="$(codex_desktop_path 2>/dev/null || true)"; fi
+		if [ -n "$path" ]; then
+			runtime_id_lc="$(printf '%s' "$runtime_id" | tr '[:upper:]' '[:lower:]')"
+			printf '%s\t%s\n' "$runtime_id_lc" "$path"
+			[ -n "$configured" ] && [ "$path" = "$configured" ] && configured_seen=true
+		fi
+	done < <(runtime_candidates)
+	if [ -n "$configured" ] && [ "$configured_seen" = false ]; then
+		printf 'configured\t%s\n' "$configured"
+	fi
 }
 
 pid_running() {
@@ -197,11 +257,24 @@ show_status() {
   else
     warn "WebUI is not ready at http://127.0.0.1:$WEB_PORT"
   fi
-  if executor="$(executor_path 2>/dev/null)"; then log "Executor discovered: $executor"; else warn "No coding executor discovered"; fi
+  local discovered=false runtime_id path
+  while IFS=$'\t' read -r runtime_id path; do
+    [ -n "$runtime_id" ] || continue
+    log "Executor discovered [$runtime_id]: $path"
+    discovered=true
+  done < <(all_executor_paths)
+  if [ "$discovered" = false ]; then warn "No coding executor discovered"; fi
 }
 
 if [ "$MODE" = "stop" ]; then stop_all; exit 0; fi
 if [ "$MODE" = "status" ]; then show_status; exit 0; fi
+
+if [ -n "${ADRO_ADMIN_PASSWORD:-}" ] && [ ! -s "$AUTH_STATE_FILE" ] && [ "${#ADRO_ADMIN_PASSWORD}" -lt 10 ]; then
+  fail "ADRO_ADMIN_PASSWORD must contain at least 10 characters when creating a new local profile; use a longer password or set ADRO_AUTH_STATE_FILE to an existing auth state"
+fi
+if [ -n "${ADRO_ADMIN_PASSWORD:-}" ] && [ -s "$AUTH_STATE_FILE" ]; then
+  warn "ADRO_ADMIN_PASSWORD seeds only a new local profile; existing credentials in $AUTH_STATE_FILE are unchanged"
+fi
 
 GO_CMD="$(go_cmd 2>/dev/null || true)"
 [ -n "$GO_CMD" ] || fail "Go is required to build ADRO locally"
@@ -223,7 +296,7 @@ export ADRO_PUBLIC_API_URL="${ADRO_PUBLIC_API_URL:-http://127.0.0.1:$API_PORT}"
 export ADRO_STATE_FILE="${ADRO_STATE_FILE:-$STATE_DIR/state.json}"
 export ADRO_EVENT_STATE_FILE="${ADRO_EVENT_STATE_FILE:-$STATE_DIR/events.json}"
 export ADRO_AUDIT_STATE_FILE="${ADRO_AUDIT_STATE_FILE:-$STATE_DIR/audit.json}"
-export ADRO_AUTH_STATE_FILE="${ADRO_AUTH_STATE_FILE:-$STATE_DIR/auth.json}"
+export ADRO_AUTH_STATE_FILE="$AUTH_STATE_FILE"
 export ADRO_RUN_STATE_FILE="${ADRO_RUN_STATE_FILE:-$STATE_DIR/runs.json}"
 export ADRO_HARNESS_STATE_FILE="${ADRO_HARNESS_STATE_FILE:-$STATE_DIR/harness.json}"
 export ADRO_PLUGIN_STATE_FILE="${ADRO_PLUGIN_STATE_FILE:-$STATE_DIR/plugins.json}"

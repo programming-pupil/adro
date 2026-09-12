@@ -85,6 +85,8 @@ func TestDiscoverLocalRuntimesUsesLoginShellPath(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("SHELL", shell)
+	// Keep the test focused on login-shell discovery even on macOS machines
+	// that have Codex bundled inside ChatGPT.app.
 	t.Setenv("ADRO_CODEX_PATH", "")
 	want, err := executablePath(codex)
 	if err != nil {

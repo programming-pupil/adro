@@ -223,6 +223,11 @@ func codexDesktopExecutable() string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
+	// An explicitly empty override is useful for deterministic local tests and
+	// for operators who want PATH/login-shell discovery only.
+	if configured, ok := os.LookupEnv("ADRO_CODEX_PATH"); ok && strings.TrimSpace(configured) == "" {
+		return ""
+	}
 	paths := []string{
 		"/Applications/ChatGPT.app/Contents/Resources/codex",
 		"/Applications/Codex.app/Contents/Resources/codex",

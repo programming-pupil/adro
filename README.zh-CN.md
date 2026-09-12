@@ -60,6 +60,11 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 ./start.sh --no-docker --no-open
 ```
 
+初始管理员密码至少需要 10 个字符。该变量只在本地 profile 没有
+`auth.json` 时用于创建管理员；已有 profile 重启时不会用新值覆盖原密码。
+如果忘记了本地密码，请先停止 ADRO，备份并删除对应的 `auth.json`，再使用至少
+10 个字符的新密码启动一次。
+
 启动后访问 `http://127.0.0.1:8081`，API 就绪检查为
 `http://127.0.0.1:8080/readyz`。
 
@@ -72,6 +77,9 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 ./start.sh --status
 ./start.sh --stop
 ```
+
+`--status` 会列出所有发现到的代码执行器；在 macOS 上也会检查 ChatGPT 应用内
+置的 Codex。若要指定 API 默认使用的执行器，请设置 `ADRO_EXECUTOR`。
 
 可通过 `ADRO_HOME`、`ADRO_API_PORT`、`ADRO_WEB_PORT` 隔离状态目录和端口；
 `ADRO_EXECUTOR` 可固定一个执行器，`ADRO_EXECUTOR_COMMAND` 支持带 `{input}`
