@@ -2843,6 +2843,7 @@
   let chatPendingCreateAgentID = '';
   let chatCreatingProjectID = '';
   let chatCreatingAgentID = '';
+  const chatCreationBindings = new Map();
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2912,13 +2913,14 @@
     const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const pendingProject = activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '';
     const creatingProject = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingProjectID : '';
-    const selectedProject = pendingProject || creatingProject || activeChatData?.chat?.project_id || '';
+    const creationBinding = activeChatID ? chatCreationBindings.get(activeChatID) : null;
+    const selectedProject = creationBinding?.projectID || pendingProject || creatingProject || activeChatData?.chat?.project_id || '';
     const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
     const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
     const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
     const pendingAgent = activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '';
     const creatingAgent = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingAgentID : '';
-    const selectedAgent = pendingAgent || creatingAgent || activeChatData?.chat?.agent_id || '';
+    const selectedAgent = creationBinding?.agentID || pendingAgent || creatingAgent || activeChatData?.chat?.agent_id || '';
     const project = chatProject();
     const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
@@ -2974,9 +2976,15 @@
       for (const field of ['project_id', 'agent_id', 'title']) {
         if (!chat[field] && fallbackChat?.[field]) chat[field] = fallbackChat[field];
       }
+      const creationBinding = chatCreationBindings.get(id);
+      if (creationBinding) {
+        if (!chat.project_id && creationBinding.projectID) chat.project_id = creationBinding.projectID;
+        if (!chat.agent_id && creationBinding.agentID) chat.agent_id = creationBinding.agentID;
+      }
       activeChatData = {...detail, chat};
       chatAttachmentItems = attachments?.items || [];
       renderChatPage();
+      if (creationBinding && (!creationBinding.projectID || chat.project_id === creationBinding.projectID) && (!creationBinding.agentID || chat.agent_id === creationBinding.agentID)) chatCreationBindings.delete(id);
       requestAnimationFrame(() => { const history = $('#chatHistory'); if (history) history.scrollTop = history.scrollHeight; });
     } catch (_) {
       if (!isCurrent()) return;
@@ -3065,6 +3073,7 @@
       if (submit) submit.disabled = false;
     }
     const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
+    chatCreationBindings.set(createdWithContext.id, {projectID, agentID});
     chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
     activeChatID = createdWithContext.id;
     chatPendingCreateID = createdWithContext.id;
