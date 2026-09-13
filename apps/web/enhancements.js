@@ -3008,13 +3008,15 @@
       if (requestID !== chatStateRequest) return;
       const serverChats = response.items || [];
       const pendingChat = chatPendingCreateID && chats.find(item => item.id === chatPendingCreateID);
-      chats = pendingChat && !serverChats.some(item => item.id === pendingChat.id) ? [pendingChat, ...serverChats] : serverChats;
+      const optimisticActiveChat = activeChatID && chatCreationBindings.has(activeChatID) ? chats.find(item => item.id === activeChatID) : null;
+      const optimisticChat = pendingChat || optimisticActiveChat;
+      chats = optimisticChat && !serverChats.some(item => item.id === optimisticChat.id) ? [optimisticChat, ...serverChats] : serverChats;
       if (chatPendingCreateID) {
         if (!chats.some(item => item.id === chatPendingCreateID)) chats = [pendingChat, ...chats].filter(Boolean);
         renderChatPage();
         return;
       }
-      if (activeChatID && !chats.some(item => item.id === activeChatID) && activeChatID !== chatPendingCreateID) { activeChatID = ''; clearChatDraftFiles(); }
+      if (activeChatID && !chats.some(item => item.id === activeChatID) && !chatCreationBindings.has(activeChatID)) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
       if (activeChatID) await loadChatDetail(activeChatID, chats.find(item => item.id === activeChatID) || null, requestID); else { activeChatData = null; renderChatPage(); }
     } catch (_) {
