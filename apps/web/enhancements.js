@@ -194,7 +194,6 @@
   let activeCommentTargetID = '';
   let activeCommentItems = [];
   let commentActivity = new Map();
-  let onboardingPrompted = false;
   let workspaceMigrationFile = null;
   let workspaceMigrationReport = null;
   let agentRuntimeSkillItems = [];
@@ -280,10 +279,6 @@
     if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
     if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
     if (currentView === 'agents') render();
-    if (!onboardingPrompted && currentUser?.role === 'admin' && nativeAgents.length === 0) {
-      onboardingPrompted = true;
-      await showAgentDialog(true);
-    }
   }
 
   const focusIfPresent = selector => {
@@ -892,7 +887,6 @@
       status.className = 'migration-report good'; status.textContent = t('migrationDone');
       const agentForm = $('#agentForm');
       if (agentForm?.dataset.onboarding === 'true') { delete agentForm.dataset.onboarding; document.body.classList.remove('onboarding-active'); closeAgentDialog(); }
-      onboardingPrompted = true;
       await loadCore(true);
     } catch (_) { status.className = 'migration-report bad'; status.textContent = t('migrationFailed'); button.disabled = false; }
   }

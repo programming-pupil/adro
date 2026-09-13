@@ -17,22 +17,10 @@ async function login(page) {
   await page.goto('/');
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
-  const agentsResponse = page.waitForResponse(response => {
-    const url = new URL(response.url());
-    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
-  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
-  const agents = await (await agentsResponse).json();
-  const onboarding = page.locator('#agentDialog');
-  if ((agents.items || []).length === 0) {
-    await expect(onboarding).toBeVisible();
-    const submit = onboarding.locator('button[type="submit"]');
-    await expect(submit).toBeEnabled();
-    await submit.click();
-    await expect(onboarding).not.toBeVisible();
-  }
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
 }
 
 function writeEvidence(name, value) {
