@@ -3059,6 +3059,7 @@
       chatAttachmentItems = [];
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
+      renderChatPage();
       await loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
       if (creationRequestID === chatCreateRequest && chatPendingCreateID === createdWithContext.id) {
         chatPendingCreateID = '';
