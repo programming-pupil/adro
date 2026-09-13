@@ -57,3 +57,39 @@ test('renders the project-aware chat workspace with attachment drafting', async 
   await page.screenshot({path: 'var/adro-chat-workspace-mobile-cyber.png', fullPage: true});
   expect(errors).toEqual([]);
 });
+
+test('replays an idempotent chat creation after a lost response body', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  await page.locator('#loginForm input[name="username"]').fill('admin');
+  await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  await page.locator('#loginForm button[type="submit"]').click();
+  await expect(page.locator('#appShell')).toBeVisible();
+
+  const project = await page.evaluate(async canonicalName => {
+    const response = await fetch('/api/v1/repositories', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json', 'X-Workspace-ID': 'local'},
+      body: JSON.stringify({workspace_id: 'local', canonical_name: canonicalName, clone_url: 'https://example.invalid/chat-replay.git', provider: 'git', default_branch: 'main'})
+    });
+    return response.json();
+  }, `chat-replay-project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await page.locator('#refreshButton').click();
+  await page.locator('.nav-chat[data-view="chats"]').click();
+  await page.locator('#chatNew').click();
+  await page.locator('#chatCreateTitle').fill('幂等重放测试');
+  await expect(page.locator(`#chatCreateProject option[value="${project.id}"]`)).toHaveCount(1);
+  await page.locator('#chatCreateProject').selectOption(project.id);
+
+  let intercepted = false;
+  await page.route('**/api/v1/chats', async route => {
+    if (route.request().method() !== 'POST' || intercepted) return route.continue();
+    intercepted = true;
+    const response = await route.fetch();
+    await route.fulfill({response, body: 'invalid-json'});
+  });
+  await page.locator('#chatCreateForm button[type="submit"]').click();
+  await expect(page.locator('#chatProject')).toHaveValue(project.id);
+  await expect(page.locator('#chatCreateError')).toBeEmpty();
+});

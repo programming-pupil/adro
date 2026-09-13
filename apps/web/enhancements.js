@@ -3091,33 +3091,41 @@
     chatCreatingAgentID = agentID;
     let created;
     const requestKey = idempotencyKey();
+    const requestBody = JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()});
+    const createChatRequest = (signal) => api('/api/v1/chats', {method: 'POST', ...(signal ? {signal} : {}), headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: requestBody});
     const requestController = new AbortController();
     const requestTimeout = setTimeout(() => requestController.abort(), 10000);
     try {
-      created = await api('/api/v1/chats', {method: 'POST', signal: requestController.signal, headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
+      created = await createChatRequest(requestController.signal);
       const record = created?.chat || created?.item || created?.data || created;
       if (!record?.id) throw new Error('chat creation response did not include an id');
       created = record;
     } catch (_) {
-      // A slow browser can receive the successful POST after its response
-      // body read is interrupted. The idempotent write is durable, so recover
-      // the just-created session from the authoritative list before failing.
+      // The POST may have committed before the browser lost its response body.
+      // Replaying the same key asks the API for the durable response and avoids
+      // guessing the new session from a title or a stale list snapshot.
       try {
-        for (let attempt = 0; attempt < 10 && !created?.id; attempt += 1) {
-          if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 200));
-          const response = await api('/api/v1/chats');
-          const items = Array.isArray(response?.items) ? response.items : [];
-          created = items.find(item => item.title === title && item.project_id === projectID && item.agent_id === agentID)
-            || items.find(item => item.title === title && item.project_id === projectID)
-            || items.find(item => item.title === title && item.agent_id === agentID)
-            || items.find(item => item.title === title);
-        }
-        if (!created?.id) throw new Error('chat creation recovery did not find a session');
+        const replay = await createChatRequest();
+        created = replay?.chat || replay?.item || replay?.data || replay;
+        if (!created?.id) throw new Error('chat creation replay did not include an id');
       } catch (_) {
-        $('#chatCreateError').textContent = t('chatCreateFailed');
-        chatCreatingProjectID = '';
-        chatCreatingAgentID = '';
-        return;
+        // A replay can race the first request's persistence. Keep a bounded
+        // authoritative-list fallback for that narrow window.
+        try {
+          for (let attempt = 0; attempt < 20 && !created?.id; attempt += 1) {
+            if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 250));
+            const response = await api('/api/v1/chats');
+            const items = Array.isArray(response?.items) ? response.items : [];
+            const matches = items.filter(item => item.title === title && (!projectID || item.project_id === projectID) && (!agentID || item.agent_id === agentID));
+            created = matches.sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+          }
+          if (!created?.id) throw new Error('chat creation recovery did not find a session');
+        } catch (_) {
+          $('#chatCreateError').textContent = t('chatCreateFailed');
+          chatCreatingProjectID = '';
+          chatCreatingAgentID = '';
+          return;
+        }
       }
     } finally {
       clearTimeout(requestTimeout);
