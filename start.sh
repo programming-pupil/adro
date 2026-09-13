@@ -22,6 +22,41 @@ warn() { printf '[ADRO] WARNING: %s\n' "$*" >&2; }
 fail() { printf '[ADRO] ERROR: %s\n' "$*" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+configured_username() {
+  local username="${ADRO_ADMIN_USERNAME:-admin}" existing=""
+  if [ -s "$AUTH_STATE_FILE" ] && has ruby; then
+    existing="$(ruby -rjson -e '
+      state = JSON.parse(File.read(ARGV.fetch(0)))
+      users = Array(state["users"])
+      user = users.find { |item| item["role"] == "admin" && item["status"] == "active" } || users.first
+      puts user["username"] if user && user["username"]
+    ' "$AUTH_STATE_FILE" 2>/dev/null || true)"
+    [ -n "$existing" ] && username="$existing"
+  fi
+  printf '%s' "$username"
+}
+
+password_status() {
+  if [ -n "${ADRO_ADMIN_PASSWORD:-}" ]; then
+    printf '%s' "configured via ADRO_ADMIN_PASSWORD (hidden)"
+  elif [ -s "$AUTH_STATE_FILE" ]; then
+    printf '%s' "stored in auth state (hidden)"
+  else
+    printf '%s' "not configured"
+  fi
+}
+
+log_runtime_info() {
+  log "Login username: $(configured_username)"
+  log "Login password: $(password_status)"
+  log "Data directory: $STATE_DIR"
+  log "Artifacts directory: $ARTIFACT_ROOT"
+  log "Workspaces directory: $WORK_ROOT"
+  log "API log file: $API_LOG"
+  log "WebUI log file: $WEB_LOG"
+  log "Auth state file: $AUTH_STATE_FILE"
+}
+
 # Keep local startup on the same toolchain used by the repository's browser
 # and release checks. ADRO_GO_BIN may point at a specific Go binary; otherwise
 # use the checked-in resolver before falling back to PATH.
@@ -245,6 +280,7 @@ start_background() {
 }
 
 show_status() {
+  log_runtime_info
   if pid_running "$API_PID_FILE"; then log "API process is running"; else warn "API process is not running"; fi
   if pid_running "$WEB_PID_FILE"; then log "WebUI process is running"; else warn "WebUI process is not running"; fi
   if has curl && curl -fsS "http://127.0.0.1:$API_PORT/readyz" >/dev/null 2>&1; then
@@ -266,7 +302,7 @@ show_status() {
   if [ "$discovered" = false ]; then warn "No coding executor discovered"; fi
 }
 
-if [ "$MODE" = "stop" ]; then stop_all; exit 0; fi
+if [ "$MODE" = "stop" ]; then log_runtime_info; stop_all; exit 0; fi
 if [ "$MODE" = "status" ]; then show_status; exit 0; fi
 
 if [ -n "${ADRO_ADMIN_PASSWORD:-}" ] && [ ! -s "$AUTH_STATE_FILE" ] && [ "${#ADRO_ADMIN_PASSWORD}" -lt 10 ]; then
@@ -283,6 +319,7 @@ executor="$(executor_path 2>/dev/null || true)"
 [ -n "$executor" ] || fail "No supported coding executor found; install one or set ADRO_EXECUTOR"
 
 mkdir -p "$BIN_DIR" "$ARTIFACT_ROOT" "$WORK_ROOT"
+log_runtime_info
 "$GO_CMD" build -o "$BIN_DIR/adro-api" ./cmd/adro-api
 "$GO_CMD" build -o "$BIN_DIR/adro-web" ./cmd/adro-web
 stop_process "$API_PID_FILE"

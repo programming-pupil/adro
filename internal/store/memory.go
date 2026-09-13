@@ -1630,8 +1630,12 @@ func (m *Memory) ConfirmImpactReport(requirementID string, version int64, reposi
 }
 
 func (m *Memory) UpsertRepository(repository domain.Repository) (domain.Repository, error) {
-	if strings.TrimSpace(repository.WorkspaceID) == "" || strings.TrimSpace(repository.CanonicalName) == "" || strings.TrimSpace(repository.CloneURL) == "" {
-		return domain.Repository{}, errors.New("workspace_id, canonical_name and clone_url are required")
+	localPath := ""
+	if repository.Metadata != nil {
+		localPath, _ = repository.Metadata["local_path"].(string)
+	}
+	if strings.TrimSpace(repository.WorkspaceID) == "" || strings.TrimSpace(repository.CanonicalName) == "" || (strings.TrimSpace(repository.CloneURL) == "" && strings.TrimSpace(localPath) == "") {
+		return domain.Repository{}, errors.New("workspace_id, canonical_name and either clone_url or metadata.local_path are required")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

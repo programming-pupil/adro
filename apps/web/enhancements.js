@@ -130,7 +130,51 @@
   Object.assign(translations.zh, { joinPolicy: '汇聚策略', joinQuorum: '汇聚数量', joinFailurePolicy: '失败策略', predicateKind: '条件类型', predicateChild: '条件分支', predicateAddChild: '添加条件', predicateRemoveChild: '删除条件', predicateNoChildren: '暂无条件分支', requiredEvidence: '必需证据', failureCode: '失败代码', mergePolicy: '汇聚配置', conflictPolicy: '冲突策略', keyFields: '键字段', requireEvidence: '必须有证据', repairPolicy: '修复配置', repairTarget: '修复目标', verificationNodes: '验证节点', repairRounds: '最大轮次', repairBudget: '修复预算', repairScope: '修复范围', selectNode: '选择节点' });
   Object.assign(translations.en, { joinPolicy: 'Join policy', joinQuorum: 'Join quorum', joinFailurePolicy: 'Join failure policy', predicateKind: 'Predicate type', predicateChild: 'Predicate branch', predicateAddChild: 'Add condition', predicateRemoveChild: 'Remove condition', predicateNoChildren: 'No predicate branches', requiredEvidence: 'Required evidence', failureCode: 'Failure code', mergePolicy: 'Merge configuration', conflictPolicy: 'Conflict policy', keyFields: 'Key fields', requireEvidence: 'Require evidence', repairPolicy: 'Repair configuration', repairTarget: 'Repair target', verificationNodes: 'Verification nodes', repairRounds: 'Maximum rounds', repairBudget: 'Repair budget', repairScope: 'Repair scope', selectNode: 'Select node' });
 
+  Object.assign(translations.zh, {
+    logoutConfirm: '确定退出当前账号吗？',
+    logoutConfirmTitle: '退出当前账号',
+    logoutConfirmMessage: '退出后需要重新登录才能继续使用当前工作区。',
+    logoutCancel: '取消',
+    logoutConfirmAction: '确认退出',
+    requirementDescriptionOnly: '需求描述',
+    requirementDescriptionPlaceholder: '直接描述你希望交付的结果、背景、约束和验收重点...',
+    requirementDescriptionHelp: '支持粘贴图片；文件和图片会显示在这里，可随时删除。',
+    bugDescriptionOnly: 'Bug 描述',
+    bugDescriptionPlaceholder: 'Bug 描述\n\n复现步骤\n\n预期结果\n\n实际结果\n\n相关日志',
+    bugDescriptionHelp: '支持粘贴图片；文件和图片会显示在这里，可随时删除。',
+    attachmentRemove: '删除附件', attachmentImage: '图片', attachmentFile: '文件',
+    chatCreateKicker: 'NEW / CONVERSATION',
+    chatCreateSubtitle: '先选一个项目和执行 Agent，再开始一段持久化讨论。',
+    chatTitlePlaceholder: '例如：支付发布讨论',
+    repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
+    repositorySourceHelp: '远程地址和本地目录二选一；本地目录可直接填写绝对路径。',
+    repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
+    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目'
+  });
+  Object.assign(translations.en, {
+    logoutConfirm: 'Sign out of the current account?',
+    logoutConfirmTitle: 'Sign out of this account',
+    logoutConfirmMessage: 'You will need to sign in again to continue using this workspace.',
+    logoutCancel: 'Cancel',
+    logoutConfirmAction: 'Sign out',
+    requirementDescriptionOnly: 'Requirement description',
+    requirementDescriptionPlaceholder: 'Describe the outcome, context, constraints, and acceptance focus...',
+    requirementDescriptionHelp: 'Images can be pasted here. Files and images appear below and can be removed anytime.',
+    bugDescriptionOnly: 'Bug description',
+    bugDescriptionPlaceholder: 'Bug description\n\nReproduction steps\n\nExpected result\n\nActual result\n\nRelevant logs',
+    bugDescriptionHelp: 'Images can be pasted here. Files and images appear below and can be removed anytime.',
+    attachmentRemove: 'Remove attachment', attachmentImage: 'Image', attachmentFile: 'File',
+    chatCreateKicker: 'NEW / CONVERSATION',
+    chatCreateSubtitle: 'Choose a project and execution agent before starting a durable discussion.',
+    chatTitlePlaceholder: 'For example: Payment release discussion',
+    repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
+    repositorySourceHelp: 'Choose either a remote URL or a local directory. Local projects accept an absolute path.',
+    repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
+    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project'
+  });
+
   let currentUser = null;
+  const entityDraftFiles = { requirement: [], bug: [] };
   let directory = [];
   let managedUsers = [];
   let availableMenus = menuIDs.slice();
@@ -248,6 +292,128 @@
   };
   const idempotencyKey = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
 
+  function entityFileInput(kind) {
+    return $(`#${kind === 'requirement' ? 'requirementAttachments' : 'bugAttachments'}`);
+  }
+
+  function entityFilePreview(kind) {
+    return $(`#${kind === 'requirement' ? 'requirementAttachmentPreview' : 'bugAttachmentPreview'}`);
+  }
+
+  function releaseEntityFile(file) {
+    if (file?.previewURL) URL.revokeObjectURL(file.previewURL);
+  }
+
+  function normalizeEntityFile(file, index = 0) {
+    if (!file) return null;
+    const fallbackName = `pasted-image-${Date.now()}-${index + 1}.png`;
+    const name = String(file.name || '').trim() || fallbackName;
+    if (name === file.name) return file;
+    return new File([file], name, {type: file.type || 'application/octet-stream', lastModified: file.lastModified || Date.now()});
+  }
+
+  function syncEntityFileInput(kind) {
+    const input = entityFileInput(kind);
+    if (!input || typeof DataTransfer === 'undefined') return;
+    const transfer = new DataTransfer();
+    entityDraftFiles[kind].forEach(item => transfer.items.add(item.file));
+    input.files = transfer.files;
+  }
+
+  function renderEntityFilePreview(kind) {
+    const target = entityFilePreview(kind);
+    if (!target) return;
+    const files = entityDraftFiles[kind];
+    target.innerHTML = files.map((item, index) => {
+      const image = item.file.type.startsWith('image/')
+        ? `<img src="${escapeHTML(item.previewURL)}" alt="${escapeHTML(item.file.name)}">`
+        : `<span class="entity-attachment-icon" aria-hidden="true">▤</span>`;
+      return `<div class="entity-attachment" data-entity-attachment="${kind}" data-entity-attachment-index="${index}"><div class="entity-attachment-media">${image}</div><div class="entity-attachment-copy"><strong title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</strong><small>${escapeHTML(formatBytes(item.file.size))}</small></div><button class="entity-attachment-remove" type="button" data-remove-entity-attachment="${kind}" data-entity-attachment-index="${index}" title="${escapeHTML(t('attachmentRemove'))}" aria-label="${escapeHTML(t('attachmentRemove'))}">×</button></div>`;
+    }).join('');
+  }
+
+  function addEntityFiles(kind, files) {
+    const existing = new Set(entityDraftFiles[kind].map(item => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
+    for (const [index, source] of Array.from(files || []).entries()) {
+      const file = normalizeEntityFile(source, index);
+      if (!file || existing.has(`${file.name}:${file.size}:${file.lastModified}`)) continue;
+      existing.add(`${file.name}:${file.size}:${file.lastModified}`);
+      entityDraftFiles[kind].push({file, previewURL: file.type.startsWith('image/') ? URL.createObjectURL(file) : ''});
+    }
+    syncEntityFileInput(kind);
+    renderEntityFilePreview(kind);
+  }
+
+  function clearEntityFiles(kind) {
+    entityDraftFiles[kind].forEach(releaseEntityFile);
+    entityDraftFiles[kind] = [];
+    const input = entityFileInput(kind);
+    if (input) input.value = '';
+    renderEntityFilePreview(kind);
+  }
+
+  function entityFiles(kind) {
+    return entityDraftFiles[kind].map(item => item.file);
+  }
+
+  function bindEntityAttachments(kind, textareaSelector) {
+    const input = entityFileInput(kind);
+    const textarea = $(textareaSelector);
+    const dropZone = input?.closest('.file-drop');
+    if (input && input.dataset.bound !== 'true') {
+      input.dataset.bound = 'true';
+      input.onchange = () => addEntityFiles(kind, input.files);
+    }
+    if (textarea && textarea.dataset.bound !== 'true') {
+      textarea.dataset.bound = 'true';
+      textarea.addEventListener('paste', event => {
+        const images = Array.from(event.clipboardData?.items || [])
+          .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+          .map(item => item.getAsFile())
+          .filter(Boolean);
+        if (images.length) {
+          event.preventDefault();
+          addEntityFiles(kind, images);
+        }
+      });
+    }
+    if (dropZone && dropZone.dataset.bound !== 'true') {
+      dropZone.dataset.bound = 'true';
+      const setDragging = value => dropZone.classList.toggle('is-dragging', value);
+      dropZone.addEventListener('dragenter', event => {
+        event.preventDefault();
+        setDragging(true);
+      });
+      dropZone.addEventListener('dragover', event => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        setDragging(true);
+      });
+      dropZone.addEventListener('dragleave', event => {
+        if (!dropZone.contains(event.relatedTarget)) setDragging(false);
+      });
+      dropZone.addEventListener('drop', event => {
+        event.preventDefault();
+        setDragging(false);
+        addEntityFiles(kind, event.dataTransfer?.files || []);
+      });
+    }
+    renderEntityFilePreview(kind);
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('[data-remove-entity-attachment]');
+    if (!button) return;
+    const kind = button.dataset.removeEntityAttachment;
+    const index = Number(button.dataset.entityAttachmentIndex);
+    const item = entityDraftFiles[kind]?.[index];
+    if (!item) return;
+    releaseEntityFile(item);
+    entityDraftFiles[kind].splice(index, 1);
+    syncEntityFileInput(kind);
+    renderEntityFilePreview(kind);
+  });
+
   window.adroCanAccessMenu = menu => (currentUser && currentUser.role === 'admin') || availableMenus.includes(menu);
 
   const roleLabel = role => t(role === 'admin' ? 'roleAdmin' : role === 'viewer' ? 'roleViewer' : 'roleMember');
@@ -347,7 +513,21 @@
     }
   };
 
+  function confirmLogout() {
+    const dialog = $('#logoutConfirmDialog');
+    if (!dialog?.showModal) return Promise.resolve(window.confirm(t('logoutConfirm')));
+    return new Promise(resolve => {
+      const finish = () => resolve(dialog.returnValue === 'confirm');
+      dialog.addEventListener('close', finish, {once: true});
+      dialog.showModal();
+    });
+  }
+
+  $('#logoutConfirmButton').onclick = () => $('#logoutConfirmDialog').close('confirm');
+  $('#logoutConfirmCancel').onclick = () => $('#logoutConfirmDialog').close('cancel');
+  $('#logoutConfirmClose').onclick = () => $('#logoutConfirmDialog').close('cancel');
   $('#logoutButton').onclick = async () => {
+    if (!await confirmLogout()) return;
     try { await api('/api/v1/auth/logout', { method: 'POST' }); } catch (_) {}
     if (stream) {
       stream.onclose = null;
@@ -394,40 +574,25 @@
     return null;
   }
 
-  function populateRequirementOrchestration() {
-    const target = $('#requirementExecutionTarget');
-    const members = $('#requirementTemporaryMembers');
-    if (!target || !members) return;
-    const previous = target.value;
-    const activeAgents = nativeAgents.filter(agent => agent.status === 'active');
-    const publishedSquads = nativeSquads.filter(squad => squad.status === 'published');
-    const options = [
-      `<option value="">${escapeHTML(t('noExecutionPlan'))}</option>`,
-      ...activeAgents.map(agent => `<option value="agent:${escapeHTML(agent.id)}">Agent · ${escapeHTML(agent.name || agent.id)} · r${escapeHTML(String(agent.revision || 0))}</option>`),
-      ...publishedSquads.map(squad => `<option value="squad:${escapeHTML(squad.id)}">Squad · ${escapeHTML(squad.name || squad.id)} · v${escapeHTML(String(squad.published_version || squad.revision || 0))}</option>`),
-      `<option value="temporary">${escapeHTML(t('temporarySquad'))}</option>`
-    ];
-    target.innerHTML = options.join('');
-    if (options.some(option => option.includes(`value="${previous}"`))) target.value = previous;
-    members.innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name || agent.id)} · ${escapeHTML(agent.role || 'agent')} · r${escapeHTML(String(agent.revision || 0))}</option>`).join('');
-    const field = $('#requirementTemporaryMembersField');
-    if (field) field.hidden = target.value !== 'temporary';
-  }
-
-  showDialog = async function enhancedRequirementDialog() {
+  showDialog = function enhancedRequirementDialog() {
     $('#formError').textContent = '';
-    await loadIdentityData();
-    await loadOrchestrationData();
-    $('#requirementRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-    $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-    populateRequirementOrchestration();
-    $('#requirementExecutionTarget').onchange = event => {
-      const field = $('#requirementTemporaryMembersField');
-      if (field) field.hidden = event.currentTarget.value !== 'temporary';
+    clearEntityFiles('requirement');
+    $('#requirementForm').reset();
+    const populate = () => {
+      $('#requirementRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
+      $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
     };
+    populate();
     applyTranslations();
     $('#requirementDialog').showModal();
-    setTimeout(() => focusIfPresent('#requirementForm input[name="title"]'), 0);
+    bindEntityAttachments('requirement', '#requirementDescription');
+    setTimeout(() => focusIfPresent('#requirementDescription'), 0);
+    void loadIdentityData().then(() => {
+      if ($('#requirementDialog').open) {
+        populate();
+        applyTranslations();
+      }
+    });
   };
 
   async function uploadEntityFiles(ownerType, ownerID, files) {
@@ -447,10 +612,9 @@
     const formElement = event.currentTarget;
     const data = new FormData(formElement);
     const submit = formElement.querySelector('button[type="submit"]');
-    const criteria = String(data.get('acceptance')).split('\n').map(item => item.trim()).filter(Boolean);
-    const files = Array.from(formElement.elements.attachments.files || []);
-    const executionTarget = String(data.get('execution_target') || '').trim();
-    const temporaryMemberIDs = data.getAll('temporary_members').map(String).filter(Boolean);
+    const description = String(data.get('description') || '').trim();
+    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('requirementDescriptionOnly');
+    const files = entityFiles('requirement');
     $('#formError').textContent = '';
     submit.disabled = true;
     try {
@@ -458,55 +622,16 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() },
         body: JSON.stringify({
-          workspace_id: 'local', title: String(data.get('title')).trim(), description: String(data.get('description')).trim(),
-          acceptance_criteria: criteria, assignee_member_ids: [String(data.get('assignee'))],
+          workspace_id: 'local', title, description,
+          acceptance_criteria: [description], assignee_member_ids: [String(data.get('assignee'))],
           repository_ids: [String(data.get('repository'))], priority: String(data.get('priority') || 'normal')
         })
       });
       try { await uploadEntityFiles('requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
-      let graphEditorSquad = null;
-      const openGraphStudio = Boolean(data.get('open_graph_studio'));
-      if (executionTarget) {
-        let planBody = null;
-        if (executionTarget === 'temporary') {
-          const temporaryAgents = nativeAgents.filter(agent => temporaryMemberIDs.includes(agent.id) && agent.status === 'active');
-          if (!temporaryAgents.length) throw new Error('temporary squad requires at least one active Agent');
-          const members = squadMembersForAgents(temporaryAgents);
-          const graph = graphForNativeSquadMembers(temporaryAgents);
-          const quick = await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan/quick-squad`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()},
-            body: JSON.stringify({
-              name: `${created.title || t('temporarySquad')} · ${created.id.slice(0, 8)}`,
-              description: String(data.get('description')).trim(), members, graph,
-              policy: {max_nesting_depth: 2, budget: {tokens: 120000, tool_calls: 200, concurrent: 1}, human_exit_required: true}
-            })
-          });
-          if (quick.valid === false) throw new Error(quick.validation_error || t('graphValidationFailed'));
-          graphEditorSquad = quick.squad || null;
-          planBody = {graph};
-        } else {
-          const selected = graphForRequirementTarget(executionTarget);
-          if (!selected) throw new Error(t('noPublishedTarget'));
-          planBody = {...selected.body, graph: selected.graph};
-        }
-        const preview = await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan/dry-run`, {
-          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...planBody, idempotency_key: `preview-${idempotencyKey()}`})
-        });
-        if (!preview.valid) throw new Error((preview.errors || [t('planGraphInvalid')]).join('; '));
-        await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()},
-          body: JSON.stringify(planBody)
-        });
-      }
       closeDialog();
       formElement.reset();
+      clearEntityFiles('requirement');
       await loadCore(true);
-      if (graphEditorSquad && openGraphStudio) {
-        await loadOrchestrationData();
-        openGraphEditor(graphEditorSquad);
-      }
     } catch (_) {
       $('#formError').textContent = t('createFailed');
     } finally {
@@ -515,28 +640,125 @@
   };
 
   const baseOpenResourceDialog = openResourceDialog;
+  const baseResourceSubmit = $('#resourceForm').onsubmit;
+  resourceConfigs.repository.fields = [
+    ['name', 'repositoryName', 'text', true],
+    ['local_path', 'repositoryLocalPath', 'text', false],
+    ['clone_url', 'repositoryCloneURL', 'url', false],
+    ['owner_id', 'repositoryOwner', 'text', false],
+    ['provider', 'repositoryProvider', 'text', false],
+    ['default_branch', 'repositoryBranch', 'text', false]
+  ];
+  translations.zh.createRepository = translations.zh.createProject;
+  translations.en.createRepository = translations.en.createProject;
   openResourceDialog = function enhancedResourceDialog(kind) {
     if (kind === 'bug') {
       showBugDialog();
       return;
     }
     baseOpenResourceDialog(kind);
+    if (kind !== 'repository') return;
+    const localPath = $('#resourceFields input[name="local_path"]');
+    const cloneURL = $('#resourceFields input[name="clone_url"]');
+    const owner = $('#resourceFields input[name="owner_id"]');
+    const sourceSwitch = document.createElement('div');
+    sourceSwitch.className = 'resource-source-switch';
+    sourceSwitch.setAttribute('role', 'group');
+    sourceSwitch.setAttribute('aria-label', t('repositorySource'));
+    sourceSwitch.innerHTML = `<button type="button" class="active" data-repository-source="remote">${escapeHTML(t('remoteProject'))}</button><button type="button" data-repository-source="local">${escapeHTML(t('localProject'))}</button>`;
+    $('#resourceFields').prepend(sourceSwitch);
+    if (localPath) localPath.placeholder = t('repositoryLocalPath');
+    if (cloneURL) cloneURL.placeholder = t('repositoryCloneURL');
+    if (owner) {
+      owner.placeholder = t('repositoryOwnerPlaceholder');
+      const select = document.createElement('select');
+      select.name = 'owner_id';
+      select.innerHTML = `<option value="">${escapeHTML(t('repositoryOwnerPlaceholder'))}</option>${directory.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.display_name)} · ${escapeHTML(item.username)}</option>`).join('')}`;
+      owner.replaceWith(select);
+    }
+    const hint = document.createElement('small');
+    hint.className = 'form-help resource-source-help';
+    hint.textContent = t('repositorySourceHelp');
+    $('#resourceFields').prepend(hint);
+    const updateSource = source => {
+      const local = source === 'local';
+      const localLabel = localPath?.parentElement;
+      const cloneLabel = cloneURL?.parentElement;
+      if (localLabel) localLabel.hidden = !local;
+      if (cloneLabel) cloneLabel.hidden = local;
+      if (localPath) localPath.required = local;
+      if (cloneURL) cloneURL.required = !local;
+      sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => button.classList.toggle('active', button.dataset.repositorySource === source));
+    };
+    sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => { button.onclick = () => updateSource(button.dataset.repositorySource); });
+    updateSource('remote');
+  };
+
+  $('#resourceForm').onsubmit = async event => {
+    if (resourceDialogKind !== 'repository') {
+      return baseResourceSubmit(event);
+    }
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const name = String(values.get('name') || '').trim();
+    const localPath = String(values.get('local_path') || '').trim();
+    const cloneURL = String(values.get('clone_url') || '').trim();
+    const ownerID = String(values.get('owner_id') || '').trim();
+    $('#resourceFormError').textContent = '';
+    if (!name || (!localPath && !cloneURL)) {
+      $('#resourceFormError').textContent = t('resourceSaveFailed');
+      return;
+    }
+    const metadata = {};
+    if (localPath) metadata.local_path = localPath;
+    if (ownerID) metadata.owner_id = ownerID;
+    const body = {
+      workspace_id: 'local', canonical_name: name, clone_url: cloneURL, owner_id: ownerID,
+      provider: String(values.get('provider') || '').trim() || (localPath ? 'local' : 'git'),
+      default_branch: String(values.get('default_branch') || '').trim() || 'main', metadata
+    };
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      const created = await api('/api/v1/repositories', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      if (created) repositories = [created, ...repositories.filter(item => item.id !== created.id)];
+      closeResourceDialog();
+      form.reset();
+      await loadCore(true);
+    } catch (_) {
+      $('#resourceFormError').textContent = t('resourceSaveFailed');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
   };
 
   async function showBugDialog() {
     $('#bugFormError').textContent = '';
+    $('#bugForm').reset();
+    clearEntityFiles('bug');
     // Open from the cached control-plane snapshot first. Directory refreshes
     // can be slow while the stream is reconnecting, but they must not make the
     // create action appear unresponsive.
     const populate = () => {
+      const previous = {
+        requirement: $('#bugRequirement')?.value || '',
+        repository: $('#bugRepository')?.value || '',
+        assignee: $('#bugAssignee')?.value || ''
+      };
       $('#bugRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
       $('#bugAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
       $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
+      for (const [id, value] of Object.entries({bugRequirement: previous.requirement, bugRepository: previous.repository, bugAssignee: previous.assignee})) {
+        const select = $(`#${id}`);
+        if (select && Array.from(select.options).some(option => option.value === value)) select.value = value;
+      }
     };
     populate();
     applyTranslations();
     $('#bugDialog').showModal();
-    setTimeout(() => focusIfPresent('#bugForm input[name="title"]'), 0);
+    bindEntityAttachments('bug', '#bugDescription');
+    setTimeout(() => focusIfPresent('#bugDescription'), 0);
     await loadIdentityData();
     if ($('#bugDialog').open) {
       populate();
@@ -544,31 +766,50 @@
     }
   }
 
+  function bindBugRequirementAutofill() {
+    const requirementSelect = $('#bugRequirement');
+    if (!requirementSelect || requirementSelect.dataset.autofillBound === 'true') return;
+    requirementSelect.dataset.autofillBound = 'true';
+    requirementSelect.addEventListener('change', () => {
+      const selected = requirements.find(item => item.id === requirementSelect.value);
+      if (!selected) return;
+      const repositoryID = selected.repository_ids?.[0] || '';
+      const assigneeID = selected.assignee_member_ids?.[0] || '';
+      const repository = $('#bugRepository');
+      const assignee = $('#bugAssignee');
+      if (repository && repositoryID && Array.from(repository.options).some(option => option.value === repositoryID)) repository.value = repositoryID;
+      if (assignee && assigneeID && Array.from(assignee.options).some(option => option.value === assigneeID)) assignee.value = assigneeID;
+    });
+  }
+
   const closeBugDialog = () => $('#bugDialog').close();
   $('#closeBugDialog').onclick = closeBugDialog;
   $('#cancelBugDialog').onclick = closeBugDialog;
   $('#bugDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeBugDialog(); });
+  bindBugRequirementAutofill();
   $('#bugForm').onsubmit = async event => {
     event.preventDefault();
     const formElement = event.currentTarget;
     const data = new FormData(formElement);
     const submit = formElement.querySelector('button[type="submit"]');
-    const files = Array.from(formElement.elements.attachments.files || []);
+    const description = String(data.get('description') || '').trim();
+    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('bugDescriptionOnly');
+    const files = entityFiles('bug');
     $('#bugFormError').textContent = '';
     submit.disabled = true;
     try {
       const created = await api('/api/v1/bugs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workspace_id: 'local', title: String(data.get('title')).trim(), repository_id: String(data.get('repository')),
+          workspace_id: 'local', title, repository_id: String(data.get('repository')),
           assignee_member_id: String(data.get('assignee')), requirement_id: String(data.get('requirement') || ''),
-          steps_to_reproduce: String(data.get('steps')).trim(), expected: String(data.get('expected')).trim(),
-          actual: String(data.get('actual')).trim(), log_excerpt: String(data.get('log')).trim()
+          steps_to_reproduce: description, expected: '', actual: description, log_excerpt: ''
         })
       });
       try { await uploadEntityFiles('bug', created.id, files); } catch (_) { $('#bugFormError').textContent = t('uploadFailed'); return; }
       closeBugDialog();
       formElement.reset();
+      clearEntityFiles('bug');
       await loadCore(true);
     } catch (_) {
       $('#bugFormError').textContent = t('resourceSaveFailed');
@@ -2458,7 +2699,7 @@
       };
     }
     document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
-    $('#chatNew').onclick = createChatFromUI;
+    $('#chatNew').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
   }
 
@@ -2475,20 +2716,54 @@
     } catch (_) { renderChatPage(); }
   }
 
+  function showChatCreateDialog() {
+    const projectSelect = $('#chatCreateProject');
+    const agentSelect = $('#chatCreateAgent');
+    const form = $('#chatCreateForm');
+    if (!projectSelect || !agentSelect || !form) return;
+    projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('')}`;
+    form.reset();
+    $('#chatCreateError').textContent = '';
+    $('#chatCreateDialog').showModal();
+    setTimeout(() => focusIfPresent('#chatCreateTitle'), 0);
+  }
+
+  function closeChatCreateDialog() {
+    const dialog = $('#chatCreateDialog');
+    if (dialog?.open) dialog.close();
+  }
+
   async function createChatFromUI() {
-    const title = window.prompt(t('chatTitle'), t('newChat'));
+    const title = String($('#chatCreateTitle')?.value || '').trim();
     if (!title) return;
-    const projectID = $('#chatProject')?.value || '';
-    const agentID = $('#chatAgent')?.value || '';
+    const projectID = $('#chatCreateProject')?.value || '';
+    const agentID = $('#chatCreateAgent')?.value || '';
+    const submit = $('#chatCreateForm button[type="submit"]');
+    if (submit) submit.disabled = true;
+    $('#chatCreateError').textContent = '';
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
-      chats = [created, ...chats.filter(item => item.id !== created.id)]; activeChatID = created.id; await loadChatDetail(activeChatID);
-    } catch (_) { window.alert(t('chatCreateFailed')); }
+      chats = [created, ...chats.filter(item => item.id !== created.id)];
+      activeChatID = created.id;
+      closeChatCreateDialog();
+      $('#chatCreateForm').reset();
+      await loadChatDetail(activeChatID);
+    } catch (_) {
+      $('#chatCreateError').textContent = t('chatCreateFailed');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
   }
+
+  $('#closeChatCreateDialog').onclick = closeChatCreateDialog;
+  $('#cancelChatCreateDialog').onclick = closeChatCreateDialog;
+  $('#chatCreateDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeChatCreateDialog(); });
+  $('#chatCreateForm').onsubmit = async event => { event.preventDefault(); await createChatFromUI(); };
 
   async function sendChatFromUI(event) {
     event.preventDefault();
-    if (!activeChatID) { await createChatFromUI(); if (!activeChatID) return; }
+    if (!activeChatID) { showChatCreateDialog(); return; }
     const form = event.currentTarget; const input = $('#chatInput'); const files = Array.from($('#chatFiles')?.files || []); const status = $('#chatComposerStatus');
     const attachmentIDs = [];
     try {

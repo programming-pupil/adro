@@ -2813,6 +2813,9 @@ func (s *Server) repositoryRoute(w http.ResponseWriter, r *http.Request, path st
 		if patch.DefaultBranch == "" {
 			patch.DefaultBranch = saved.DefaultBranch
 		}
+		if patch.OwnerID == "" {
+			patch.OwnerID = saved.OwnerID
+		}
 		if patch.LanguageSet == nil {
 			patch.LanguageSet = saved.LanguageSet
 		}
