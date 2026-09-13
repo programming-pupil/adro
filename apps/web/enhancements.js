@@ -2837,6 +2837,7 @@
   let chatAgents = [];
   let chatResourceRequest = 0;
   let chatStateRequest = 0;
+  let chatCreateRequest = 0;
   let chatPendingCreateID = '';
   let chatPendingCreateProjectID = '';
   let chatPendingCreateAgentID = '';
@@ -2907,11 +2908,13 @@
     const messageHTML = messages.length ? messages.map(chatMessageHTML).join('') : `<div class="chat-empty-state"><div class="chat-empty-orbit"><span></span><b>✦</b></div><h2>${escapeHTML(t('chatEmptyTitle'))}</h2><p>${escapeHTML(t('chatEmptyBody'))}</p><div class="chat-suggestions"><span>${escapeHTML(t('chatSuggested'))}</span>${[t('chatSuggestionOne'), t('chatSuggestionTwo'), t('chatSuggestionThree')].map(text => `<button type="button" data-chat-suggestion="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join('')}</div></div>`;
     const projectSourceItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
-    const selectedProject = activeChatData?.chat?.project_id || (activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '');
+    const pendingProject = activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '';
+    const selectedProject = pendingProject || activeChatData?.chat?.project_id || '';
     const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
     const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
     const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
-    const selectedAgent = activeChatData?.chat?.agent_id || (activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '');
+    const pendingAgent = activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '';
+    const selectedAgent = pendingAgent || activeChatData?.chat?.agent_id || '';
     const project = chatProject();
     const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
@@ -2924,7 +2927,7 @@
     if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => persistChatField('project_id', event.currentTarget.value, activeChatData.chat.project_id || '');
     if ($('#chatAgent') && activeChatData?.chat) $('#chatAgent').onchange = event => persistChatField('agent_id', event.currentTarget.value, selectedAgent);
     $('#chatSearch').oninput = event => { chatSearchTerm = event.currentTarget.value; renderChatPage(); focusIfPresent('#chatSearch'); const input = $('#chatSearch'); if (input) input.setSelectionRange(chatSearchTerm.length, chatSearchTerm.length); };
-    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); chatPendingCreateID = ''; chatPendingCreateProjectID = ''; chatPendingCreateAgentID = ''; activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
     $('#chatNew').onclick = showChatCreateDialog;
     $('#chatNewTop').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
@@ -2958,10 +2961,11 @@
     }
   }
 
-  async function loadChatDetail(id, fallbackChat = null, requestID = chatStateRequest) {
+  async function loadChatDetail(id, fallbackChat = null, requestID = chatStateRequest, creationRequestID = 0) {
+    const isCurrent = () => id === activeChatID && (creationRequestID ? creationRequestID === chatCreateRequest : requestID === chatStateRequest && !chatPendingCreateID);
     try {
       const [detail, attachments] = await Promise.all([api(`/api/v1/chats/${encodeURIComponent(id)}`), api(`/api/v1/attachments?owner_type=chat_session&owner_id=${encodeURIComponent(id)}`)]);
-      if (requestID !== chatStateRequest || id !== activeChatID) return;
+      if (!isCurrent()) return;
       const chat = {...(fallbackChat || {}), ...(detail?.chat || {})};
       for (const field of ['project_id', 'agent_id', 'title']) {
         if (!chat[field] && fallbackChat?.[field]) chat[field] = fallbackChat[field];
@@ -2971,7 +2975,7 @@
       renderChatPage();
       requestAnimationFrame(() => { const history = $('#chatHistory'); if (history) history.scrollTop = history.scrollHeight; });
     } catch (_) {
-      if (requestID !== chatStateRequest || id !== activeChatID) return;
+      if (!isCurrent()) return;
       activeChatData = fallbackChat ? {chat: fallbackChat, messages: []} : null;
       chatAttachmentItems = [];
       renderChatPage();
@@ -2986,6 +2990,10 @@
       const serverChats = response.items || [];
       const pendingChat = chatPendingCreateID && chats.find(item => item.id === chatPendingCreateID);
       chats = pendingChat && !serverChats.some(item => item.id === pendingChat.id) ? [pendingChat, ...serverChats] : serverChats;
+      if (chatPendingCreateID) {
+        if (!chats.some(item => item.id === chatPendingCreateID)) chats = [pendingChat, ...chats].filter(Boolean);
+        return;
+      }
       if (activeChatID && !chats.some(item => item.id === activeChatID) && activeChatID !== chatPendingCreateID) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
       if (activeChatID) await loadChatDetail(activeChatID, chats.find(item => item.id === activeChatID) || null, requestID); else { activeChatData = null; renderChatPage(); }
@@ -3037,6 +3045,7 @@
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
+    const creationRequestID = ++chatCreateRequest;
     ++chatStateRequest;
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
@@ -3050,9 +3059,8 @@
       chatAttachmentItems = [];
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
-      const requestID = ++chatStateRequest;
-      await loadChatDetail(activeChatID, createdWithContext, requestID);
-      if (requestID === chatStateRequest && chatPendingCreateID === createdWithContext.id) {
+      await loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
+      if (creationRequestID === chatCreateRequest && chatPendingCreateID === createdWithContext.id) {
         chatPendingCreateID = '';
         chatPendingCreateProjectID = '';
         chatPendingCreateAgentID = '';
