@@ -29,6 +29,8 @@ test('renders the project-aware chat workspace with attachment drafting', async 
   await page.locator('#chatNew').click();
   await page.locator('#chatCreateTitle').fill('发布风险讨论');
   await expect(page.locator(`#chatCreateProject option[value="${project.id}"]`)).toHaveCount(1);
+  await expect(page.locator('#chatCreateProject')).toBeEnabled();
+  await expect(page.locator('#chatCreateAgent')).toBeEnabled();
   await page.locator('#chatCreateProject').selectOption(project.id);
   if (await page.locator('#chatCreateAgent option').count() > 1) await page.locator('#chatCreateAgent').selectOption({index: 1});
   await page.locator('#chatCreateForm button[type="submit"]').click();
