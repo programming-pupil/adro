@@ -3103,9 +3103,13 @@
       // body read is interrupted. The idempotent write is durable, so recover
       // the just-created session from the authoritative list before failing.
       try {
-        const response = await api('/api/v1/chats');
-        created = (response.items || []).find(item => item.title === title && item.project_id === projectID && item.agent_id === agentID)
-          || (response.items || []).find(item => item.title === title && item.project_id === projectID);
+        for (let attempt = 0; attempt < 10 && !created?.id; attempt += 1) {
+          if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 200));
+          const response = await api('/api/v1/chats');
+          const items = Array.isArray(response?.items) ? response.items : [];
+          created = items.find(item => item.title === title && item.project_id === projectID && item.agent_id === agentID)
+            || items.find(item => item.title === title && item.project_id === projectID);
+        }
         if (!created?.id) throw new Error('chat creation recovery did not find a session');
       } catch (_) {
         $('#chatCreateError').textContent = t('chatCreateFailed');
