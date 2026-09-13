@@ -22,8 +22,23 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
   await expect(page.locator('#requirementDialog')).toBeVisible();
-  await page.screenshot({ path: 'var/adro-requirement-form-cyber.png', fullPage: true });
+  await expect(page.locator('#autoGeneratePlan')).toBeVisible();
+  await expect(page.locator('#planAgentField')).toBeHidden();
+  await page.locator('#autoGeneratePlan').check();
+  await expect(page.locator('#planAgentField')).toBeVisible();
+  await page.screenshot({ path: 'var/adro-requirement-auto-plan-cyber.png', fullPage: true });
   await page.locator('#cancelDialog').click();
+
+  await page.locator('.nav-item[data-view="executions"]').click();
+  await expect(page.locator('#appView')).toContainText('执行舱');
+  await expect(page.locator('#newPipeline')).toHaveCount(0);
+  await expect(page.locator('#pipelineDialog')).toHaveCount(0);
+  await expect(page.locator('#appView')).not.toContainText('1→7');
+  await page.screenshot({ path: 'var/adro-execution-cockpit-cyber.png', fullPage: true });
+
+  await page.locator('.nav-chat[data-view="chats"]').click();
+  await expect(page.locator('.nav-chat[data-view="chats"]')).toHaveClass(/active/);
+  await page.screenshot({ path: 'var/adro-chat-active-cyber.png', fullPage: true });
 
   await page.locator('.nav-item[data-view="bugs"]').click();
   await page.locator('#newResource').click();

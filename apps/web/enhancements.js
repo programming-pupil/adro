@@ -56,6 +56,56 @@
     ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
   });
   Object.assign(translations.zh, {
+    autoGeneratePlan: '自动生成方案',
+    autoGeneratePlanHelp: '创建需求后立即用选定 Agent 生成冻结方案。',
+    planAgent: '方案生成 Agent',
+    planAgentRequired: '开启自动生成方案后必须选择 Agent。',
+    planCreated: '需求已创建，方案已生成',
+    planCreateAfterRequirementFailed: '需求已创建，但方案生成失败，请在执行页重试。',
+    executionCockpit: '执行舱',
+    executionCockpitSubtitle: '按 Squad 图实时呈现节点、事件与本地执行器输出',
+    runGraph: '运行图',
+    runConsole: '实时事件终端',
+    runEvidence: '证据与状态',
+    runSelect: '选择一个执行计划查看运行态',
+    runNoPlans: '还没有执行计划',
+    runNoEvents: '等待真实执行事件',
+    runNodes: '图节点',
+    runEvents: '事件',
+    runRevision: '冻结版本',
+    runLive: '实时',
+    runRefresh: '刷新时间线',
+    runSelectedBy: '执行目标',
+    runPlanHash: '计划摘要',
+    runStatus: '运行状态',
+    runNoStagePipeline: '执行由 Squad 图决定，不使用固定阶段。'
+  });
+  Object.assign(translations.en, {
+    autoGeneratePlan: 'Generate plan automatically',
+    autoGeneratePlanHelp: 'Create the requirement and immediately freeze a plan with the selected Agent.',
+    planAgent: 'Plan-generation Agent',
+    planAgentRequired: 'Choose an Agent when automatic plan generation is enabled.',
+    planCreated: 'Requirement created and plan generated',
+    planCreateAfterRequirementFailed: 'Requirement created, but plan generation failed. Retry from Engineering runs.',
+    executionCockpit: 'Execution cockpit',
+    executionCockpitSubtitle: 'Live graph nodes, events, and local executor output from the selected Squad graph',
+    runGraph: 'Run graph',
+    runConsole: 'Live event terminal',
+    runEvidence: 'Evidence and state',
+    runSelect: 'Select an execution plan to inspect its live state',
+    runNoPlans: 'No execution plans yet',
+    runNoEvents: 'Waiting for real execution events',
+    runNodes: 'Graph nodes',
+    runEvents: 'Events',
+    runRevision: 'Frozen revision',
+    runLive: 'LIVE',
+    runRefresh: 'Refresh timeline',
+    runSelectedBy: 'Selected target',
+    runPlanHash: 'Plan digest',
+    runStatus: 'Run status',
+    runNoStagePipeline: 'Execution follows the Squad graph. There is no fixed stage pipeline.'
+  });
+  Object.assign(translations.zh, {
     agentRuntimeControls: '运行时策略',
     agentCodexSandbox: 'Codex 沙箱',
     agentCodexApproval: 'Codex 审批策略',
@@ -182,6 +232,9 @@
   let nativeSquads = [];
   let nativePlans = [];
   let activeGraphEditor = null;
+  let activeExecutionPlanID = '';
+  const executionTimelineCache = new Map();
+  let executionTimelineRefreshTimer = null;
   let commentReplyParentID = '';
   let commentMentionIndex = -1;
   let commentMentionOptions = [];
@@ -278,7 +331,7 @@
     if (settled[0].status === 'fulfilled') nativeAgents = settled[0].value.items || [];
     if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
     if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
-    if (currentView === 'agents') render();
+    if (currentView === 'agents' || currentView === 'executions') render();
   }
 
   const focusIfPresent = selector => {
@@ -321,7 +374,7 @@
     const files = entityDraftFiles[kind];
     target.innerHTML = files.map((item, index) => {
       const image = item.file.type.startsWith('image/')
-        ? `<img src="${escapeHTML(item.previewURL)}" alt="${escapeHTML(item.file.name)}">`
+        ? `<button class="entity-attachment-preview-button" type="button" data-preview-entity-attachment="${escapeHTML(kind)}" data-entity-attachment-index="${index}" aria-label="${escapeHTML(t('preview'))}"><img src="${escapeHTML(item.previewURL)}" alt="${escapeHTML(item.file.name)}"></button>`
         : `<span class="entity-attachment-icon" aria-hidden="true">▤</span>`;
       return `<div class="entity-attachment" data-entity-attachment="${kind}" data-entity-attachment-index="${index}"><div class="entity-attachment-media">${image}</div><div class="entity-attachment-copy"><strong title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</strong><small>${escapeHTML(formatBytes(item.file.size))}</small></div><button class="entity-attachment-remove" type="button" data-remove-entity-attachment="${kind}" data-entity-attachment-index="${index}" title="${escapeHTML(t('attachmentRemove'))}" aria-label="${escapeHTML(t('attachmentRemove'))}">×</button></div>`;
     }).join('');
@@ -407,6 +460,38 @@
     entityDraftFiles[kind].splice(index, 1);
     syncEntityFileInput(kind);
     renderEntityFilePreview(kind);
+  });
+
+  function ensureAttachmentPreviewDialog() {
+    if ($('#attachmentPreviewDialog')) return;
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="attachmentPreviewDialog" class="attachment-preview-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / ATTACHMENT</p><h2 id="attachmentPreviewTitle"></h2></div><button class="dialog-close" id="closeAttachmentPreview" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><div id="attachmentPreviewBody" class="attachment-preview-body"></div></dialog>`);
+    const dialog = $('#attachmentPreviewDialog');
+    $('#closeAttachmentPreview').onclick = () => dialog.close();
+    dialog.addEventListener('click', event => { if (event.target === event.currentTarget) dialog.close(); });
+  }
+
+  function openAttachmentPreview(file, title = '') {
+    if (!file) return;
+    ensureAttachmentPreviewDialog();
+    const dialog = $('#attachmentPreviewDialog');
+    $('#attachmentPreviewTitle').textContent = title || file.name || t('preview');
+    const body = $('#attachmentPreviewBody');
+    if (file.type?.startsWith('image/') && (file instanceof Blob || file.previewURL)) {
+      const source = file.previewURL || URL.createObjectURL(file);
+      body.innerHTML = `<img src="${escapeHTML(source)}" alt="${escapeHTML(file.name || '')}">`;
+      if (!file.previewURL) body.dataset.revokeURL = source;
+    } else {
+      body.innerHTML = `<div class="attachment-file-preview"><strong>${escapeHTML(file.name || t('attachmentFile'))}</strong><span>${escapeHTML(formatBytes(file.size || 0))}</span></div>`;
+    }
+    dialog.showModal();
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('[data-preview-entity-attachment]');
+    if (!button) return;
+    const kind = button.dataset.previewEntityAttachment;
+    const item = entityDraftFiles[kind]?.[Number(button.dataset.entityAttachmentIndex)];
+    if (item) openAttachmentPreview(item.file, item.file.name);
   });
 
   window.adroCanAccessMenu = menu => (currentUser && currentUser.role === 'admin') || availableMenus.includes(menu);
@@ -569,6 +654,28 @@
     return null;
   }
 
+  function populateRequirementPlanAgents() {
+    const select = $('#planAgent');
+    if (!select) return;
+    const active = nativeAgents.filter(agent => agent.status === 'active');
+    select.innerHTML = `<option value="">${escapeHTML(t('noExecutors'))}</option>${active.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name || agent.id)} · r${escapeHTML(String(agent.revision || 0))}</option>`).join('')}`;
+  }
+
+  function ensureRequirementOrchestrationControls() {
+    const checkbox = $('#autoGeneratePlan');
+    const field = $('#planAgentField');
+    const select = $('#planAgent');
+    if (!checkbox || !field || !select) return;
+    populateRequirementPlanAgents();
+    const sync = () => {
+      field.hidden = !checkbox.checked;
+      select.required = checkbox.checked;
+      select.disabled = !checkbox.checked;
+    };
+    checkbox.onchange = sync;
+    sync();
+  }
+
   showDialog = function enhancedRequirementDialog() {
     $('#formError').textContent = '';
     clearEntityFiles('requirement');
@@ -578,6 +685,7 @@
       $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
     };
     populate();
+    ensureRequirementOrchestrationControls();
     applyTranslations();
     $('#requirementDialog').showModal();
     bindEntityAttachments('requirement', '#requirementDescription');
@@ -585,6 +693,7 @@
     void loadIdentityData().then(() => {
       if ($('#requirementDialog').open) {
         populate();
+        populateRequirementPlanAgents();
         applyTranslations();
       }
     });
@@ -610,7 +719,14 @@
     const description = String(data.get('description') || '').trim();
     const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('requirementDescriptionOnly');
     const files = entityFiles('requirement');
+    const autoGeneratePlan = Boolean(data.get('auto_generate_plan'));
+    const planAgentID = String(data.get('plan_agent_id') || '').trim();
+    const planAgent = nativeAgents.find(agent => agent.id === planAgentID && agent.status === 'active');
     $('#formError').textContent = '';
+    if (autoGeneratePlan && !planAgent) {
+      $('#formError').textContent = t('planAgentRequired');
+      return;
+    }
     submit.disabled = true;
     try {
       const created = await api('/api/v1/requirements', {
@@ -623,6 +739,18 @@
         })
       });
       try { await uploadEntityFiles('requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
+      if (autoGeneratePlan) {
+        try {
+          await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `requirement-plan:${created.id}:${planAgent.id}` },
+            body: JSON.stringify({agent_id: planAgent.id, agent_revision: planAgent.revision, idempotency_key: `requirement-plan:${created.id}:${planAgent.id}`})
+          });
+        } catch (_) {
+          $('#formError').textContent = t('planCreateAfterRequirementFailed');
+          return;
+        }
+      }
       closeDialog();
       formElement.reset();
       clearEntityFiles('requirement');
@@ -2597,6 +2725,30 @@
     loadCommentThread(targetType, targetID, initialItems);
   }
 
+  function attachmentContentURL(item) {
+    const parts = String(item?.artifact_uri || '').split('/');
+    const artifactID = parts.at(-2);
+    const version = parts.at(-1) || '1';
+    return artifactID ? `/api/v1/artifacts/${encodeURIComponent(artifactID)}/versions/${encodeURIComponent(version)}/content` : '';
+  }
+
+  function renderStoredAttachments(items) {
+    return items.map(item => {
+      const url = attachmentContentURL(item);
+      const previewable = String(item.media_type || '').startsWith('image/') && url;
+      return `<button type="button" class="attachment-item ${previewable ? 'attachment-preview-trigger' : ''}" ${previewable ? `data-attachment-url="${escapeHTML(url)}" data-attachment-title="${escapeHTML(item.filename)}"` : ''}><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></button>`;
+    }).join('');
+  }
+
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest?.('[data-attachment-url]');
+    if (!trigger) return;
+    ensureAttachmentPreviewDialog();
+    $('#attachmentPreviewTitle').textContent = trigger.dataset.attachmentTitle || t('preview');
+    $('#attachmentPreviewBody').innerHTML = `<img src="${escapeHTML(trigger.dataset.attachmentUrl)}" alt="${escapeHTML(trigger.dataset.attachmentTitle || '')}">`;
+    $('#attachmentPreviewDialog').showModal();
+  });
+
   const baseOpenRequirement = openRequirement;
   openRequirement = async function enhancedRequirementDetails(id) {
     await baseOpenRequirement(id);
@@ -2608,7 +2760,7 @@
       if (items.length) {
         const block = document.createElement('div');
         block.className = 'detail-block';
-        block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${items.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div>`;
+        block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${renderStoredAttachments(items)}</div>`;
         body.appendChild(block);
       }
       renderCommentSection('requirement', id, detail.comments || []);
@@ -2630,7 +2782,7 @@
       const body = $('#detailBody');
       if (body && (detail.attachments || []).length) {
         const attachments = detail.attachments;
-        body.insertAdjacentHTML('beforeend', `<div class="detail-block"><h3>${escapeHTML(t('attachments'))} · ${attachments.length}</h3><div class="attachment-list">${attachments.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div></div>`);
+        body.insertAdjacentHTML('beforeend', `<div class="detail-block"><h3>${escapeHTML(t('attachments'))} · ${attachments.length}</h3><div class="attachment-list">${renderStoredAttachments(attachments)}</div></div>`);
       }
       renderCommentSection('bug', id, detail.comments || []);
     } catch (_) {
@@ -2774,6 +2926,115 @@
     }
   }
 
+  function executionPlanStatus(plan, projection) {
+    const terminal = projection?.terminal_outcome || projection?.status;
+    return String(terminal || plan?.status || 'draft').toLowerCase();
+  }
+
+  function executionNodeStatus(projection, nodeID) {
+    return String(projection?.nodes?.[nodeID]?.status || 'pending').toLowerCase();
+  }
+
+  function executionNodeLabel(node) {
+    if (node.kind === 'agent') {
+      const ref = node.agent_ref?.id;
+      return nativeAgents.find(item => item.id === ref)?.name || ref || node.id;
+    }
+    if (node.kind === 'squad') {
+      const ref = node.squad_ref?.id;
+      return nativeSquads.find(item => item.id === ref)?.name || ref || node.id;
+    }
+    return node.kind || node.id;
+  }
+
+  function executionStatusClass(status) {
+    if (['passed', 'completed', 'success', 'succeeded'].includes(status)) return 'good';
+    if (['failed', 'cancelled', 'timed_out', 'blocked'].includes(status)) return 'bad';
+    if (['running', 'ready', 'waiting'].includes(status)) return 'active';
+    return 'warn';
+  }
+
+  function executionPlanCard(plan, selected) {
+    const requirement = requirements.find(item => item.id === plan.requirement_id);
+    const cache = executionTimelineCache.get(plan.id) || {};
+    const projection = cache.projection;
+    const status = executionPlanStatus(plan, projection);
+    const graph = plan.graph_snapshot || {};
+    const target = plan.selected_ref?.id || '-';
+    return `<button type="button" class="execution-plan-card ${selected ? 'selected' : ''}" data-execution-plan-id="${escapeHTML(plan.id)}"><span class="execution-plan-card-top"><span class="mono">${escapeHTML((plan.id || '').slice(0, 12))}</span><span class="status ${executionStatusClass(status)}">${escapeHTML(status)}</span></span><strong>${escapeHTML(requirement?.title || requirement?.key || plan.requirement_id || t('executionPlans'))}</strong><span class="execution-plan-card-meta">${escapeHTML(target)} · ${escapeHTML(String((graph.nodes || []).length))} ${escapeHTML(t('runNodes'))}</span></button>`;
+  }
+
+  function executionGraphHTML(plan, projection) {
+    const graph = plan?.graph_snapshot || {};
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    if (!nodes.length) return `<div class="execution-empty">${escapeHTML(t('runNoEvents'))}</div>`;
+    return `<div class="execution-graph-grid">${nodes.map((node, index) => { const status = executionNodeStatus(projection, node.id); return `<article class="execution-node ${executionStatusClass(status)}" style="--node-delay:${index * 55}ms"><div class="execution-node-orbit"><span></span></div><header><span class="mono">${escapeHTML(node.id || `node-${index + 1}`)}</span><span class="status ${executionStatusClass(status)}">${escapeHTML(status)}</span></header><strong>${escapeHTML(executionNodeLabel(node))}</strong><small>${escapeHTML(node.kind || 'node')} · ${escapeHTML(String(node.agent_ref?.revision || node.squad_ref?.version || graph.version || 0))}</small></article>`; }).join('')}</div>`;
+  }
+
+  function executionLogHTML(cache) {
+    const events = Array.isArray(cache?.events) ? cache.events : [];
+    if (!events.length) return `<div class="execution-log-empty"><span class="terminal-cursor">▋</span>${escapeHTML(t('runNoEvents'))}</div>`;
+    return events.map(event => {
+      const payload = event.payload ? (typeof event.payload === 'string' ? event.payload : JSON.stringify(event.payload)) : '';
+      const text = [event.event_type || event.type || 'event', event.node_id || '', payload].filter(Boolean).join('  ');
+      return `<div class="execution-log-line"><span class="execution-log-seq">${escapeHTML(String(event.sequence || ''))}</span><span class="execution-log-time">${escapeHTML(event.created_at ? new Date(event.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour12: false}) : '--:--:--')}</span><code>${escapeHTML(text)}</code></div>`;
+    }).join('');
+  }
+
+  function executionEvidenceHTML(cache) {
+    const projection = cache?.projection || {};
+    const plan = cache?.plan || {};
+    const attempts = Array.isArray(projection.attempts) ? projection.attempts : [];
+    const eventCount = Array.isArray(cache?.events) ? cache.events.length : 0;
+    return `<div class="execution-evidence-list"><div><span>${escapeHTML(t('runStatus'))}</span><strong>${escapeHTML(executionPlanStatus(plan, projection))}</strong></div><div><span>${escapeHTML(t('runSelectedBy'))}</span><strong class="mono">${escapeHTML(plan.selected_ref?.id || '-')}</strong></div><div><span>${escapeHTML(t('runRevision'))}</span><strong class="mono">${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</strong></div><div><span>${escapeHTML(t('runEvents'))}</span><strong>${escapeHTML(String(eventCount))}</strong></div><div><span>${escapeHTML(t('runNodes'))}</span><strong>${escapeHTML(String(Object.keys(projection.nodes || {}).length || (plan.graph_snapshot?.nodes || []).length))}</strong></div><div><span>attempts</span><strong>${escapeHTML(String(attempts.length))}</strong></div></div><div class="execution-digest mono">${escapeHTML(t('runPlanHash'))}: ${escapeHTML(plan.plan_hash || '-')}</div>`;
+  }
+
+  async function loadExecutionTimeline(planID) {
+    if (!planID) return;
+    const current = executionTimelineCache.get(planID) || {};
+    executionTimelineCache.set(planID, {...current, loading: true});
+    if (currentView === 'executions') render();
+    try {
+      const response = await api(`/api/v1/execution-plans/${encodeURIComponent(planID)}/timeline`);
+      executionTimelineCache.set(planID, {...response, loading: false, fetchedAt: Date.now()});
+    } catch (_) {
+      executionTimelineCache.set(planID, {...current, loading: false, error: true});
+    }
+    if (currentView === 'executions') render();
+  }
+
+  window.adroOnStreamEvent = () => {
+    if (currentView !== 'executions' || !activeExecutionPlanID) return;
+    if (executionTimelineRefreshTimer) return;
+    executionTimelineRefreshTimer = setTimeout(() => {
+      executionTimelineRefreshTimer = null;
+      void loadExecutionTimeline(activeExecutionPlanID);
+    }, 120);
+  };
+
+  renderPipelines = function graphExecutionCockpit() {
+    const plans = nativePlans.slice().reverse();
+    if (!activeExecutionPlanID && plans[0]) activeExecutionPlanID = plans[0].id;
+    const activePlan = plans.find(item => item.id === activeExecutionPlanID) || plans[0];
+    if (activePlan && activePlan.id !== activeExecutionPlanID) activeExecutionPlanID = activePlan.id;
+    const cache = activePlan ? (executionTimelineCache.get(activePlan.id) || {}) : {};
+    const cards = plans.map(plan => executionPlanCard(plan, plan.id === activePlan?.id)).join('');
+    if (!activePlan) return `<div class="execution-cockpit view-stack"><section class="execution-hero"><div><span class="execution-kicker">GRAPH RUNNER / LOCAL RUNTIME</span><h2>${escapeHTML(t('executionCockpit'))}</h2><p>${escapeHTML(t('executionCockpitSubtitle'))}</p></div></section><div class="execution-empty-state"><div class="execution-empty-mark">∿</div><strong>${escapeHTML(t('runNoPlans'))}</strong><span>${escapeHTML(t('runNoStagePipeline'))}</span></div></div>`;
+    return `<div class="execution-cockpit view-stack"><section class="execution-hero"><div><span class="execution-kicker">GRAPH RUNNER / LOCAL RUNTIME <i></i></span><h2>${escapeHTML(t('executionCockpit'))}</h2><p>${escapeHTML(t('executionCockpitSubtitle'))}</p></div><div class="execution-hero-badge"><span class="terminal-cursor">▋</span>${escapeHTML(t('runLive'))}</div></section><div class="execution-plan-strip">${cards}</div><section class="execution-run-head"><div><span class="mono">${escapeHTML(activePlan.id)}</span><h3>${escapeHTML(requirements.find(item => item.id === activePlan.requirement_id)?.title || activePlan.requirement_id)}</h3><p>${escapeHTML(t('runNoStagePipeline'))}</p></div><button class="secondary" type="button" data-refresh-execution-plan="${escapeHTML(activePlan.id)}">↻ ${escapeHTML(t('runRefresh'))}</button></section><div class="execution-cockpit-grid"><section class="execution-graph-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runGraph'))}</span><small>${escapeHTML(String(activePlan.graph_snapshot?.nodes?.length || 0))} ${escapeHTML(t('runNodes'))}</small></div><span class="status ${executionStatusClass(executionPlanStatus(activePlan, cache.projection))}">${escapeHTML(executionPlanStatus(activePlan, cache.projection))}</span></div>${executionGraphHTML(activePlan, cache.projection)}</section><section class="execution-log-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runConsole'))}</span><small>${escapeHTML(String(cache.events?.length || 0))} ${escapeHTML(t('runEvents'))}</small></div><span class="execution-live-dot"></span></div><div class="execution-log" aria-live="polite">${executionLogHTML(cache)}</div></section></div><section class="execution-evidence-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runEvidence'))}</span><small>${escapeHTML(activePlan.selected_ref?.id || '-')}</small></div></div>${executionEvidenceHTML({...cache, plan: activePlan})}</section></div>`;
+  };
+
+  document.addEventListener('click', event => {
+    const planButton = event.target.closest?.('[data-execution-plan-id]');
+    if (planButton) {
+      activeExecutionPlanID = planButton.dataset.executionPlanId;
+      render();
+      void loadExecutionTimeline(activeExecutionPlanID);
+      return;
+    }
+    const refresh = event.target.closest?.('[data-refresh-execution-plan]');
+    if (refresh) void loadExecutionTimeline(refresh.dataset.refreshExecutionPlan);
+  });
+
   const baseRender = render;
   render = function enhancedRender() {
     // Core polling refreshes the shared data model every 20 seconds. Keep an
@@ -2781,6 +3042,10 @@
     // already reload the transcript and own their render cycle.
     if (currentView === 'chats' && $('#chatComposer')) return;
     baseRender();
+    if (currentView === 'executions') {
+      $('#pageActions').innerHTML = '';
+      if (activeExecutionPlanID && !executionTimelineCache.has(activeExecutionPlanID)) void loadExecutionTimeline(activeExecutionPlanID);
+    }
     if (currentView === 'chats') renderChatPage();
   };
   const chatNav = document.querySelector('[data-view="chats"]');
