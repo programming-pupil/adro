@@ -3010,7 +3010,15 @@
       const pendingChat = chatPendingCreateID && chats.find(item => item.id === chatPendingCreateID);
       const optimisticActiveChat = activeChatID && chatCreationBindings.has(activeChatID) ? chats.find(item => item.id === activeChatID) : null;
       const optimisticChat = pendingChat || optimisticActiveChat;
-      chats = optimisticChat && !serverChats.some(item => item.id === optimisticChat.id) ? [optimisticChat, ...serverChats] : serverChats;
+      const mergedChats = optimisticChat
+        ? serverChats.map(item => item.id === optimisticChat.id ? {
+          ...optimisticChat,
+          ...item,
+          project_id: item.project_id || optimisticChat.project_id,
+          agent_id: item.agent_id || optimisticChat.agent_id
+        } : item)
+        : serverChats;
+      chats = optimisticChat && !mergedChats.some(item => item.id === optimisticChat.id) ? [optimisticChat, ...mergedChats] : mergedChats;
       if (chatPendingCreateID) {
         if (!chats.some(item => item.id === chatPendingCreateID)) chats = [pendingChat, ...chats].filter(Boolean);
         renderChatPage();
@@ -3062,8 +3070,8 @@
   async function createChatFromUI() {
     const title = String($('#chatCreateTitle')?.value || '').trim();
     if (!title) return;
-    const projectID = $('#chatCreateProject')?.value || '';
-    const agentID = $('#chatCreateAgent')?.value || '';
+    const projectID = String($('#chatCreateProject')?.value || '').trim();
+    const agentID = String($('#chatCreateAgent')?.value || '').trim();
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
@@ -3074,6 +3082,9 @@
     let created;
     try {
       created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
+      const record = created?.chat || created?.item || created?.data || created;
+      if (!record?.id) throw new Error('chat creation response did not include an id');
+      created = record;
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
       chatCreatingProjectID = '';
@@ -3082,7 +3093,13 @@
     } finally {
       if (submit) submit.disabled = false;
     }
-    const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
+    const createdWithContext = {
+      ...created,
+      id: String(created.id),
+      title: created.title || title,
+      project_id: String(created.project_id || projectID),
+      agent_id: String(created.agent_id || agentID)
+    };
     chatCreationBindings.set(createdWithContext.id, {projectID, agentID});
     chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
     activeChatID = createdWithContext.id;
