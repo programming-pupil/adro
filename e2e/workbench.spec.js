@@ -97,25 +97,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   await expect(page.locator('#loginGate')).toBeVisible();
   await page.locator('#loginForm input[name="username"]').fill('admin');
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
-  const agentsResponse = page.waitForResponse(response => {
-    const url = new URL(response.url());
-    return response.request().method() === 'GET' && url.pathname === '/api/v1/workspaces/local/agents';
-  });
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
-  const agents = await (await agentsResponse).json();
-  const onboardingDialog = page.locator('#agentDialog');
-  if ((agents.items || []).length === 0) {
-    await expect(onboardingDialog).toBeVisible();
-    await expect(page.locator('#agentForm')).toHaveAttribute('data-onboarding', 'true');
-    await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('通用 Agent');
-    await expect(page.locator('#closeAgentDialog')).toBeHidden();
-    await expect(page.locator('#cancelAgentDialog')).toBeHidden();
-    if (!testInfo.title.includes('first-run workspace import')) {
-      await page.locator('#agentForm button[type="submit"]').click();
-      await expect(onboardingDialog).not.toBeVisible();
-    }
-  }
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;
   page.__adroRequestHosts = requestHosts;
@@ -141,7 +125,8 @@ test('first-run workspace import requires preflight and bypasses manual Agent cr
     });
   });
 
-  const panel = page.locator('#agentForm [data-workspace-migration]');
+  await page.locator('.nav-item[data-view="admin"]').click();
+  const panel = page.locator('[data-workspace-migration]');
   await expect(panel).toBeVisible();
   const importButton = panel.locator('[data-migration-import]');
   await panel.locator('[data-migration-file]').setInputFiles({
