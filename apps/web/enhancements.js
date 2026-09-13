@@ -2837,6 +2837,7 @@
   let chatAgents = [];
   let chatResourceRequest = 0;
   let chatStateRequest = 0;
+  let chatPendingCreateID = '';
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2980,8 +2981,10 @@
     try {
       const response = await api('/api/v1/chats');
       if (requestID !== chatStateRequest) return;
-      chats = response.items || [];
-      if (activeChatID && !chats.some(item => item.id === activeChatID)) { activeChatID = ''; clearChatDraftFiles(); }
+      const serverChats = response.items || [];
+      const pendingChat = chatPendingCreateID && chats.find(item => item.id === chatPendingCreateID);
+      chats = pendingChat && !serverChats.some(item => item.id === pendingChat.id) ? [pendingChat, ...serverChats] : serverChats;
+      if (activeChatID && !chats.some(item => item.id === activeChatID) && activeChatID !== chatPendingCreateID) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
       if (activeChatID) await loadChatDetail(activeChatID, chats.find(item => item.id === activeChatID) || null, requestID); else { activeChatData = null; renderChatPage(); }
     } catch (_) {
@@ -3032,15 +3035,20 @@
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
-    const requestID = ++chatStateRequest;
+    ++chatStateRequest;
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
-      if (requestID !== chatStateRequest) return;
       chats = [created, ...chats.filter(item => item.id !== created.id)];
       activeChatID = created.id;
+      chatPendingCreateID = created.id;
+      activeChatData = {chat: created, messages: []};
+      chatAttachmentItems = [];
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
+      renderChatPage();
+      const requestID = ++chatStateRequest;
       await loadChatDetail(activeChatID, created, requestID);
+      if (requestID === chatStateRequest && chatPendingCreateID === created.id) chatPendingCreateID = '';
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
     } finally {
