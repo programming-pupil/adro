@@ -6,7 +6,7 @@
   ];
 
   Object.assign(translations.zh, {
-    chats: '普通聊天', chatSubtitle: '绑定项目的持久化讨论空间', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '输入消息，讨论方案或上下文', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '开始一段新的讨论', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件',
+    chats: '普通聊天', chatSubtitle: '把项目、文件与 Agent 放进同一段持续上下文', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '描述你想解决的问题，或把上下文交给 Agent...', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '从一个问题开始', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件', chatSearchPlaceholder: '搜索会话', chatContext: '上下文', chatProjectContext: '项目上下文', chatNoProject: '未绑定项目', chatChooseProject: '选择项目', chatProjectReady: '项目上下文已接入', chatAgentReady: 'Agent 已就绪', chatNoAgent: '使用默认执行器', chatRecent: '最近会话', chatWorkspace: 'AI 项目工作区', chatWorkspaceHint: '选择项目，上传文件，然后开始一段有记忆的问答。', chatSuggested: '你可以先问', chatSuggestionOne: '总结这个项目当前的风险', chatSuggestionTwo: '根据附件给出实现建议', chatSuggestionThree: '帮我梳理下一步研发任务', chatDropHint: '拖入文件，或直接粘贴图片', chatFilesReady: '个文件已加入上下文', chatUploadHint: '图片可预览，文件会随消息发送', chatRemoveFile: '移除附件', chatPreviewFile: '预览附件', chatSending: '正在交给 Agent...', chatEmptyTitle: '让项目成为对话的一部分', chatEmptyBody: '绑定一个项目后，Agent 会在同一条上下文里理解仓库、附件和你的问题。', chatConversation: '对话', chatRuntimeState: '运行态', chatPersisted: '已持久化', chatProjectFiles: '项目与附件', chatNoFiles: '发送附件后会显示在这里', chatMessages: '条消息', chatStart: '开始对话', chatNewTitlePlaceholder: '例如：支付发布讨论',
     authSystemName: '智能研发交付控制系统', secureAccess: '安全访问 / 身份边界', loginTitle: '进入交付控制面',
     loginSubtitle: '使用你的 ADRO 工作空间账号登录。可见菜单、执行权限与审计身份均由管理员分配。',
     username: '用户名', password: '密码', signIn: '登录控制台', signOut: '退出登录',
@@ -31,7 +31,7 @@
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.en, {
-    chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
+    chats: 'Chat', chatSubtitle: 'A persistent workspace for project context, files, and Agent Q&A', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Describe the problem, or hand the context to your Agent...', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start with a question', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments', chatSearchPlaceholder: 'Search conversations', chatContext: 'Context', chatProjectContext: 'Project context', chatNoProject: 'No project bound', chatChooseProject: 'Choose a project', chatProjectReady: 'Project context connected', chatAgentReady: 'Agent ready', chatNoAgent: 'Using the default executor', chatRecent: 'Recent conversations', chatWorkspace: 'AI project workspace', chatWorkspaceHint: 'Choose a project, add files, and start a conversation with memory.', chatSuggested: 'Try asking', chatSuggestionOne: 'Summarize the current project risks', chatSuggestionTwo: 'Suggest an implementation from these files', chatSuggestionThree: 'Map the next engineering tasks', chatDropHint: 'Drop files here, or paste an image', chatFilesReady: 'files added to context', chatUploadHint: 'Images can be previewed; files travel with the message', chatRemoveFile: 'Remove attachment', chatPreviewFile: 'Preview attachment', chatSending: 'Handing off to Agent...', chatEmptyTitle: 'Make the project part of the conversation', chatEmptyBody: 'Bind a project and the Agent will reason over the repository, attachments, and your question in one context.', chatConversation: 'Conversation', chatRuntimeState: 'Runtime', chatPersisted: 'Persisted', chatProjectFiles: 'Project and files', chatNoFiles: 'Attachments will appear here after you send them', chatMessages: 'messages', chatStart: 'Start conversation', chatNewTitlePlaceholder: 'For example: Payment release discussion',
     authSystemName: 'Agentic delivery control system', secureAccess: 'Secure access / identity boundary', loginTitle: 'Enter the delivery control plane',
     loginSubtitle: 'Sign in with your ADRO workspace account. Menu visibility, execution access, and audit identity are assigned by an administrator.',
     username: 'Username', password: 'Password', signIn: 'Sign in to console', signOut: 'Sign out',
@@ -2743,10 +2743,25 @@
   document.addEventListener('click', event => {
     const trigger = event.target.closest?.('[data-attachment-url]');
     if (!trigger) return;
+    if (event.target.closest?.('button[data-chat-remove-file]')) return;
     ensureAttachmentPreviewDialog();
-    $('#attachmentPreviewTitle').textContent = trigger.dataset.attachmentTitle || t('preview');
-    $('#attachmentPreviewBody').innerHTML = `<img src="${escapeHTML(trigger.dataset.attachmentUrl)}" alt="${escapeHTML(trigger.dataset.attachmentTitle || '')}">`;
+    const title = trigger.dataset.attachmentTitle || t('preview');
+    const url = trigger.dataset.attachmentUrl;
+    $('#attachmentPreviewTitle').textContent = title;
+    if (trigger.classList.contains('is-image') || trigger.querySelector('img')) {
+      $('#attachmentPreviewBody').innerHTML = `<img src="${escapeHTML(url)}" alt="${escapeHTML(title)}">`;
+    } else {
+      $('#attachmentPreviewBody').innerHTML = `<div class="attachment-file-preview"><span class="chat-attachment-icon">FILE</span><strong>${escapeHTML(title)}</strong><a class="primary" href="${escapeHTML(url)}" target="_blank" rel="noreferrer">${escapeHTML(t('chatPreviewFile'))}</a></div>`;
+    }
     $('#attachmentPreviewDialog').showModal();
+  });
+
+  document.addEventListener('keydown', event => {
+    const trigger = event.target.closest?.('[data-attachment-url]');
+    if (trigger && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      trigger.click();
+    }
   });
 
   const baseOpenRequirement = openRequirement;
@@ -2814,49 +2829,137 @@
 
   let activeChatID = '';
   let activeChatData = null;
+  let chatAttachmentItems = [];
+  let chatDraftFiles = [];
+  let chatSearchTerm = '';
+  let chatSending = false;
+
+  function releaseChatDraftFile(item) {
+    if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
+  }
+
+  function clearChatDraftFiles() {
+    chatDraftFiles.forEach(releaseChatDraftFile);
+    chatDraftFiles = [];
+  }
+
+  function addChatDraftFiles(files) {
+    const existing = new Set(chatDraftFiles.map(item => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
+    for (const [index, file] of Array.from(files || []).entries()) {
+      if (!file || !file.name) continue;
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+      chatDraftFiles.push({file, previewURL: file.type.startsWith('image/') ? URL.createObjectURL(file) : ''});
+    }
+    renderChatPage();
+  }
+
+  function chatProject() {
+    return repositories.find(item => item.id === activeChatData?.chat?.project_id);
+  }
+
+  function chatAgent() {
+    return nativeAgents.find(item => item.id === activeChatData?.chat?.agent_id);
+  }
+
+  function chatAttachmentTile(item, index, draft = false) {
+    const file = draft ? item.file : item;
+    const mediaType = file.type || file.media_type || '';
+    const image = mediaType.startsWith('image/');
+    const url = draft ? item.previewURL : attachmentContentURL(item);
+    const title = file.name || file.filename || t('attachmentFile');
+    const remove = draft ? `<button type="button" class="chat-attachment-remove" data-chat-remove-file="${index}" aria-label="${escapeHTML(t('chatRemoveFile'))}" title="${escapeHTML(t('chatRemoveFile'))}">×</button>` : '';
+    const preview = url ? `data-attachment-url="${escapeHTML(url)}" data-attachment-title="${escapeHTML(title)}"` : '';
+    return `<div class="chat-attachment-tile ${image ? 'is-image' : ''} ${url ? 'is-previewable' : ''}" ${preview} role="${url ? 'button' : 'group'}" tabindex="${url ? '0' : '-1'}">${image && url ? `<img src="${escapeHTML(url)}" alt="${escapeHTML(title)}">` : `<span class="chat-attachment-icon">${image ? 'IMG' : 'FILE'}</span>`}<span class="chat-attachment-copy"><strong>${escapeHTML(title)}</strong><small>${escapeHTML(image ? t('attachmentImage') : formatBytes(file.size || file.size_bytes || 0))}</small></span>${remove}</div>`;
+  }
+
+  function chatMessageHTML(item) {
+    const attachments = (item.attachment_ids || []).map(id => chatAttachmentItems.find(candidate => candidate.id === id)).filter(Boolean);
+    const attachmentMarkup = attachments.length ? `<div class="chat-message-attachments">${attachments.map(attachment => chatAttachmentTile(attachment, 0)).join('')}</div>` : '';
+    const fallback = item.attachment_ids?.length && !attachments.length ? `<small class="chat-message-attachment-count">${escapeHTML(String(item.attachment_ids.length))} ${escapeHTML(t('attachments'))}</small>` : '';
+    const isAssistant = item.role === 'assistant';
+    const agent = chatAgent();
+    return `<article class="chat-message ${isAssistant ? 'assistant' : 'user'}"><header><span class="chat-message-author"><i class="chat-avatar ${isAssistant ? 'agent' : 'human'}">${isAssistant ? 'AI' : 'ME'}</i><b>${escapeHTML(isAssistant ? (agent?.name || 'Agent') : 'You')}</b></span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${attachmentMarkup || fallback}</article>`;
+  }
 
   function renderChatPage() {
     $('#pageTitle').textContent = t('chats');
     $('#pageSubtitle').textContent = t('chatSubtitle');
     $('#pageActions').innerHTML = `<button class="primary" id="chatNew"><span aria-hidden="true">＋</span>${escapeHTML(t('newChat'))}</button>`;
-    const list = chats.map(item => {
+    const visibleChats = chats.filter(item => `${item.title || ''} ${item.project_id || ''}`.toLowerCase().includes(chatSearchTerm.toLowerCase()));
+    const list = visibleChats.map(item => {
       const agent = nativeAgents.find(candidate => candidate.id === item.agent_id);
-      const detail = [item.project_id || t('project'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
-      return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(detail)}</small></button>`;
+      const project = repositories.find(candidate => candidate.id === item.project_id);
+      const detail = [project?.canonical_name || item.project_id || t('chatNoProject'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
+      return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><span class="chat-list-item-top"><i class="chat-list-dot"></i><small>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</small></span><strong>${escapeHTML(item.title)}</strong><small class="chat-list-meta">${escapeHTML(detail)}</small></button>`;
     }).join('');
     const messages = activeChatData?.messages || [];
-    const messageHTML = messages.length ? messages.map(item => `<article class="chat-message ${item.role === 'user' ? 'user' : 'assistant'}"><header><span>${escapeHTML(item.role)}</span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${item.attachment_ids?.length ? `<small>${escapeHTML(item.attachment_ids.length)} ${escapeHTML(t('attachments'))}</small>` : ''}</article>`).join('') : `<p class="chat-empty">${escapeHTML(t('noMessages'))}</p>`;
+    const messageHTML = messages.length ? messages.map(chatMessageHTML).join('') : `<div class="chat-empty-state"><div class="chat-empty-orbit"><span></span><b>✦</b></div><h2>${escapeHTML(t('chatEmptyTitle'))}</h2><p>${escapeHTML(t('chatEmptyBody'))}</p><div class="chat-suggestions"><span>${escapeHTML(t('chatSuggested'))}</span>${[t('chatSuggestionOne'), t('chatSuggestionTwo'), t('chatSuggestionThree')].map(text => `<button type="button" data-chat-suggestion="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join('')}</div></div>`;
     const projectOptions = repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('');
     const agentOptions = nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
     const selectedAgent = activeChatData?.chat?.agent_id || '';
+    const project = chatProject();
+    const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
     const continuityLabel = activeChatData?.chat?.continuity_mode === 'native_session' ? t('chatNativeContinuity') : activeChatData?.chat?.provider_session_id ? t('chatCompiledContinuity') : t('chatReadyContinuity');
-    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><strong>${escapeHTML(t('chats'))}</strong><span>${escapeHTML(chats.length)} ${escapeHTML(t('items'))}</span></div><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><div class="chat-panel-meta"><span>${escapeHTML(t('chatRuntime'))}: <strong>${escapeHTML(runtimeLabel)}</strong></span><span>${escapeHTML(continuityLabel)}</span></div><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer"><div class="chat-compose-meta"><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatProject'))}</option>${projectOptions}</select><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatAgent'))}</option>${agentOptions}</select><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}">＋ <input id="chatFiles" type="file" multiple hidden></label></div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-actions"><span id="chatComposerStatus" role="status"></span><button class="primary" type="submit">${escapeHTML(t('sendMessage'))}</button></div></form></section></div>`;
+    const contextFiles = chatAttachmentItems.length ? chatAttachmentItems.map(item => chatAttachmentTile(item, 0)).join('') : `<p class="chat-context-empty">${escapeHTML(t('chatNoFiles'))}</p>`;
+    const projectSource = project?.metadata?.local_path || project?.clone_url || project?.canonical_name || '-';
+    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><div><span class="chat-eyebrow">${escapeHTML(t('chatWorkspace'))}</span><strong>${escapeHTML(t('chatRecent'))}</strong></div><span class="chat-count">${escapeHTML(String(chats.length).padStart(2, '0'))}</span></div><label class="chat-search"><span aria-hidden="true">⌕</span><input id="chatSearch" type="search" value="${escapeHTML(chatSearchTerm)}" placeholder="${escapeHTML(t('chatSearchPlaceholder'))}" aria-label="${escapeHTML(t('chatSearchPlaceholder'))}"></label><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><header class="chat-panel-head"><div class="chat-panel-title"><span class="chat-eyebrow">${escapeHTML(t('chatConversation'))} / ${escapeHTML(activeChatData?.chat?.id?.slice(0, 8) || 'NEW')}</span><h2>${escapeHTML(activeChatData?.chat?.title || t('chatWorkspace'))}</h2><div class="chat-context-line"><span class="chat-status-pulse"></span>${escapeHTML(continuityLabel)}<span>·</span>${escapeHTML(runtimeLabel)}</div></div><div class="chat-panel-actions"><span class="chat-live-pill"><i></i>${escapeHTML(t('chatPersisted'))}</span><button type="button" class="icon-button" id="chatNewTop" title="${escapeHTML(t('newChat'))}" aria-label="${escapeHTML(t('newChat'))}">＋</button></div></header><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer" data-chat-dropzone="true"><div class="chat-drop-hint">${escapeHTML(t('chatDropHint'))}</div><div class="chat-draft-files" id="chatDraftFiles">${chatDraftFiles.map((item, index) => chatAttachmentTile(item, index, true)).join('')}</div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-footer"><div class="chat-compose-context"><label class="chat-select-control"><span>${escapeHTML(t('chatProject'))}</span><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatChooseProject'))}</option>${projectOptions}</select></label><label class="chat-select-control"><span>${escapeHTML(t('chatAgent'))}</span><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatNoAgent'))}</option>${agentOptions}</select></label></div><div class="chat-compose-actions"><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}"><span aria-hidden="true">⊕</span><span>${escapeHTML(t('chatAttachments'))}</span><input id="chatFiles" type="file" multiple hidden></label><span id="chatComposerStatus" role="status"></span><button class="primary chat-send" type="submit" ${chatSending ? 'disabled' : ''}><span>${escapeHTML(chatSending ? t('chatSending') : t('sendMessage'))}</span><b aria-hidden="true">↗</b></button></div></div></form></section><aside class="chat-context-panel"><div class="chat-context-header"><span class="chat-eyebrow">${escapeHTML(t('chatContext'))}</span><span class="chat-context-signal"><i></i>LIVE</span></div><div class="chat-project-card"><span class="chat-project-glyph">${project ? '◎' : '○'}</span><div><small>${escapeHTML(t('chatProjectContext'))}</small><strong>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</strong></div></div><div class="chat-context-block"><span>${escapeHTML(t('chatProjectReady'))}</span><strong>${escapeHTML(projectSource)}</strong></div><div class="chat-context-block"><span>${escapeHTML(t('chatAgentReady'))}</span><strong>${escapeHTML(agent?.name || t('chatNoAgent'))}</strong><small>${escapeHTML(agent?.executor_binding?.runtime_id || runtimeLabel)}</small></div><div class="chat-context-files"><div class="chat-context-block-head"><span>${escapeHTML(t('chatProjectFiles'))}</span><b>${escapeHTML(String(chatAttachmentItems.length))}</b></div>${contextFiles}</div><div class="chat-context-foot"><span class="chat-mini-ring"></span><div><strong>${escapeHTML(t('chatRuntimeState'))}</strong><small>${escapeHTML(continuityLabel)}</small></div></div></aside></div>`;
     if ($('#chatProject') && activeChatData?.chat?.project_id) $('#chatProject').value = activeChatData.chat.project_id;
     if ($('#chatAgent')) $('#chatAgent').value = selectedAgent;
-    if ($('#chatAgent') && activeChatData?.chat) {
-      $('#chatAgent').onchange = async event => {
-        try {
-          await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({agent_id: event.currentTarget.value})});
-          await loadChatDetail(activeChatID);
-        } catch (_) {
-          event.currentTarget.value = selectedAgent;
-        }
-      };
-    }
-    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
+    if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => persistChatField('project_id', event.currentTarget.value, activeChatData.chat.project_id || '');
+    if ($('#chatAgent') && activeChatData?.chat) $('#chatAgent').onchange = event => persistChatField('agent_id', event.currentTarget.value, selectedAgent);
+    $('#chatSearch').oninput = event => { chatSearchTerm = event.currentTarget.value; renderChatPage(); focusIfPresent('#chatSearch'); const input = $('#chatSearch'); if (input) input.setSelectionRange(chatSearchTerm.length, chatSearchTerm.length); };
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
     $('#chatNew').onclick = showChatCreateDialog;
+    $('#chatNewTop').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
+    const fileInput = $('#chatFiles');
+    if (fileInput) fileInput.onchange = event => { addChatDraftFiles(event.currentTarget.files); event.currentTarget.value = ''; };
+    document.querySelectorAll('[data-chat-remove-file]').forEach(button => { button.onclick = event => { event.stopPropagation(); const index = Number(button.dataset.chatRemoveFile); releaseChatDraftFile(chatDraftFiles[index]); chatDraftFiles.splice(index, 1); renderChatPage(); }; });
+    document.querySelectorAll('[data-chat-suggestion]').forEach(button => { button.onclick = () => { const input = $('#chatInput'); if (input) { input.value = button.dataset.chatSuggestion; input.focus(); } }; });
+    const dropZone = $('#chatComposer');
+    if (dropZone) {
+      dropZone.ondragover = event => { event.preventDefault(); dropZone.classList.add('is-dragging'); };
+      dropZone.ondragleave = event => { if (!dropZone.contains(event.relatedTarget)) dropZone.classList.remove('is-dragging'); };
+      dropZone.ondrop = event => { event.preventDefault(); dropZone.classList.remove('is-dragging'); addChatDraftFiles(event.dataTransfer?.files || []); };
+      $('#chatInput').onpaste = event => { const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean); if (files.length) { event.preventDefault(); addChatDraftFiles(files); } };
+      $('#chatInput').oninput = event => { event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 220)}px`; };
+    }
+  }
+
+  async function persistChatField(field, value, previous) {
+    const status = $('#chatComposerStatus');
+    try {
+      if (!activeChatID) return;
+      if (activeChatData?.chat) activeChatData.chat[field] = value;
+      if (status) status.textContent = '...';
+      const saved = await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[field]: value})});
+      if (activeChatData?.chat) activeChatData.chat = saved;
+      renderChatPage();
+    } catch (_) {
+      if (activeChatData?.chat) activeChatData.chat[field] = previous;
+      renderChatPage();
+      if ($('#chatComposerStatus')) $('#chatComposerStatus').textContent = t('chatSendFailed');
+    }
   }
 
   async function loadChatDetail(id) {
-    try { activeChatData = await api(`/api/v1/chats/${encodeURIComponent(id)}`); renderChatPage(); } catch (_) { activeChatData = null; renderChatPage(); }
+    try {
+      const [detail, attachments] = await Promise.all([api(`/api/v1/chats/${encodeURIComponent(id)}`), api(`/api/v1/attachments?owner_type=chat_session&owner_id=${encodeURIComponent(id)}`)]);
+      activeChatData = detail;
+      chatAttachmentItems = attachments?.items || [];
+      renderChatPage();
+      requestAnimationFrame(() => { const history = $('#chatHistory'); if (history) history.scrollTop = history.scrollHeight; });
+    } catch (_) { activeChatData = null; chatAttachmentItems = []; renderChatPage(); }
   }
 
   async function loadChatList() {
     try {
       const response = await api('/api/v1/chats');
       chats = response.items || [];
+      if (activeChatID && !chats.some(item => item.id === activeChatID)) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
       if (activeChatID) await loadChatDetail(activeChatID); else { activeChatData = null; renderChatPage(); }
     } catch (_) { renderChatPage(); }
@@ -2910,19 +3013,22 @@
   async function sendChatFromUI(event) {
     event.preventDefault();
     if (!activeChatID) { showChatCreateDialog(); return; }
-    const form = event.currentTarget; const input = $('#chatInput'); const files = Array.from($('#chatFiles')?.files || []); const status = $('#chatComposerStatus');
+    const form = event.currentTarget; const input = $('#chatInput'); const files = chatDraftFiles.map(item => item.file); const status = $('#chatComposerStatus');
+    if (!String(input?.value || '').trim()) return;
+    chatSending = true;
+    renderChatPage();
     const attachmentIDs = [];
     try {
-      status.textContent = '';
       for (const file of files) { const payload = new FormData(); payload.append('owner_type', 'chat_session'); payload.append('owner_id', activeChatID); payload.append('file', file); const attachment = await api('/api/v1/attachments', {method: 'POST', body: payload}); attachmentIDs.push(attachment.id); }
       await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}/messages`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({content: input.value, attachment_ids: attachmentIDs})});
-      form.reset(); await loadChatDetail(activeChatID);
+      form.reset(); clearChatDraftFiles(); chatSending = false; await loadChatDetail(activeChatID);
     } catch (_) {
       // The user turn is durable before provider execution starts. Reload the
       // authoritative transcript so a provider failure does not make the
       // message appear lost in the browser.
+      chatSending = false;
       await loadChatDetail(activeChatID);
-      status.textContent = t('chatSendFailed');
+      if ($('#chatComposerStatus')) $('#chatComposerStatus').textContent = t('chatSendFailed');
     }
   }
 
