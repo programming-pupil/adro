@@ -2833,6 +2833,9 @@
   let chatDraftFiles = [];
   let chatSearchTerm = '';
   let chatSending = false;
+  let chatRepositories = [];
+  let chatAgents = [];
+  let chatResourceRequest = 0;
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2856,11 +2859,13 @@
   }
 
   function chatProject() {
-    return repositories.find(item => item.id === activeChatData?.chat?.project_id);
+    const projectID = activeChatData?.chat?.project_id;
+    return [...chatRepositories, ...repositories].find(item => item.id === projectID);
   }
 
   function chatAgent() {
-    return nativeAgents.find(item => item.id === activeChatData?.chat?.agent_id);
+    const agentID = activeChatData?.chat?.agent_id;
+    return [...chatAgents, ...nativeAgents].find(item => item.id === agentID);
   }
 
   function chatAttachmentTile(item, index, draft = false) {
@@ -2889,15 +2894,19 @@
     $('#pageActions').innerHTML = `<button class="primary" id="chatNew"><span aria-hidden="true">＋</span>${escapeHTML(t('newChat'))}</button>`;
     const visibleChats = chats.filter(item => `${item.title || ''} ${item.project_id || ''}`.toLowerCase().includes(chatSearchTerm.toLowerCase()));
     const list = visibleChats.map(item => {
-      const agent = nativeAgents.find(candidate => candidate.id === item.agent_id);
-      const project = repositories.find(candidate => candidate.id === item.project_id);
+      const agent = [...chatAgents, ...nativeAgents].find(candidate => candidate.id === item.agent_id);
+      const project = [...chatRepositories, ...repositories].find(candidate => candidate.id === item.project_id);
       const detail = [project?.canonical_name || item.project_id || t('chatNoProject'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
       return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><span class="chat-list-item-top"><i class="chat-list-dot"></i><small>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</small></span><strong>${escapeHTML(item.title)}</strong><small class="chat-list-meta">${escapeHTML(detail)}</small></button>`;
     }).join('');
     const messages = activeChatData?.messages || [];
     const messageHTML = messages.length ? messages.map(chatMessageHTML).join('') : `<div class="chat-empty-state"><div class="chat-empty-orbit"><span></span><b>✦</b></div><h2>${escapeHTML(t('chatEmptyTitle'))}</h2><p>${escapeHTML(t('chatEmptyBody'))}</p><div class="chat-suggestions"><span>${escapeHTML(t('chatSuggested'))}</span>${[t('chatSuggestionOne'), t('chatSuggestionTwo'), t('chatSuggestionThree')].map(text => `<button type="button" data-chat-suggestion="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join('')}</div></div>`;
-    const projectOptions = repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('');
-    const agentOptions = nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
+    const projectSourceItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const selectedProject = activeChatData?.chat?.project_id || '';
+    const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
+    const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
+    const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
     const selectedAgent = activeChatData?.chat?.agent_id || '';
     const project = chatProject();
     const agent = chatAgent();
@@ -2965,17 +2974,34 @@
     } catch (_) { renderChatPage(); }
   }
 
-  function showChatCreateDialog() {
+  async function showChatCreateDialog() {
     const projectSelect = $('#chatCreateProject');
     const agentSelect = $('#chatCreateAgent');
     const form = $('#chatCreateForm');
     if (!projectSelect || !agentSelect || !form) return;
-    projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
-    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('')}`;
     form.reset();
     $('#chatCreateError').textContent = '';
     $('#chatCreateDialog').showModal();
     setTimeout(() => focusIfPresent('#chatCreateTitle'), 0);
+
+    const requestID = ++chatResourceRequest;
+    projectSelect.disabled = true;
+    agentSelect.disabled = true;
+    projectSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
+    const [projectResult, agentResult] = await Promise.allSettled([
+      api('/api/v1/repositories'),
+      api('/api/v1/workspaces/local/agents')
+    ]);
+    if (requestID !== chatResourceRequest || !$('#chatCreateDialog')?.open) return;
+    if (projectResult.status === 'fulfilled') chatRepositories = projectResult.value.items || [];
+    if (agentResult.status === 'fulfilled') chatAgents = agentResult.value.items || [];
+    const projectItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const agentItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${projectItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${agentItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('')}`;
+    projectSelect.disabled = false;
+    agentSelect.disabled = false;
   }
 
   function closeChatCreateDialog() {

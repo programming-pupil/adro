@@ -12,27 +12,29 @@ test('renders the project-aware chat workspace with attachment drafting', async 
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
 
-  const project = await page.evaluate(async () => {
+  const projectName = `chat-context-project-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const project = await page.evaluate(async canonicalName => {
     const response = await fetch('/api/v1/repositories', {
       method: 'POST',
       credentials: 'include',
       headers: {'Content-Type': 'application/json', 'X-Workspace-ID': 'local'},
-      body: JSON.stringify({workspace_id: 'local', canonical_name: 'chat-context-project', clone_url: 'https://example.invalid/chat-context.git', provider: 'git', default_branch: 'main'})
+      body: JSON.stringify({workspace_id: 'local', canonical_name: canonicalName, clone_url: 'https://example.invalid/chat-context.git', provider: 'git', default_branch: 'main'})
     });
     return response.json();
-  });
+  }, projectName);
   await page.locator('#refreshButton').click();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
 
   await page.locator('.nav-chat[data-view="chats"]').click();
   await page.locator('#chatNew').click();
   await page.locator('#chatCreateTitle').fill('发布风险讨论');
+  await expect(page.locator(`#chatCreateProject option[value="${project.id}"]`)).toHaveCount(1);
   await page.locator('#chatCreateProject').selectOption(project.id);
   if (await page.locator('#chatCreateAgent option').count() > 1) await page.locator('#chatCreateAgent').selectOption({index: 1});
   await page.locator('#chatCreateForm button[type="submit"]').click();
   await expect(page.locator('.chat-workspace')).toBeVisible();
   await expect(page.locator('#chatProject')).toHaveValue(project.id);
-  await expect(page.locator('.chat-context-panel')).toContainText('chat-context-project');
+  await expect(page.locator('.chat-context-panel')).toContainText(projectName);
 
   await page.locator('#chatFiles').setInputFiles({name: 'release-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('release context')});
   await expect(page.locator('#chatDraftFiles')).toContainText('release-notes.txt');
