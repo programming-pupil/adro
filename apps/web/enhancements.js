@@ -3053,35 +3053,38 @@
     ++chatStateRequest;
     chatCreatingProjectID = projectID;
     chatCreatingAgentID = agentID;
+    let created;
     try {
-      const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
-      const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
-      chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
-      activeChatID = createdWithContext.id;
-      chatPendingCreateID = createdWithContext.id;
-      chatPendingCreateProjectID = projectID;
-      chatPendingCreateAgentID = agentID;
-      activeChatData = {chat: createdWithContext, messages: []};
-      chatAttachmentItems = [];
-      closeChatCreateDialog();
-      $('#chatCreateForm').reset();
-      renderChatPage();
-      void loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID).then(() => {
-        if (creationRequestID !== chatCreateRequest || chatPendingCreateID !== createdWithContext.id) return;
-        chatPendingCreateID = '';
-        chatPendingCreateProjectID = '';
-        chatPendingCreateAgentID = '';
-        chatCreatingProjectID = '';
-        chatCreatingAgentID = '';
-        renderChatPage();
-      });
+      created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
       chatCreatingProjectID = '';
       chatCreatingAgentID = '';
+      return;
     } finally {
       if (submit) submit.disabled = false;
     }
+    const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
+    chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
+    activeChatID = createdWithContext.id;
+    chatPendingCreateID = createdWithContext.id;
+    chatPendingCreateProjectID = projectID;
+    chatPendingCreateAgentID = agentID;
+    activeChatData = {chat: createdWithContext, messages: []};
+    chatAttachmentItems = [];
+    closeChatCreateDialog();
+    $('#chatCreateForm').reset();
+    const detailLoad = loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
+    renderChatPage();
+    void detailLoad.then(() => {
+      if (creationRequestID !== chatCreateRequest || chatPendingCreateID !== createdWithContext.id) return;
+      chatPendingCreateID = '';
+      chatPendingCreateProjectID = '';
+      chatPendingCreateAgentID = '';
+      chatCreatingProjectID = '';
+      chatCreatingAgentID = '';
+      renderChatPage();
+    });
   }
 
   $('#closeChatCreateDialog').onclick = closeChatCreateDialog;
