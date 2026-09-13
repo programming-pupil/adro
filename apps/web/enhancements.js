@@ -2841,6 +2841,8 @@
   let chatPendingCreateID = '';
   let chatPendingCreateProjectID = '';
   let chatPendingCreateAgentID = '';
+  let chatCreatingProjectID = '';
+  let chatCreatingAgentID = '';
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2909,12 +2911,14 @@
     const projectSourceItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const pendingProject = activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '';
-    const selectedProject = pendingProject || activeChatData?.chat?.project_id || '';
+    const creatingProject = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingProjectID : '';
+    const selectedProject = pendingProject || creatingProject || activeChatData?.chat?.project_id || '';
     const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
     const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
     const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
     const pendingAgent = activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '';
-    const selectedAgent = pendingAgent || activeChatData?.chat?.agent_id || '';
+    const creatingAgent = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingAgentID : '';
+    const selectedAgent = pendingAgent || creatingAgent || activeChatData?.chat?.agent_id || '';
     const project = chatProject();
     const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
@@ -2927,7 +2931,7 @@
     if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => persistChatField('project_id', event.currentTarget.value, activeChatData.chat.project_id || '');
     if ($('#chatAgent') && activeChatData?.chat) $('#chatAgent').onchange = event => persistChatField('agent_id', event.currentTarget.value, selectedAgent);
     $('#chatSearch').oninput = event => { chatSearchTerm = event.currentTarget.value; renderChatPage(); focusIfPresent('#chatSearch'); const input = $('#chatSearch'); if (input) input.setSelectionRange(chatSearchTerm.length, chatSearchTerm.length); };
-    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); chatPendingCreateID = ''; chatPendingCreateProjectID = ''; chatPendingCreateAgentID = ''; activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); chatPendingCreateID = ''; chatPendingCreateProjectID = ''; chatPendingCreateAgentID = ''; chatCreatingProjectID = ''; chatCreatingAgentID = ''; activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
     $('#chatNew').onclick = showChatCreateDialog;
     $('#chatNewTop').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
@@ -3047,6 +3051,8 @@
     $('#chatCreateError').textContent = '';
     const creationRequestID = ++chatCreateRequest;
     ++chatStateRequest;
+    chatCreatingProjectID = projectID;
+    chatCreatingAgentID = agentID;
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
       const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
@@ -3060,14 +3066,19 @@
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
       renderChatPage();
-      await loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
-      if (creationRequestID === chatCreateRequest && chatPendingCreateID === createdWithContext.id) {
+      void loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID).then(() => {
+        if (creationRequestID !== chatCreateRequest || chatPendingCreateID !== createdWithContext.id) return;
         chatPendingCreateID = '';
         chatPendingCreateProjectID = '';
         chatPendingCreateAgentID = '';
-      }
+        chatCreatingProjectID = '';
+        chatCreatingAgentID = '';
+        renderChatPage();
+      });
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
+      chatCreatingProjectID = '';
+      chatCreatingAgentID = '';
     } finally {
       if (submit) submit.disabled = false;
     }
