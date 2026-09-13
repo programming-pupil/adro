@@ -2836,6 +2836,7 @@
   let chatRepositories = [];
   let chatAgents = [];
   let chatResourceRequest = 0;
+  let chatStateRequest = 0;
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2920,7 +2921,7 @@
     if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => persistChatField('project_id', event.currentTarget.value, activeChatData.chat.project_id || '');
     if ($('#chatAgent') && activeChatData?.chat) $('#chatAgent').onchange = event => persistChatField('agent_id', event.currentTarget.value, selectedAgent);
     $('#chatSearch').oninput = event => { chatSearchTerm = event.currentTarget.value; renderChatPage(); focusIfPresent('#chatSearch'); const input = $('#chatSearch'); if (input) input.setSelectionRange(chatSearchTerm.length, chatSearchTerm.length); };
-    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
     $('#chatNew').onclick = showChatCreateDialog;
     $('#chatNewTop').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
@@ -2954,24 +2955,38 @@
     }
   }
 
-  async function loadChatDetail(id) {
+  async function loadChatDetail(id, fallbackChat = null, requestID = chatStateRequest) {
     try {
       const [detail, attachments] = await Promise.all([api(`/api/v1/chats/${encodeURIComponent(id)}`), api(`/api/v1/attachments?owner_type=chat_session&owner_id=${encodeURIComponent(id)}`)]);
-      activeChatData = detail;
+      if (requestID !== chatStateRequest || id !== activeChatID) return;
+      const chat = {...(fallbackChat || {}), ...(detail?.chat || {})};
+      for (const field of ['project_id', 'agent_id', 'title']) {
+        if (!chat[field] && fallbackChat?.[field]) chat[field] = fallbackChat[field];
+      }
+      activeChatData = {...detail, chat};
       chatAttachmentItems = attachments?.items || [];
       renderChatPage();
       requestAnimationFrame(() => { const history = $('#chatHistory'); if (history) history.scrollTop = history.scrollHeight; });
-    } catch (_) { activeChatData = null; chatAttachmentItems = []; renderChatPage(); }
+    } catch (_) {
+      if (requestID !== chatStateRequest || id !== activeChatID) return;
+      activeChatData = fallbackChat ? {chat: fallbackChat, messages: []} : null;
+      chatAttachmentItems = [];
+      renderChatPage();
+    }
   }
 
   async function loadChatList() {
+    const requestID = ++chatStateRequest;
     try {
       const response = await api('/api/v1/chats');
+      if (requestID !== chatStateRequest) return;
       chats = response.items || [];
       if (activeChatID && !chats.some(item => item.id === activeChatID)) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
-      if (activeChatID) await loadChatDetail(activeChatID); else { activeChatData = null; renderChatPage(); }
-    } catch (_) { renderChatPage(); }
+      if (activeChatID) await loadChatDetail(activeChatID, chats.find(item => item.id === activeChatID) || null, requestID); else { activeChatData = null; renderChatPage(); }
+    } catch (_) {
+      if (requestID === chatStateRequest) renderChatPage();
+    }
   }
 
   async function showChatCreateDialog() {
@@ -3017,13 +3032,15 @@
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
+    const requestID = ++chatStateRequest;
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
+      if (requestID !== chatStateRequest) return;
       chats = [created, ...chats.filter(item => item.id !== created.id)];
       activeChatID = created.id;
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
-      await loadChatDetail(activeChatID);
+      await loadChatDetail(activeChatID, created, requestID);
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
     } finally {
