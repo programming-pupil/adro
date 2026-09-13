@@ -2838,6 +2838,8 @@
   let chatResourceRequest = 0;
   let chatStateRequest = 0;
   let chatCreateRequest = 0;
+  let chatCreateProjectDraft = '';
+  let chatCreateAgentDraft = '';
   let chatPendingCreateID = '';
   let chatPendingCreateProjectID = '';
   let chatPendingCreateAgentID = '';
@@ -3048,6 +3050,8 @@
     const form = $('#chatCreateForm');
     if (!projectSelect || !agentSelect || !form) return;
     form.reset();
+    chatCreateProjectDraft = '';
+    chatCreateAgentDraft = '';
     $('#chatCreateError').textContent = '';
     $('#chatCreateDialog').showModal();
     setTimeout(() => focusIfPresent('#chatCreateTitle'), 0);
@@ -3057,6 +3061,8 @@
     agentSelect.disabled = true;
     projectSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
     agentSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
+    projectSelect.onchange = event => { chatCreateProjectDraft = String(event.currentTarget.value || '').trim(); };
+    agentSelect.onchange = event => { chatCreateAgentDraft = String(event.currentTarget.value || '').trim(); };
     const [projectResult, agentResult] = await Promise.allSettled([
       api('/api/v1/repositories'),
       api('/api/v1/workspaces/local/agents')
@@ -3080,8 +3086,8 @@
   async function createChatFromUI() {
     const title = String($('#chatCreateTitle')?.value || '').trim();
     if (!title) return;
-    const projectID = String($('#chatCreateProject')?.value || '').trim();
-    const agentID = String($('#chatCreateAgent')?.value || '').trim();
+    const projectID = chatCreateProjectDraft || String($('#chatCreateProject')?.value || '').trim();
+    const agentID = chatCreateAgentDraft || String($('#chatCreateAgent')?.value || '').trim();
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
@@ -3304,7 +3310,7 @@
     // Core polling refreshes the shared data model every 20 seconds. Keep an
     // active chat DOM stable during that refresh; chat-specific operations
     // already reload the transcript and own their render cycle.
-    if (currentView === 'chats' && $('#chatComposer')) return;
+    if (currentView === 'chats' && ($('#chatComposer' || $('#chatCreateDialog')?.open))) return;
     baseRender();
     if (currentView === 'executions') {
       $('#pageActions').innerHTML = '';
