@@ -2838,6 +2838,8 @@
   let chatResourceRequest = 0;
   let chatStateRequest = 0;
   let chatPendingCreateID = '';
+  let chatPendingCreateProjectID = '';
+  let chatPendingCreateAgentID = '';
 
   function releaseChatDraftFile(item) {
     if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
@@ -2905,11 +2907,11 @@
     const messageHTML = messages.length ? messages.map(chatMessageHTML).join('') : `<div class="chat-empty-state"><div class="chat-empty-orbit"><span></span><b>✦</b></div><h2>${escapeHTML(t('chatEmptyTitle'))}</h2><p>${escapeHTML(t('chatEmptyBody'))}</p><div class="chat-suggestions"><span>${escapeHTML(t('chatSuggested'))}</span>${[t('chatSuggestionOne'), t('chatSuggestionTwo'), t('chatSuggestionThree')].map(text => `<button type="button" data-chat-suggestion="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join('')}</div></div>`;
     const projectSourceItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
-    const selectedProject = activeChatData?.chat?.project_id || '';
+    const selectedProject = activeChatData?.chat?.project_id || (activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '');
     const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
     const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
     const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
-    const selectedAgent = activeChatData?.chat?.agent_id || '';
+    const selectedAgent = activeChatData?.chat?.agent_id || (activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '');
     const project = chatProject();
     const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
@@ -3038,17 +3040,24 @@
     ++chatStateRequest;
     try {
       const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
-      chats = [created, ...chats.filter(item => item.id !== created.id)];
-      activeChatID = created.id;
-      chatPendingCreateID = created.id;
-      activeChatData = {chat: created, messages: []};
+      const createdWithContext = {...created, project_id: created.project_id || projectID, agent_id: created.agent_id || agentID};
+      chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
+      activeChatID = createdWithContext.id;
+      chatPendingCreateID = createdWithContext.id;
+      chatPendingCreateProjectID = projectID;
+      chatPendingCreateAgentID = agentID;
+      activeChatData = {chat: createdWithContext, messages: []};
       chatAttachmentItems = [];
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
       renderChatPage();
       const requestID = ++chatStateRequest;
-      await loadChatDetail(activeChatID, created, requestID);
-      if (requestID === chatStateRequest && chatPendingCreateID === created.id) chatPendingCreateID = '';
+      await loadChatDetail(activeChatID, createdWithContext, requestID);
+      if (requestID === chatStateRequest && chatPendingCreateID === createdWithContext.id) {
+        chatPendingCreateID = '';
+        chatPendingCreateProjectID = '';
+        chatPendingCreateAgentID = '';
+      }
     } catch (_) {
       $('#chatCreateError').textContent = t('chatCreateFailed');
     } finally {
