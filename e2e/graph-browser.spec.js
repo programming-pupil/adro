@@ -40,9 +40,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('Browser-created real graph acceptance');
-  await page.locator('#requirementForm textarea[name="description"]').fill('Execute one immutable browser-created graph through the real local Codex provider.');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The browser-created plan reaches a terminal pass and its timeline and replay are consistent.');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Browser-created real graph acceptance\n\nExecute one immutable browser-created graph through the real local Codex provider.\n\nThe browser-created plan reaches a terminal pass and its timeline and replay are consistent.');
   await page.locator('#requirementRepository').selectOption({ label: 'browser-real-graph-repository' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();

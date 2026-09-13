@@ -78,3 +78,94 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.locator('.nav-item[data-view="workbench"]').click();
   await page.screenshot({ path: 'var/adro-workbench-mobile-cyber.png', fullPage: true });
 });
+
+test('keeps entity composers fast, localized, and attachment-aware', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+
+  await page.goto('/');
+  await page.locator('#loginForm input[name="username"]').fill('admin');
+  await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  await page.locator('#loginForm button[type="submit"]').click();
+  await expect(page.locator('#appShell')).toBeVisible();
+  const onboarding = page.locator('#agentDialog');
+  if (await onboarding.isVisible()) {
+    await page.locator('#agentForm button[type="submit"]').click();
+    await expect(onboarding).not.toBeVisible();
+  }
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('#newRequirement').click();
+  await expect(page.locator('#requirementDialog')).toBeVisible();
+  await page.locator('#requirementForm input[name="attachments"]').setInputFiles([
+    {name: 'brief.txt', mimeType: 'text/plain', buffer: Buffer.from('brief')},
+    {name: 'screen.png', mimeType: 'image/png', buffer: Buffer.from('not-a-real-png')}
+  ]);
+  await expect(page.locator('#requirementAttachmentPreview')).toContainText('brief.txt');
+  await expect(page.locator('#requirementAttachmentPreview')).toContainText('screen.png');
+  await expect(page.locator('#requirementAttachmentPreview img')).toHaveCount(1);
+  await page.locator('#requirementAttachmentPreview [data-remove-entity-attachment="requirement"]').first().click();
+  await expect(page.locator('#requirementAttachmentPreview')).not.toContainText('brief.txt');
+  await page.locator('#cancelDialog').click();
+
+  await page.locator('.nav-item[data-view="repositories"]').click();
+  await page.locator('#newResource').click();
+  await page.locator('#resourceFields input[name="name"]').fill('entity-composer-project');
+  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/entity-composer.git');
+  await page.locator('#resourceForm button[type="submit"]').click();
+  await expect(page.locator('tr').filter({hasText: 'entity-composer-project'}).first()).toBeVisible();
+
+  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('#newRequirement').click();
+  await page.locator('#requirementForm textarea[name="description"]').fill('Entity composer related requirement\n\nKeep the linked project and executor editable.');
+  await page.locator('#requirementRepository').selectOption({label: 'entity-composer-project'});
+  const linkedRepositoryID = await page.locator('#requirementRepository').inputValue();
+  await page.locator('#requirementAssignee').selectOption({index: 0});
+  const linkedAssigneeID = await page.locator('#requirementAssignee').inputValue();
+  await page.locator('#requirementForm button[type="submit"]').click();
+  const linkedRequirement = page.locator('tr[data-requirement-id]').filter({hasText: 'Entity composer related requirement'}).first();
+  await expect(linkedRequirement).toBeVisible();
+  const linkedRequirementID = await linkedRequirement.getAttribute('data-requirement-id');
+
+  await page.locator('.nav-item[data-view="bugs"]').click();
+  await page.locator('#newResource').click();
+  await expect(page.locator('#bugDialog')).toBeVisible();
+  await expect(page.locator('[data-i18n="bugDescriptionOnly"]')).toHaveText('Bug 描述');
+  await expect(page.locator('#bugDescription')).toHaveAttribute('placeholder', /复现步骤/);
+  await expect(page.locator('#bugRequirement')).toBeVisible();
+  await page.locator('#bugRequirement').selectOption(linkedRequirementID);
+  await expect(page.locator('#bugRepository')).toHaveValue(linkedRepositoryID);
+  await expect(page.locator('#bugAssignee')).toHaveValue(linkedAssigneeID);
+  await page.locator('#bugRepository').selectOption({index: 0});
+  await page.locator('#bugAssignee').selectOption({index: 0});
+  await page.evaluate(() => {
+    const input = document.querySelector('#bugDescription');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['image'], 'clipboard.png', {type: 'image/png'}));
+    input.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, clipboardData: transfer}));
+  });
+  await expect(page.locator('#bugAttachmentPreview img')).toHaveCount(1);
+  await expect(page.locator('#bugAttachmentPreview')).toContainText('clipboard.png');
+  await page.evaluate(() => {
+    const dropZone = document.querySelector('#bugAttachments').closest('.file-drop');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['log'], 'dropped.log', {type: 'text/plain'}));
+    dropZone.dispatchEvent(new DragEvent('drop', {bubbles: true, dataTransfer: transfer}));
+  });
+  await expect(page.locator('#bugAttachmentPreview')).toContainText('dropped.log');
+  await page.locator('#bugAttachmentPreview [data-remove-entity-attachment="bug"]').first().click();
+  await page.locator('#bugAttachmentPreview [data-remove-entity-attachment="bug"]').first().click();
+  await expect(page.locator('#bugAttachmentPreview')).toBeEmpty();
+  await page.locator('#cancelBugDialog').click();
+
+  await page.locator('#logoutButton').click();
+  await expect(page.locator('#logoutConfirmDialog')).toBeVisible();
+  await page.locator('#logoutConfirmCancel').click();
+  await expect(page.locator('#appShell')).toBeVisible();
+  await page.locator('#logoutButton').click();
+  await page.locator('#logoutConfirmButton').click();
+  await expect(page.locator('#loginGate')).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -557,6 +557,7 @@ type Repository struct {
 	WorkspaceID   string         `json:"workspace_id"`
 	CanonicalName string         `json:"canonical_name"`
 	CloneURL      string         `json:"clone_url"`
+	OwnerID       string         `json:"owner_id,omitempty"`
 	Provider      string         `json:"provider"`
 	DefaultBranch string         `json:"default_branch"`
 	LanguageSet   []string       `json:"language_set"`

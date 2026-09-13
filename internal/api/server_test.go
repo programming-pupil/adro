@@ -418,6 +418,26 @@ func TestGenericMutationIdempotencyReplaysResponse(t *testing.T) {
 	}
 }
 
+func TestRepositoryCreateAcceptsLocalPathAndPreservesOwner(t *testing.T) {
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/repositories", `{"workspace_id":"w1","canonical_name":"local-project","owner_id":"member-1","provider":"local","metadata":{"local_path":"/Users/shareit/program/github/adro"}}`, map[string]string{"X-Workspace-ID": "w1"})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("local repository status=%d body=%s", response.Code, response.Body.String())
+	}
+	var repository domain.Repository
+	if err := json.Unmarshal(response.Body.Bytes(), &repository); err != nil {
+		t.Fatal(err)
+	}
+	if repository.CloneURL != "" || repository.OwnerID != "member-1" || repository.Metadata["local_path"] != "/Users/shareit/program/github/adro" {
+		t.Fatalf("local repository fields were not preserved: %+v", repository)
+	}
+
+	remote := request(t, s.Routes(), http.MethodPost, "/api/v1/repositories", `{"workspace_id":"w1","canonical_name":"remote-project","clone_url":"https://example.test/remote.git"}`, map[string]string{"X-Workspace-ID": "w1"})
+	if remote.Code != http.StatusCreated {
+		t.Fatalf("remote repository status=%d body=%s", remote.Code, remote.Body.String())
+	}
+}
+
 func TestIdempotentMutationEmitsSingleCORSHeader(t *testing.T) {
 	s := testServer(t)
 	body := `{"workspace_id":"w1","title":"cors","description":"response headers remain valid","acceptance_criteria":["single origin"],"assignee_member_ids":["member"]}`

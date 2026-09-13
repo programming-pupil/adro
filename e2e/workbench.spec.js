@@ -362,8 +362,10 @@ test('admin migration rejects invalid data then preflights and imports a verifie
 test('opens the durable project chat and sends a harness-backed message', async ({ page }) => {
   await page.locator('.nav-chat[data-view="chats"]').click();
   await expect(page.locator('#pageTitle')).toHaveText('普通聊天');
-  page.once('dialog', dialog => dialog.accept('Browser chat'));
   await page.locator('#chatNew').click();
+  await expect(page.locator('#chatCreateDialog')).toBeVisible();
+  await page.locator('#chatCreateTitle').fill('Browser chat');
+  await page.locator('#chatCreateForm button[type="submit"]').click();
   await expect(page.locator('.chat-list-item')).toContainText('Browser chat');
   await page.locator('#chatInput').fill('Keep this project context durable');
   await page.locator('#chatComposer button[type="submit"]').click();
@@ -378,9 +380,7 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   await page.locator('#resourceForm button[type="submit"]').click();
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('Browser acceptance requirement');
-  await page.locator('#requirementForm textarea[name="description"]').fill('Created by the repeatable acceptance suite');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The detail view renders the requirement\nThe uploaded brief is retained');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Browser acceptance requirement\n\nCreated by the repeatable acceptance suite\n\nThe detail view renders the requirement\nThe uploaded brief is retained');
   await page.locator('#requirementRepository').selectOption({ label: 'browser-requirement-service' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm input[name="attachments"]').setInputFiles({ name: 'requirement-brief.txt', mimeType: 'text/plain', buffer: Buffer.from('acceptance evidence') });
@@ -412,9 +412,7 @@ test('posts a structured mention comment with an attachment and reply', async ({
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('Comment thread acceptance');
-  await page.locator('#requirementForm textarea[name="description"]').fill('Exercise the structured comment delivery path.');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The comment is retained with its attachment and reply.');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Comment thread acceptance\n\nExercise the structured comment delivery path.\n\nThe comment is retained with its attachment and reply.');
   await page.locator('#requirementRepository').selectOption({ label: 'comment-evidence-service' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
@@ -468,9 +466,7 @@ test('renders @all as a broadcast-only outcome without a follow-up receipt', asy
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('Broadcast-only comment acceptance');
-  await page.locator('#requirementForm textarea[name="description"]').fill('Exercise the render-only all mention path.');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The comment is broadcast without starting an Agent follow-up.');
+  await page.locator('#requirementForm textarea[name="description"]').fill('Broadcast-only comment acceptance\n\nExercise the render-only all mention path.\n\nThe comment is broadcast without starting an Agent follow-up.');
   await page.locator('#requirementRepository').selectOption({ label: 'broadcast-evidence-service' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
@@ -602,9 +598,7 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill(requirementTitle);
-  await page.locator('#requirementForm textarea[name="description"]').fill('Create an immutable plan from a published revisioned squad.');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('Agent and Squad revisions are frozen\nTimeline and replay are available');
+  await page.locator('#requirementForm textarea[name="description"]').fill(`${requirementTitle}\n\nCreate an immutable plan from a published revisioned squad.\n\nAgent and Squad revisions are frozen\nTimeline and replay are available`);
   await page.locator('#requirementRepository').selectOption({ label: repositoryName });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
@@ -704,9 +698,7 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
 
   await page.locator('.nav-item[data-view="requirements"]').click();
   await page.locator('#newRequirement').click();
-  await page.locator('#requirementForm input[name="title"]').fill('payments release requirement');
-  await page.locator('#requirementForm textarea[name="description"]').fill('Ship the payments release with regression evidence');
-  await page.locator('#requirementForm textarea[name="acceptance"]').fill('The payments release passes regression tests');
+  await page.locator('#requirementForm textarea[name="description"]').fill('payments release requirement\n\nShip the payments release with regression evidence\n\nThe payments release passes regression tests');
   await page.locator('#requirementRepository').selectOption({ label: 'payments-service' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
@@ -763,10 +755,7 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
 
   await page.locator('.nav-item[data-view="bugs"]').click();
   await page.locator('#newResource').click();
-  await page.locator('#bugForm input[name="title"]').fill('release regression');
-  await page.locator('#bugForm textarea[name="steps"]').fill('Run the release acceptance suite');
-  await page.locator('#bugForm textarea[name="expected"]').fill('All checks pass');
-  await page.locator('#bugForm textarea[name="actual"]').fill('The release check fails');
+  await page.locator('#bugForm textarea[name="description"]').fill('release regression\n\nBug description\nThe release check fails\n\nReproduction steps\nRun the release acceptance suite\n\nExpected result\nAll checks pass\n\nActual result\nThe release check fails\n\nRelevant logs\nSee the attached failure log');
   await page.locator('#bugRepository').selectOption({ label: 'payments-service' });
   await page.locator('#bugAssignee').selectOption({ index: 0 });
   const relatedRequirement = page.locator('#bugRequirement option').filter({ hasText: 'payments release requirement' });
@@ -797,6 +786,8 @@ test('administrator assigns menu access and the backend enforces it', async ({ p
   await page.locator('#userForm button[type="submit"]').click();
   await expect(page.locator('#appView')).toContainText('restricted.user');
   await page.locator('#logoutButton').click();
+  await expect(page.locator('#logoutConfirmDialog')).toBeVisible();
+  await page.locator('#logoutConfirmButton').click();
   await page.locator('#loginForm input[name="username"]').fill('restricted.user');
   await page.locator('#loginForm input[name="password"]').fill('Restricted123!');
   await page.locator('#loginForm button[type="submit"]').click();
