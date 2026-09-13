@@ -3050,7 +3050,6 @@
       chatAttachmentItems = [];
       closeChatCreateDialog();
       $('#chatCreateForm').reset();
-      renderChatPage();
       const requestID = ++chatStateRequest;
       await loadChatDetail(activeChatID, createdWithContext, requestID);
       if (requestID === chatStateRequest && chatPendingCreateID === createdWithContext.id) {
