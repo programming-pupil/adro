@@ -3108,7 +3108,9 @@
           const response = await api('/api/v1/chats');
           const items = Array.isArray(response?.items) ? response.items : [];
           created = items.find(item => item.title === title && item.project_id === projectID && item.agent_id === agentID)
-            || items.find(item => item.title === title && item.project_id === projectID);
+            || items.find(item => item.title === title && item.project_id === projectID)
+            || items.find(item => item.title === title && item.agent_id === agentID)
+            || items.find(item => item.title === title);
         }
         if (!created?.id) throw new Error('chat creation recovery did not find a session');
       } catch (_) {
