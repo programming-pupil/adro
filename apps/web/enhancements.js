@@ -2887,6 +2887,16 @@
     return `<div class="chat-attachment-tile ${image ? 'is-image' : ''} ${url ? 'is-previewable' : ''}" ${preview} role="${url ? 'button' : 'group'}" tabindex="${url ? '0' : '-1'}">${image && url ? `<img src="${escapeHTML(url)}" alt="${escapeHTML(title)}">` : `<span class="chat-attachment-icon">${image ? 'IMG' : 'FILE'}</span>`}<span class="chat-attachment-copy"><strong>${escapeHTML(title)}</strong><small>${escapeHTML(image ? t('attachmentImage') : formatBytes(file.size || file.size_bytes || 0))}</small></span>${remove}</div>`;
   }
 
+  function setChatContextSelectValue(selector, value, label) {
+    const select = $(selector);
+    const normalized = String(value || '').trim();
+    if (!select || !normalized) return;
+    if (![...select.options].some(option => option.value === normalized)) {
+      select.append(new Option(label || normalized, normalized));
+    }
+    select.value = normalized;
+  }
+
   function chatMessageHTML(item) {
     const attachments = (item.attachment_ids || []).map(id => chatAttachmentItems.find(candidate => candidate.id === id)).filter(Boolean);
     const attachmentMarkup = attachments.length ? `<div class="chat-message-attachments">${attachments.map(attachment => chatAttachmentTile(attachment, 0)).join('')}</div>` : '';
@@ -2928,8 +2938,8 @@
     const contextFiles = chatAttachmentItems.length ? chatAttachmentItems.map(item => chatAttachmentTile(item, 0)).join('') : `<p class="chat-context-empty">${escapeHTML(t('chatNoFiles'))}</p>`;
     const projectSource = project?.metadata?.local_path || project?.clone_url || project?.canonical_name || '-';
     $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><div><span class="chat-eyebrow">${escapeHTML(t('chatWorkspace'))}</span><strong>${escapeHTML(t('chatRecent'))}</strong></div><span class="chat-count">${escapeHTML(String(chats.length).padStart(2, '0'))}</span></div><label class="chat-search"><span aria-hidden="true">⌕</span><input id="chatSearch" type="search" value="${escapeHTML(chatSearchTerm)}" placeholder="${escapeHTML(t('chatSearchPlaceholder'))}" aria-label="${escapeHTML(t('chatSearchPlaceholder'))}"></label><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><header class="chat-panel-head"><div class="chat-panel-title"><span class="chat-eyebrow">${escapeHTML(t('chatConversation'))} / ${escapeHTML(activeChatData?.chat?.id?.slice(0, 8) || 'NEW')}</span><h2>${escapeHTML(activeChatData?.chat?.title || t('chatWorkspace'))}</h2><div class="chat-context-line"><span class="chat-status-pulse"></span>${escapeHTML(continuityLabel)}<span>·</span>${escapeHTML(runtimeLabel)}</div></div><div class="chat-panel-actions"><span class="chat-live-pill"><i></i>${escapeHTML(t('chatPersisted'))}</span><button type="button" class="icon-button" id="chatNewTop" title="${escapeHTML(t('newChat'))}" aria-label="${escapeHTML(t('newChat'))}">＋</button></div></header><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer" data-chat-dropzone="true"><div class="chat-drop-hint">${escapeHTML(t('chatDropHint'))}</div><div class="chat-draft-files" id="chatDraftFiles">${chatDraftFiles.map((item, index) => chatAttachmentTile(item, index, true)).join('')}</div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-footer"><div class="chat-compose-context"><label class="chat-select-control"><span>${escapeHTML(t('chatProject'))}</span><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatChooseProject'))}</option>${projectOptions}</select></label><label class="chat-select-control"><span>${escapeHTML(t('chatAgent'))}</span><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatNoAgent'))}</option>${agentOptions}</select></label></div><div class="chat-compose-actions"><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}"><span aria-hidden="true">⊕</span><span>${escapeHTML(t('chatAttachments'))}</span><input id="chatFiles" type="file" multiple hidden></label><span id="chatComposerStatus" role="status"></span><button class="primary chat-send" type="submit" ${chatSending ? 'disabled' : ''}><span>${escapeHTML(chatSending ? t('chatSending') : t('sendMessage'))}</span><b aria-hidden="true">↗</b></button></div></div></form></section><aside class="chat-context-panel"><div class="chat-context-header"><span class="chat-eyebrow">${escapeHTML(t('chatContext'))}</span><span class="chat-context-signal"><i></i>LIVE</span></div><div class="chat-project-card"><span class="chat-project-glyph">${project ? '◎' : '○'}</span><div><small>${escapeHTML(t('chatProjectContext'))}</small><strong>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</strong></div></div><div class="chat-context-block"><span>${escapeHTML(t('chatProjectReady'))}</span><strong>${escapeHTML(projectSource)}</strong></div><div class="chat-context-block"><span>${escapeHTML(t('chatAgentReady'))}</span><strong>${escapeHTML(agent?.name || t('chatNoAgent'))}</strong><small>${escapeHTML(agent?.executor_binding?.runtime_id || runtimeLabel)}</small></div><div class="chat-context-files"><div class="chat-context-block-head"><span>${escapeHTML(t('chatProjectFiles'))}</span><b>${escapeHTML(String(chatAttachmentItems.length))}</b></div>${contextFiles}</div><div class="chat-context-foot"><span class="chat-mini-ring"></span><div><strong>${escapeHTML(t('chatRuntimeState'))}</strong><small>${escapeHTML(continuityLabel)}</small></div></div></aside></div>`;
-    if ($('#chatProject')) $('#chatProject').value = selectedProject;
-    if ($('#chatAgent')) $('#chatAgent').value = selectedAgent;
+    setChatContextSelectValue('#chatProject', selectedProject);
+    setChatContextSelectValue('#chatAgent', selectedAgent);
     if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => {
       const binding = chatCreationBindings.get(activeChatID) || {};
       chatCreationBindings.set(activeChatID, {...binding, projectID: event.currentTarget.value});
@@ -3080,17 +3090,31 @@
     chatCreatingProjectID = projectID;
     chatCreatingAgentID = agentID;
     let created;
+    const requestKey = idempotencyKey();
+    const requestController = new AbortController();
+    const requestTimeout = setTimeout(() => requestController.abort(), 10000);
     try {
-      created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
+      created = await api('/api/v1/chats', {method: 'POST', signal: requestController.signal, headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
       const record = created?.chat || created?.item || created?.data || created;
       if (!record?.id) throw new Error('chat creation response did not include an id');
       created = record;
     } catch (_) {
-      $('#chatCreateError').textContent = t('chatCreateFailed');
-      chatCreatingProjectID = '';
-      chatCreatingAgentID = '';
-      return;
+      // A slow browser can receive the successful POST after its response
+      // body read is interrupted. The idempotent write is durable, so recover
+      // the just-created session from the authoritative list before failing.
+      try {
+        const response = await api('/api/v1/chats');
+        created = (response.items || []).find(item => item.title === title && item.project_id === projectID && item.agent_id === agentID)
+          || (response.items || []).find(item => item.title === title && item.project_id === projectID);
+        if (!created?.id) throw new Error('chat creation recovery did not find a session');
+      } catch (_) {
+        $('#chatCreateError').textContent = t('chatCreateFailed');
+        chatCreatingProjectID = '';
+        chatCreatingAgentID = '';
+        return;
+      }
     } finally {
+      clearTimeout(requestTimeout);
       if (submit) submit.disabled = false;
     }
     const createdWithContext = {
@@ -3110,8 +3134,10 @@
     chatAttachmentItems = [];
     closeChatCreateDialog();
     $('#chatCreateForm').reset();
-    const detailLoad = loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
     renderChatPage();
+    setChatContextSelectValue('#chatProject', createdWithContext.project_id);
+    setChatContextSelectValue('#chatAgent', createdWithContext.agent_id);
+    const detailLoad = loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
     void detailLoad.then(() => {
       if (creationRequestID !== chatCreateRequest || chatPendingCreateID !== createdWithContext.id) return;
       chatPendingCreateID = '';
