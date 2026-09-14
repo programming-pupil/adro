@@ -199,7 +199,7 @@
     repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
     repositorySourceHelp: '远程地址和本地目录二选一；本地目录可直接填写绝对路径。',
     repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
-    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目'
+    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人'
   });
   Object.assign(translations.en, {
     logoutConfirm: 'Sign out of the current account?',
@@ -220,7 +220,7 @@
     repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
     repositorySourceHelp: 'Choose either a remote URL or a local directory. Local projects accept an absolute path.',
     repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
-    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project'
+    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available'
   });
 
   Object.assign(translations.zh, {
@@ -923,7 +923,6 @@
     ['local_path', 'repositoryLocalPath', 'text', false],
     ['clone_url', 'repositoryCloneURL', 'url', false],
     ['owner_id', 'repositoryOwner', 'text', false],
-    ['provider', 'repositoryProvider', 'text', false],
     ['default_branch', 'repositoryBranch', 'text', false]
   ];
   translations.zh.createRepository = translations.zh.createProject;
@@ -947,24 +946,111 @@
     if (localPath) localPath.placeholder = t('repositoryLocalPath');
     if (cloneURL) cloneURL.placeholder = t('repositoryCloneURL');
     if (owner) {
-      owner.placeholder = t('repositoryOwnerPlaceholder');
-      const select = document.createElement('select');
-      select.name = 'owner_id';
-      select.innerHTML = `<option value="">${escapeHTML(t('repositoryOwnerPlaceholder'))}</option>${directory.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.display_name)} · ${escapeHTML(item.username)}</option>`).join('')}`;
-      owner.replaceWith(select);
+      const picker = document.createElement('div');
+      picker.className = 'resource-owner-picker';
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'owner_id';
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'resource-owner-trigger';
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      const menu = document.createElement('div');
+      menu.className = 'resource-owner-menu';
+      menu.setAttribute('role', 'listbox');
+      const initials = item => String(item.display_name || item.username || '?').trim().slice(0, 1).toUpperCase();
+      const label = item => `${item.display_name || item.username || item.id} · ${item.username || item.id}`;
+      const setTrigger = item => {
+        hidden.value = item?.id || '';
+        trigger.innerHTML = item
+          ? `<span class="resource-owner-avatar">${escapeHTML(initials(item))}</span><span class="resource-owner-copy"><strong>${escapeHTML(item.display_name || item.username || item.id)}</strong><small>${escapeHTML(item.username || item.id)}</small></span><span class="resource-owner-caret" aria-hidden="true">⌄</span>`
+          : `<span class="resource-owner-placeholder">${escapeHTML(t('repositoryOwnerChoose'))}</span><span class="resource-owner-caret" aria-hidden="true">⌄</span>`;
+      };
+      const closeMenu = () => { picker.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); };
+      menu.innerHTML = directory.length
+        ? directory.map(item => `<button type="button" class="resource-owner-option" role="option" data-owner-id="${escapeHTML(item.id)}"><span class="resource-owner-avatar">${escapeHTML(initials(item))}</span><span class="resource-owner-copy"><strong>${escapeHTML(item.display_name || item.username || item.id)}</strong><small>${escapeHTML(label(item))}</small></span></button>`).join('')
+        : `<span class="resource-owner-empty">${escapeHTML(t('repositoryOwnerEmpty'))}</span>`;
+      menu.querySelectorAll('[data-owner-id]').forEach(option => {
+        option.onclick = () => {
+          const item = directory.find(candidate => candidate.id === option.dataset.ownerId);
+          setTrigger(item);
+          closeMenu();
+        };
+      });
+      trigger.onclick = () => {
+        const open = picker.classList.toggle('open');
+        trigger.setAttribute('aria-expanded', String(open));
+      };
+      picker.append(hidden, trigger, menu);
+      owner.replaceWith(picker);
+      setTrigger(null);
+    }
+    if (localPath) {
+      localPath.readOnly = true;
+      localPath.classList.add('resource-path-value');
+      localPath.setAttribute('aria-describedby', 'repositoryPathHelp');
+      const pathLabel = localPath.parentElement;
+      if (pathLabel) {
+        const picker = document.createElement('div');
+        picker.className = 'resource-path-picker';
+        const choose = document.createElement('button');
+        choose.type = 'button';
+        choose.className = 'secondary resource-path-button';
+        choose.innerHTML = `<span aria-hidden="true">⌂</span><span>${escapeHTML(t('repositoryChooseFolder'))}</span>`;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.setAttribute('webkitdirectory', '');
+        input.setAttribute('directory', '');
+        input.className = 'sr-only';
+        input.setAttribute('aria-label', t('repositoryChooseFolder'));
+        const updatePath = files => {
+          const first = files?.[0];
+          if (!first) return;
+          const root = String(first.webkitRelativePath || first.name || '').split('/')[0];
+          localPath.value = root;
+          choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${root}`;
+        };
+        choose.onclick = async () => {
+          if (window.showDirectoryPicker) {
+            try {
+              const handle = await window.showDirectoryPicker();
+              localPath.value = handle.name;
+              choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${handle.name}`;
+              return;
+            } catch (_) {}
+          }
+          input.click();
+        };
+        input.onchange = () => updatePath(input.files);
+        picker.append(choose, input);
+        pathLabel.append(picker);
+      }
     }
     const hint = document.createElement('small');
     hint.className = 'form-help resource-source-help';
+    hint.id = 'repositoryPathHelp';
     hint.textContent = t('repositorySourceHelp');
     $('#resourceFields').prepend(hint);
+    const autoHint = document.createElement('small');
+    autoHint.className = 'form-help resource-source-auto';
+    autoHint.textContent = t('repositorySourceAuto');
+    $('#resourceFields').prepend(autoHint);
     const updateSource = source => {
       const local = source === 'local';
       const localLabel = localPath?.parentElement;
       const cloneLabel = cloneURL?.parentElement;
       if (localLabel) localLabel.hidden = !local;
       if (cloneLabel) cloneLabel.hidden = local;
-      if (localPath) localPath.required = local;
-      if (cloneURL) cloneURL.required = !local;
+      if (localPath) {
+        localPath.required = local;
+        localPath.disabled = !local;
+      }
+      if (cloneURL) {
+        cloneURL.required = !local;
+        cloneURL.disabled = local;
+      }
       sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => button.classList.toggle('active', button.dataset.repositorySource === source));
     };
     sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => { button.onclick = () => updateSource(button.dataset.repositorySource); });
@@ -992,7 +1078,7 @@
     if (ownerID) metadata.owner_id = ownerID;
     const body = {
       workspace_id: 'local', canonical_name: name, clone_url: cloneURL, owner_id: ownerID,
-      provider: String(values.get('provider') || '').trim() || (localPath ? 'local' : 'git'),
+      provider: localPath ? 'local' : 'git',
       default_branch: String(values.get('default_branch') || '').trim() || 'main', metadata
     };
     const submit = form.querySelector('button[type="submit"]');

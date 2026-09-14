@@ -224,6 +224,27 @@ dialog.entity-dialog { width: min(980px, calc(100vw - 32px)); max-height: min(86
 .resource-source-switch button:hover { color: var(--text); background: #102b3a; }
 .resource-source-switch button.active { border-color: #28738a; color: var(--cyan); background: #123b51; }
 .resource-source-help { margin: 0 0 2px; }
+.resource-source-auto { margin: 0 0 8px; color: var(--cyan); }
+.resource-path-picker { display: flex; gap: 8px; margin-top: 8px; }
+.resource-path-picker .resource-path-button { flex: 0 0 auto; min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; }
+.resource-path-picker .resource-path-button span:first-child { color: var(--cyan); font-size: 15px; }
+.resource-path-value { color: var(--cyan) !important; font-family: "SFMono-Regular", Consolas, monospace; }
+.resource-owner-picker { position: relative; margin-top: 7px; }
+.resource-owner-trigger { width: 100%; min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 6px 11px; border: 1px solid #2a506b; border-radius: 8px; color: var(--text); background: linear-gradient(135deg, #10283a, #0b1b2a); text-align: left; }
+.resource-owner-trigger:hover, .resource-owner-picker.open .resource-owner-trigger { border-color: var(--console-cyan); box-shadow: 0 0 0 3px rgba(67, 230, 255, .1), 0 0 20px rgba(67, 230, 255, .06); }
+.resource-owner-placeholder { color: var(--muted); font-size: 12px; }
+.resource-owner-avatar { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid #28738a; border-radius: 7px; color: var(--cyan); background: #123b51; font: 700 11px "SFMono-Regular", Consolas, monospace; }
+.resource-owner-copy { min-width: 0; display: grid; gap: 3px; flex: 1; }
+.resource-owner-copy strong, .resource-owner-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resource-owner-copy strong { color: var(--text); font-size: 11px; }
+.resource-owner-copy small { color: var(--muted); font: 9px "SFMono-Regular", Consolas, monospace; }
+.resource-owner-caret { margin-left: auto; color: var(--cyan); font-size: 13px; }
+.resource-owner-menu { position: absolute; z-index: 8; top: calc(100% + 7px); right: 0; left: 0; display: none; max-height: 220px; overflow: auto; padding: 6px; border: 1px solid #2a607a; border-radius: 8px; background: #0a1826; box-shadow: 0 18px 40px #00000080; }
+.resource-owner-picker.open .resource-owner-menu { display: grid; gap: 3px; }
+.resource-owner-option { width: 100%; display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--text); background: transparent; text-align: left; }
+.resource-owner-option:hover, .resource-owner-option:focus-visible { border-color: #28738a; background: #123b51; }
+.resource-owner-option .resource-owner-avatar { width: 26px; height: 26px; flex-basis: 26px; }
+.resource-owner-empty { padding: 12px 9px; color: var(--muted); font-size: 11px; }
 
 dialog.chat-create-dialog { width: min(620px, calc(100vw - 32px)); overflow: hidden; border-color: #3d6f92; background: linear-gradient(145deg, #0c1d2c, #0b1320 62%); }
 .chat-create-dialog .dialog-head { padding: 25px 27px 19px; background: linear-gradient(90deg, rgba(53,231,255,.08), transparent 65%); }

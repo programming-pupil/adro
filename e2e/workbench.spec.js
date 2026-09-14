@@ -104,6 +104,38 @@ test.beforeEach(async ({ page }, testInfo) => {
   page.__adroRequestHosts = requestHosts;
 });
 
+test('uses the delivery label and polished project source controls', async ({ page }) => {
+  await page.locator('.nav-item[data-view="workbench"]').click();
+  await expect(page.locator('#newRequirement')).toHaveText(/创建交付项/);
+
+  await page.locator('.nav-item[data-view="repositories"]').click();
+  await page.locator('#newResource').click();
+  await expect(page.locator('#resourceDialog')).toBeVisible();
+  await expect(page.locator('#resourceFields input[name="provider"]')).toHaveCount(0);
+  await expect(page.locator('.resource-owner-picker')).toBeVisible();
+  await expect(page.locator('.resource-owner-trigger')).toContainText('选择负责人');
+
+  await page.evaluate(() => {
+    window.showDirectoryPicker = async () => ({name: 'selected-project'});
+  });
+  await page.locator('[data-repository-source="local"]').click();
+  await page.locator('.resource-path-button').click();
+  await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('selected-project');
+
+  await page.locator('.resource-owner-trigger').click();
+  const ownerOption = page.locator('.resource-owner-option').first();
+  await expect(ownerOption).toBeVisible();
+  const ownerID = await ownerOption.getAttribute('data-owner-id');
+  await ownerOption.click();
+  await expect(page.locator('#resourceFields input[name="owner_id"]')).toHaveValue(ownerID);
+
+  await page.locator('#resourceFields input[name="name"]').fill(`folder-picker-${Date.now()}`);
+  await expect(page.locator('#resourceForm button[type="submit"]')).toContainText('保存');
+  await page.locator('#resourceForm button[type="submit"]').click();
+  await expect(page.locator('#resourceDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('first-run workspace import requires preflight and bypasses manual Agent creation', async ({ page }) => {
   let preflightCalls = 0;
   let importCalls = 0;
