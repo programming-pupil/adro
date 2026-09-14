@@ -201,7 +201,7 @@
     chatCreateSubtitle: '先选一个项目和执行 Agent，再开始一段持久化讨论。',
     chatTitlePlaceholder: '例如：支付发布讨论',
     repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
-    repositorySourceHelp: '选择本地目录后显示完整路径；浏览器无法提供绝对路径时，可直接粘贴路径。',
+    repositorySourceHelp: '选择本地目录后显示目录名称；浏览器不会暴露绝对路径时，请粘贴完整路径。',
     repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
     localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人', repositoryEdit: '编辑', repositoryDelete: '删除', repositoryBrowse: '浏览', repositoryDeleteConfirm: '确定删除这个项目吗？删除后项目绑定关系也会移除。', repositoryIndexHelp: '索引中：正在记录项目文件的可检索快照状态，不会下载远程仓库。', repositoryReadyHelp: '已就绪：项目快照状态已记录。', repositoryRemoteUnavailable: '这是远程地址元数据，当前未下载到本机，暂时无法浏览。', repositoryBrowseTitle: '浏览项目', repositoryBrowseEmpty: '目录为空', repositoryBinary: '二进制文件，无法在线预览', repositoryTruncated: '文件过大，仅显示前 1 MiB', repositoryLoadFailed: '项目内容加载失败', repositoryPathFallback: '也可以直接粘贴完整本地路径'
   });
@@ -222,7 +222,7 @@
     chatCreateSubtitle: 'Choose a project and execution agent before starting a durable discussion.',
     chatTitlePlaceholder: 'For example: Payment release discussion',
     repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
-    repositorySourceHelp: 'The full path is shown for local projects. If the browser cannot expose it, paste the absolute path manually.',
+    repositorySourceHelp: 'The folder name is shown after selection. If the browser cannot expose the absolute path, paste it manually.',
     repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
     localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available', repositoryEdit: 'Edit', repositoryDelete: 'Delete', repositoryBrowse: 'Browse', repositoryDeleteConfirm: 'Delete this project? Its project bindings will also be removed.', repositoryIndexHelp: 'Indexing: recording a searchable snapshot state for the project files. It does not download a remote repository.', repositoryReadyHelp: 'Ready: the project snapshot state has been recorded.', repositoryRemoteUnavailable: 'This is remote URL metadata. It has not been downloaded locally, so it cannot be browsed yet.', repositoryBrowseTitle: 'Browse project', repositoryBrowseEmpty: 'Directory is empty', repositoryBinary: 'Binary file cannot be previewed online', repositoryTruncated: 'File is large; showing the first 1 MiB only', repositoryLoadFailed: 'Could not load project contents', repositoryPathFallback: 'You can also paste the full local path manually'
   });
@@ -967,8 +967,7 @@
   };
   resourceConfigs.repository.fields = [
     ['name', 'repositoryName', 'text', true],
-    ['local_path', 'repositoryLocalPath', 'text', false],
-    ['clone_url', 'repositoryCloneURL', 'url', false],
+    ['local_path', 'repositoryLocalPath', 'text', true],
     ['owner_id', 'repositoryOwner', 'text', false]
   ];
   translations.zh.createRepository = translations.zh.createProject;
@@ -981,18 +980,10 @@
     baseOpenResourceDialog(kind);
     if (kind !== 'repository') return;
     const localPath = $('#resourceFields input[name="local_path"]');
-    const cloneURL = $('#resourceFields input[name="clone_url"]');
     const owner = $('#resourceFields input[name="owner_id"]');
     const existing = editingRepositoryID ? repositories.find(item => item.id === editingRepositoryID) : null;
     let setOwner = () => {};
-    const sourceSwitch = document.createElement('div');
-    sourceSwitch.className = 'resource-source-switch';
-    sourceSwitch.setAttribute('role', 'group');
-    sourceSwitch.setAttribute('aria-label', t('repositorySource'));
-    sourceSwitch.innerHTML = `<button type="button" class="active" data-repository-source="remote">${escapeHTML(t('remoteProject'))}</button><button type="button" data-repository-source="local">${escapeHTML(t('localProject'))}</button>`;
-    $('#resourceFields').prepend(sourceSwitch);
     if (localPath) localPath.placeholder = t('repositoryLocalPath');
-    if (cloneURL) cloneURL.placeholder = t('repositoryCloneURL');
     if (owner) {
       const picker = document.createElement('div');
       picker.className = 'resource-owner-picker';
@@ -1036,7 +1027,7 @@
       setTrigger(existing ? directory.find(item => item.id === existing.owner_id) : null);
     }
     if (localPath) {
-      localPath.readOnly = false;
+      localPath.required = true;
       localPath.classList.add('resource-path-value');
       localPath.setAttribute('aria-describedby', 'repositoryPathHelp');
       const pathLabel = localPath.parentElement;
@@ -1094,34 +1085,11 @@
     hint.id = 'repositoryPathHelp';
     hint.textContent = t('repositorySourceHelp');
     $('#resourceFields').prepend(hint);
-    const autoHint = document.createElement('small');
-    autoHint.className = 'form-help resource-source-auto';
-    autoHint.textContent = t('repositorySourceAuto');
-    $('#resourceFields').prepend(autoHint);
-    const updateSource = source => {
-      const local = source === 'local';
-      const localLabel = localPath?.parentElement;
-      const cloneLabel = cloneURL?.parentElement;
-      if (localLabel) localLabel.hidden = !local;
-      if (cloneLabel) cloneLabel.hidden = local;
-      if (localPath) {
-        localPath.required = local;
-        localPath.disabled = !local;
-      }
-      if (cloneURL) {
-        cloneURL.required = !local;
-        cloneURL.disabled = local;
-      }
-      sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => button.classList.toggle('active', button.dataset.repositorySource === source));
-    };
-    sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => { button.onclick = () => updateSource(button.dataset.repositorySource); });
     if (existing) {
       $('#resourceFields input[name="name"]').value = existing.canonical_name || '';
       if (localPath) localPath.value = existing.metadata?.local_path || '';
-      if (cloneURL) cloneURL.value = existing.clone_url || '';
       setOwner(directory.find(item => item.id === existing.owner_id));
     }
-    updateSource(existing?.metadata?.local_path ? 'local' : 'remote');
   };
 
   function openRepositoryEditor(repository) {
@@ -1139,27 +1107,33 @@
     const values = new FormData(form);
     const name = String(values.get('name') || '').trim();
     const localPath = String(values.get('local_path') || '').trim();
-    const cloneURL = String(values.get('clone_url') || '').trim();
     const ownerID = String(values.get('owner_id') || '').trim();
     $('#resourceFormError').textContent = '';
-    if (!name || (!localPath && !cloneURL)) {
+    if (!name || !localPath) {
       $('#resourceFormError').textContent = t('resourceSaveFailed');
       return;
     }
     const existing = editingRepositoryID ? repositories.find(item => item.id === editingRepositoryID) : null;
     const metadata = {...(existing?.metadata || {})};
-    if (localPath) metadata.local_path = localPath;
-    else delete metadata.local_path;
+    metadata.local_path = localPath;
     if (ownerID) metadata.owner_id = ownerID;
     const body = {
-      workspace_id: 'local', canonical_name: name, clone_url: cloneURL, owner_id: ownerID,
-      provider: localPath ? 'local' : 'git', metadata
+      workspace_id: 'local', canonical_name: name, owner_id: ownerID,
+      provider: 'local', metadata
     };
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
     try {
       const saved = await api(existing ? `/api/v1/repositories/${encodeURIComponent(existing.id)}` : '/api/v1/repositories', {method: existing ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
       if (saved) repositories = [saved, ...repositories.filter(item => item.id !== saved.id)];
+      if (saved?.id) {
+        try {
+          const indexed = await api(`/api/v1/repositories/${encodeURIComponent(saved.id)}/index`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': `repository-index:${saved.id}:${idempotencyKey()}`}, body: JSON.stringify({commit: 'working-tree'})});
+          if (indexed) repositories = [indexed, ...repositories.filter(item => item.id !== indexed.id)];
+        } catch (_) {
+          // The project remains saved; the next refresh can retry indexing.
+        }
+      }
       closeResourceDialog();
       form.reset();
       editingRepositoryID = null;
@@ -1176,14 +1150,91 @@
     return {label: localizedResourceStatus('repository', item.index_status), help: ready ? t('repositoryReadyHelp') : t('repositoryIndexHelp'), className: ready ? 'good' : 'active'};
   }
 
+  const repositoryLanguageGroups = {
+    javascript: 'c', typescript: 'c', jsx: 'c', tsx: 'c', java: 'c', kotlin: 'c', swift: 'c', go: 'c', rust: 'c', c: 'c', cpp: 'c', 'c++': 'c', csharp: 'c', 'c#': 'c', php: 'c',
+    python: 'hash', py: 'hash', ruby: 'hash', shell: 'hash', bash: 'hash', zsh: 'hash', yaml: 'hash', yml: 'hash', toml: 'hash', ini: 'hash', dockerfile: 'hash',
+    sql: 'sql', html: 'html', xml: 'html', vue: 'html', css: 'css', scss: 'css', less: 'css', markdown: 'markdown', md: 'markdown', json: 'json'
+  };
+  const repositoryKeywords = {
+    c: 'as|async|await|break|case|catch|class|const|continue|default|defer|else|enum|export|extends|false|fn|for|from|func|go|if|implements|import|in|interface|let|match|new|null|package|private|public|range|return|self|static|struct|super|switch|this|throw|trait|true|try|type|var|while|yield',
+    hash: 'and|as|assert|async|await|class|def|do|elif|else|end|except|false|for|from|function|if|import|in|is|lambda|module|next|nil|not|or|pass|print|raise|range|require|return|self|then|true|unless|until|var|when|while|with|yield',
+    sql: 'alter|and|as|asc|begin|between|by|case|create|delete|desc|drop|else|end|from|group|having|in|insert|into|is|join|like|limit|not|null|on|or|order|select|set|table|then|true|union|update|values|when|where|with',
+    json: 'true|false|null',
+    html: 'DOCTYPE|class|id|href|lang|name|rel|src|style|title|type',
+    css: 'and|as|class|else|for|from|function|if|import|important|media|not|or|supports|var|while',
+    markdown: 'TODO|FIXME|NOTE'
+  };
+
+  function repositoryGrammar(language) {
+    const normalized = String(language || '').toLowerCase().replace(/^text\//, '');
+    const group = repositoryLanguageGroups[normalized] || 'plain';
+    return {group, keywords: new Set((repositoryKeywords[group] || '').split('|').filter(Boolean))};
+  }
+
+  function highlightRepositoryLine(rawLine, grammar, state) {
+    const line = String(rawLine || '');
+    if (grammar.group === 'markdown') {
+      const heading = line.match(/^(\s*#{1,6})(\s+)(.*)$/);
+      if (heading) return `<span class="code-heading">${escapeHTML(heading[1])}</span>${escapeHTML(heading[2])}<span class="code-heading">${escapeHTML(heading[3])}</span>`;
+    }
+    const commentTokens = grammar.group === 'sql' ? ['--'] : grammar.group === 'html' ? ['<!--'] : grammar.group === 'css' ? ['/*'] : grammar.group === 'hash' ? ['#'] : grammar.group === 'c' ? ['//', '/*'] : [];
+    let html = '';
+    let index = 0;
+    const add = (className, value) => { html += className ? `<span class="${className}">${escapeHTML(value)}</span>` : escapeHTML(value); };
+    while (index < line.length) {
+      if (state.blockComment) {
+        const end = line.indexOf(state.blockComment.end, index);
+        if (end < 0) { add('code-comment', line.slice(index)); return html; }
+        add('code-comment', line.slice(index, end + state.blockComment.end.length));
+        index = end + state.blockComment.end.length;
+        state.blockComment = null;
+        continue;
+      }
+      const comment = commentTokens.find(token => line.startsWith(token, index));
+      if (comment) {
+        if (comment === '/*' || comment === '<!--') {
+          const endToken = comment === '/*' ? '*/' : '-->';
+          const end = line.indexOf(endToken, index + comment.length);
+          if (end < 0) { add('code-comment', line.slice(index)); state.blockComment = {end: endToken}; return html; }
+          add('code-comment', line.slice(index, end + endToken.length));
+          index = end + endToken.length;
+        } else { add('code-comment', line.slice(index)); return html; }
+        continue;
+      }
+      const quote = line[index];
+      if (quote === '"' || quote === "'" || quote === '`') {
+        let end = index + 1;
+        while (end < line.length) {
+          if (line[end] === '\\') { end += 2; continue; }
+          if (line[end] === quote) { end += 1; break; }
+          end += 1;
+        }
+        add('code-string', line.slice(index, end));
+        index = end;
+        continue;
+      }
+      const number = line.slice(index).match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+      if (number) { add('code-number', number[0]); index += number[0].length; continue; }
+      const word = line.slice(index).match(/^[A-Za-z_$][\w$-]*/);
+      if (word) {
+        const value = word[0];
+        const rest = line.slice(index + value.length);
+        if (grammar.keywords.has(value)) add('code-keyword', value);
+        else if (/^\s*\(/.test(rest)) add('code-function', value);
+        else add('', value);
+        index += value.length;
+        continue;
+      }
+      if (/^[{}()[\];,.:+*%!=<>/?&|~-]/.test(line.slice(index))) { add('code-operator', line[index]); } else add('', line[index]);
+      index += 1;
+    }
+    return html || ' ';
+  }
+
   function highlightRepositoryCode(content, language) {
-    const escaped = escapeHTML(content);
-    const keywords = language === 'go' ? 'package|func|type|struct|interface|import|return|if|else|for|range|var|const' : 'const|let|var|function|return|class|if|else|for|while|import|from|export|async|await|def|true|false|null';
-    return escaped.split('\n').map(line => line
-      .replace(/(\/\/[^\r\n]*|#[^\r\n]*|<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/)/g, '<span class="code-comment">$1</span>')
-      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*?`)/g, '<span class="code-string">$1</span>')
-      .replace(new RegExp(`\\b(${keywords})\\b`, 'g'), '<span class="code-keyword">$1</span>')
-    ).map(line => `<span class="code-line">${line || ' '}</span>`).join('');
+    const grammar = repositoryGrammar(language);
+    const state = {blockComment: null};
+    return String(content || '').split('\n').map(line => `<span class="code-line">${highlightRepositoryLine(line, grammar, state)}</span>`).join('');
   }
 
   async function openRepositoryBrowser(repository) {
@@ -1231,12 +1282,11 @@
 
   renderRepositories = function enhancedRepositories() {
     const rows = repositories.map(item => {
-      const source = item.metadata?.local_path || item.clone_url || '-';
+      const source = item.metadata?.local_path || '-';
       const owner = item.owner_id ? userLabel(item.owner_id) : '-';
       const state = repositoryStatus(item);
       const updated = item.updated_at ? new Date(item.updated_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US') : '-';
-      const sourceKind = item.metadata?.local_path ? t('localProject') : t('remoteProject');
-      return `<tr data-repository-id="${escapeHTML(item.id)}"><td class="mono">${escapeHTML(item.id)}</td><td><strong>${escapeHTML(item.canonical_name || '-')}</strong><div class="muted repository-source" title="${escapeHTML(source)}">${escapeHTML(source)}</div><small class="repository-source-kind">${escapeHTML(sourceKind)}</small></td><td class="muted">${escapeHTML(owner)}</td><td><span class="status ${state.className}" title="${escapeHTML(state.help)}">${escapeHTML(state.label)}</span><small class="repository-status-help">${escapeHTML(state.help)}</small></td><td class="muted">${escapeHTML(updated)}</td><td><div class="row-actions"><button type="button" class="action-button" data-repository-action="edit" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryEdit'))}</button><button type="button" class="action-button" data-repository-action="browse" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryBrowse'))}</button><button type="button" class="action-button danger" data-repository-action="delete" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryDelete'))}</button>${actionButton(item.id, 'repository', 'index', 'accent')}</div></td></tr>`;
+      return `<tr data-repository-id="${escapeHTML(item.id)}"><td class="mono">${escapeHTML(item.id)}</td><td><strong>${escapeHTML(item.canonical_name || '-')}</strong><div class="muted repository-source" title="${escapeHTML(source)}">${escapeHTML(source)}</div><small class="repository-source-kind">${escapeHTML(t('localProject'))}</small></td><td class="muted">${escapeHTML(owner)}</td><td><span class="status ${state.className}" title="${escapeHTML(state.help)}">${escapeHTML(state.label)}</span><small class="repository-status-help">${escapeHTML(state.help)}</small></td><td class="muted">${escapeHTML(updated)}</td><td><div class="row-actions"><button type="button" class="action-button" data-repository-action="edit" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryEdit'))}</button><button type="button" class="action-button" data-repository-action="browse" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryBrowse'))}</button><button type="button" class="action-button danger" data-repository-action="delete" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryDelete'))}</button></div></td></tr>`;
     });
     return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('menuOwned'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div>${genericTable(t('repositoriesTitle'), [t('key'), t('name'), t('repositoryOwner'), t('status'), t('updated'), t('actions')], rows, t('noItems'))}</div>`;
   };
@@ -2313,9 +2363,14 @@
     accessField.outerHTML = `<fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>`;
     const builderActions = form.querySelector('.agent-builder-actions');
     builderActions.insertAdjacentHTML('beforebegin', `<div class="agent-step"><span>01</span><div><strong data-i18n="agentStepDescribe"></strong><small data-i18n="agentStepDescribeHelp"></small></div></div>`);
-    builderActions.insertAdjacentHTML('afterbegin', `<button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">＋</span><span data-i18n="agentBuilderCreate"></span></button>`);
+    if (!$('#composeAndCreateAgent')) {
+      builderActions.insertAdjacentHTML('afterbegin', `<button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">＋</span><span data-i18n="agentBuilderCreate"></span></button>`);
+    }
+    $('#composeAgentDraft')?.remove();
     const starters = form.querySelector('.agent-starters');
-    starters.insertAdjacentHTML('beforebegin', `
+    starters?.remove();
+    const insertionPoint = form.querySelector('.agent-advanced');
+    insertionPoint.insertAdjacentHTML('beforebegin', `
       <label class="agent-avatar-field"><span data-i18n="agentAvatarLabel"></span><div class="agent-avatar-picker"><input name="avatar_url" type="hidden"><input name="avatar_file" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="secondary" id="agentAvatarButton" type="button"><span aria-hidden="true">⌁</span><span data-i18n="agentUploadAvatar"></span></button><div id="agentAvatarPreview" class="agent-avatar-preview"><span data-i18n="agentAvatarHelp"></span></div></div></label>
       <div class="two-fields agent-resource-fields">
         <fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset>
@@ -2746,8 +2801,10 @@
     form.elements.tool_calls.value = String(draft.tool_call_budget || 200);
     const starters = Array.isArray(draft.conversation_starters) ? draft.conversation_starters : [];
     for (let index = 1; index <= 3; index += 1) {
-      form.elements[`starter_label_${index}`].value = starters[index - 1]?.label || '';
-      form.elements[`starter_prompt_${index}`].value = starters[index - 1]?.prompt || '';
+      const label = form.elements[`starter_label_${index}`];
+      const prompt = form.elements[`starter_prompt_${index}`];
+      if (label) label.value = starters[index - 1]?.label || '';
+      if (prompt) prompt.value = starters[index - 1]?.prompt || '';
     }
     if (Array.isArray(draft.skill_ids)) {
       form.querySelectorAll('input[name="agent_skill_ids"]').forEach(input => { input.checked = draft.skill_ids.includes(input.value); });
@@ -2765,7 +2822,7 @@
 
   async function composeAgentDraft(createAfter = false) {
     const form = $('#agentForm');
-    const buttons = [$('#composeAgentDraft'), $('#composeAndCreateAgent')].filter(Boolean);
+    const buttons = [$('#composeAndCreateAgent')].filter(Boolean);
     const status = $('#agentBuilderStatus');
     const prompt = String(form.elements.builder_prompt.value || '').trim();
     if (!prompt) {
@@ -2808,7 +2865,6 @@
   }
 
   ensureOrchestrationDialogs();
-	$('#composeAgentDraft').onclick = () => composeAgentDraft(false);
 	$('#composeAndCreateAgent').onclick = () => composeAgentDraft(true);
 	$('#agentAccessMode').onchange = updateAgentAccessFields;
 	updateAgentAccessFields();

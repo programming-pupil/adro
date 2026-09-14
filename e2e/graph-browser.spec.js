@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 
 const apiURL = process.env.ADRO_GRAPH_BROWSER_API_URL || 'http://127.0.0.1:18086';
 const reportFile = process.env.ADRO_GRAPH_BROWSER_REPORT || path.resolve('var/test-report/real-codex/browser-graph-evidence.json');
-const repositoryURL = process.env.ADRO_GRAPH_BROWSER_REPOSITORY_URL || 'https://example.invalid/browser-real-graph.git';
+const repositoryPath = process.env.ADRO_GRAPH_BROWSER_REPOSITORY_PATH || process.cwd();
 
 function parseJSON(text) {
   try {
@@ -22,7 +22,7 @@ function writeEvidence(evidence) {
 test('creates a graph in the browser, executes it with real Codex, and replays evidence', async ({ page }) => {
   test.skip(process.env.ADRO_RUN_BROWSER_REAL_GRAPH !== '1', 'real Codex browser graph suite is run by its dedicated entrypoint');
 
-  const evidence = { api_url: apiURL, browser_created: true, repository_url: repositoryURL.startsWith('file://') ? 'file://<fixture-repo>' : repositoryURL, commit_sha: process.env.ADRO_COMMIT_SHA || '', timeline: null, replay: null, runs: [] };
+  const evidence = { api_url: apiURL, browser_created: true, repository_path: '<fixture-repo>', commit_sha: process.env.ADRO_COMMIT_SHA || '', timeline: null, replay: null, runs: [] };
   const apiHeaders = { 'X-Workspace-ID': 'local', 'X-Member-ID': 'admin' };
 
   await page.goto('/');
@@ -35,7 +35,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('browser-real-graph-repository');
-  await page.locator('#resourceFields input[name="clone_url"]').fill(repositoryURL);
+  await page.locator('#resourceFields input[name="local_path"]').fill(repositoryPath);
   await page.locator('#resourceForm button[type="submit"]').click();
 
   await page.locator('.nav-item[data-view="delivery"]').click();

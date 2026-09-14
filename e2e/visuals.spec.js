@@ -40,7 +40,7 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('delivery-visual-project');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/delivery-visual.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('tr').filter({ hasText: 'delivery-visual-project' }).first()).toBeVisible();
 
@@ -158,7 +158,7 @@ test('keeps entity composers fast, localized, and attachment-aware', async ({ pa
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('entity-composer-project');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/entity-composer.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('tr').filter({hasText: 'entity-composer-project'}).first()).toBeVisible();
 

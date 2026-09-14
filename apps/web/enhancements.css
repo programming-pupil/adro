@@ -246,6 +246,34 @@ dialog.entity-dialog { width: min(980px, calc(100vw - 32px)); max-height: min(86
 .resource-owner-option .resource-owner-avatar { width: 26px; height: 26px; flex-basis: 26px; }
 .resource-owner-empty { padding: 12px 9px; color: var(--muted); font-size: 11px; }
 
+/* Native selects are used across the workbench; give them one reliable control language. */
+select:not([multiple]) {
+  min-height: 42px;
+  padding-right: 38px !important;
+  border: 1px solid #2f637e !important;
+  border-radius: 8px !important;
+  color: #e6f8fb !important;
+  background-color: #0b1c2a !important;
+  background-image: linear-gradient(45deg, transparent 50%, #6fefff 50%), linear-gradient(135deg, #6fefff 50%, transparent 50%);
+  background-position: calc(100% - 17px) 18px, calc(100% - 12px) 18px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  appearance: none;
+  -webkit-appearance: none;
+}
+select:not([multiple]):hover { border-color: #5de5fa !important; background-color: #102b3a !important; }
+select:not([multiple]):focus { border-color: #6fefff !important; outline: 0; box-shadow: 0 0 0 3px rgba(67, 230, 255, .13), 0 0 18px rgba(67, 230, 255, .07); }
+select:not([multiple]):disabled { color: #668294 !important; opacity: .7; }
+#agentDialog label > span, #squadDialog label > span, #resourceDialog label > span { display: block; margin-bottom: 7px; color: #c9edf2; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+#agentDialog select, #squadDialog select, #resourceDialog select { min-height: 46px; }
+#agentDialog .agent-builder-actions { padding-top: 2px; }
+#agentDialog .agent-builder-actions .primary { min-height: 42px; padding-inline: 16px; }
+#agentDialog .agent-advanced summary { min-height: 30px; display: flex; align-items: center; color: #d7f6fa; font-size: 12px; }
+#agentDialog .agent-advanced summary::marker { color: #6fefff; }
+#agentDialog .agent-access-members { padding: 13px; border: 1px solid #28566f; border-radius: 8px; background: #091d2a; }
+#squadDialog select[multiple] { min-height: 88px; padding: 8px 10px; border: 1px solid #2f637e; border-radius: 8px; color: #e6f8fb; background: #0b1c2a; }
+#squadDialog select[multiple]:focus { border-color: #6fefff; outline: 0; box-shadow: 0 0 0 3px rgba(67, 230, 255, .13); }
+
 dialog.chat-create-dialog { width: min(620px, calc(100vw - 32px)); overflow: hidden; border-color: #3d6f92; background: linear-gradient(145deg, #0c1d2c, #0b1320 62%); }
 .chat-create-dialog .dialog-head { padding: 25px 27px 19px; background: linear-gradient(90deg, rgba(53,231,255,.08), transparent 65%); }
 .chat-create-dialog .dialog-head h2 { font-size: 22px; }
@@ -598,10 +626,6 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 .agent-runtime-skills { min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--line); }
 .agent-runtime-skills legend { padding: 0 5px; color: var(--muted); font-size: 11px; }
 .agent-runtime-skills .agent-resource-options { max-height: 190px; }
-.agent-starters { display: grid; gap: 8px; margin-top: 16px; padding: 12px; border: 1px solid var(--line); }
-.agent-starters legend { padding: 0 5px; color: var(--muted); font-size: 11px; }
-.agent-starters .two-fields { gap: 8px; }
-.agent-starters input { width: 100%; min-height: 34px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; color: var(--text); background: var(--surface); }
 .agent-advanced { margin-top: 16px; padding: 12px; border: 1px solid var(--line); }
 .agent-advanced summary { cursor: pointer; color: var(--text); font-size: 11px; font-weight: 700; }
 .toggle-line { display: flex; min-height: 58px; align-items: center; gap: 9px; }

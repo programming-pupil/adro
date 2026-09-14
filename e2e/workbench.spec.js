@@ -118,7 +118,6 @@ test('uses the delivery label and polished project source controls', async ({ pa
   await page.evaluate(() => {
     window.showDirectoryPicker = async () => ({name: 'selected-project'});
   });
-  await page.locator('[data-repository-source="local"]').click();
   await page.locator('.resource-path-button').click();
   await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('selected-project');
 
@@ -131,8 +130,22 @@ test('uses the delivery label and polished project source controls', async ({ pa
 
   await page.locator('#resourceFields input[name="name"]').fill(`folder-picker-${Date.now()}`);
   await expect(page.locator('#resourceForm button[type="submit"]')).toContainText('保存');
+  const saveRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/repositories');
   await page.locator('#resourceForm button[type="submit"]').click();
+  const saveBody = JSON.parse((await saveRequest).postData());
+  expect(saveBody.provider).toBe('local');
+  expect(saveBody.metadata.local_path).toBe('selected-project');
+  expect(saveBody.clone_url).toBeUndefined();
+  expect(saveBody.default_branch).toBeUndefined();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
+  const projectRow = page.locator('tr[data-repository-id]').filter({ hasText: /folder-picker-/ }).first();
+  await expect(projectRow).toBeVisible();
+  await page.once('dialog', dialog => dialog.dismiss());
+  await projectRow.locator('[data-repository-action="delete"]').click();
+  await expect(projectRow).toBeVisible();
+  await page.once('dialog', dialog => dialog.accept());
+  await projectRow.locator('[data-repository-action="delete"]').click();
+  await expect(projectRow).toHaveCount(0);
   expect(page.__adroErrors).toEqual([]);
 });
 
@@ -250,46 +263,19 @@ test('AI-assisted Agent creation fills human controls and persists execution set
   }));
 
   await page.locator('#agentBuilderPrompt').fill('Create a release reviewer');
-  await page.locator('#composeAgentDraft').click();
-  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Release reviewer');
-  await expect(page.locator('#agentForm textarea[name="description"]')).toHaveValue('Reviews release evidence before approval.');
-  await expect(page.locator('#agentForm select[name="access_mode"]')).toHaveValue('workspace');
-  await expect(page.locator('#agentForm input[name="starter_label_1"]')).toHaveValue('Review release');
-	await expect(page.locator('#agentForm input[name="agent_skill_ids"][value="skill-release"]')).toBeChecked();
-	await expect(page.locator('#agentForm input[name="agent_mcp_server_ids"][value="mcp-release"]')).toBeChecked();
-	await expect(page.locator('#agentForm input[name="agent_skill_ids"][value="skill-disabled"]')).toHaveCount(0);
-	await expect(page.locator('#agentForm input[name="agent_mcp_server_ids"][value="mcp-disabled"]')).toHaveCount(0);
-  await expect(page.locator('#agentBuilderStatus')).toContainText('草稿已生成');
-
-  await page.locator('#agentForm select[name="member"]').selectOption('agent-owner');
-  await page.locator('#agentForm select[name="access_mode"]').selectOption('members');
-  await expect(page.locator('#agentAccessMembersField')).toBeVisible();
-  await page.locator('#agentForm input[name="agent_access_member_ids"][value="member-a"]').check();
-  await page.locator('#agentForm input[name="agent_access_member_ids"][value="member-b"]').check();
-  await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
-  await page.locator('#agentForm input[name="network"]').check();
-  await expect(page.locator('#agentForm textarea[name="custom_args"]')).toBeHidden();
-  await expect(page.locator('#agentForm textarea[name="runtime_config"]')).toBeHidden();
-  await expect(page.locator('#agentForm textarea[name="environment"]')).toBeHidden();
-  await expect(page.locator('[data-runtime-policy="codex"]')).toBeVisible();
-  await page.locator('#agentForm select[name="codex_sandbox"]').selectOption('workspace-write');
-  await page.locator('#agentForm select[name="codex_approval"]').selectOption('on-request');
-  await page.locator('#agentForm input[data-runtime-skill-index="0"]').uncheck();
-
+  await expect(page.locator('#composeAgentDraft')).toHaveCount(0);
+  await expect(page.locator('.agent-starters')).toHaveCount(0);
   const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
-  await page.locator('#agentForm button[type="submit"]').click();
+  await page.locator('#composeAndCreateAgent').click();
   const body = JSON.parse((await createRequest).postData());
   expect(body.description).toBe('Reviews release evidence before approval.');
-  expect(body.access_policy).toEqual({ mode: 'members', member_ids: ['member-a', 'member-b'] });
-  expect(body.conversation_starters).toHaveLength(1);
+  expect(body.access_policy).toEqual({ mode: 'workspace', member_ids: [] });
+  expect(body.conversation_starters).toHaveLength(0);
 	expect(body.skill_ids).toEqual(['skill-release']);
-	expect(body.disabled_runtime_skills).toEqual([{ runtime_id: 'codex', provider: 'codex', root: 'provider', key: 'release-review', name: 'Release review', plugin: '' }]);
 	expect(body.mcp_server_ids).toEqual(['mcp-release']);
   expect(body.concurrency_budget).toEqual({ tokens: 60000, tool_calls: 80, concurrent: 2 });
-  expect(body.tool_policy.network).toBe(true);
+  expect(body.tool_policy.network).toBe(false);
   expect(body.executor_binding.custom_args).toEqual([]);
-  expect(body.executor_binding.runtime_config).toEqual({ sandbox_mode: 'workspace-write', approval_policy: 'on-request' });
-  expect(body.executor_binding.environment).toEqual([]);
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   expect(page.__adroErrors).toEqual([]);
 });
@@ -385,7 +371,7 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('browser-requirement-service');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/browser-requirement.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
   await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
@@ -416,7 +402,7 @@ test('posts a structured mention comment with an attachment and reply', async ({
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('comment-evidence-service');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/comment-evidence.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
 
   await page.locator('.nav-item[data-view="delivery"]').click();
@@ -470,7 +456,7 @@ test('renders @all as a broadcast-only outcome without a follow-up receipt', asy
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('broadcast-evidence-service');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/broadcast-evidence.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
 
   await page.locator('.nav-item[data-view="delivery"]').click();
@@ -602,7 +588,7 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill(repositoryName);
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/native-orchestration.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
 
@@ -712,13 +698,13 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('payments-service');
-  await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/payments.git');
+  await page.locator('#resourceFields input[name="local_path"]').fill('/tmp');
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
   const repository = page.locator('tr').filter({ hasText: 'payments-service' }).first();
   await expect(repository).toBeVisible();
-  await repository.locator('[data-resource-action="index"]').click();
   await expect(repository).toContainText('已就绪');
+  await expect(repository.locator('[data-resource-action="index"]')).toHaveCount(0);
 
   await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
