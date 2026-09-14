@@ -197,9 +197,9 @@
     chatCreateSubtitle: '先选一个项目和执行 Agent，再开始一段持久化讨论。',
     chatTitlePlaceholder: '例如：支付发布讨论',
     repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
-    repositorySourceHelp: '远程地址和本地目录二选一；本地目录可直接填写绝对路径。',
+    repositorySourceHelp: '选择本地目录后显示完整路径；浏览器无法提供绝对路径时，可直接粘贴路径。',
     repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
-    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人'
+    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人', repositoryEdit: '编辑', repositoryDelete: '删除', repositoryBrowse: '浏览', repositoryDeleteConfirm: '确定删除这个项目吗？删除后项目绑定关系也会移除。', repositoryIndexHelp: '索引中：正在记录项目文件的可检索快照状态，不会下载远程仓库。', repositoryReadyHelp: '已就绪：项目快照状态已记录。', repositoryRemoteUnavailable: '这是远程地址元数据，当前未下载到本机，暂时无法浏览。', repositoryBrowseTitle: '浏览项目', repositoryBrowseEmpty: '目录为空', repositoryBinary: '二进制文件，无法在线预览', repositoryTruncated: '文件过大，仅显示前 1 MiB', repositoryLoadFailed: '项目内容加载失败', repositoryPathFallback: '也可以直接粘贴完整本地路径'
   });
   Object.assign(translations.en, {
     logoutConfirm: 'Sign out of the current account?',
@@ -218,9 +218,9 @@
     chatCreateSubtitle: 'Choose a project and execution agent before starting a durable discussion.',
     chatTitlePlaceholder: 'For example: Payment release discussion',
     repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
-    repositorySourceHelp: 'Choose either a remote URL or a local directory. Local projects accept an absolute path.',
+    repositorySourceHelp: 'The full path is shown for local projects. If the browser cannot expose it, paste the absolute path manually.',
     repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
-    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available'
+    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available', repositoryEdit: 'Edit', repositoryDelete: 'Delete', repositoryBrowse: 'Browse', repositoryDeleteConfirm: 'Delete this project? Its project bindings will also be removed.', repositoryIndexHelp: 'Indexing: recording a searchable snapshot state for the project files. It does not download a remote repository.', repositoryReadyHelp: 'Ready: the project snapshot state has been recorded.', repositoryRemoteUnavailable: 'This is remote URL metadata. It has not been downloaded locally, so it cannot be browsed yet.', repositoryBrowseTitle: 'Browse project', repositoryBrowseEmpty: 'Directory is empty', repositoryBinary: 'Binary file cannot be previewed online', repositoryTruncated: 'File is large; showing the first 1 MiB only', repositoryLoadFailed: 'Could not load project contents', repositoryPathFallback: 'You can also paste the full local path manually'
   });
 
   Object.assign(translations.zh, {
@@ -918,12 +918,17 @@
 
   const baseOpenResourceDialog = openResourceDialog;
   const baseResourceSubmit = $('#resourceForm').onsubmit;
+  let editingRepositoryID = null;
+  const baseCloseResourceDialog = closeResourceDialog;
+  closeResourceDialog = function enhancedCloseResourceDialog() {
+    editingRepositoryID = null;
+    baseCloseResourceDialog();
+  };
   resourceConfigs.repository.fields = [
     ['name', 'repositoryName', 'text', true],
     ['local_path', 'repositoryLocalPath', 'text', false],
     ['clone_url', 'repositoryCloneURL', 'url', false],
-    ['owner_id', 'repositoryOwner', 'text', false],
-    ['default_branch', 'repositoryBranch', 'text', false]
+    ['owner_id', 'repositoryOwner', 'text', false]
   ];
   translations.zh.createRepository = translations.zh.createProject;
   translations.en.createRepository = translations.en.createProject;
@@ -937,6 +942,8 @@
     const localPath = $('#resourceFields input[name="local_path"]');
     const cloneURL = $('#resourceFields input[name="clone_url"]');
     const owner = $('#resourceFields input[name="owner_id"]');
+    const existing = editingRepositoryID ? repositories.find(item => item.id === editingRepositoryID) : null;
+    let setOwner = () => {};
     const sourceSwitch = document.createElement('div');
     sourceSwitch.className = 'resource-source-switch';
     sourceSwitch.setAttribute('role', 'group');
@@ -967,6 +974,7 @@
           ? `<span class="resource-owner-avatar">${escapeHTML(initials(item))}</span><span class="resource-owner-copy"><strong>${escapeHTML(item.display_name || item.username || item.id)}</strong><small>${escapeHTML(item.username || item.id)}</small></span><span class="resource-owner-caret" aria-hidden="true">⌄</span>`
           : `<span class="resource-owner-placeholder">${escapeHTML(t('repositoryOwnerChoose'))}</span><span class="resource-owner-caret" aria-hidden="true">⌄</span>`;
       };
+      setOwner = setTrigger;
       const closeMenu = () => { picker.classList.remove('open'); trigger.setAttribute('aria-expanded', 'false'); };
       menu.innerHTML = directory.length
         ? directory.map(item => `<button type="button" class="resource-owner-option" role="option" data-owner-id="${escapeHTML(item.id)}"><span class="resource-owner-avatar">${escapeHTML(initials(item))}</span><span class="resource-owner-copy"><strong>${escapeHTML(item.display_name || item.username || item.id)}</strong><small>${escapeHTML(label(item))}</small></span></button>`).join('')
@@ -984,10 +992,10 @@
       };
       picker.append(hidden, trigger, menu);
       owner.replaceWith(picker);
-      setTrigger(null);
+      setTrigger(existing ? directory.find(item => item.id === existing.owner_id) : null);
     }
     if (localPath) {
-      localPath.readOnly = true;
+      localPath.readOnly = false;
       localPath.classList.add('resource-path-value');
       localPath.setAttribute('aria-describedby', 'repositoryPathHelp');
       const pathLabel = localPath.parentElement;
@@ -1005,27 +1013,39 @@
         input.setAttribute('directory', '');
         input.className = 'sr-only';
         input.setAttribute('aria-label', t('repositoryChooseFolder'));
-        const updatePath = files => {
+        const updatePath = path => {
+          if (!path) return;
+          localPath.value = path;
+          choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${path}`;
+        };
+        const updateFilesPath = files => {
           const first = files?.[0];
           if (!first) return;
-          const root = String(first.webkitRelativePath || first.name || '').split('/')[0];
-          localPath.value = root;
-          choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${root}`;
+          updatePath(String(first.webkitRelativePath || first.name || '').split('/')[0]);
         };
         choose.onclick = async () => {
+          if (window.adroNative?.chooseDirectory) {
+            try {
+              const selected = await window.adroNative.chooseDirectory();
+              const path = typeof selected === 'string' ? selected : selected?.path;
+              if (path) {
+                updatePath(path);
+                return;
+              }
+            } catch (_) {}
+          }
           if (window.showDirectoryPicker) {
             try {
               const handle = await window.showDirectoryPicker();
-              localPath.value = handle.name;
-              choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${handle.name}`;
+              updatePath(handle.name);
               return;
             } catch (_) {}
           }
           input.click();
         };
-        input.onchange = () => updatePath(input.files);
+        input.onchange = () => updateFilesPath(input.files);
         picker.append(choose, input);
-        pathLabel.append(picker);
+        pathLabel.append(picker, Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathFallback')}));
       }
     }
     const hint = document.createElement('small');
@@ -1054,8 +1074,20 @@
       sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => button.classList.toggle('active', button.dataset.repositorySource === source));
     };
     sourceSwitch.querySelectorAll('[data-repository-source]').forEach(button => { button.onclick = () => updateSource(button.dataset.repositorySource); });
-    updateSource('remote');
+    if (existing) {
+      $('#resourceFields input[name="name"]').value = existing.canonical_name || '';
+      if (localPath) localPath.value = existing.metadata?.local_path || '';
+      if (cloneURL) cloneURL.value = existing.clone_url || '';
+      setOwner(directory.find(item => item.id === existing.owner_id));
+    }
+    updateSource(existing?.metadata?.local_path ? 'local' : 'remote');
   };
+
+  function openRepositoryEditor(repository) {
+    editingRepositoryID = repository?.id || null;
+    openResourceDialog('repository');
+    $('#resourceDialogTitle').textContent = t('repositoryEdit');
+  }
 
   $('#resourceForm').onsubmit = async event => {
     if (resourceDialogKind !== 'repository') {
@@ -1073,27 +1105,99 @@
       $('#resourceFormError').textContent = t('resourceSaveFailed');
       return;
     }
-    const metadata = {};
+    const existing = editingRepositoryID ? repositories.find(item => item.id === editingRepositoryID) : null;
+    const metadata = {...(existing?.metadata || {})};
     if (localPath) metadata.local_path = localPath;
+    else delete metadata.local_path;
     if (ownerID) metadata.owner_id = ownerID;
     const body = {
       workspace_id: 'local', canonical_name: name, clone_url: cloneURL, owner_id: ownerID,
-      provider: localPath ? 'local' : 'git',
-      default_branch: String(values.get('default_branch') || '').trim() || 'main', metadata
+      provider: localPath ? 'local' : 'git', metadata
     };
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
     try {
-      const created = await api('/api/v1/repositories', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
-      if (created) repositories = [created, ...repositories.filter(item => item.id !== created.id)];
+      const saved = await api(existing ? `/api/v1/repositories/${encodeURIComponent(existing.id)}` : '/api/v1/repositories', {method: existing ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      if (saved) repositories = [saved, ...repositories.filter(item => item.id !== saved.id)];
       closeResourceDialog();
       form.reset();
+      editingRepositoryID = null;
       await loadCore(true);
     } catch (_) {
       $('#resourceFormError').textContent = t('resourceSaveFailed');
     } finally {
       if (submit) submit.disabled = false;
     }
+  };
+
+  function repositoryStatus(item) {
+    const ready = item.index_status === 'ready';
+    return {label: localizedResourceStatus('repository', item.index_status), help: ready ? t('repositoryReadyHelp') : t('repositoryIndexHelp'), className: ready ? 'good' : 'active'};
+  }
+
+  function highlightRepositoryCode(content, language) {
+    const escaped = escapeHTML(content);
+    const keywords = language === 'go' ? 'package|func|type|struct|interface|import|return|if|else|for|range|var|const' : 'const|let|var|function|return|class|if|else|for|while|import|from|export|async|await|def|true|false|null';
+    return escaped.split('\n').map(line => line
+      .replace(/(\/\/[^\r\n]*|#[^\r\n]*|<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/)/g, '<span class="code-comment">$1</span>')
+      .replace(/(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*?`)/g, '<span class="code-string">$1</span>')
+      .replace(new RegExp(`\\b(${keywords})\\b`, 'g'), '<span class="code-keyword">$1</span>')
+    ).map(line => `<span class="code-line">${line || ' '}</span>`).join('');
+  }
+
+  async function openRepositoryBrowser(repository) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'repository-browser-dialog';
+    dialog.innerHTML = `<div class="dialog-head"><div><p class="dialog-kicker">PROJECT / BROWSER</p><h2>${escapeHTML(t('repositoryBrowseTitle'))}: ${escapeHTML(repository.canonical_name || '-')}</h2></div><button class="dialog-close" type="button" data-close-browser aria-label="${escapeHTML(t('close'))}"><span aria-hidden="true">×</span></button></div><div class="repository-browser-status" role="status"></div><div class="repository-browser-grid"><aside class="repository-tree" aria-label="${escapeHTML(t('repositoryBrowseTitle'))}"></aside><section class="repository-file-panel"><header><strong data-browser-file-name>${escapeHTML(t('repositoryBrowseTitle'))}</strong><small data-browser-file-meta></small></header><pre class="repository-code"><code data-browser-code>${escapeHTML(t('repositoryBrowseTitle'))}</code></pre></section></div>`;
+    document.body.append(dialog);
+    const status = dialog.querySelector('.repository-browser-status');
+    const tree = dialog.querySelector('.repository-tree');
+    const fileName = dialog.querySelector('[data-browser-file-name]');
+    const fileMeta = dialog.querySelector('[data-browser-file-meta]');
+    const code = dialog.querySelector('[data-browser-code]');
+    const loadPath = async path => {
+      try {
+        const result = await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+        if (result.available === false) {
+          status.textContent = result.reason || t('repositoryRemoteUnavailable');
+          tree.innerHTML = '';
+          code.textContent = t('repositoryRemoteUnavailable');
+          return;
+        }
+        status.textContent = result.kind === 'directory' ? result.path === '.' ? repository.metadata?.local_path || '' : result.path : '';
+        if (result.kind === 'directory') {
+          tree.innerHTML = `<button type="button" class="repository-tree-root" data-tree-path="">${escapeHTML(repository.canonical_name || '.')}</button>${result.items?.length ? result.items.map(item => `<button type="button" class="repository-tree-item ${item.kind}" data-tree-path="${escapeHTML(item.path)}"><span aria-hidden="true">${item.kind === 'directory' ? '▸' : '·'}</span>${escapeHTML(item.name)}</button>`).join('') : `<p class="repository-tree-empty">${escapeHTML(t('repositoryBrowseEmpty'))}</p>`}`;
+          tree.querySelectorAll('[data-tree-path]').forEach(button => { button.onclick = () => loadPath(button.dataset.treePath); });
+          fileName.textContent = path || repository.canonical_name || '-';
+          fileMeta.textContent = '';
+          code.textContent = t('repositoryBrowseTitle');
+          return;
+        }
+        fileName.textContent = result.name || path;
+        fileMeta.textContent = `${result.path} · ${result.language} · ${result.size} B`;
+        if (result.binary) code.textContent = t('repositoryBinary');
+        else code.innerHTML = highlightRepositoryCode(result.content || '', result.language);
+        if (result.truncated) status.textContent = t('repositoryTruncated');
+      } catch (_) {
+        status.textContent = t('repositoryLoadFailed');
+      }
+    };
+    dialog.querySelector('[data-close-browser]').onclick = () => { dialog.close(); dialog.remove(); };
+    dialog.addEventListener('click', event => { if (event.target === dialog) { dialog.close(); dialog.remove(); } });
+    dialog.showModal();
+    await loadPath('');
+  }
+
+  renderRepositories = function enhancedRepositories() {
+    const rows = repositories.map(item => {
+      const source = item.metadata?.local_path || item.clone_url || '-';
+      const owner = item.owner_id ? userLabel(item.owner_id) : '-';
+      const state = repositoryStatus(item);
+      const updated = item.updated_at ? new Date(item.updated_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US') : '-';
+      const sourceKind = item.metadata?.local_path ? t('localProject') : t('remoteProject');
+      return `<tr data-repository-id="${escapeHTML(item.id)}"><td class="mono">${escapeHTML(item.id)}</td><td><strong>${escapeHTML(item.canonical_name || '-')}</strong><div class="muted repository-source" title="${escapeHTML(source)}">${escapeHTML(source)}</div><small class="repository-source-kind">${escapeHTML(sourceKind)}</small></td><td class="muted">${escapeHTML(owner)}</td><td><span class="status ${state.className}" title="${escapeHTML(state.help)}">${escapeHTML(state.label)}</span><small class="repository-status-help">${escapeHTML(state.help)}</small></td><td class="muted">${escapeHTML(updated)}</td><td><div class="row-actions"><button type="button" class="action-button" data-repository-action="edit" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryEdit'))}</button><button type="button" class="action-button" data-repository-action="browse" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryBrowse'))}</button><button type="button" class="action-button danger" data-repository-action="delete" data-repository-id="${escapeHTML(item.id)}">${escapeHTML(t('repositoryDelete'))}</button>${actionButton(item.id, 'repository', 'index', 'accent')}</div></td></tr>`;
+    });
+    return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('menuOwned'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div>${genericTable(t('repositoriesTitle'), [t('key'), t('name'), t('repositoryOwner'), t('status'), t('updated'), t('actions')], rows, t('noItems'))}</div>`;
   };
 
   renderBugs = function enhancedBugTable() {
@@ -2096,6 +2200,33 @@
   const baseBindViewEvents = bindViewEvents;
   bindViewEvents = function enhancedViewEvents() {
     baseBindViewEvents();
+    document.querySelectorAll('[data-repository-action]').forEach(button => {
+      button.onclick = async () => {
+        const repository = repositories.find(item => item.id === button.dataset.repositoryId);
+        if (!repository) return;
+        const action = button.dataset.repositoryAction;
+        if (action === 'edit') {
+          openRepositoryEditor(repository);
+          return;
+        }
+        if (action === 'browse') {
+          await openRepositoryBrowser(repository);
+          return;
+        }
+        if (action === 'delete') {
+          if (!window.confirm(t('repositoryDeleteConfirm'))) return;
+          button.disabled = true;
+          try {
+            await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}`, {method: 'DELETE', headers: {'Idempotency-Key': idempotencyKey()}});
+            repositories = repositories.filter(item => item.id !== repository.id);
+            await loadCore(true);
+          } catch (_) {
+            button.disabled = false;
+            button.title = t('actionFailed');
+          }
+        }
+      };
+    });
     const newUserButton = $('#newUser');
     if (newUserButton) newUserButton.addEventListener('click', () => openUserDialog());
     document.querySelectorAll('[data-edit-user]').forEach(button => {

@@ -3547,6 +3547,44 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+  "/api/v1/repositories/{id}/files":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: path
+      in: query
+      required: false
+      description: Relative directory or file path inside a local repository.
+      schema:
+        type: string
+    get:
+      operationId: get_api_v1_repositories_by_id_files
+      summary: Browse files in a local repository
+      responses:
+        '200':
+          description: Repository directory or file content. Remote repositories return available=false until downloaded.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
   "/api/v1/repository-graph":
     get:
       operationId: get_api_v1_repository_graph

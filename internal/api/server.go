@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -2770,6 +2771,15 @@ func (s *Server) repositoryRoute(w http.ResponseWriter, r *http.Request, path st
 	}
 	parts := strings.Split(path, "/")
 	id := parts[0]
+	if len(parts) == 2 && parts[1] == "files" && r.Method == http.MethodGet {
+		repository, err := s.Store.GetRepository(id)
+		if err != nil || !workspaceMatchesRequest(r, repository.WorkspaceID) {
+			s.problem(w, r, http.StatusNotFound, "not_found", "repository not found", nil)
+			return
+		}
+		s.repositoryFiles(w, r, repository)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "index" && r.Method == http.MethodPost {
 		var input struct {
 			Commit string `json:"commit"`
@@ -2867,6 +2877,191 @@ func (s *Server) repositoryRoute(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	s.problem(w, r, 405, "method_not_allowed", "method not allowed", nil)
+}
+
+const repositoryFileReadLimit = 1024 * 1024
+
+func repositoryLocalRoot(repository domain.Repository) (string, error) {
+	if repository.Metadata != nil {
+		if localPath, ok := repository.Metadata["local_path"].(string); ok && strings.TrimSpace(localPath) != "" {
+			return filepath.Abs(filepath.Clean(localPath))
+		}
+	}
+	if strings.HasPrefix(repository.CloneURL, "file://") {
+		parsed, err := url.Parse(repository.CloneURL)
+		if err == nil && parsed.Path != "" {
+			return filepath.Abs(filepath.Clean(parsed.Path))
+		}
+	}
+	return "", errors.New("remote repositories are metadata-only; no clone has been downloaded")
+}
+
+func repositoryRelativePath(root, requested string) (string, string, error) {
+	requested = strings.TrimSpace(strings.ReplaceAll(requested, "\\", "/"))
+	if requested == "" || requested == "." {
+		requested = "."
+	}
+	if filepath.IsAbs(requested) {
+		return "", "", errors.New("absolute paths are not allowed")
+	}
+	clean := filepath.Clean(filepath.FromSlash(requested))
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", "", errors.New("path escapes repository root")
+	}
+	target := filepath.Join(root, clean)
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", "", errors.New("path escapes repository root")
+	}
+	if relative == "." {
+		return target, ".", nil
+	}
+	return target, filepath.ToSlash(relative), nil
+}
+
+func repositoryFileLanguage(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".go":
+		return "go"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".jsx":
+		return "javascript"
+	case ".html", ".htm":
+		return "html"
+	case ".css":
+		return "css"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md", ".markdown":
+		return "markdown"
+	case ".sh", ".bash":
+		return "shell"
+	case ".sql":
+		return "sql"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".xml", ".svg":
+		return "xml"
+	default:
+		return "text"
+	}
+}
+
+func repositoryFileIsText(data []byte) bool {
+	for _, value := range data {
+		if value == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) repositoryFiles(w http.ResponseWriter, r *http.Request, repository domain.Repository) {
+	root, err := repositoryLocalRoot(repository)
+	if err != nil {
+		s.writeJSON(w, http.StatusOK, map[string]any{"available": false, "repository_id": repository.ID, "reason": err.Error()})
+		return
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		s.problem(w, r, http.StatusUnprocessableEntity, "repository_path_unavailable", "local repository directory is unavailable", nil)
+		return
+	}
+	_, relative, err := repositoryRelativePath(root, r.URL.Query().Get("path"))
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "invalid_repository_path", err.Error(), nil)
+		return
+	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "repository_path_unavailable", "local repository directory is unavailable", nil)
+		return
+	}
+	defer rootHandle.Close()
+	rootRelative := filepath.FromSlash(relative)
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for index := range parts {
+		candidate := strings.Join(parts[:index+1], "/")
+		linkInfo, linkErr := rootHandle.Lstat(candidate)
+		if linkErr == nil && linkInfo.Mode()&os.ModeSymlink != 0 {
+			s.problem(w, r, http.StatusBadRequest, "invalid_repository_path", "symbolic links are not allowed", nil)
+			return
+		}
+	}
+	info, err := rootHandle.Stat(rootRelative)
+	if err != nil {
+		s.problem(w, r, http.StatusNotFound, "repository_file_not_found", "repository path not found", nil)
+		return
+	}
+	if !info.IsDir() {
+		file, openErr := rootHandle.Open(rootRelative)
+		if openErr != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "repository_file_unreadable", "repository file could not be read", nil)
+			return
+		}
+		defer file.Close()
+		data, readErr := io.ReadAll(io.LimitReader(file, repositoryFileReadLimit+1))
+		if readErr != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "repository_file_unreadable", "repository file could not be read", nil)
+			return
+		}
+		truncated := len(data) > repositoryFileReadLimit
+		if truncated {
+			data = data[:repositoryFileReadLimit]
+		}
+		text := repositoryFileIsText(data)
+		content := ""
+		if text {
+			content = string(data)
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{
+			"available": true, "repository_id": repository.ID, "kind": "file", "path": relative,
+			"name": info.Name(), "size": info.Size(), "language": repositoryFileLanguage(info.Name()),
+			"binary": !text, "truncated": truncated, "content": content,
+		})
+		return
+	}
+	directory, openErr := rootHandle.Open(rootRelative)
+	if openErr != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "repository_directory_unreadable", "repository directory could not be read", nil)
+		return
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		s.problem(w, r, http.StatusUnprocessableEntity, "repository_directory_unreadable", "repository directory could not be read", nil)
+		return
+	}
+	items := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name() == ".git" {
+			continue
+		}
+		entryInfo, infoErr := entry.Info()
+		if infoErr != nil || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		entryPath := entry.Name()
+		if relative != "." {
+			entryPath = filepath.ToSlash(filepath.Join(relative, entry.Name()))
+		}
+		kind := "file"
+		if entryInfo.IsDir() {
+			kind = "directory"
+		}
+		items = append(items, map[string]any{
+			"name": entry.Name(), "path": entryPath, "kind": kind, "size": entryInfo.Size(),
+			"modified_at": entryInfo.ModTime().UTC(), "language": repositoryFileLanguage(entry.Name()),
+		})
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"available": true, "repository_id": repository.ID, "kind": "directory", "path": relative, "items": items})
 }
 
 func (s *Server) repositoryGraph(w http.ResponseWriter, r *http.Request) {
