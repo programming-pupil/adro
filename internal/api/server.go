@@ -1670,7 +1670,7 @@ func (s *Server) attachmentRoute(w http.ResponseWriter, r *http.Request, user ad
 			s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to access this entity", nil)
 			return
 		}
-		workspaceID, ok := s.attachmentOwnerWorkspace(ownerType, ownerID)
+		workspaceID, ok := s.attachmentOwnerWorkspace(ownerType, ownerID, requestWorkspace(r, ""))
 		if !ok || (userAuthenticated && user.WorkspaceID != workspaceID) {
 			s.problem(w, r, http.StatusNotFound, "not_found", "attachment owner not found", nil)
 			return
@@ -1693,7 +1693,7 @@ func (s *Server) attachmentRoute(w http.ResponseWriter, r *http.Request, user ad
 		s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to attach files to this entity", nil)
 		return
 	}
-	workspaceID, ok := s.attachmentOwnerWorkspace(ownerType, ownerID)
+	workspaceID, ok := s.attachmentOwnerWorkspace(ownerType, ownerID, requestWorkspace(r, ""))
 	if !ok || (userAuthenticated && user.WorkspaceID != workspaceID) {
 		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_attachment_owner", "attachment owner does not exist in this workspace", nil)
 		return
@@ -1741,7 +1741,7 @@ func (s *Server) attachmentRoute(w http.ResponseWriter, r *http.Request, user ad
 	s.writeJSON(w, http.StatusCreated, item)
 }
 
-func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bool) {
+func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID, workspaceID string) (string, bool) {
 	switch ownerType {
 	case "requirement":
 		item, err := s.Store.GetRequirement(ownerID)
@@ -1755,6 +1755,12 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 	case "comment":
 		item, err := s.Store.GetComment(ownerID)
 		return item.WorkspaceID, err == nil
+	case "agent":
+		if s.Orchestration == nil {
+			return "", false
+		}
+		item, err := s.Orchestration.GetAgent(workspaceID, ownerID, 0)
+		return item.WorkspaceID, err == nil
 	default:
 		return "", false
 	}
@@ -1762,12 +1768,12 @@ func (s *Server) attachmentOwnerWorkspace(ownerType, ownerID string) (string, bo
 
 func (s *Server) canUseAttachmentOwner(user adroauth.User, authenticated, machine bool, ownerType string) bool {
 	if machine || !authenticated && !authRequired() {
-		return ownerType == "requirement" || ownerType == "bug" || ownerType == "chat_session" || ownerType == "comment"
+		return ownerType == "requirement" || ownerType == "bug" || ownerType == "chat_session" || ownerType == "comment" || ownerType == "agent"
 	}
 	if !authenticated {
 		return false
 	}
-	return ownerType == "requirement" && user.Can("delivery") || ownerType == "bug" && user.Can("delivery") || ownerType == "chat_session" && user.Can("chats") || ownerType == "comment" && user.Can("delivery")
+	return ownerType == "requirement" && user.Can("delivery") || ownerType == "bug" && user.Can("delivery") || ownerType == "chat_session" && user.Can("chats") || ownerType == "comment" && user.Can("delivery") || ownerType == "agent" && user.Can("agents")
 }
 
 func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
