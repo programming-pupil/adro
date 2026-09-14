@@ -3065,6 +3065,8 @@
   let chatSending = false;
   let chatRepositories = [];
   let chatAgents = [];
+  let chatRuntimes = [];
+  let chatRuntimeDiscoveryComplete = false;
   let chatResourceRequest = 0;
   let chatStateRequest = 0;
   let chatCreateRequest = 0;
@@ -3129,6 +3131,16 @@
     select.value = normalized;
   }
 
+  function chatAgentOptionMarkup(items) {
+    return items.filter(item => item.status === 'active').map(item => {
+      const runtimeID = item.executor_binding?.runtime_id || 'local';
+      const runtime = chatRuntimes.find(candidate => candidate.id === runtimeID);
+      const unavailable = chatRuntimeDiscoveryComplete && (!runtime || !runtime.installed || !runtime.adapter_available);
+      const unavailableLabel = unavailable ? ` · ${t(!runtime || !runtime.installed ? 'notInstalled' : 'adapterUnavailable')}` : '';
+      return `<option value="${escapeHTML(item.id)}" ${unavailable ? 'disabled' : ''}>${escapeHTML(item.name || item.id)} · ${escapeHTML(runtimeID)}${escapeHTML(unavailableLabel)}</option>`;
+    }).join('');
+  }
+
   function chatMessageHTML(item) {
     const attachments = (item.attachment_ids || []).map(id => chatAttachmentItems.find(candidate => candidate.id === id)).filter(Boolean);
     const attachmentMarkup = attachments.length ? `<div class="chat-message-attachments">${attachments.map(attachment => chatAttachmentTile(attachment, 0)).join('')}</div>` : '';
@@ -3159,7 +3171,7 @@
     const selectedProject = creationBinding?.projectID || pendingProject || creatingProject || activeChatData?.chat?.project_id || '';
     const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
     const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
-    const agentOptions = agentSourceItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
+    const agentOptions = chatAgentOptionMarkup(agentSourceItems);
     const pendingAgent = activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '';
     const creatingAgent = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingAgentID : '';
     const selectedAgent = creationBinding?.agentID || pendingAgent || creatingAgent || activeChatData?.chat?.agent_id || '';
@@ -3293,17 +3305,20 @@
     agentSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
     projectSelect.onchange = event => { chatCreateProjectDraft = String(event.currentTarget.value || '').trim(); };
     agentSelect.onchange = event => { chatCreateAgentDraft = String(event.currentTarget.value || '').trim(); };
-    const [projectResult, agentResult] = await Promise.allSettled([
+    const [projectResult, agentResult, runtimeResult] = await Promise.allSettled([
       api('/api/v1/repositories'),
-      api('/api/v1/workspaces/local/agents')
+      api('/api/v1/workspaces/local/agents'),
+      api('/api/v1/runtimes/discovered')
     ]);
     if (requestID !== chatResourceRequest || !$('#chatCreateDialog')?.open) return;
     if (projectResult.status === 'fulfilled') chatRepositories = projectResult.value.items || [];
     if (agentResult.status === 'fulfilled') chatAgents = agentResult.value.items || [];
+    chatRuntimeDiscoveryComplete = runtimeResult.status === 'fulfilled';
+    chatRuntimes = chatRuntimeDiscoveryComplete ? (runtimeResult.value.items || []) : [];
     const projectItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     const agentItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
     projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${projectItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
-    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${agentItems.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('')}`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${chatAgentOptionMarkup(agentItems)}`;
     projectSelect.disabled = false;
     agentSelect.disabled = false;
   }

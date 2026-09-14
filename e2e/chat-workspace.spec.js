@@ -32,8 +32,17 @@ test('renders the project-aware chat workspace with attachment drafting', async 
   await expect(page.locator('#chatCreateProject')).toBeEnabled();
   await expect(page.locator('#chatCreateAgent')).toBeEnabled();
   await page.locator('#chatCreateProject').selectOption(project.id);
-  if (await page.locator('#chatCreateAgent option').count() > 1) await page.locator('#chatCreateAgent').selectOption({index: 1});
+  const createResponsePromise = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/v1/chats') && response.status() === 201);
   await page.locator('#chatCreateForm button[type="submit"]').click();
+  const createResponse = await createResponsePromise;
+  const createdChat = await createResponse.json();
+  expect(createdChat.project_id).toBe(project.id);
+  const persistedChat = await page.evaluate(async id => {
+    const response = await fetch(`/api/v1/chats/${encodeURIComponent(id)}`, {credentials: 'include', headers: {'X-Workspace-ID': 'local'}});
+    return response.json();
+  }, createdChat.id);
+  expect(persistedChat.chat.project_id).toBe(project.id);
+  await expect(page.locator('#chatCreateDialog')).not.toBeVisible();
   await expect(page.locator('.chat-workspace')).toBeVisible();
   await expect(page.locator('#chatProject')).toHaveValue(project.id);
   await expect(page.locator('.chat-context-panel')).toContainText(projectName);
@@ -92,4 +101,38 @@ test('replays an idempotent chat creation after a lost response body', async ({ 
   await page.locator('#chatCreateForm button[type="submit"]').click();
   await expect(page.locator('#chatProject')).toHaveValue(project.id);
   await expect(page.locator('#chatCreateError')).toBeEmpty();
+});
+
+test('disables active chat agents whose runtime is unavailable', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  await page.locator('#loginForm input[name="username"]').fill('admin');
+  await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
+  await page.locator('#loginForm button[type="submit"]').click();
+  await expect(page.locator('#appShell')).toBeVisible();
+
+  const agentID = `unavailable-chat-agent-${Date.now()}`;
+  const created = await page.evaluate(async id => {
+    const response = await fetch('/api/v1/workspaces/local/agents', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json', 'X-Workspace-ID': 'local'},
+      body: JSON.stringify({
+        id,
+        name: 'Unavailable chat agent',
+        status: 'active',
+        executor_binding: {provider_id: 'local', runtime_id: 'runtime-not-installed'},
+        input_schema: {id: 'chat-input', version: 1},
+        output_schema: {id: 'chat-output', version: 1}
+      })
+    });
+    return {ok: response.ok, body: await response.text()};
+  }, agentID);
+  expect(created.ok, created.body).toBeTruthy();
+
+  await page.locator('.nav-chat[data-view="chats"]').click();
+  await page.locator('#chatNew').click();
+  const option = page.locator(`#chatCreateAgent option[value="${agentID}"]`);
+  await expect(option).toHaveAttribute('disabled', '');
+  await expect(option).toContainText('未安装');
 });
