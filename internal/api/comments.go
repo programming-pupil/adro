@@ -76,7 +76,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 	}
 	userCanInvoke := !authRequired() || authorizedMachine(r)
 	if user, ok := s.authenticateUser(r); ok {
-		userCanInvoke = user.Can("agents") || user.Can("executions")
+		userCanInvoke = user.Can("agents") || user.Can("delivery")
 	}
 	pending := make([]mentions.PendingTask, 0)
 	for _, followUp := range s.Store.ListCommentFollowUps(comment.ID) {

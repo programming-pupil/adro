@@ -7333,19 +7333,23 @@ components:
       type: object
       required:
       - workspace_id
-      - repository_id
+      - requirement_id
       - title
       properties:
         workspace_id:
           type: string
         requirement_id:
           type: string
+          description: Required parent delivery requirement. New standalone bugs are rejected.
         work_item_id:
           type: string
+          description: Optional work item that must belong to the parent requirement.
         repository_id:
           type: string
+          description: Compatibility input ignored on create; the server inherits repository context from the parent requirement or linked work item.
         assignee_member_id:
           type: string
+          description: Compatibility input ignored on create; the server inherits ownership from the parent requirement.
         fingerprint:
           type: string
         title:

@@ -27,7 +27,7 @@ func (s *Server) orchestrationPermission(r *http.Request) bool {
 		return true
 	}
 	if user, ok := s.authenticateUser(r); ok {
-		return user.Can("agents") || user.Can("executions")
+		return user.Can("agents") || user.Can("delivery")
 	}
 	return !authRequired()
 }

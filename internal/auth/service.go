@@ -27,7 +27,7 @@ const (
 )
 
 var AllMenus = []string{
-	"workbench", "requirements", "bugs", "humanQA", "designReview", "executions",
+	"workbench", "delivery", "humanQA", "chats",
 	"diffs", "testing", "repositories", "agents", "mcp", "skills", "automations",
 	"integrations", "artifacts", "runners", "cost", "admin",
 }
@@ -283,8 +283,9 @@ func (u User) Can(menu string) bool {
 	if u.Role == "admin" {
 		return true
 	}
+	menu = canonicalMenu(menu)
 	for _, item := range u.MenuIDs {
-		if item == menu {
+		if canonicalMenu(item) == menu {
 			return true
 		}
 	}
@@ -330,11 +331,20 @@ func (s *Service) load() error {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return fmt.Errorf("decode auth state: %w", err)
 	}
+	migrated := false
 	for _, user := range state.Users {
 		if user.ID == "" || user.PasswordPHC == "" {
 			return errors.New("auth state contains an invalid user")
 		}
+		normalized := normalizeMenus(user.Role, user.MenuIDs)
+		if strings.Join(normalized, "\x00") != strings.Join(user.MenuIDs, "\x00") {
+			user.MenuIDs = normalized
+			migrated = true
+		}
 		s.users[user.ID] = user
+	}
+	if migrated {
+		return s.persistLocked()
 	}
 	return nil
 }
@@ -397,7 +407,7 @@ func validateUser(user User, passwordRequired bool) error {
 		return errors.New("password must contain at least 10 characters")
 	}
 	for _, menu := range user.MenuIDs {
-		if !isMenu(menu) {
+		if canonicalMenu(menu) == "" {
 			return fmt.Errorf("unknown menu %q", menu)
 		}
 	}
@@ -412,7 +422,7 @@ func normalizeMenus(role string, menus []string) []string {
 	result := make([]string, 0, len(menus))
 	for _, menu := range AllMenus {
 		for _, candidate := range menus {
-			if candidate == menu && !seen[menu] {
+			if canonicalMenu(candidate) == menu && !seen[menu] {
 				seen[menu] = true
 				result = append(result, menu)
 			}
@@ -428,6 +438,17 @@ func isMenu(value string) bool {
 		}
 	}
 	return false
+}
+
+func canonicalMenu(value string) string {
+	switch value {
+	case "requirements", "bugs", "designReview", "executions":
+		return "delivery"
+	}
+	if isMenu(value) {
+		return value
+	}
+	return ""
 }
 
 func normalizeUsername(value string) string { return strings.ToLower(strings.TrimSpace(value)) }

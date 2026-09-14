@@ -15,7 +15,7 @@ require 'yaml'
 
 ROOT = File.expand_path('..', __dir__)
 METHODS = %w[get post put patch delete head options].freeze
-EXPECTED_MENU_COUNT = 19
+EXPECTED_MENU_COUNT = 16
 
 class CoverageLedger
   attr_reader :root, :output_dir
@@ -282,8 +282,7 @@ class CoverageLedger
 
   def menu_for_path(path, menus)
     return 'admin' if path.start_with?('/api/v1/auth/', '/api/v1/users', '/api/v1/directory', '/api/v1/audit')
-    return 'requirements' if path.include?('/requirements') || path.include?('/work-items') || path.include?('/impact-reports')
-    return 'bugs' if path.include?('/bugs')
+    return 'delivery' if path.include?('/requirements') || path.include?('/bugs') || path.include?('/work-items') || path.include?('/impact-reports') || path.include?('/execution-plans') || path.include?('/pipelines') || path.include?('/runs')
     return 'chats' if path.include?('/chats') || path.include?('/sessions')
     return 'agents' if path.include?('/agents') || path.include?('/developer-profiles')
     return 'mcp' if path.include?('/mcp')
@@ -292,7 +291,7 @@ class CoverageLedger
     return 'repositories' if path.include?('/repositories') || path.include?('/repository-graph') || path.include?('/team-workspaces')
     return 'artifacts' if path.include?('/artifacts') || path.include?('/attachments') || path.include?('/screenshots') || path.include?('/artifact-migrations')
     return 'runners' if path.include?('/runners')
-    return 'executions' if path.include?('/execution-plans') || path.include?('/pipelines') || path.include?('/runs') || path.include?('/approvals')
+    return 'humanQA' if path.include?('/approvals')
     return 'testing' if path.include?('/evidence')
     return 'integrations' if path.include?('/provider/') || path.include?('/system/') || path == '/healthz' || path == '/readyz'
     return 'cost' if path == '/metrics' || path.include?('/usage')

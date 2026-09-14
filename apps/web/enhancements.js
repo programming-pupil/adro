@@ -1,7 +1,7 @@
 (() => {
   const menuIDs = [
-    'workbench', 'requirements', 'bugs', 'humanQA', 'designReview', 'executions',
-    'diffs', 'testing', 'chats', 'repositories', 'agents', 'mcp', 'skills', 'automations',
+    'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats',
+    'repositories', 'agents', 'mcp', 'skills', 'automations',
     'integrations', 'artifacts', 'runners', 'cost', 'admin'
   ];
 
@@ -223,6 +223,37 @@
     localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project'
   });
 
+  Object.assign(translations.zh, {
+    deliveryComposerKicker: '交付项 / 统一入口',
+    requirementType: '需求', bugType: 'Bug',
+    deliveryParentHelp: 'Bug 会继承父需求的项目与执行人，并沿同一条交付链追踪。',
+    deliveryInheritedContext: '已从父需求继承项目与执行人',
+    deliveryTitle: '交付台', deliverySubtitle: '需求、方案、开发、验证与 Bug 在同一个交付上下文中完成。',
+    deliveryCreate: '新建交付项', deliveryTotal: '交付项', deliveryRequirements: '需求', deliveryBugs: 'Bug', deliveryUnresolved: '未解决 Bug', deliveryPlan: '方案 / Run',
+    deliveryAll: '全部类型', deliveryRequirementFilter: '仅需求', deliveryBugFilter: '仅 Bug', deliveryExpand: '展开 Bug', deliveryCollapse: '收起 Bug',
+    deliveryAddBug: '在此需求下创建 Bug', deliveryUnlinkedBugs: '未关联需求的 Bug', deliveryOpenDetail: '打开交付详情', deliveryCanvas: '交付画布',
+    deliveryContext: '上下文', deliveryDesign: '方案', deliveryDevelopment: '开发', deliveryValidation: '验证', deliveryRelatedBugs: '关联 Bug', deliveryNoPlan: '尚未生成方案', deliveryPlanReady: '方案已生成', deliveryPlanRunning: '执行中', deliveryNoChildren: '暂无关联 Bug',
+    deliveryBugCreated: 'Bug 已创建并关联到父需求', deliveryRequirementCreated: '需求已创建', deliveryTypeLabel: '交付类型', deliveryDescriptionLabel: '描述', deliveryRequirementTitle: '创建需求', deliveryBugTitle: '创建 Bug', deliveryRequirementSubtitle: '记录一个可验证的交付结果', deliveryBugSubtitle: '在父需求下记录一个可复现的缺陷',
+    deliveryChooseParent: '请选择所属需求', deliveryParentRequired: '创建 Bug 前必须选择所属需求',
+    deliveryBugDescriptionHelp: '先写故障现象，再补充复现步骤、预期与实际结果。', deliveryRequirementDescriptionHelp: '描述要交付的结果、背景、约束和验收重点。',
+    deliverySearch: '搜索交付项、Key 或负责人', deliveryStatusFilter: '按状态筛选', deliveryStatusAll: '全部状态', deliveryStartDevelopment: '开始开发', deliveryOpenExecution: '打开执行舱', deliveryBack: '返回交付台', deliveryPlanNone: '未建立方案', deliveryPlanReady: '方案已就绪', deliveryPlanRunning: '方案执行中', deliveryPlanFailed: '方案执行失败', deliveryValidationPending: '等待验证证据', deliveryValidationFromStatus: '由交付状态驱动', deliveryProject: '项目', deliveryOwner: '负责人', deliveryTeam: '执行小队', deliveryBugSummary: '共 {total} 个 Bug · {open} 个未解决', deliveryUnlinkedHint: '这些 Bug 尚未绑定父需求，先保留在交付台以便补齐上下文。', deliveryContextSummary: '所有上下文都沿同一条交付链保留。', deliveryPlanSummary: '方案生成、评审与开发 Run 共用同一交付项。', deliveryDevelopmentSummary: '开发由冻结的 Agent / Squad 图执行。', deliveryValidationSummary: '验证结果与 Bug 修复状态回写到父需求。', deliveryNoPlanAction: '生成方案后即可开始开发。', deliveryOpenBug: '打开 Bug', deliveryNoRelatedBugs: '暂无关联 Bug', deliveryNoUnlinkedBugs: '暂无未关联 Bug'
+  });
+  Object.assign(translations.en, {
+    deliveryComposerKicker: 'DELIVERY / SINGLE ENTRY',
+    requirementType: 'Requirement', bugType: 'Bug',
+    deliveryParentHelp: 'Bugs inherit the parent requirement project and executor, then stay on the same delivery thread.',
+    deliveryInheritedContext: 'Project and executor inherited from parent requirement',
+    deliveryTitle: 'Delivery', deliverySubtitle: 'Context, plan, development, validation, and bugs live in one delivery workspace.',
+    deliveryCreate: 'New delivery item', deliveryTotal: 'delivery items', deliveryRequirements: 'requirements', deliveryBugs: 'bugs', deliveryUnresolved: 'unresolved bugs', deliveryPlan: 'Plan / run',
+    deliveryAll: 'All types', deliveryRequirementFilter: 'Requirements only', deliveryBugFilter: 'Bugs only', deliveryExpand: 'Expand bugs', deliveryCollapse: 'Collapse bugs',
+    deliveryAddBug: 'Create a bug under this requirement', deliveryUnlinkedBugs: 'Bugs without a requirement', deliveryOpenDetail: 'Open delivery detail', deliveryCanvas: 'Delivery canvas',
+    deliveryContext: 'Context', deliveryDesign: 'Plan', deliveryDevelopment: 'Development', deliveryValidation: 'Validation', deliveryRelatedBugs: 'Related bugs', deliveryNoPlan: 'No plan generated yet', deliveryPlanReady: 'Plan ready', deliveryPlanRunning: 'Running', deliveryNoChildren: 'No related bugs',
+    deliveryBugCreated: 'Bug created and linked to the parent requirement', deliveryRequirementCreated: 'Requirement created', deliveryTypeLabel: 'Delivery type', deliveryDescriptionLabel: 'Description', deliveryRequirementTitle: 'Create requirement', deliveryBugTitle: 'Create bug', deliveryRequirementSubtitle: 'Record a verifiable delivery outcome', deliveryBugSubtitle: 'Record a reproducible defect under its parent requirement',
+    deliveryChooseParent: 'Choose a parent requirement', deliveryParentRequired: 'Choose a parent requirement before creating a bug',
+    deliveryBugDescriptionHelp: 'Start with the failure, then add reproduction steps, expected behavior, and actual behavior.', deliveryRequirementDescriptionHelp: 'Describe the outcome, context, constraints, and acceptance focus.',
+    deliverySearch: 'Search delivery items, keys, or owners', deliveryStatusFilter: 'Filter by status', deliveryStatusAll: 'All statuses', deliveryStartDevelopment: 'Start development', deliveryOpenExecution: 'Open execution cockpit', deliveryBack: 'Back to delivery', deliveryPlanNone: 'No plan yet', deliveryPlanReady: 'Plan ready', deliveryPlanRunning: 'Plan running', deliveryPlanFailed: 'Plan failed', deliveryValidationPending: 'Waiting for validation evidence', deliveryValidationFromStatus: 'Driven by delivery status', deliveryProject: 'Project', deliveryOwner: 'Owner', deliveryTeam: 'Execution team', deliveryBugSummary: '{total} bugs total · {open} unresolved', deliveryUnlinkedHint: 'These bugs do not have a parent requirement yet; keep them visible until context is restored.', deliveryContextSummary: 'All context stays on one delivery thread.', deliveryPlanSummary: 'Plan generation, review, and development runs share the same delivery item.', deliveryDevelopmentSummary: 'Development runs from a frozen Agent / Squad graph.', deliveryValidationSummary: 'Validation and bug repair status roll back into the parent requirement.', deliveryNoPlanAction: 'Generate a plan before starting development.', deliveryOpenBug: 'Open bug', deliveryNoRelatedBugs: 'No related bugs', deliveryNoUnlinkedBugs: 'No unlinked bugs'
+  });
+
   let currentUser = null;
   const entityDraftFiles = { requirement: [], bug: [] };
   let directory = [];
@@ -255,6 +286,13 @@
   let agentRuntimeConfigs = new Map();
   let agentRuntimeEnvironments = new Map();
   let agentPreservedCustomArgs = [];
+  let deliveryComposerKind = 'requirement';
+  let deliveryComposerParentID = '';
+  const deliveryExpandedRequirements = new Set();
+  let deliveryFilterKind = 'all';
+  let deliveryFilterStatus = '';
+  let deliverySearchTerm = '';
+  let orchestrationStatusState = {message: '', bad: false};
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -265,7 +303,7 @@
   };
 
   async function loadAllRequirementPages() {
-    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('requirements')) return;
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('delivery')) return;
     let cursor = '';
     const seen = new Set();
     const all = [];
@@ -294,7 +332,7 @@
   }
 
   async function loadAllBugPages() {
-    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('bugs')) return;
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('delivery')) return;
     let cursor = '';
     const seen = new Set();
     const all = [];
@@ -494,7 +532,13 @@
     if (item) openAttachmentPreview(item.file, item.file.name);
   });
 
-  window.adroCanAccessMenu = menu => (currentUser && currentUser.role === 'admin') || availableMenus.includes(menu);
+  window.adroCanAccessMenu = menu => {
+    if (currentUser && currentUser.role === 'admin') return true;
+    if (['delivery', 'requirements', 'bugs', 'designReview', 'executions'].includes(menu)) {
+      return availableMenus.some(item => ['delivery', 'requirements', 'bugs', 'designReview', 'executions'].includes(item));
+    }
+    return availableMenus.includes(menu);
+  };
 
   const roleLabel = role => t(role === 'admin' ? 'roleAdmin' : role === 'viewer' ? 'roleViewer' : 'roleMember');
   const userLabel = id => {
@@ -514,6 +558,7 @@
   applyTranslations = function enhancedTranslations() {
     baseApplyTranslations();
     updateUserChip();
+    if ($('#requirementDialog')?.open) syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
   };
 
   function updateUserChip() {
@@ -543,7 +588,7 @@
 
   function applyMenuAccess() {
     document.querySelectorAll('.nav-item, .nav-chat').forEach(item => {
-      item.hidden = !availableMenus.includes(item.dataset.view);
+      item.hidden = !window.adroCanAccessMenu(item.dataset.view);
     });
     document.querySelectorAll('.nav-section').forEach(section => {
       let sibling = section.nextElementSibling;
@@ -554,10 +599,12 @@
       }
       section.hidden = !visible;
     });
-    if (!availableMenus.includes(currentView)) {
-      currentView = availableMenus[0] || 'workbench';
+    if (!window.adroCanAccessMenu(currentView)) {
+      const firstVisible = document.querySelector('.nav-item:not([hidden]), .nav-chat:not([hidden])');
+      currentView = firstVisible?.dataset.view || 'workbench';
     }
-    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => item.classList.toggle('active', item.dataset.view === currentView));
+    const activeView = ['requirements', 'bugs', 'designReview', 'executions'].includes(currentView) ? 'delivery' : currentView;
+    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => item.classList.toggle('active', item.dataset.view === activeView));
   }
 
   async function loadIdentityData() {
@@ -676,25 +723,112 @@
     sync();
   }
 
-  showDialog = function enhancedRequirementDialog() {
+  function syncDeliveryComposer(kind = deliveryComposerKind, parentID = deliveryComposerParentID) {
+    const form = $('#requirementForm');
+    if (!form) return;
+    const bug = kind === 'bug';
+    deliveryComposerKind = bug ? 'bug' : 'requirement';
+    deliveryComposerParentID = parentID || '';
+    form.dataset.deliveryKind = deliveryComposerKind;
+    form.querySelectorAll('[data-delivery-kind]').forEach(button => {
+      const active = button.dataset.deliveryKind === deliveryComposerKind;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    const parentField = $('#deliveryParentField');
+    const parentSelect = $('#bugRequirement');
+    const orchestration = $('#deliveryOrchestration');
+    const repository = $('#requirementRepository');
+    const assignee = $('#requirementAssignee');
+    const inheritanceHint = $('#deliveryInheritanceHint');
+    const description = $('#requirementDescription');
+    const descriptionLabel = $('#deliveryDescriptionLabel');
+    const descriptionHelp = $('#deliveryDescriptionHelp');
+    const status = $('#deliveryStatus');
+    const submitLabel = $('#deliverySubmitLabel');
+    const submit = form.querySelector('button[type="submit"]');
+    const dialogTitle = $('#deliveryDialogTitle');
+    const dialogSubtitle = $('#deliveryDialogSubtitle');
+    if (parentField) parentField.hidden = !bug;
+    if (parentSelect) parentSelect.required = bug;
+    if (orchestration) orchestration.hidden = bug;
+    if (repository) repository.disabled = bug;
+    if (assignee) assignee.disabled = bug;
+    const selected = bug ? requirements.find(item => item.id === (parentSelect?.value || parentID)) : null;
+    if (inheritanceHint) inheritanceHint.hidden = !selected;
+    if (descriptionLabel) descriptionLabel.textContent = t('deliveryDescriptionLabel');
+    if (descriptionHelp) descriptionHelp.textContent = t(bug ? 'deliveryBugDescriptionHelp' : 'deliveryRequirementDescriptionHelp');
+    if (dialogTitle) dialogTitle.textContent = t(bug ? 'deliveryBugTitle' : 'deliveryRequirementTitle');
+    if (dialogSubtitle) dialogSubtitle.textContent = t(bug ? 'deliveryBugSubtitle' : 'deliveryRequirementSubtitle');
+    if (description) {
+      description.placeholder = t(bug ? 'bugDescriptionPlaceholder' : 'requirementDescriptionPlaceholder');
+      description.setAttribute('aria-label', t(bug ? 'bugDescriptionOnly' : 'requirementDescriptionOnly'));
+    }
+    if (status) {
+      status.className = `status ${bug ? 'bad' : 'active'}`;
+      status.textContent = t(bug ? 'open' : 'statusReceived');
+    }
+    if (submitLabel) submitLabel.textContent = t(bug ? 'createBug' : 'createRequirement');
+    if (submit) submit.disabled = bug && !selected;
+    if (parentSelect) parentSelect.setAttribute('aria-invalid', String(bug && !selected));
+    if (selected) {
+      const repositoryID = selected.repository_ids?.[0] || '';
+      const assigneeID = selected.assignee_member_ids?.[0] || '';
+      if (repository && repositoryID && [...repository.options].some(option => option.value === repositoryID)) repository.value = repositoryID;
+      if (assignee && assigneeID && [...assignee.options].some(option => option.value === assigneeID)) assignee.value = assigneeID;
+    }
+  }
+
+  function populateDeliveryComposer(parentID = deliveryComposerParentID) {
+    const repository = $('#requirementRepository');
+    const assignee = $('#requirementAssignee');
+    const parent = $('#bugRequirement');
+    if (repository) repository.innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
+    if (assignee) assignee.innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
+    if (parent) {
+      const placeholder = requirements.length ? t('deliveryChooseParent') : t('noRequirements');
+      parent.innerHTML = `<option value="" disabled selected>${escapeHTML(placeholder)}</option>${requirements.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(`${item.key} · ${item.title}`)}</option>`).join('')}`;
+      if (parentID && [...parent.options].some(option => option.value === parentID)) parent.value = parentID;
+    }
+    syncDeliveryComposer(deliveryComposerKind, parent?.value || parentID);
+  }
+
+  function bindDeliveryComposer() {
+    const form = $('#requirementForm');
+    if (!form || form.dataset.deliveryBound === 'true') return;
+    form.dataset.deliveryBound = 'true';
+    form.querySelectorAll('[data-delivery-kind]').forEach(button => {
+      button.addEventListener('click', () => {
+        const kind = button.dataset.deliveryKind || 'requirement';
+        syncDeliveryComposer(kind, kind === 'bug' ? ($('#bugRequirement')?.value || '') : '');
+      });
+    });
+    $('#bugRequirement')?.addEventListener('change', () => syncDeliveryComposer('bug', $('#bugRequirement').value));
+  }
+
+  showDialog = function enhancedDeliveryDialog(kind = 'requirement', parentID = '') {
+    const form = $('#requirementForm');
+    if (!form) return;
+    deliveryComposerKind = kind === 'bug' ? 'bug' : 'requirement';
+    deliveryComposerParentID = parentID || '';
     $('#formError').textContent = '';
     clearEntityFiles('requirement');
-    $('#requirementForm').reset();
-    const populate = () => {
-      $('#requirementRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-      $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-    };
-    populate();
+    form.reset();
+    bindDeliveryComposer();
+    populateDeliveryComposer(deliveryComposerParentID);
     ensureRequirementOrchestrationControls();
+    syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
     applyTranslations();
+    syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
     $('#requirementDialog').showModal();
     bindEntityAttachments('requirement', '#requirementDescription');
     setTimeout(() => focusIfPresent('#requirementDescription'), 0);
     void loadIdentityData().then(() => {
       if ($('#requirementDialog').open) {
-        populate();
+        populateDeliveryComposer(deliveryComposerParentID);
         populateRequirementPlanAgents();
         applyTranslations();
+        syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
       }
     });
   };
@@ -717,29 +851,48 @@
     const data = new FormData(formElement);
     const submit = formElement.querySelector('button[type="submit"]');
     const description = String(data.get('description') || '').trim();
-    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('requirementDescriptionOnly');
+    const kind = formElement.dataset.deliveryKind || deliveryComposerKind;
+    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t(kind === 'bug' ? 'bugDescriptionOnly' : 'requirementDescriptionOnly');
     const files = entityFiles('requirement');
+    const parentID = String(data.get('requirement') || '').trim();
+    const parent = requirements.find(item => item.id === parentID);
     const autoGeneratePlan = Boolean(data.get('auto_generate_plan'));
     const planAgentID = String(data.get('plan_agent_id') || '').trim();
     const planAgent = nativeAgents.find(agent => agent.id === planAgentID && agent.status === 'active');
     $('#formError').textContent = '';
+    if (kind === 'bug' && !parent) {
+      $('#formError').textContent = t('deliveryParentRequired');
+      return;
+    }
     if (autoGeneratePlan && !planAgent) {
       $('#formError').textContent = t('planAgentRequired');
       return;
     }
     submit.disabled = true;
     try {
-      const created = await api('/api/v1/requirements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() },
-        body: JSON.stringify({
-          workspace_id: 'local', title, description,
-          acceptance_criteria: [description], assignee_member_ids: [String(data.get('assignee'))],
-          repository_ids: [String(data.get('repository'))], priority: String(data.get('priority') || 'normal')
+      const creationKey = idempotencyKey();
+      const created = kind === 'bug'
+        ? await api('/api/v1/bugs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': creationKey },
+          body: JSON.stringify({
+            workspace_id: 'local', title,
+            repository_id: parent.repository_ids?.[0] || String(data.get('repository') || ''),
+            assignee_member_id: parent.assignee_member_ids?.[0] || String(data.get('assignee') || ''),
+            requirement_id: parent.id, steps_to_reproduce: description, expected: '', actual: description, log_excerpt: ''
+          })
         })
-      });
-      try { await uploadEntityFiles('requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
-      if (autoGeneratePlan) {
+        : await api('/api/v1/requirements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': creationKey },
+          body: JSON.stringify({
+            workspace_id: 'local', title, description,
+            acceptance_criteria: [description], assignee_member_ids: [String(data.get('assignee'))],
+            repository_ids: [String(data.get('repository'))], priority: String(data.get('priority') || 'normal')
+          })
+        });
+      try { await uploadEntityFiles(kind === 'bug' ? 'bug' : 'requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
+      if (kind === 'requirement' && autoGeneratePlan) {
         try {
           await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan`, {
             method: 'POST',
@@ -751,6 +904,7 @@
           return;
         }
       }
+      if (kind === 'bug' && parent) deliveryExpandedRequirements.add(parent.id);
       closeDialog();
       formElement.reset();
       clearEntityFiles('requirement');
@@ -776,7 +930,7 @@
   translations.en.createRepository = translations.en.createProject;
   openResourceDialog = function enhancedResourceDialog(kind) {
     if (kind === 'bug') {
-      showBugDialog();
+      showDialog('bug');
       return;
     }
     baseOpenResourceDialog(kind);
@@ -856,95 +1010,143 @@
     }
   };
 
-  async function showBugDialog() {
-    $('#bugFormError').textContent = '';
-    $('#bugForm').reset();
-    clearEntityFiles('bug');
-    // Open from the cached control-plane snapshot first. Directory refreshes
-    // can be slow while the stream is reconnecting, but they must not make the
-    // create action appear unresponsive.
-    const populate = () => {
-      const previous = {
-        requirement: $('#bugRequirement')?.value || '',
-        repository: $('#bugRepository')?.value || '',
-        assignee: $('#bugAssignee')?.value || ''
-      };
-      $('#bugRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-      $('#bugAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-      $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
-      for (const [id, value] of Object.entries({bugRequirement: previous.requirement, bugRepository: previous.repository, bugAssignee: previous.assignee})) {
-        const select = $(`#${id}`);
-        if (select && Array.from(select.options).some(option => option.value === value)) select.value = value;
-      }
-    };
-    populate();
-    applyTranslations();
-    $('#bugDialog').showModal();
-    bindEntityAttachments('bug', '#bugDescription');
-    setTimeout(() => focusIfPresent('#bugDescription'), 0);
-    await loadIdentityData();
-    if ($('#bugDialog').open) {
-      populate();
-      applyTranslations();
-    }
-  }
-
-  function bindBugRequirementAutofill() {
-    const requirementSelect = $('#bugRequirement');
-    if (!requirementSelect || requirementSelect.dataset.autofillBound === 'true') return;
-    requirementSelect.dataset.autofillBound = 'true';
-    requirementSelect.addEventListener('change', () => {
-      const selected = requirements.find(item => item.id === requirementSelect.value);
-      if (!selected) return;
-      const repositoryID = selected.repository_ids?.[0] || '';
-      const assigneeID = selected.assignee_member_ids?.[0] || '';
-      const repository = $('#bugRepository');
-      const assignee = $('#bugAssignee');
-      if (repository && repositoryID && Array.from(repository.options).some(option => option.value === repositoryID)) repository.value = repositoryID;
-      if (assignee && assigneeID && Array.from(assignee.options).some(option => option.value === assigneeID)) assignee.value = assigneeID;
-    });
-  }
-
-  const closeBugDialog = () => $('#bugDialog').close();
-  $('#closeBugDialog').onclick = closeBugDialog;
-  $('#cancelBugDialog').onclick = closeBugDialog;
-  $('#bugDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeBugDialog(); });
-  bindBugRequirementAutofill();
-  $('#bugForm').onsubmit = async event => {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const data = new FormData(formElement);
-    const submit = formElement.querySelector('button[type="submit"]');
-    const description = String(data.get('description') || '').trim();
-    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('bugDescriptionOnly');
-    const files = entityFiles('bug');
-    $('#bugFormError').textContent = '';
-    submit.disabled = true;
-    try {
-      const created = await api('/api/v1/bugs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: 'local', title, repository_id: String(data.get('repository')),
-          assignee_member_id: String(data.get('assignee')), requirement_id: String(data.get('requirement') || ''),
-          steps_to_reproduce: description, expected: '', actual: description, log_excerpt: ''
-        })
-      });
-      try { await uploadEntityFiles('bug', created.id, files); } catch (_) { $('#bugFormError').textContent = t('uploadFailed'); return; }
-      closeBugDialog();
-      formElement.reset();
-      clearEntityFiles('bug');
-      await loadCore(true);
-    } catch (_) {
-      $('#bugFormError').textContent = t('resourceSaveFailed');
-    } finally {
-      submit.disabled = false;
-    }
-  };
-
   renderBugs = function enhancedBugTable() {
     const rows = bugs.map(item => `<tr data-bug-id="${escapeHTML(item.id)}" tabindex="0"><td class="mono">${escapeHTML((item.id || '').slice(0, 10))}</td><td class="title-cell">${escapeHTML(item.title || '-')}</td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td>${escapeHTML(repositoryLabel(item.repository_id))}</td><td class="muted">${escapeHTML(requirementLabel(item.requirement_id))}</td><td class="muted">${escapeHTML(userLabel(item.assignee_member_id))}</td><td><div class="row-actions">${item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : ''}${item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : ''}${item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : ''}</div></td></tr>`);
     return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('menuOwned'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div><div class="view-grid">${summaryCard(t('openBugs'), bugs.filter(item => item.status === 'OPEN').length, t('needsAttention'))}${summaryCard(t('repairingTitle'), bugs.filter(item => item.status === 'REPAIRING').length, t('repairing'))}${summaryCard(t('escalatedTitle'), bugs.filter(item => item.status === 'HUMAN_TRIAGE_REQUIRED').length, t('escalated'))}</div>${genericTable(t('bugs'), [t('key'), t('title'), t('status'), t('project'), t('requirementRelation'), t('executorColumn'), t('actions')], rows, t('noBugs'))}</div>`;
   };
+
+  function deliveryPlanFor(requirementID) {
+    return nativePlans.slice().reverse().find(item => item.requirement_id === requirementID) || null;
+  }
+
+  function deliveryPlanLabel(plan) {
+    if (!plan) return {text: t('deliveryPlanNone'), className: 'warn'};
+    const status = executionPlanStatus(plan, executionTimelineCache.get(plan.id)?.projection);
+    if (['failed', 'cancelled', 'timed_out', 'blocked'].includes(status)) return {text: t('deliveryPlanFailed'), className: 'bad'};
+    if (['running', 'ready', 'waiting'].includes(status)) return {text: status === 'running' ? t('deliveryPlanRunning') : t('deliveryPlanReady'), className: 'active'};
+    return {text: status, className: executionStatusClass(status)};
+  }
+
+  function deliveryBugIsOpen(item) {
+    return !['VERIFIED', 'CLOSED', 'RESOLVED', 'ACCEPTED', 'RELEASED'].includes(String(item.status || '').toUpperCase());
+  }
+
+  function deliveryRequirementMatches(requirement, children) {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    if (!term) return true;
+    const requirementText = `${requirement.key || ''} ${requirement.title || ''} ${requirement.description || ''} ${(requirement.assignee_member_ids || []).join(' ')}`.toLowerCase();
+    return requirementText.includes(term) || children.some(item => `${item.id || ''} ${item.title || ''} ${item.actual || ''} ${item.steps_to_reproduce || ''}`.toLowerCase().includes(term));
+  }
+
+  function deliveryBugMatches(item) {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    const statusMatches = !deliveryFilterStatus || String(item.status || '') === deliveryFilterStatus;
+    const textMatches = !term || `${item.id || ''} ${item.title || ''} ${item.actual || ''} ${item.steps_to_reproduce || ''}`.toLowerCase().includes(term);
+    return statusMatches && textMatches;
+  }
+
+  function deliveryPlanTarget(plan) {
+    if (!plan?.selected_ref?.id) return '-';
+    const version = plan.selected_ref.version || plan.selected_ref.revision;
+    return `${plan.selected_ref.id}${version ? `@${version}` : ''}`;
+  }
+
+  function deliveryRequirementRow(requirement, allChildren, expanded) {
+    const plan = deliveryPlanFor(requirement.id);
+    const planLabel = deliveryPlanLabel(plan);
+    const total = allChildren.length;
+    const open = allChildren.filter(deliveryBugIsOpen).length;
+    const owner = requirement.assignee_member_ids?.[0] ? userLabel(requirement.assignee_member_ids[0]) : '-';
+    const team = deliveryPlanTarget(plan);
+    const toggleLabel = expanded ? t('deliveryCollapse') : t('deliveryExpand');
+    return `<tr class="delivery-parent-row" data-delivery-requirement-id="${escapeHTML(requirement.id)}" tabindex="0"><td><span class="delivery-type-mark requirement">REQ</span><span class="mono delivery-key">${escapeHTML(requirement.key || requirement.id || '-')}</span></td><td class="title-cell"><strong>${escapeHTML(requirement.title || '-')}</strong><small>${escapeHTML(t('deliveryContextSummary'))}</small></td><td><span class="status ${statusClass(requirement.status)}">${escapeHTML(statusLabel(requirement.status))}</span></td><td class="muted">${escapeHTML(owner)}</td><td class="muted delivery-team" title="${escapeHTML(team)}">${escapeHTML(team)}</td><td><span class="status ${planLabel.className}">${escapeHTML(planLabel.text)}</span></td><td><div class="delivery-bug-summary"><strong>${escapeHTML(String(total))}</strong><span>${escapeHTML(t('deliveryBugs'))}</span><small>${escapeHTML(t('deliveryBugSummary').replace('{total}', String(total)).replace('{open}', String(open)))}</small></div><div class="row-actions"><button class="action-button accent" type="button" data-delivery-toggle="${escapeHTML(requirement.id)}" aria-expanded="${String(expanded)}" title="${escapeHTML(toggleLabel)}">${escapeHTML(toggleLabel)}</button><button class="action-button" type="button" data-delivery-add-bug="${escapeHTML(requirement.id)}" title="${escapeHTML(t('deliveryAddBug'))}">＋</button></div></td></tr>`;
+  }
+
+  function deliveryBugRow(item, requirement) {
+    const owner = item.assignee_member_id ? userLabel(item.assignee_member_id) : requirement?.assignee_member_ids?.[0] ? userLabel(requirement.assignee_member_ids[0]) : '-';
+    const plan = requirement ? deliveryPlanFor(requirement.id) : null;
+    const team = deliveryPlanTarget(plan);
+    const actionMarkup = item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : '';
+    return `<tr class="delivery-bug-row" data-bug-id="${escapeHTML(item.id)}" tabindex="0"><td><span class="delivery-type-mark bug">BUG</span><span class="mono delivery-key">${escapeHTML((item.id || '').slice(0, 10))}</span></td><td class="title-cell delivery-child-title"><span aria-hidden="true">↳</span><strong>${escapeHTML(item.title || '-')}</strong><small>${escapeHTML(requirement ? requirementLabel(requirement.id) : t('deliveryUnlinkedBugs'))}</small></td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td class="muted">${escapeHTML(owner)}</td><td class="muted delivery-team" title="${escapeHTML(team)}">${escapeHTML(team)}</td><td><span class="status ${deliveryBugIsOpen(item) ? 'warn' : 'good'}">${escapeHTML(deliveryBugIsOpen(item) ? t('open') : t('verified'))}</span></td><td><div class="row-actions">${actionMarkup}</div></td></tr>`;
+  }
+
+  function deliveryStatusOptions() {
+    const statuses = [...new Set([...requirements.map(item => item.status), ...bugs.map(item => item.status)].filter(Boolean))];
+    return statuses.sort().map(status => `<option value="${escapeHTML(status)}" ${status === deliveryFilterStatus ? 'selected' : ''}>${escapeHTML(statusLabel(status))}</option>`).join('');
+  }
+
+  function renderDelivery() {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    const grouped = new Map(requirements.map(item => [item.id, []]));
+    const unlinked = [];
+    for (const bug of bugs) {
+      if (grouped.has(bug.requirement_id)) grouped.get(bug.requirement_id).push(bug);
+      else unlinked.push(bug);
+    }
+    const rows = [];
+    for (const requirement of requirements) {
+      const allChildren = grouped.get(requirement.id) || [];
+      const matchingChildren = allChildren.filter(deliveryBugMatches);
+      const requirementStatusMatches = !deliveryFilterStatus || requirement.status === deliveryFilterStatus;
+      const statusMatches = requirementStatusMatches || matchingChildren.length > 0;
+      const kindMatches = deliveryFilterKind !== 'bug' || matchingChildren.length > 0;
+      const searchMatches = deliveryRequirementMatches(requirement, allChildren);
+      if (!statusMatches || !kindMatches || !searchMatches) continue;
+      const children = deliveryFilterKind === 'requirement' ? [] : (deliverySearchTerm || deliveryFilterStatus ? matchingChildren : allChildren);
+      const expanded = deliveryExpandedRequirements.has(requirement.id);
+      rows.push(deliveryRequirementRow(requirement, allChildren, expanded));
+      if (expanded || deliveryFilterKind === 'bug' || Boolean(term)) rows.push(...children.map(item => deliveryBugRow(item, requirement)));
+    }
+    const visibleUnlinked = unlinked.filter(deliveryBugMatches);
+    const unlinkedMarkup = (deliveryFilterKind !== 'requirement' && visibleUnlinked.length) ? `<section class="panel delivery-unlinked"><div class="panel-head"><div><h2>${escapeHTML(t('deliveryUnlinkedBugs'))}</h2><small>${escapeHTML(t('deliveryUnlinkedHint'))}</small></div><span class="status warn">${escapeHTML(String(visibleUnlinked.length))}</span></div><div class="table-scroll"><table class="delivery-table"><thead><tr><th>${escapeHTML(t('key'))}</th><th>${escapeHTML(t('title'))}</th><th>${escapeHTML(t('status'))}</th><th>${escapeHTML(t('deliveryOwner'))}</th><th>${escapeHTML(t('deliveryTeam'))}</th><th>${escapeHTML(t('deliveryPlan'))}</th><th>${escapeHTML(t('actions'))}</th></tr></thead><tbody>${visibleUnlinked.map(item => deliveryBugRow(item, null)).join('')}</tbody></table></div></section>` : '';
+    const openBugCount = bugs.filter(deliveryBugIsOpen).length;
+    const plannedCount = requirements.filter(item => deliveryPlanFor(item.id)).length;
+    const visibleRequirementCount = requirements.filter(requirement => {
+      const allChildren = grouped.get(requirement.id) || [];
+      return (!deliveryFilterStatus || requirement.status === deliveryFilterStatus || allChildren.some(deliveryBugMatches))
+        && (deliveryFilterKind !== 'bug' || allChildren.some(deliveryBugMatches))
+        && deliveryRequirementMatches(requirement, allChildren);
+    }).length;
+    return `<div class="view-stack delivery-view"><div class="delivery-intro"><div><span class="menu-kicker">DELIVERY GRAPH / ONE CONTEXT</span><p>${escapeHTML(t('deliverySubtitle'))}</p></div><div class="delivery-intro-stats"><span><strong>${escapeHTML(String(requirements.length + bugs.length))}</strong>${escapeHTML(t('deliveryTotal'))}</span><span><strong>${escapeHTML(String(openBugCount))}</strong>${escapeHTML(t('deliveryUnresolved'))}</span><span><strong>${escapeHTML(String(plannedCount))}</strong>${escapeHTML(t('deliveryPlan'))}</span></div></div><div class="view-grid delivery-summary-grid">${summaryCard(t('deliveryRequirements'), requirements.length, t('deliveryContextSummary'))}${summaryCard(t('deliveryBugs'), bugs.length, t('deliveryBugSummary').replace('{total}', String(bugs.length)).replace('{open}', String(openBugCount)))}${summaryCard(t('deliveryPlan'), plannedCount, t('deliveryPlanSummary'))}</div><section class="panel delivery-board"><div class="panel-head"><div><h2>${escapeHTML(t('deliveryTitle'))}</h2><small>${escapeHTML(t('deliveryDevelopmentSummary'))}</small></div><span class="status active">${escapeHTML(String(visibleRequirementCount))}</span></div><div class="toolbar delivery-toolbar"><input id="deliverySearch" type="search" value="${escapeHTML(deliverySearchTerm)}" placeholder="${escapeHTML(t('deliverySearch'))}" aria-label="${escapeHTML(t('deliverySearch'))}"><select id="deliveryKindFilter" aria-label="${escapeHTML(t('deliveryTypeLabel'))}"><option value="all" ${deliveryFilterKind === 'all' ? 'selected' : ''}>${escapeHTML(t('deliveryAll'))}</option><option value="requirement" ${deliveryFilterKind === 'requirement' ? 'selected' : ''}>${escapeHTML(t('deliveryRequirementFilter'))}</option><option value="bug" ${deliveryFilterKind === 'bug' ? 'selected' : ''}>${escapeHTML(t('deliveryBugFilter'))}</option></select><select id="deliveryStatusSelect" aria-label="${escapeHTML(t('deliveryStatusFilter'))}"><option value="">${escapeHTML(t('deliveryStatusAll'))}</option>${deliveryStatusOptions()}</select></div><div class="table-scroll"><table class="delivery-table"><thead><tr><th>${escapeHTML(t('deliveryTypeLabel'))}</th><th>${escapeHTML(t('title'))}</th><th>${escapeHTML(t('status'))}</th><th>${escapeHTML(t('deliveryOwner'))}</th><th>${escapeHTML(t('deliveryTeam'))}</th><th>${escapeHTML(t('deliveryPlan'))}</th><th>${escapeHTML(t('deliveryRelatedBugs'))}</th></tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="7" class="empty">${escapeHTML(t('noItems'))}</td></tr>`}</tbody></table></div></section>${unlinkedMarkup}</div>`;
+  }
+
+  function bindDeliveryView() {
+    const root = $('#appView');
+    if (!root) return;
+    const rerender = () => { root.innerHTML = renderDelivery(); bindDeliveryView(); };
+    const search = $('#deliverySearch');
+    if (search) search.oninput = event => { deliverySearchTerm = event.currentTarget.value; rerender(); const next = $('#deliverySearch'); next?.focus(); next?.setSelectionRange(deliverySearchTerm.length, deliverySearchTerm.length); };
+    const kind = $('#deliveryKindFilter');
+    if (kind) kind.onchange = event => { deliveryFilterKind = event.currentTarget.value; rerender(); };
+    const status = $('#deliveryStatusSelect');
+    if (status) status.onchange = event => { deliveryFilterStatus = event.currentTarget.value; rerender(); };
+    root.querySelectorAll('[data-delivery-toggle]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); const id = button.dataset.deliveryToggle; if (deliveryExpandedRequirements.has(id)) deliveryExpandedRequirements.delete(id); else deliveryExpandedRequirements.add(id); rerender(); };
+    });
+    root.querySelectorAll('[data-delivery-add-bug]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); showDialog('bug', button.dataset.deliveryAddBug); };
+    });
+    root.querySelectorAll('[data-delivery-requirement-id]').forEach(row => {
+      row.onclick = event => { if (event.target.closest('button')) return; openRequirement(row.dataset.deliveryRequirementId); };
+      row.onkeydown = event => { if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('button')) { event.preventDefault(); openRequirement(row.dataset.deliveryRequirementId); } };
+    });
+    root.querySelectorAll('[data-resource-action]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); applyResourceAction(button.dataset.resourceKind, button.dataset.resourceId, button.dataset.resourceAction); };
+    });
+  }
+
+  function renderDeliveryDetailCanvas(requirement, detail = {}) {
+    const children = bugs.filter(item => item.requirement_id === requirement.id);
+    const openCount = children.filter(deliveryBugIsOpen).length;
+    const plan = deliveryPlanFor(requirement.id);
+    const planLabel = deliveryPlanLabel(plan);
+    const cache = plan ? executionTimelineCache.get(plan.id) || {} : {};
+    const statusText = plan ? planLabel.text : t('deliveryPlanNone');
+    const target = deliveryPlanTarget(plan);
+    const workItemIDs = (detail.work_items || []).map(item => item.id).filter(Boolean);
+    const validation = ['TEST_FAILED', 'AUTO_REPAIRING', 'BLOCKED'].includes(String(requirement.status || '').toUpperCase()) ? t('deliveryPlanFailed') : ['ACCEPTED', 'RELEASED'].includes(String(requirement.status || '').toUpperCase()) ? t('verified') : t('deliveryValidationPending');
+    return `<section class="delivery-detail-canvas"><header class="delivery-canvas-head"><div><span class="menu-kicker">DELIVERY CANVAS / ${escapeHTML(requirement.key || '')}</span><h3>${escapeHTML(t('deliveryCanvas'))}</h3><p>${escapeHTML(t('deliveryContextSummary'))}</p></div><div class="delivery-canvas-head-meta"><span class="status ${statusClass(requirement.status)}">${escapeHTML(statusLabel(requirement.status))}</span><span class="status ${openCount ? 'warn' : 'good'}">${escapeHTML(String(children.length))} ${escapeHTML(t('deliveryBugs'))}</span></div></header><div class="delivery-canvas-grid"><article class="delivery-canvas-stage context"><span class="delivery-stage-index">01</span><h4>${escapeHTML(t('deliveryContext'))}</h4><p>${escapeHTML(requirement.description || '-')}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('deliveryProject'))}<strong>${escapeHTML(requirement.repository_ids?.map(repositoryLabel).join(', ') || '-')}</strong></span><span>${escapeHTML(t('deliveryOwner'))}<strong>${escapeHTML(requirement.assignee_member_ids?.map(userLabel).join(', ') || '-')}</strong></span></div></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">02</span><h4>${escapeHTML(t('deliveryDesign'))}</h4><strong class="delivery-stage-state"><span class="status ${planLabel.className}">${escapeHTML(statusText)}</span></strong><p>${escapeHTML(plan ? t('deliveryPlanSummary') : t('deliveryNoPlanAction'))}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('deliveryTeam'))}<strong title="${escapeHTML(target)}">${escapeHTML(target)}</strong></span><span>${escapeHTML(t('revision'))}<strong>${escapeHTML(String(plan?.revision || plan?.selected_ref?.version || '-'))}</strong></span></div></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">03</span><h4>${escapeHTML(t('deliveryDevelopment'))}</h4><p>${escapeHTML(t('deliveryDevelopmentSummary'))}</p><div class="delivery-stage-actions">${plan ? `<button class="secondary" type="button" data-delivery-open-execution="${escapeHTML(plan.id)}">${escapeHTML(t('deliveryOpenExecution'))}</button>` : `<span class="form-help">${escapeHTML(t('deliveryNoPlanAction'))}</span>`}</div><small class="mono">${escapeHTML(cache.projection?.status || plan?.status || '-')}</small></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">04</span><h4>${escapeHTML(t('deliveryValidation'))}</h4><strong class="delivery-stage-state"><span class="status ${validation === t('verified') ? 'good' : validation === t('deliveryPlanFailed') ? 'bad' : 'warn'}">${escapeHTML(validation)}</span></strong><p>${escapeHTML(t('deliveryValidationSummary'))}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('workItems'))}<strong>${escapeHTML(workItemIDs.join(', ') || '-')}</strong></span><span>${escapeHTML(t('deliveryRelatedBugs'))}<strong>${escapeHTML(`${openCount}/${children.length}`)}</strong></span></div></article></div><section class="delivery-related-bugs"><div class="delivery-related-head"><div><span class="menu-kicker">LINKED DEFECTS</span><h4>${escapeHTML(t('deliveryRelatedBugs'))}</h4></div><button class="action-button accent" type="button" data-delivery-detail-add-bug="${escapeHTML(requirement.id)}">＋ ${escapeHTML(t('deliveryAddBug'))}</button></div>${children.length ? `<div class="delivery-related-list">${children.map(item => `<button type="button" class="delivery-related-item" data-delivery-open-bug="${escapeHTML(item.id)}"><span class="delivery-type-mark bug">BUG</span><span><strong>${escapeHTML(item.title || '-')}</strong><small>${escapeHTML(statusLabel(item.status))}</small></span><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></button>`).join('')}</div>` : `<p class="delivery-related-empty">${escapeHTML(t('deliveryNoRelatedBugs'))}</p>`}</section></section>`;
+  }
 
   renderAdmin = function enhancedAdmin() {
     const userRows = managedUsers.map(user => `<tr><td><strong>${escapeHTML(user.display_name)}</strong><div class="mono">${escapeHTML(user.username)}</div></td><td><span class="status ${user.role === 'admin' ? 'active' : ''}">${escapeHTML(roleLabel(user.role))}</span></td><td><span class="status ${user.status === 'active' ? 'good' : 'bad'}">${escapeHTML(t(user.status === 'active' ? 'activeAccount' : 'disabledAccount'))}</span></td><td><span class="permission-count">${user.menu_ids.length} / ${menuIDs.length}</span></td><td><button class="action-button" type="button" data-edit-user="${escapeHTML(user.id)}">${escapeHTML(t('edit'))}</button></td></tr>`);
@@ -1531,7 +1733,8 @@
     });
     const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
     const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
-    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status" role="status"></div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
+    const statusClass = orchestrationStatusState.message ? (orchestrationStatusState.bad ? 'bad' : 'good') : '';
+    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status ${statusClass}" role="status">${escapeHTML(orchestrationStatusState.message)}</div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
   };
 
   function ensureOrchestrationDialogs() {
@@ -1555,6 +1758,7 @@
   }
 
   function setOrchestrationStatus(message, bad = false) {
+    orchestrationStatusState = {message, bad};
     const target = $('#orchestrationStatus');
     if (!target) return;
     target.textContent = message;
@@ -1680,7 +1884,7 @@
     form.elements.status.value = (user && user.status) || 'active';
     form.elements.password.required = !user;
     $('#userDialogTitle').textContent = t(user ? 'editUser' : 'createUser');
-    renderPermissionGrid((user && user.menu_ids) || ['workbench', 'requirements', 'bugs'], form.elements.role.value);
+    renderPermissionGrid((user && user.menu_ids) || ['workbench', 'delivery'], form.elements.role.value);
     $('#userDialog').showModal();
     setTimeout(() => {
       const element = form.querySelector('input:not([type="hidden"]):not(:disabled)');
@@ -2771,6 +2975,7 @@
       const detail = await api(`/api/v1/requirements/${encodeURIComponent(id)}`);
       const body = $('#detailBody');
       if (!body) return;
+      body.insertAdjacentHTML('afterbegin', renderDeliveryDetailCanvas(requirements.find(item => item.id === id) || detail, detail));
       const items = detail.attachments || [];
       if (items.length) {
         const block = document.createElement('div');
@@ -2818,6 +3023,31 @@
     if (row && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       openBug(row.dataset.bugId);
+    }
+  });
+
+  document.addEventListener('click', event => {
+    const addBug = event.target.closest?.('[data-delivery-detail-add-bug]');
+    if (addBug) {
+      event.preventDefault();
+      showDialog('bug', addBug.dataset.deliveryDetailAddBug);
+      return;
+    }
+    const openBugButton = event.target.closest?.('[data-delivery-open-bug]');
+    if (openBugButton) {
+      event.preventDefault();
+      openBug(openBugButton.dataset.deliveryOpenBug);
+      return;
+    }
+    const openExecution = event.target.closest?.('[data-delivery-open-execution]');
+    if (openExecution) {
+      event.preventDefault();
+      activeExecutionPlanID = openExecution.dataset.deliveryOpenExecution;
+      if ($('#detailDialog')?.open) $('#detailDialog').close();
+      currentView = 'executions';
+      applyMenuAccess();
+      render();
+      void loadExecutionTimeline(activeExecutionPlanID);
     }
   });
 
@@ -3312,8 +3542,23 @@
     // already reload the transcript and own their render cycle.
     if (currentView === 'chats' && ($('#chatComposer' || $('#chatCreateDialog')?.open))) return;
     baseRender();
+    if (currentView === 'delivery') {
+      $('#pageTitle').textContent = t('deliveryTitle');
+      $('#pageSubtitle').textContent = t('deliverySubtitle');
+      $('#pageActions').innerHTML = `<button class="primary" id="newRequirement"><span aria-hidden="true">＋</span>${escapeHTML(t('deliveryCreate'))}</button>`;
+      $('#appView').innerHTML = renderDelivery();
+      $('#newRequirement').onclick = () => showDialog('requirement');
+      bindDeliveryView();
+    }
     if (currentView === 'executions') {
-      $('#pageActions').innerHTML = '';
+      $('#pageTitle').textContent = t('deliveryTitle');
+      $('#pageSubtitle').textContent = t('executionCockpitSubtitle');
+      $('#pageActions').innerHTML = `<button class="secondary" id="deliveryBack" type="button">← ${escapeHTML(t('deliveryBack'))}</button>`;
+      $('#deliveryBack').onclick = () => {
+        currentView = 'delivery';
+        applyMenuAccess();
+        render();
+      };
       if (activeExecutionPlanID && !executionTimelineCache.has(activeExecutionPlanID)) void loadExecutionTimeline(activeExecutionPlanID);
     }
     if (currentView === 'chats') renderChatPage();

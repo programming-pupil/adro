@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,12 +18,12 @@ func TestUserLifecyclePersistsPasswordHashAndRevokesSessions(t *testing.T) {
 	if err != nil || adminSession.User.Role != "admin" || len(adminSession.User.MenuIDs) != len(AllMenus) {
 		t.Fatalf("administrator login: session=%+v err=%v", adminSession, err)
 	}
-	member, err := service.CreateUser(User{WorkspaceID: "local", Username: "developer.one", DisplayName: "Developer One", Role: "member", Status: "active", MenuIDs: []string{"requirements", "bugs"}, Password: "Developer123!"})
+	member, err := service.CreateUser(User{WorkspaceID: "local", Username: "developer.one", DisplayName: "Developer One", Role: "member", Status: "active", MenuIDs: []string{"delivery"}, Password: "Developer123!"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	memberSession, err := service.Authenticate(member.Username, "Developer123!")
-	if err != nil || !memberSession.User.Can("requirements") || memberSession.User.Can("admin") {
+	if err != nil || !memberSession.User.Can("delivery") || !memberSession.User.Can("requirements") || !memberSession.User.Can("bugs") || memberSession.User.Can("admin") {
 		t.Fatalf("member login: session=%+v err=%v", memberSession, err)
 	}
 	if _, err := service.UpdateUser(member.ID, User{Status: "disabled"}); err != nil {
@@ -44,6 +45,51 @@ func TestUserLifecyclePersistsPasswordHashAndRevokesSessions(t *testing.T) {
 	}
 	if got := len(reloaded.ListUsers("local")); got != 2 {
 		t.Fatalf("reloaded users=%d", got)
+	}
+}
+
+func TestLegacyDeliveryMenusMigrateToDelivery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	service, err := NewService(path, "admin", "AdminPass123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := service.CreateUser(User{WorkspaceID: "local", Username: "legacy.user", DisplayName: "Legacy User", Role: "member", Status: "active", MenuIDs: []string{"requirements", "bugs", "designReview", "executions"}, Password: "LegacyPass123!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(member.MenuIDs) != 1 || member.MenuIDs[0] != "delivery" {
+		t.Fatalf("legacy input was not normalized: %+v", member.MenuIDs)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state persistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	for index := range state.Users {
+		if state.Users[index].ID == member.ID {
+			state.Users[index].MenuIDs = []string{"requirements", "bugs", "designReview", "executions"}
+		}
+	}
+	data, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewService(path, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := reloaded.ListUsers("local")
+	for _, user := range users {
+		if user.ID == member.ID && (len(user.MenuIDs) != 1 || user.MenuIDs[0] != "delivery") {
+			t.Fatalf("persisted legacy menus were not migrated: %+v", user.MenuIDs)
+		}
 	}
 }
 

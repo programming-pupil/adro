@@ -1358,15 +1358,35 @@ func (s *Server) bugs(w http.ResponseWriter, r *http.Request) {
 	if workspaceID := r.Header.Get("X-Workspace-ID"); workspaceID != "" {
 		in.WorkspaceID = workspaceID
 	}
-	if in.Fingerprint == "" {
-		in.Fingerprint = fingerprint(in)
+	if strings.TrimSpace(in.RequirementID) == "" {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_requirement_relation", "requirement_id is required for every bug", nil)
+		return
 	}
-	if in.RequirementID != "" {
-		requirement, err := s.Store.GetRequirement(in.RequirementID)
-		if err != nil || (in.WorkspaceID != "" && requirement.WorkspaceID != in.WorkspaceID) {
-			s.problem(w, r, http.StatusUnprocessableEntity, "invalid_requirement_relation", "related requirement does not exist in this workspace", nil)
+	requirement, err := s.Store.GetRequirement(in.RequirementID)
+	if err != nil || (in.WorkspaceID != "" && requirement.WorkspaceID != in.WorkspaceID) {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_requirement_relation", "related requirement does not exist in this workspace", nil)
+		return
+	}
+	if len(requirement.RepositoryIDs) == 0 || strings.TrimSpace(requirement.RepositoryIDs[0]) == "" {
+		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_requirement_context", "related requirement has no repository context", nil)
+		return
+	}
+	in.WorkspaceID = requirement.WorkspaceID
+	in.RepositoryID = requirement.RepositoryIDs[0]
+	in.AssigneeMemberID = ""
+	if len(requirement.AssigneeMemberIDs) > 0 {
+		in.AssigneeMemberID = requirement.AssigneeMemberIDs[0]
+	}
+	if in.WorkItemID != "" {
+		workItem, workItemErr := s.Store.GetWorkItem(in.WorkItemID)
+		if workItemErr != nil || workItem.RequirementID != requirement.ID {
+			s.problem(w, r, http.StatusUnprocessableEntity, "invalid_work_item_relation", "related work item does not belong to the bug requirement", nil)
 			return
 		}
+		in.RepositoryID = workItem.RepositoryID
+	}
+	if in.Fingerprint == "" {
+		in.Fingerprint = fingerprint(in)
 	}
 	b, duplicate, e := s.Store.UpsertBug(in)
 	if e != nil {
@@ -1746,7 +1766,7 @@ func (s *Server) canUseAttachmentOwner(user adroauth.User, authenticated, machin
 	if !authenticated {
 		return false
 	}
-	return ownerType == "requirement" && user.Can("requirements") || ownerType == "bug" && user.Can("bugs") || ownerType == "chat_session" && user.Can("executions") || ownerType == "comment" && (user.Can("requirements") || user.Can("bugs"))
+	return ownerType == "requirement" && user.Can("delivery") || ownerType == "bug" && user.Can("delivery") || ownerType == "chat_session" && user.Can("chats") || ownerType == "comment" && user.Can("delivery")
 }
 
 func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
@@ -4255,8 +4275,8 @@ func menuForPath(path string) string {
 		menu   string
 	}{
 		{"/api/v1/users", "admin"}, {"/api/v1/audit", "admin"}, {"/api/v1/plugins", "admin"},
-		{"/api/v1/requirements", "requirements"}, {"/api/v1/bugs", "bugs"},
-		{"/api/v1/pipelines", "executions"}, {"/api/v1/workflow-templates", "executions"}, {"/api/v1/chats", "executions"},
+		{"/api/v1/requirements", "delivery"}, {"/api/v1/bugs", "delivery"},
+		{"/api/v1/pipelines", "delivery"}, {"/api/v1/workflow-templates", "delivery"}, {"/api/v1/chats", "chats"},
 		{"/api/v1/repositories", "repositories"}, {"/api/v1/repository-graph", "repositories"},
 		{"/api/v1/agents", "agents"}, {"/api/v1/developer-profiles", "agents"},
 		{"/api/v1/mcp", "mcp"}, {"/api/v1/skills", "skills"},
@@ -4264,7 +4284,7 @@ func menuForPath(path string) string {
 		{"/api/v1/screenshots", "artifacts"}, {"/api/v1/artifacts", "artifacts"},
 		{"/api/v1/artifact-migrations", "artifacts"}, {"/api/v1/runners", "runners"},
 		{"/api/v1/approvals", "humanQA"}, {"/api/v1/evidence", "testing"},
-		{"/api/v1/runs", "executions"}, {"/api/v1/work-items", "executions"}, {"/api/v1/streams", "executions"},
+		{"/api/v1/runs", "delivery"}, {"/api/v1/work-items", "delivery"}, {"/api/v1/streams", "delivery"},
 	}
 	for _, route := range routes {
 		if path == route.prefix || strings.HasPrefix(path, route.prefix+"/") {

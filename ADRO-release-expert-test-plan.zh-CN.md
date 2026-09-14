@@ -1,7 +1,7 @@
 # ADRO 发布前专家级测试用例规范
 
-版本：`v0.7.0`（发布前最终源码审计整改版：显式 operationId、行为级 coverage、真实运行时联合证据和当前 SHA 校验）
-编写日期：2026-09-11
+版本：`v0.8.0`（统一交付台、显式 operationId、行为级 coverage、真实运行时联合证据和当前 SHA 校验）
+编写日期：2026-09-14
 源码复核输入基线：以执行时 checkout 的 `git rev-parse HEAD` 为准。发布候选基线必须以每次执行 `ruby scripts/coverage-ledger.rb --check` 写入报告的 `source_sha` 为准，并由 evidence completeness 门禁断言等于执行时 `HEAD`；文档不能用历史 SHA 或历史数量覆盖当前源码事实。文档提交目标：`main`
 适用范围：ADRO 单机部署、Web 控制面、HTTP API、运行时 Provider，以及真实 Codex 执行链路
 
@@ -11,7 +11,7 @@
 
 本规范以 ADRO 源码为准，当前源码事实包括：
 
-- Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，最新 main 共 19 个视图（含 `chats`）。
+- Web 菜单在 `apps/web/index.html` 与 `apps/web/enhancements.js` 中定义，最新 main 共 16 个一级视图（含统一 `delivery` 与独立 `chats`）。需求、Bug、方案与开发通过同一交付上下文组织，不再分别占用一级菜单。
 - API 契约在 `openapi/openapi.yaml` 中定义；method/path operation、菜单、DOM action 以及 schema v2 账本行数都必须由 `scripts/coverage-ledger.rb --check` 在当前 checkout 重新解析并写入报告，旧的 112/113/152/177/185 只作为历史对照，不能作为当前发布基线。每个 operation 必须显式声明唯一 `operationId`；派生 ID、空 ID、重复 ID、代码路由缺契约或契约缺 handler 均是 CI 非零退出的 S1 缺口。不能把 YAML 文本行数、菜单可打开或 `inventory-only` 行当作行为覆盖证明。
 - Go 单元/集成测试位于 `internal/**`；浏览器测试位于 `e2e/**`；`package.json` 提供 `test:e2e`、`test:e2e:adro` 和 `test:e2e:matrix` 三个 Playwright 入口。仓库还提供 `scripts/release-system-e2e.sh`、`scripts/real-pipeline-e2e.sh` 和 `make real-e2e`，但真实执行仍必须在受控 Codex runner 产生证据。
 - Context 编译器默认保持 `rune4-v1` 兼容估算，同时提供 `context.Tokenizer`/`ModelAwareTokenizer` 与 `harness.Store.SetContextTokenizer`；模型 tokenizer ID、预算和压缩记录必须进入 immutable manifest，不能只在运行日志中声明。
@@ -51,7 +51,7 @@ PostgreSQL driver conformance、备份/恢复指纹校验和兼容工作区迁�
 行和可执行行为行；行为行必须指向仓库中真实存在的测试文件与测试函数，且
 适用 Agent/provider 的入口还必须有 real-runtime 行。任何派生 operationId、
 不存在的测试符号、缺行为层、缺 handler/action 映射或新增未登记条目都必须
-令 CI 非零退出。按输入基线计算，196 个 operation、19 个菜单和 100 个 action
+令 CI 非零退出。按输入基线计算，197 个 operation、16 个菜单和 118 个 action
 至少需要按当前报告的 operation/menu/action counts 自动计算的 inventory + behavior
 记录，尚未计入额外的 L4 real-runtime 记录；`inventory-only` 只证明条目被登记，不把行为测试或真实
 Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` 只存生成物，
@@ -62,7 +62,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | 对象 | 强制行 | 可接受的测试映射 | 发布拒绝条件 |
 |---|---|---|---|
 | OpenAPI operation | `L0-contract-inventory` + `L2-api-integration` | 参数化 operation matrix 可复用测试函数，但每个 operation 必须独立 case/evidence key，并记录实际 handler | derived/重复 `operationId`、handler 不存在、只登记不执行、证据 SHA 不同 |
-| 菜单 | `L0-ui-inventory` + `L3-browser` | 19 个菜单逐项导航、权限、刷新、断网/恢复矩阵 | 菜单新增无 case、只检查数组长度、只跑 Chromium |
+| 菜单 | `L0-ui-inventory` + `L3-browser` | 16 个一级菜单逐项导航、权限、刷新、断网/恢复矩阵；交付画布内部覆盖方案和执行下钻 | 菜单新增无 case、只检查数组长度、只跑 Chromium |
 | DOM action | `L0-ui-inventory` + `L3-browser` | action registry 参数化点击成功/失败/权限/重复点击；动态生成按钮也必须有稳定 `action_id` | source-line 临时 selector、按钮无 action_id、测试函数不存在 |
 | Agent/provider operation | 上述各层 + `L4-real-runtime` | 真实 Codex 与 DSH 脚本及其 manifest/assertion | provider fixture/mock、PID/workdir/context/cursor/hash 任一缺失 |
 
@@ -93,17 +93,17 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 
 ## 4. 菜单/UI 覆盖矩阵
 
-以下每行至少执行 `UI-001`（可见性/加载/刷新/空态/错误态）和对应的操作用例；管理员可见全部 19 个菜单，成员只看到授予的菜单，查看者不能出现写操作。
+以下每行至少执行 `UI-001`（可见性/加载/刷新/空态/错误态）和对应的操作用例；管理员可见全部 16 个一级菜单，成员只看到授予的菜单，查看者不能出现写操作。
 
 | Case ID | 菜单/视图 | 必测行为 | 主要入口 |
 |---|---|---|---|
 | UI-001 | 全部菜单 | 登录后逐一点击、深链接刷新、返回/前进、加载失败和空数据态；控制台无未处理异常 | Playwright `e2e/workbench.spec.js` |
 | UI-002 | `workbench` 工作台 | 活跃交付、待审批、开放 Bug、最新事件数量与 API 一致；全局搜索命中/不命中 | `/api/v1/requirements`、`/api/v1/streams/workspaces/{workspace_id}` |
-| UI-003 | `requirements` 需求中心 | 创建需求，绑定多个仓库，过滤标题/Key/状态，打开详情和状态时间线 | `POST/GET/PATCH /api/v1/requirements*` |
-| UI-004 | `bugs` Bug 中心 | 创建 Bug、关联需求/工作项、triage、repair、verify；错误提示可重试 | `/api/v1/bugs*` |
+| UI-003 | `delivery` 交付台 | 在统一 Composer 创建需求或父需求下的 Bug；API 强制父需求关系并继承项目/负责人；父行展示 Bug 总数/未解决数，支持筛选、搜索、展开子项和打开交付画布 | `POST/GET/PATCH /api/v1/requirements*`、`/api/v1/bugs*` |
+| UI-004 | `delivery` 交付画布 | 在同一详情串联上下文、方案、开发 Run、验证和关联 Bug；Bug 继承父需求项目、负责人和执行小队 | requirements/bugs/execution-plans/work-items |
 | UI-005 | `humanQA` 人工验收 | 只显示待验收交付；接受、拒绝/阻塞时理由和 Evidence 可追踪 | requirement gates/approve/evidence |
-| UI-006 | `designReview` 方案评审 | 方案门禁、审批前后按钮和状态正确；无权限用户不可决策 | gates/approvals |
-| UI-007 | `executions` 研发执行 | 工作项、Run、Provider 状态和 session/workdir 关联；取消后状态不可回到运行 | work-items/runs |
+| UI-006 | `delivery / 方案` | 交付画布内完成方案生成、版本、门禁和评审；无权限用户不可决策 | gates/approvals |
+| UI-007 | `delivery / 执行舱` | 从同一交付项下钻工作项、Run、Provider 状态和 session/workdir；返回后保留父需求上下文 | work-items/runs |
 | UI-008 | `diffs` 代码与 Diff | 版本化 diff、changed files、空 diff、二进制 diff、越权仓库不可见 | `/api/v1/work-items/{id}/diff` |
 | UI-009 | `testing` 测试中心 | Gate、Evidence、失败重跑和人工验收状态；缺证据必须显示阻断 | evidence/requirements |
 | UI-010 | `repositories` 项目与仓库 | 注册、编辑、删除、索引、依赖图；索引中/失败/无权限可见 | repositories/index/graph |
@@ -134,7 +134,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | SHELL-003 | 点击登录页语言切换，再登录后切换应用语言 | `lang`、按钮、表头、错误提示完整切换；不丢当前视图和表单数据 |
 | SHELL-004 | 登录后点击刷新、全局搜索输入/清空、浏览器前进后退 | 仅触发预期请求；列表、计数和当前视图最终一致 |
 | SHELL-005 | 检查用户头像、显示名、角色、退出登录 | 身份来自 `/auth/me`；退出关闭 WebSocket 并使旧 Cookie 失效 |
-| SHELL-006 | member/viewer 登录，逐项检查 19 个导航节点和直接深链 | 未授权菜单隐藏，直接请求仍被后端拒绝；不能通过改 DOM 绕过 |
+| SHELL-006 | member/viewer 登录，逐项检查 16 个导航节点和直接深链 | `delivery` 同时控制需求、Bug、方案与执行 API；旧 `requirements`/`bugs`/`designReview`/`executions` 权限自动迁移；未授权菜单隐藏，直接请求仍被后端拒绝 |
 | SHELL-007 | 断开 API、断开 WebSocket、恢复网络 | 连接点、重试和错误态可见；恢复后 cursor 续接，不重复追加行 |
 | SHELL-008 | 所有菜单运行键盘 Tab/Enter/Escape、屏幕阅读器属性和窄 viewport 检查 | 焦点顺序稳定；dialog 可关闭；无横向溢出、遮挡或不可访问控件 |
 
@@ -149,7 +149,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | WB-005 | 需求从 RECEIVED 到 RELEASED、CANCELLED、FAILED 的各状态刷新 | 计数只落在正确阶段；已终态不出现在 active delivery |
 | WB-006 | provider diagnostics 不可达、未配置、认证失败、可达四种 profile | provider 卡和诊断条分别显示真实状态；不可把 mock/未验证显示为已连接 |
 
-#### `requirements` 需求中心和详情
+#### `delivery` 交付台、需求父项和交付画布
 
 | Case ID | 步骤 | 通过标准 |
 |---|---|---|
@@ -167,24 +167,24 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | REQ-UI-012 | 在评论编辑器输入 Agent 名称、真实 Agent UUID、`[@研发](mention://agent/<uuid>)`、普通 `@研发`、多个 Agent 和无效目标 | roster autocomplete 只插入同 workspace 的真实 UUID；结构化 URI 进入预览和权限校验；普通显示名和无效 URI 只产生 render-only/blocked outcome，不得触发 Provider |
 | REQ-UI-013 | 方案评论包含附件/截图，研发 Agent 回复后发起单测 Agent follow-up；刷新、断网重连、重复点击发送 | 评论、附件、回复、每次 follow-up 的 attempt/session/workdir/context/artifact 和 StreamEvents 不丢不重；当前仅有 provider-neutral 评论 API，组合链路需真实 E2E 证明 |
 
-#### `bugs` Bug 中心
+#### `delivery` 下的 Bug 子项
 
 | Case ID | 步骤 | 通过标准 |
 |---|---|---|
-| BUG-UI-001 | 打开新建 Bug，分别填写仓库、需求、复现步骤、期望、实际、日志、附件 | 字段映射正确；关联需求必须属于同一 workspace；附件归属 Bug |
+| BUG-UI-001 | 在统一交付 Composer 切换为 Bug，选择父需求并填写复现信息和附件 | 父需求必选；项目、负责人和执行小队只读继承；关联需求必须属于同一 workspace；附件归属 Bug |
 | BUG-UI-002 | 提交完全相同 fingerprint 两次、标题不同但指纹相同 | 第二次返回已存在 Bug，不增加 attempt、不重复事件 |
 | BUG-UI-003 | OPEN -> repair，REPAIRING -> verify，HUMAN_TRIAGE_REQUIRED -> triage | 只显示状态允许的动作；按钮动作与 API 状态一致 |
 | BUG-UI-004 | 连续 repair 直至上限，再次 repair；Provider 失败 | 达到上限进入人工接管；Provider 错误保留诊断和原 Bug，不假设修复成功 |
-| BUG-UI-005 | 按状态筛选/空态/跨 workspace Bug ID | 列表和详情不泄露另一 workspace；空态不渲染动作按钮 |
+| BUG-UI-005 | 在交付台按类型/状态筛选、搜索、展开父需求、检查空态和跨 workspace Bug ID | 父需求始终显示全部 Bug 总数与未解决数，筛选只影响可见子项；列表和详情不泄露另一 workspace |
 | BUG-UI-006 | Bug 详情刷新、附件列表、repair attempt 列表 | attempt、session、context、workdir 和证据可追溯；刷新不重置状态 |
 
-#### `humanQA`、`designReview`、`executions`、`diffs`、`testing`
+#### `humanQA`、`delivery` 内方案/执行、`diffs`、`testing`
 
 | Case ID | 菜单 | 步骤 | 通过标准 |
 |---|---|---|---|
 | WF-UI-001 | humanQA | 构造 READY_FOR_HUMAN_QA、ACCEPTED、RELEASED、非验收状态并刷新 | 只列出适用状态；接受/拒绝/阻塞均要求合法 gate/evidence；非验收项不可操作 |
-| WF-UI-002 | designReview | DESIGN_REVIEW、HUMAN_APPROVAL_REQUIRED、DESIGN_REWORK 三状态打开详情 | 审批按钮、重做路径和理由字段与状态机一致；无审批权限为只读 |
-| WF-UI-003 | executions | 有/无 work item、queued/running/completed/failed/cancelled Run | 工作项和 Run 关联正确；取消后不能再次启动同一活动 Run |
+| WF-UI-002 | delivery / 方案 | DESIGN_REVIEW、HUMAN_APPROVAL_REQUIRED、DESIGN_REWORK 三状态打开交付画布 | 审批按钮、重做路径和理由字段与状态机一致；无审批权限为只读 |
+| WF-UI-003 | delivery / 执行舱 | 有/无 work item、queued/running/completed/failed/cancelled Run | 工作项和 Run 关联正确；交付导航保持激活；取消后不能再次启动同一活动 Run |
 | WF-UI-004 | diffs | 空 diff、文本 diff、二进制/超大 diff、不同 commit | changed files、baseline/head 和摘要正确；不把未发布快照显示为最终提交 |
 | WF-UI-005 | testing | 有 Evidence、缺 Evidence、失败 Evidence、重复 Evidence | 测试门禁状态正确；缺关键证据时显示阻断而不是绿色通过 |
 | WF-UI-006 | WF 通用 | 点击表格行、Enter、Esc、浏览器刷新和断网 | 所有可点击行可键盘触发；详情关闭/重连后数据不丢 |
@@ -233,7 +233,7 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | OPS-UI-004 | artifacts | 上传会话、分片乱序/重复/缺片、complete、range 下载 | hash/size/version 校验；重复分片幂等；未完成对象不可读取 |
 | OPS-UI-005 | runners | 注册、heartbeat、execute、drain、quarantine，健康/排空/隔离状态 | 非健康 Runner 不能执行；命令 argv、工作目录、环境和超时边界有效 |
 | OPS-UI-006 | cost | 无 Run、正常 usage、超大 token、Provider 不支持 usage | 成本为可解释数值或明确 unavailable；不出现 NaN/负成本；能与 Run 对账 |
-| OPS-UI-007 | admin | 创建/编辑 member/viewer/admin/disabled，勾选每个菜单，保存后重新登录 | 19 菜单权限和后端权限逐项一致；禁用即时回收会话 |
+| OPS-UI-007 | admin | 创建/编辑 member/viewer/admin/disabled，勾选每个菜单，保存后重新登录 | 16 菜单权限和后端权限逐项一致；`delivery` 同时授权需求/Bug/方案/执行，旧权限迁移不扩大其他菜单；禁用即时回收会话 |
 | OPS-UI-008 | admin | 编辑自己、删除/禁用最后管理员、两个管理员并发编辑 | 最后管理员保护；冲突可见；审计包含操作者、目标和结果 |
 | OPS-UI-009 | admin | 审计空态、连续事件、篡改快照/链校验失败 | 只显示当前 workspace；chain_valid 真实；检测异常而非静默清空 |
 
@@ -247,20 +247,20 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 | `api`、`performCoreLoad`、`loadCore`、`connectStream`、`refreshButton` | SHELL-001、SHELL-004、SHELL-007、WB-003 |
 | `updateUserChip`、`showLogin`、`enterApplication`、`applyMenuAccess`、`loadIdentityData` | SHELL-002、SHELL-005、SHELL-006、OPS-UI-007 |
 | `metric`、`renderMetrics`、`summaryCard`、`workflowRail`、`eventPanel` | WB-001、WB-003、WB-005、OPS-UI-006 |
-| `requirementRows`、`requirementsTable`、`renderWorkbench`、`renderRequirements`、`globalSearch`、`statusFilter` | WB-001..005、REQ-UI-005 |
-| `showDialog`、`uploadEntityFiles`、`requirementForm.onsubmit`、`openRequirement` | REQ-UI-001..010、FLOW-001、FLOW-006 |
+| `requirementRows`、`requirementsTable`、`renderWorkbench`、`renderDelivery`、`deliveryRequirementRow`、`deliveryBugRow` | WB-001..005、REQ-UI-005、BUG-UI-003..006 |
+| `showDialog`、`syncDeliveryComposer`、`populateDeliveryComposer`、`uploadEntityFiles`、`requirementForm.onsubmit`、`openRequirement` | REQ-UI-001..010、BUG-UI-001..002、FLOW-001、FLOW-006、FLOW-009 |
 | `requirementActionFor`、`applyRequirementAction`、`detailAction` | REQ-UI-006..008、STATE-001..003、FLOW-002..003 |
-| `showBugDialog`、`bugForm.onsubmit`、`bugRows`、`renderBugs` | BUG-UI-001..006、FLOW-009 |
+| `renderDeliveryDetailCanvas`、`openBug`、`data-delivery-add-bug`、`data-delivery-open-execution` | REQ-UI-006..013、BUG-UI-001..006、FLOW-009 |
 | `openResourceDialog`、`resourceConfigs`、`closeResourceDialog`、`actionButton` | REPO-UI-001、CAP-UI-001、CAP-UI-004..006、OPS-UI-005 |
 | `applyResourceAction`、`localizedResourceStatus`、`renderRepositories`、`renderCapability`、`renderRunners` | REPO-UI-003..006、CAP-UI-002..006、OPS-UI-005 |
-| `renderSimple`（humanQA/designReview/executions/diffs/testing） | WF-UI-001..006 |
+| `renderSimple`（humanQA/diffs/testing）、`renderDeliveryDetailCanvas`、`renderPipelines` | WF-UI-001..006 |
 | `renderAgents`、`showAgentDialog`、`agentForm.onsubmit`、`routeSourceLabel` | AGENT-UI-001..006、AGC-001..017 |
 | `renderArtifacts`、`setScreenshotPreview`、`captureScreenshot`、`uploadScreenshot` | OPS-UI-001..004、FLOW-006 |
 | `renderIntegrations`、`providerStateKey`、`refreshDiagnostics` | WB-006、OPS-UI-001 |
 | `renderCost`、`renderAdmin`、`renderPermissionGrid`、`openUserDialog`、`userForm.onsubmit` | OPS-UI-006..009、AUTH-005..006 |
 | `render`、`bindViewEvents`、所有 dialog close/cancel/Escape handlers | SHELL-004、SHELL-008、REQ-UI-007、WF-UI-006 |
 | `genericTable`、`optionMarkup`、`formatBytes`、`closeDialog`、`closeAgentDialog`、`bootstrap` | SHELL-008、REQ-UI-001、OPS-UI-004、WF-UI-006、L0/L3 启动检查 |
-| `enhancedTranslations`、`enhancedRequirementDialog`、`enhancedResourceDialog`、`enhancedBugTable`、`enhancedAdmin`、`enhancedViewEvents`、`enhancedRequirementDetails` | 对应 REQ-UI/BUG-UI/REPO-UI/CAP-UI/OPS-UI 全部交互回归；包装函数不得绕过基础断言 |
+| `enhancedTranslations`、统一交付 Composer、`enhancedResourceDialog`、`enhancedAdmin`、`bindDeliveryView`、`enhancedRequirementDetails` | 对应 REQ-UI/BUG-UI/REPO-UI/CAP-UI/OPS-UI 全部交互回归；包装函数不得绕过基础断言 |
 | `commentRoute`、`commentFollowUpRoute`、`commentMentions`、`queueCommentFollowUp`、`commentFollowUpPrompt`、`refreshCommentFollowUp` | COMMENT-001..016、API-MAIN-OP-002..007、FLOW-006；必须同时覆盖评论树、身份、显式 binding、触发状态、分页 prompt、附件和恢复，不得把普通 `@token` 当成结构化 Agent mention |
 
 反向核对结果必须是：每个函数族至少有一个成功、一个错误或空态、一个刷新/重入 Case；若函数新增而没有对应 Case，CI 的 coverage ledger 应失败。
@@ -817,7 +817,7 @@ tests/
 | 指标 | 门槛 | 计算方式 |
 |---|---:|---|
 | OpenAPI operation | ledger 当前数量/当前数量 | `scripts/coverage-ledger.rb --check` 生成的每项至少一次成功和一次失败；inventory-only 不计行为 PASS |
-| 菜单 | 19/19 | 每个菜单的加载、空态、错误态、全部可见动作 |
+| 菜单 | 16/16 | 每个一级菜单的加载、空态、错误态、全部可见动作；`delivery` 同时覆盖需求、Bug、方案与执行舱 |
 | UI 控件 Case | 100% | 本文 `SHELL/WB/REQ-UI/BUG-UI/WF-UI/REPO-UI/AGENT-UI/CAP-UI/OPS-UI` |
 | 状态迁移 | 100% | `domain.transitions` 中允许和拒绝边各一条证据 |
 | Agent 拓扑 | 17/17 | AGC-001..017；API/UI/immutable plan/调度/回放均须有证据，未执行不得以源码存在代替 PASS |
@@ -896,7 +896,7 @@ tests/
 
 ## 14. 发布签字清单
 
-- [ ] 19 个菜单均完成 UI-001..021 适用项，桌面/移动/三浏览器证据齐全。
+- [ ] 16 个一级菜单均完成 UI-001..021 适用项，桌面/移动/三浏览器证据齐全；方案和执行只从交付画布进入。
 - [ ] Coverage ledger 当前全部 OpenAPI operation 均有正常、鉴权、权限、输入边界、资源不存在和幂等结果；operation/menu/action/ledger counts 与当次 `scripts/coverage-ledger.rb --check` 报告一致，数量由脚本复核。
 - [ ] FLOW-001..013 至少一次完整执行；同用户并发和多用户隔离有独立证据。
 - [ ] AGC-001..017、SQUAD-001..017、BIDI-001..025 均有逐 Case 结果；反馈回路的每轮 attempt、decision、条件、证据和终止原因可重放。
