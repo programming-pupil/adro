@@ -6,7 +6,7 @@
   ];
 
   Object.assign(translations.zh, {
-    chats: '普通聊天', chatSubtitle: '把项目、文件与 Agent 放进同一段持续上下文', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '描述你想解决的问题，或把上下文交给 Agent...', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '从一个问题开始', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件', chatSearchPlaceholder: '搜索会话', chatContext: '上下文', chatProjectContext: '项目上下文', chatNoProject: '未绑定项目', chatChooseProject: '选择项目', chatProjectReady: '项目上下文已接入', chatAgentReady: 'Agent 已就绪', chatNoAgent: '使用默认执行器', chatRecent: '最近会话', chatWorkspace: 'AI 项目工作区', chatWorkspaceHint: '选择项目，上传文件，然后开始一段有记忆的问答。', chatSuggested: '你可以先问', chatSuggestionOne: '总结这个项目当前的风险', chatSuggestionTwo: '根据附件给出实现建议', chatSuggestionThree: '帮我梳理下一步研发任务', chatDropHint: '拖入文件，或直接粘贴图片', chatFilesReady: '个文件已加入上下文', chatUploadHint: '图片可预览，文件会随消息发送', chatRemoveFile: '移除附件', chatPreviewFile: '预览附件', chatSending: '正在交给 Agent...', chatEmptyTitle: '让项目成为对话的一部分', chatEmptyBody: '绑定一个项目后，Agent 会在同一条上下文里理解仓库、附件和你的问题。', chatConversation: '对话', chatRuntimeState: '运行态', chatPersisted: '已持久化', chatProjectFiles: '项目与附件', chatNoFiles: '发送附件后会显示在这里', chatMessages: '条消息', chatStart: '开始对话', chatNewTitlePlaceholder: '例如：支付发布讨论',
+    chats: '普通聊天', chatSubtitle: '把项目、文件与 Agent 放进同一段持续上下文', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '描述你想解决的问题，或把上下文交给 Agent...', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '从一个问题开始', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件', chatSearchPlaceholder: '搜索会话', chatContext: '上下文', chatNoProject: '未绑定项目', chatChooseProject: '选择项目', chatProjectReady: '项目上下文已接入', chatAgentReady: 'Agent 已就绪', chatNoAgent: '使用默认执行器', chatRecent: '最近会话', chatWorkspace: 'AI 项目工作区', chatWorkspaceHint: '选择项目，上传文件，然后开始一段有记忆的问答。', chatSuggested: '你可以先问', chatSuggestionOne: '总结这个项目当前的风险', chatSuggestionTwo: '根据附件给出实现建议', chatSuggestionThree: '帮我梳理下一步研发任务', chatDropHint: '拖入文件，或直接粘贴图片', chatFilesReady: '个文件已加入上下文', chatUploadHint: '图片可预览，文件会随消息发送', chatRemoveFile: '移除附件', chatPreviewFile: '预览附件', chatSending: '正在交给 Agent...', chatEmptyTitle: '让项目成为对话的一部分', chatEmptyBody: '绑定一个项目后，Agent 会在同一条上下文里理解仓库、附件和你的问题。', chatConversation: '对话', chatRuntimeState: '运行态', chatPersisted: '已持久化', chatProjectFiles: '项目与附件', chatNoFiles: '发送附件后会显示在这里', chatMessages: '条消息', chatStart: '开始对话', chatNewTitlePlaceholder: '例如：支付发布讨论', agentCreateKicker: 'CREATE / ASSISTANT', agentStepDescribe: '先说清楚它要帮你做什么', agentStepDescribeHelp: '不用写技术配置，直接描述目标、输入和你期待的结果。', agentReadyState: '可开始创建', agentCreatingState: '正在创建', agentCreatedState: '已创建', agentNeedsAttentionState: '需要处理', agentCreateRunning: '创建任务已开始，关闭窗口也会继续。', agentCreateDone: '助手已创建，可以在列表中继续启用或编辑。', agentCreateError: '创建没有完成', agentRetry: '重试', agentView: '查看', agentUploadAvatar: '上传头像', agentAvatarHelp: 'PNG、JPG 或 WebP，最大 5 MiB。', agentUseLocalExecution: '使用本地执行环境', agentNoProviderError: '当前执行环境不可用，请先确认本地执行程序已安装且可运行。',
     authSystemName: '智能研发交付控制系统', secureAccess: '安全访问 / 身份边界', loginTitle: '进入交付控制面',
     loginSubtitle: '使用你的 ADRO 工作空间账号登录。可见菜单、执行权限与审计身份均由管理员分配。',
     username: '用户名', password: '密码', signIn: '登录控制台', signOut: '退出登录',
@@ -30,7 +30,11 @@
     agentEditTitle: '编辑 Agent', agentSave: '保存 Agent', agentAvatarLabel: '头像 URL', agentSkillsLabel: '可用 Skills', agentMCPServersLabel: 'MCP 服务', agentRuntimeConfigLabel: '运行时配置', agentRuntimeConfigPlaceholder: '每行 key=value，例如 sandbox_mode=workspace-write', agentEnvironmentLabel: '密钥环境变量', agentEnvironmentPlaceholder: '每行 NAME=env:SECRET_NAME，不填写明文密钥', agentNoResources: '当前没有可选择的资源'
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
+  Object.assign(translations.zh, { agentAvatarLabel: '头像', agentCreateKicker: '创建 / 助手', agentStepDescribe: '先说清楚它要帮你做什么', agentStepDescribeHelp: '直接描述目标、输入和期待结果，技术配置可以稍后再调整。', agentReadyState: '可开始创建', agentCreatingState: '正在创建', agentCreatedState: '已创建', agentNeedsAttentionState: '需要处理', agentCreateRunning: '创建任务已开始，关闭窗口也会继续。', agentCreateDone: '助手已创建，可以在列表中继续操作。', agentCreateError: '创建没有完成', agentRetry: '重试', agentView: '查看', agentUploadAvatar: '上传头像', agentAvatarHelp: '支持 PNG、JPG、WebP，最大 5 MiB。', agentUseLocalExecution: '使用本地执行环境', agentNoProviderError: '当前执行环境不可用，请确认本地运行程序已安装并可运行。', agentActive: '可使用', agentDisabled: '已暂停', agentArchived: '已归档', agentDraft: '待启用', agentCreateJobs: '创建任务', agentCreateJobsHelp: '关闭窗口不会取消任务，完成后状态会保留在这里。' });
   Object.assign(translations.en, {
+    agentAvatarLabel: 'Avatar',
+    agentActive: 'Ready', agentDisabled: 'Paused', agentArchived: 'Archived', agentDraft: 'Pending', agentCreateJobs: 'Creation tasks', agentCreateJobsHelp: 'Closing the window does not cancel a task. Its result stays here.',
+    agentCreateKicker: 'CREATE / ASSISTANT', agentStepDescribe: 'Start with what you want it to do', agentStepDescribeHelp: 'Describe the goal, inputs, and expected result. Technical setup stays optional.', agentReadyState: 'Ready to create', agentCreatingState: 'Creating', agentCreatedState: 'Created', agentNeedsAttentionState: 'Needs attention', agentCreateRunning: 'Creation has started and continues after you close this window.', agentCreateDone: 'Assistant created. You can continue from the list.', agentCreateError: 'Creation did not finish', agentRetry: 'Retry', agentView: 'View', agentUploadAvatar: 'Upload avatar', agentAvatarHelp: 'PNG, JPG, or WebP, up to 5 MiB.', agentUseLocalExecution: 'Use the local execution environment', agentNoProviderError: 'The selected execution environment is unavailable. Check that the local runtime is installed and ready.',
     chats: 'Chat', chatSubtitle: 'A persistent workspace for project context, files, and Agent Q&A', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Describe the problem, or hand the context to your Agent...', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start with a question', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments', chatSearchPlaceholder: 'Search conversations', chatContext: 'Context', chatProjectContext: 'Project context', chatNoProject: 'No project bound', chatChooseProject: 'Choose a project', chatProjectReady: 'Project context connected', chatAgentReady: 'Agent ready', chatNoAgent: 'Using the default executor', chatRecent: 'Recent conversations', chatWorkspace: 'AI project workspace', chatWorkspaceHint: 'Choose a project, add files, and start a conversation with memory.', chatSuggested: 'Try asking', chatSuggestionOne: 'Summarize the current project risks', chatSuggestionTwo: 'Suggest an implementation from these files', chatSuggestionThree: 'Map the next engineering tasks', chatDropHint: 'Drop files here, or paste an image', chatFilesReady: 'files added to context', chatUploadHint: 'Images can be previewed; files travel with the message', chatRemoveFile: 'Remove attachment', chatPreviewFile: 'Preview attachment', chatSending: 'Handing off to Agent...', chatEmptyTitle: 'Make the project part of the conversation', chatEmptyBody: 'Bind a project and the Agent will reason over the repository, attachments, and your question in one context.', chatConversation: 'Conversation', chatRuntimeState: 'Runtime', chatPersisted: 'Persisted', chatProjectFiles: 'Project and files', chatNoFiles: 'Attachments will appear here after you send them', chatMessages: 'messages', chatStart: 'Start conversation', chatNewTitlePlaceholder: 'For example: Payment release discussion',
     authSystemName: 'Agentic delivery control system', secureAccess: 'Secure access / identity boundary', loginTitle: 'Enter the delivery control plane',
     loginSubtitle: 'Sign in with your ADRO workspace account. Menu visibility, execution access, and audit identity are assigned by an administrator.',
@@ -262,6 +266,7 @@
   let nativeAgents = [];
   let nativeSquads = [];
   let nativePlans = [];
+  let agentCreationJobs = loadAgentCreationJobs();
   let activeGraphEditor = null;
   let activeExecutionPlanID = '';
   const executionTimelineCache = new Map();
@@ -377,6 +382,42 @@
     if (element) element.focus();
   };
   const idempotencyKey = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
+
+  function loadAgentCreationJobs() {
+    try {
+      const items = JSON.parse(localStorage.getItem('adro.agentCreationJobs') || '[]');
+      return Array.isArray(items) ? items.slice(0, 8) : [];
+    } catch (_) { return []; }
+  }
+
+  function saveAgentCreationJobs() {
+    try { localStorage.setItem('adro.agentCreationJobs', JSON.stringify(agentCreationJobs.slice(0, 8))); } catch (_) {}
+  }
+
+  function upsertAgentCreationJob(job) {
+    agentCreationJobs = [job, ...agentCreationJobs.filter(item => item.id !== job.id)].slice(0, 8);
+    saveAgentCreationJobs();
+  }
+
+  function agentCreationState(job) {
+    if (job.status === 'done') return {className: 'good', label: t('agentCreatedState')};
+    if (job.status === 'failed') return {className: 'bad', label: t('agentNeedsAttentionState')};
+    return {className: 'warn', label: t('agentCreatingState')};
+  }
+
+  function renderAgentCreationJobs() {
+    const jobs = agentCreationJobs.slice(0, 5);
+    if (!jobs.length) return;
+    const host = document.querySelector('.orchestration-studio');
+    if (!host || host.querySelector('.agent-job-panel')) return;
+    const panel = document.createElement('section');
+    panel.className = 'agent-job-panel';
+    panel.innerHTML = `<div class="agent-job-panel-head"><div><strong>${escapeHTML(t('agentCreateJobs'))}</strong><small>${escapeHTML(t('agentCreateJobsHelp'))}</small></div></div>${jobs.map(job => { const state = agentCreationState(job); const action = job.status === 'failed' ? `<button class="secondary" data-agent-job-retry="${escapeHTML(job.id)}" type="button">${escapeHTML(t('agentRetry'))}</button>` : job.agent_id ? `<button class="secondary" data-agent-job-view="${escapeHTML(job.agent_id)}" type="button">${escapeHTML(t('agentView'))}</button>` : ''; return `<div class="agent-job ${state.className}"><div><strong>${escapeHTML(job.name || t('agentCreateTitle'))}</strong><small>${escapeHTML(job.error || (job.status === 'running' ? t('agentCreateRunning') : t('agentCreateDone')))}</small></div><span class="status ${state.className}">${escapeHTML(state.label)}</span>${action}</div>`; }).join('')}`;
+    const anchor = host.querySelector('#orchestrationStatus');
+    anchor?.after(panel);
+    panel.querySelectorAll('[data-agent-job-view]').forEach(button => { button.onclick = () => { const agent = nativeAgents.find(item => item.id === button.dataset.agentJobView); if (agent) showAgentDialog(false, agent); }; });
+    panel.querySelectorAll('[data-agent-job-retry]').forEach(button => { button.onclick = async () => { const job = agentCreationJobs.find(item => item.id === button.dataset.agentJobRetry); if (!job) return; await showAgentDialog(false); $('#agentBuilderPrompt').value = job.prompt || ''; }; });
+  }
 
   function entityFileInput(kind) {
     return $(`#${kind === 'requirement' ? 'requirementAttachments' : 'bugAttachments'}`);
@@ -1913,7 +1954,10 @@
         : agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'enable', 'enable', 'accent') : '';
       const archive = agent.status !== 'archived' ? orchestrationAction(agent.id, 'agent', 'archive', 'archive', 'danger') : '';
       const runtime = agent.executor_binding?.runtime_id || agent.executor_binding?.provider_id || '-';
-      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td><strong>${escapeHTML(agent.owner_id || '-')}</strong><div class="muted">${escapeHTML(agent.role || '-')}</div></td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(agent.status)}</span></td><td><span class="mono">${escapeHTML(runtime)}</span><div class="muted">r${escapeHTML(String(agent.revision || 0))}</div></td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'edit', 'edit')}${orchestrationAction(agent.id, 'agent', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
+      const owner = directory.find(item => item.id === agent.owner_id || item.username === agent.owner_id);
+      const ownerLabel = owner?.display_name || owner?.username || agent.owner_id || '-';
+      const stateLabel = agent.status === 'active' ? t('agentActive') : agent.status === 'archived' ? t('agentArchived') : agent.status === 'disabled' ? t('agentDisabled') : t('agentDraft');
+      return `<tr><td><strong>${escapeHTML(agent.name || agent.id)}</strong><div class="mono orchestration-id">${escapeHTML(agent.id)}</div></td><td><strong>${escapeHTML(ownerLabel)}</strong><span hidden>${escapeHTML(agent.owner_id || '')}</span><div class="muted">${escapeHTML(agent.role || '-')}</div></td><td><span class="status ${agent.status === 'active' ? 'good' : agent.status === 'archived' ? 'bad' : 'warn'}">${escapeHTML(stateLabel)}</span><span hidden>${escapeHTML(agent.status)}</span></td><td><span class="mono">${escapeHTML(runtime)}</span><div class="muted">r${escapeHTML(String(agent.revision || 0))}</div></td><td class="muted">${escapeHTML((agent.capabilities || []).map(item => item.name).join(', ') || '-')}</td><td><div class="row-actions">${orchestrationAction(agent.id, 'agent', 'edit', 'edit')}${orchestrationAction(agent.id, 'agent', 'edit-graph', 'editGraph', 'accent')}${orchestrationAction(agent.id, 'agent', 'validate', 'validate')}${orchestrationAction(agent.id, 'agent', 'capabilities', 'capabilities')}${lifecycle}${archive}</div></td></tr>`;
     });
     const squadRows = nativeSquads.map(squad => {
       const publish = squad.status === 'draft' ? orchestrationAction(squad.id, 'squad', 'publish', 'publish', 'accent') : '';
@@ -2200,6 +2244,7 @@
   const baseBindViewEvents = bindViewEvents;
   bindViewEvents = function enhancedViewEvents() {
     baseBindViewEvents();
+    if (currentView === 'agents') renderAgentCreationJobs();
     document.querySelectorAll('[data-repository-action]').forEach(button => {
       button.onclick = async () => {
         const repository = repositories.find(item => item.id === button.dataset.repositoryId);
@@ -2267,10 +2312,11 @@
     const accessField = $('#agentAccessMembersField');
     accessField.outerHTML = `<fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>`;
     const builderActions = form.querySelector('.agent-builder-actions');
+    builderActions.insertAdjacentHTML('beforebegin', `<div class="agent-step"><span>01</span><div><strong data-i18n="agentStepDescribe"></strong><small data-i18n="agentStepDescribeHelp"></small></div></div>`);
     builderActions.insertAdjacentHTML('afterbegin', `<button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">＋</span><span data-i18n="agentBuilderCreate"></span></button>`);
     const starters = form.querySelector('.agent-starters');
     starters.insertAdjacentHTML('beforebegin', `
-      <label><span data-i18n="agentAvatarLabel"></span><input name="avatar_url" type="url" placeholder="https://..."></label>
+      <label class="agent-avatar-field"><span data-i18n="agentAvatarLabel"></span><div class="agent-avatar-picker"><input name="avatar_url" type="hidden"><input name="avatar_file" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="secondary" id="agentAvatarButton" type="button"><span aria-hidden="true">⌁</span><span data-i18n="agentUploadAvatar"></span></button><div id="agentAvatarPreview" class="agent-avatar-preview"><span data-i18n="agentAvatarHelp"></span></div></div></label>
       <div class="two-fields agent-resource-fields">
         <fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset>
         <fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset>
@@ -2326,6 +2372,19 @@
     form.elements.runtime_config.closest('label').setAttribute('aria-hidden', 'true');
     form.elements.environment.closest('label').hidden = true;
     form.elements.environment.closest('label').setAttribute('aria-hidden', 'true');
+    $('#agentAvatarButton').onclick = () => form.elements.avatar_file.click();
+    form.elements.avatar_file.onchange = () => {
+      const file = form.elements.avatar_file.files?.[0];
+      const preview = $('#agentAvatarPreview');
+      if (!file || !preview) return;
+      if (file.size > 5 * 1024 * 1024 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+        form.elements.avatar_file.value = '';
+        preview.textContent = t('agentAvatarHelp');
+        $('#agentFormError').textContent = t('agentSaveFailed');
+        return;
+      }
+      preview.innerHTML = `<img src="${escapeHTML(URL.createObjectURL(file))}" alt="${escapeHTML(file.name)}"><span>${escapeHTML(file.name)}</span>`;
+    };
     applyTranslations();
   }
 
@@ -2581,6 +2640,8 @@
     const title = $('#agentDialog h2');
     title.dataset.i18n = agent ? 'agentEditTitle' : 'agentCreateTitle';
     title.textContent = t(title.dataset.i18n);
+    const dialogState = $('#agentDialogState');
+    if (dialogState) dialogState.textContent = t('agentReadyState');
     const submitLabel = form.querySelector('button[type="submit"] [data-i18n]');
     submitLabel.dataset.i18n = agent ? 'agentSave' : 'agentCreate';
     submitLabel.textContent = t(submitLabel.dataset.i18n);
@@ -2602,6 +2663,10 @@
         option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
         option.disabled = !runtime.installed || !runtime.adapter_available;
         runtimeSelect.append(option);
+      }
+      if (!agent) {
+        const localRuntime = Array.from(runtimeSelect.options).find(option => option.value === 'codex' && !option.disabled) || Array.from(runtimeSelect.options).find(option => !option.disabled);
+        if (localRuntime) runtimeSelect.value = localRuntime.value;
       }
       await loadAgentModelCatalog();
       submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled);
@@ -2707,8 +2772,15 @@
       status.textContent = t('agentBuilderFailed');
       return false;
     }
+    const jobID = createAfter ? idempotencyKey() : '';
+    if (jobID) {
+      form.dataset.creationJobID = jobID;
+      upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim() || t('agentCreateTitle'), prompt, status: 'running', started_at: new Date().toISOString()});
+    }
     buttons.forEach(button => { button.disabled = true; });
     status.textContent = t('agentBuilderRunning');
+    const dialogState = $('#agentDialogState');
+    if (dialogState) dialogState.textContent = t('agentCreatingState');
     $('#agentFormError').textContent = '';
     try {
       const body = {
@@ -2724,8 +2796,11 @@
       status.textContent = t('agentBuilderDone');
       if (createAfter) form.requestSubmit();
       return true;
-    } catch (_) {
+    } catch (error) {
       status.textContent = t('agentBuilderFailed');
+      $('#agentFormError').textContent = error.detail || error.message || t('agentCreateError');
+      if (dialogState) dialogState.textContent = t('agentNeedsAttentionState');
+      if (jobID) upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim() || t('agentCreateTitle'), prompt, status: 'failed', error: error.detail || error.message || t('agentCreateError')});
       return false;
     } finally {
       buttons.forEach(button => { button.disabled = false; });
@@ -2781,10 +2856,23 @@
       const agentID = String(form.dataset.agentId || '');
       const requestBody = agentID ? {...nativeBody, expected_revision: Number(form.dataset.agentRevision)} : nativeBody;
       if (agentID) delete requestBody.created_by;
-      await api(agentID ? `/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}` : '/api/v1/workspaces/local/agents', {method: agentID ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(requestBody)});
+      const savedAgent = await api(agentID ? `/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}` : '/api/v1/workspaces/local/agents', {method: agentID ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(requestBody)});
+      const avatarFile = form.elements.avatar_file?.files?.[0];
+      if (avatarFile && savedAgent?.id) {
+        const avatarURL = await uploadAgentAvatar(savedAgent.id, avatarFile);
+        if (avatarURL) await api(`/api/v1/workspaces/local/agents/${encodeURIComponent(savedAgent.id)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({expected_revision: savedAgent.revision, avatar_url: avatarURL})});
+      }
+      const jobID = form.dataset.creationJobID;
+      if (jobID) upsertAgentCreationJob({id: jobID, name: savedAgent?.name || name, agent_id: savedAgent?.id, status: 'done', finished_at: new Date().toISOString()});
+      if ($('#agentDialogState')) $('#agentDialogState').textContent = t('agentCreatedState');
       agentPreservedCustomArgs = customArgs;
       delete form.dataset.onboarding; delete form.dataset.agentId; delete form.dataset.agentRevision; delete form.dataset.loadedRuntime; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
-    } catch (_) { $('#agentFormError').textContent = t('agentSaveFailed'); }
+    } catch (error) {
+      const jobID = form.dataset.creationJobID;
+      if (jobID) upsertAgentCreationJob({id: jobID, name, status: 'failed', error: error.detail || error.message || t('agentCreateError')});
+      if ($('#agentDialogState')) $('#agentDialogState').textContent = t('agentNeedsAttentionState');
+      $('#agentFormError').textContent = error.detail || error.message || t('agentSaveFailed');
+    }
   };
 
   function commentRosterLabel(item) {
@@ -3151,6 +3239,16 @@
     const artifactID = parts.at(-2);
     const version = parts.at(-1) || '1';
     return artifactID ? `/api/v1/artifacts/${encodeURIComponent(artifactID)}/versions/${encodeURIComponent(version)}/content` : '';
+  }
+
+  async function uploadAgentAvatar(agentID, file) {
+    if (!agentID || !file) return '';
+    const body = new FormData();
+    body.append('owner_type', 'agent');
+    body.append('owner_id', agentID);
+    body.append('file', file, file.name);
+    const attachment = await api('/api/v1/attachments', {method: 'POST', body});
+    return attachmentContentURL(attachment);
   }
 
   function renderStoredAttachments(items) {
