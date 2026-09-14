@@ -193,13 +193,15 @@ Codex 运行伪装成 PASS。报告必须随 test-expert 结果保留，`var/` �
 
 | Case ID | 步骤 | 通过标准 |
 |---|---|---|
-| REPO-UI-001 | 新建仓库：名称、clone URL、provider、默认分支为空/非法/合法 | 必填和 URL 校验明确；保存后 canonical_name、branch、provider 可回读 |
+| REPO-UI-001 | 新建项目：名称、远程 URL 或本地目录、负责人为空/合法；不填写默认分支 | 必填和来源校验明确；保存后 canonical_name、owner 和 source 可回读；普通文件夹不要求 branch |
 | REPO-UI-002 | 同 URL/同名重复注册、跨 workspace 同名注册 | 按源码契约去重或返回冲突；workspace 隔离 |
 | REPO-UI-003 | 点击 index，模拟 working-tree、指定 commit、不存在 commit | 状态 pending/ready/failed 正确；indexed_commit 只在成功后更新 |
 | REPO-UI-004 | `GET/PATCH/DELETE /repositories/{id}` 后刷新需求选择器 | 更新即时反映；删除有引用时按契约阻止或级联，不能留下悬挂 ID |
-| REPO-UI-005 | repository graph 无边、单边、环、跨 workspace 节点 | 图查询稳定；不存在或越权节点不返回 |
-| REPO-UI-006 | 大量仓库、超长名称、特殊字符、不可达 clone URL | 列表性能可记录；错误可重试且不显示凭据/完整 URL token |
-| REPO-UI-007 | 通过 API 创建/读取/列出 team workspace；检查当前 Web 菜单是否有对应入口 | API 数据完整隔离；若 UI 没有创建/切换入口，记录为可见产品缺口，不得宣称菜单功能已覆盖 |
+| REPO-UI-005 | 点击浏览本地项目，展开目录、打开 Go/JSON/Markdown/二进制/超大文件 | 目录树和内容可读；语法高亮、二进制提示、1 MiB 截断提示正确；`.git` 不暴露 |
+| REPO-UI-006 | 浏览远程 clone URL、无效本地路径、`../` 和符号链接路径 | 远程项目明确显示未下载不可浏览；无效路径和路径穿越失败且不泄露文件 |
+| REPO-UI-007 | 大量仓库、超长名称、特殊字符、不可达 clone URL | 列表性能可记录；错误可重试且不显示凭据/完整 URL token |
+| REPO-UI-008 | 列表中编辑负责人/来源、删除项目、刷新需求选择器 | 编辑即时反映；删除成功后无悬挂绑定；负责人显示用户名而非 ID；更新时间使用 `updated_at` |
+| REPO-UI-009 | 保存项目后观察状态提示并点击 index | `pending` 解释为索引中，`ready` 解释为已就绪；说明 index 只记录本地快照状态，不执行 clone 下载 |
 
 #### `agents` Agent 与路由
 
@@ -526,7 +528,7 @@ COMMENT-002 是“方案 Agent 完成后，人类在评论下 @研发 Agent 询�
 | 上传/截图 | `GET/POST /api/v1/attachments`；`POST /api/v1/artifacts/uploads`；`PUT /artifacts/uploads/{upload_id}/parts/{part_no}`；`POST /artifacts/uploads/{upload_id}/complete`；`POST /api/v1/screenshots` | API-FILE-001..008 |
 | 迁移/内容 | `POST /api/v1/artifact-migrations`；`GET /{id}`；`POST /pause`；`POST /resume`；`POST /rollback`；`GET /api/v1/artifacts/{id}/versions/{version}/content` | API-MIG-001..007 |
 | 工作项/Run | `GET/POST /api/v1/work-items/{id}/diff`；`GET /api/v1/work-items`；`GET /api/v1/work-items/{id}`；`GET /context`；`GET /repair-attempts`；`POST /run`；`GET /api/v1/runs/{id}`；`GET /events`；`POST /messages`；`POST /cancel`；`GET /usage` | API-RUN-001..013 |
-| 仓库/空间 | `GET/POST /api/v1/repositories`；`GET/PATCH/DELETE /api/v1/repositories/{id}`；`POST /index`；`GET /api/v1/repository-graph`；`GET/POST /api/v1/team-workspaces`；`GET /api/v1/team-workspaces/{id}` | API-REPO-001..012 |
+| 仓库/空间 | `GET/POST /api/v1/repositories`；`GET/PATCH/DELETE /api/v1/repositories/{id}`；`POST /index`；`GET /api/v1/repositories/{id}/files`；`GET /api/v1/repository-graph`；`GET/POST /api/v1/team-workspaces`；`GET /api/v1/team-workspaces/{id}` | API-REPO-001..013 |
 | 开发者配置 | `GET /api/v1/developer-profiles`；`GET/POST/PATCH /api/v1/developer-profiles/{member_id}` | API-PROFILE-001..004 |
 | 审批/证据 | `POST /api/v1/approvals`；`POST /api/v1/approvals/{id}/decide`；`GET/POST /api/v1/evidence` | API-EVID-001..005 |
 | MCP | `GET/POST /api/v1/mcp`；`GET/POST /api/v1/mcp/servers`；`POST /discover`；`POST /approve`；`POST /health-check`；`GET /api/v1/mcp/invocations` | API-MCP-001..008 |

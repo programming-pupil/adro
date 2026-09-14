@@ -452,6 +452,73 @@ func TestRepositoryCreateAcceptsLocalPathAndPreservesOwner(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilesBrowsesLocalProjectsAndRejectsUnsafeSources(t *testing.T) {
+	s := testServer(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "image.bin"), []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "outside.txt"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "outside.txt"), filepath.Join(root, "escape.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := s.Store.UpsertRepository(domain.Repository{
+		WorkspaceID: "w1", CanonicalName: "local-project", Provider: "local",
+		Metadata: map[string]any{"local_path": root},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	directory := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files", "", map[string]string{"X-Workspace-ID": "w1"})
+	if directory.Code != http.StatusOK || !strings.Contains(directory.Body.String(), `"main.go"`) || strings.Contains(directory.Body.String(), `".git"`) {
+		t.Fatalf("directory response status=%d body=%s", directory.Code, directory.Body.String())
+	}
+
+	file := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files?path=main.go", "", map[string]string{"X-Workspace-ID": "w1"})
+	if file.Code != http.StatusOK || !strings.Contains(file.Body.String(), `"language":"go"`) || !strings.Contains(file.Body.String(), "package main") {
+		t.Fatalf("file response status=%d body=%s", file.Code, file.Body.String())
+	}
+
+	binary := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files?path=image.bin", "", map[string]string{"X-Workspace-ID": "w1"})
+	if binary.Code != http.StatusOK || !strings.Contains(binary.Body.String(), `"binary":true`) {
+		t.Fatalf("binary response status=%d body=%s", binary.Code, binary.Body.String())
+	}
+
+	unsafe := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files?path=../outside.txt", "", map[string]string{"X-Workspace-ID": "w1"})
+	if unsafe.Code != http.StatusBadRequest {
+		t.Fatalf("unsafe path status=%d body=%s", unsafe.Code, unsafe.Body.String())
+	}
+
+	symlink := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files?path=escape.txt", "", map[string]string{"X-Workspace-ID": "w1"})
+	if symlink.Code != http.StatusBadRequest {
+		t.Fatalf("symlink path status=%d body=%s", symlink.Code, symlink.Body.String())
+	}
+
+	remote, err := s.Store.UpsertRepository(domain.Repository{WorkspaceID: "w1", CanonicalName: "remote-project", CloneURL: "https://example.test/repo.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteResponse := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+remote.ID+"/files", "", map[string]string{"X-Workspace-ID": "w1"})
+	if remoteResponse.Code != http.StatusOK || !strings.Contains(remoteResponse.Body.String(), `"available":false`) {
+		t.Fatalf("remote response status=%d body=%s", remoteResponse.Code, remoteResponse.Body.String())
+	}
+
+	foreign := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files", "", map[string]string{"X-Workspace-ID": "w2"})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign workspace status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+}
+
 func TestIdempotentMutationEmitsSingleCORSHeader(t *testing.T) {
 	s := testServer(t)
 	body := `{"workspace_id":"w1","title":"cors","description":"response headers remain valid","acceptance_criteria":["single origin"],"assignee_member_ids":["member"]}`
