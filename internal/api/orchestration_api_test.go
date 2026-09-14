@@ -680,7 +680,7 @@ func TestExecutionPlanInvocationDoesNotRequireManagementPermission(t *testing.T)
 	t.Setenv("ADRO_AUTH_STATE_FILE", "")
 	s := testServer(t)
 	adminToken := loginToken(t, s, "admin", "AdminPass123!")
-	create := request(t, s.Routes(), http.MethodPost, "/api/v1/users", `{"username":"executor","display_name":"Executor","password":"Executor123!","role":"member","status":"active","menu_ids":["requirements","executions"]}`, bearer(adminToken))
+	create := request(t, s.Routes(), http.MethodPost, "/api/v1/users", `{"username":"executor","display_name":"Executor","password":"Executor123!","role":"member","status":"active","menu_ids":["delivery"]}`, bearer(adminToken))
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create member status=%d body=%s", create.Code, create.Body.String())
 	}

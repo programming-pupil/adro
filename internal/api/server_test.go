@@ -65,6 +65,19 @@ func request(t *testing.T, h http.Handler, method, path, body string, headers ma
 	return rr
 }
 
+func createBugParent(t *testing.T, s *Server, workspaceID, repositoryID, assigneeID string) domain.Requirement {
+	t.Helper()
+	requirement, err := s.Store.CreateRequirement(domain.Requirement{
+		WorkspaceID: workspaceID, Title: "Bug parent", Description: "Parent delivery context",
+		AcceptanceCriteria: []string{"linked bugs inherit delivery context"},
+		AssigneeMemberIDs:  []string{assigneeID}, RepositoryIDs: []string{repositoryID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return requirement
+}
+
 func TestRootMetadataIsAvailableThroughSameOriginAPIProxy(t *testing.T) {
 	s := testServer(t)
 	for _, path := range []string{"/", "/api", "/api/"} {
@@ -145,8 +158,9 @@ func TestRequirementCreationIsIdempotentAndStartsWorkItems(t *testing.T) {
 
 func TestBugListRoutePaginatesWithoutDroppingRetainedBugs(t *testing.T) {
 	s := testServer(t)
+	requirement := createBugParent(t, s, "w1", "repo", "owner")
 	for i := 0; i < 3; i++ {
-		body := fmt.Sprintf(`{"workspace_id":"w1","title":"bug-%d","repository_id":"repo","actual":"failure-%d"}`, i, i)
+		body := fmt.Sprintf(`{"workspace_id":"w1","requirement_id":"%s","title":"bug-%d","actual":"failure-%d"}`, requirement.ID, i, i)
 		response := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", body, map[string]string{"X-Workspace-ID": "w1"})
 		if response.Code != http.StatusCreated {
 			t.Fatalf("create bug status=%d body=%s", response.Code, response.Body.String())
@@ -579,7 +593,8 @@ func TestRunnerExecuteRouteAuditsCommandWithoutEchoingIt(t *testing.T) {
 
 func TestBugFingerprintDeduplicatesAndRepairLimit(t *testing.T) {
 	s := testServer(t)
-	body := `{"workspace_id":"w1","title":"failed test","repository_id":"repo","work_item_id":"work","actual":"500"}`
+	requirement := createBugParent(t, s, "w1", "repo", "owner")
+	body := `{"workspace_id":"w1","requirement_id":"` + requirement.ID + `","title":"failed test","actual":"500"}`
 	a := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", body, nil)
 	b := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", body, nil)
 	if a.Code != 201 || b.Code != 200 {
@@ -600,9 +615,10 @@ func TestBugFingerprintDeduplicatesAndRepairLimit(t *testing.T) {
 	}
 }
 
-func TestStandaloneBugRepairUsesStableSyntheticWorkItem(t *testing.T) {
+func TestParentLinkedBugRepairUsesStableSyntheticWorkItem(t *testing.T) {
 	s := testServer(t)
-	created := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","title":"standalone failure","repository_id":"repo","actual":"500"}`, nil)
+	requirement := createBugParent(t, s, "w1", "repo", "owner")
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","requirement_id":"`+requirement.ID+`","title":"linked failure","actual":"500"}`, nil)
 	if created.Code != http.StatusCreated {
 		t.Fatal(created.Code, created.Body.String())
 	}
@@ -621,6 +637,41 @@ func TestStandaloneBugRepairUsesStableSyntheticWorkItem(t *testing.T) {
 	}
 	if provenance, ok := s.Store.FindProvenance("bug-" + bug.ID); !ok || provenance.ProviderTaskID == "" {
 		t.Fatalf("provenance=%+v ok=%v", provenance, ok)
+	}
+}
+
+func TestBugCreationRequiresParentAndInheritsRequirementContext(t *testing.T) {
+	s := testServer(t)
+	parent := createBugParent(t, s, "w1", "parent-repo", "parent-owner")
+	other := createBugParent(t, s, "w1", "other-repo", "other-owner")
+	foreignWorkItem, err := s.Store.CreateWorkItem(domain.WorkItem{RequirementID: other.ID, RepositoryID: "other-repo", MemberID: "other-owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	missing := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","title":"missing parent"}`, nil)
+	if missing.Code != http.StatusUnprocessableEntity || !strings.Contains(missing.Body.String(), "requirement_id is required") {
+		t.Fatalf("missing parent status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	crossWorkspace := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w2","requirement_id":"`+parent.ID+`","title":"cross workspace"}`, nil)
+	if crossWorkspace.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("cross workspace status=%d body=%s", crossWorkspace.Code, crossWorkspace.Body.String())
+	}
+	foreignItem := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","requirement_id":"`+parent.ID+`","work_item_id":"`+foreignWorkItem.ID+`","title":"cross requirement item"}`, nil)
+	if foreignItem.Code != http.StatusUnprocessableEntity || !strings.Contains(foreignItem.Body.String(), "invalid_work_item_relation") {
+		t.Fatalf("foreign item status=%d body=%s", foreignItem.Code, foreignItem.Body.String())
+	}
+
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"w1","requirement_id":"`+parent.ID+`","repository_id":"client-repo","assignee_member_id":"client-owner","title":"inherit context"}`, nil)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var bug domain.Bug
+	if err := json.Unmarshal(created.Body.Bytes(), &bug); err != nil {
+		t.Fatal(err)
+	}
+	if bug.WorkspaceID != parent.WorkspaceID || bug.RequirementID != parent.ID || bug.RepositoryID != "parent-repo" || bug.AssigneeMemberID != "parent-owner" {
+		t.Fatalf("bug did not inherit parent context: %+v", bug)
 	}
 }
 

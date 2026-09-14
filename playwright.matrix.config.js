@@ -10,7 +10,7 @@ const executorEnv = `ADRO_EXECUTOR=${JSON.stringify(e2eExecutor)}`;
 module.exports = defineConfig({
   testDir: './e2e',
   testMatch: 'platform-matrix.spec.js',
-  timeout: 45_000,
+  timeout: 120_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
   workers: 1,

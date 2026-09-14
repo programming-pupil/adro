@@ -15,7 +15,7 @@ test('login, navigation, locale, and responsive layout remain usable', async ({ 
   await expect(page.locator('#appShell')).toBeVisible();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
 
-  for (const view of ['workbench', 'requirements', 'bugs', 'repositories', 'agents', 'integrations', 'artifacts', 'admin']) {
+  for (const view of ['workbench', 'delivery', 'repositories', 'agents', 'integrations', 'artifacts', 'admin']) {
     const item = page.locator(`.nav-item[data-view="${view}"]`);
     await item.scrollIntoViewIfNeeded();
     await item.click();

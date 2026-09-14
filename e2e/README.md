@@ -12,8 +12,10 @@ npm run test:e2e
 npm run test:e2e:matrix
 ```
 
-The stateful suite exercises every navigation view, requirement/Bug creation,
-attachments, Agent bindings, resource actions, authentication and menu RBAC.
+The stateful suite exercises every navigation view, the unified Delivery
+composer for parent requirements and inherited Bug children, attachment flows,
+Agent bindings, resource actions, authentication and menu RBAC. Delivery rows
+also verify total and unresolved Bug counts plus the shared project/owner context.
 The run-specific tests use the local process boundary and verify that snapshots
 contain a session, work directory, process result and Git provenance when a
 repository is configured. The browser suite does not claim that an AI model

@@ -26,7 +26,7 @@ func TestInteractiveLoginMenuAuthorizationAndRevocation(t *testing.T) {
 	t.Setenv("ADRO_AUTH_STATE_FILE", "")
 	s := testServer(t)
 	adminToken := loginToken(t, s, "admin", "AdminPass123!")
-	create := request(t, s.Routes(), http.MethodPost, "/api/v1/users", `{"username":"delivery.dev","display_name":"Delivery Developer","password":"Developer123!","role":"member","status":"active","menu_ids":["requirements"]}`, bearer(adminToken))
+	create := request(t, s.Routes(), http.MethodPost, "/api/v1/users", `{"username":"delivery.dev","display_name":"Delivery Developer","password":"Developer123!","role":"member","status":"active","menu_ids":["delivery"]}`, bearer(adminToken))
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create user status=%d body=%s", create.Code, create.Body.String())
 	}
@@ -40,7 +40,10 @@ func TestInteractiveLoginMenuAuthorizationAndRevocation(t *testing.T) {
 	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/requirements", "", bearer(memberToken)).Code; got != http.StatusOK {
 		t.Fatalf("allowed menu status=%d", got)
 	}
-	denied := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", bearer(memberToken))
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", bearer(memberToken)).Code; got != http.StatusOK {
+		t.Fatalf("unified bug menu status=%d", got)
+	}
+	denied := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories", "", bearer(memberToken))
 	if denied.Code != http.StatusForbidden {
 		t.Fatalf("denied menu status=%d body=%s", denied.Code, denied.Body.String())
 	}
@@ -441,7 +444,7 @@ func TestRequirementAndBugAttachmentsAreEntityLinked(t *testing.T) {
 	if list.Code != http.StatusOK || len(attachmentPage.Items) != 1 || attachmentPage.Items[0]["artifact_uri"] == "" {
 		t.Fatalf("attachment list status=%d body=%s", list.Code, list.Body.String())
 	}
-	bugResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"local","title":"Linked regression","requirement_id":"`+requirement.ID+`","repository_id":"repo-1","assignee_member_id":"member-1","steps_to_reproduce":"run acceptance","expected":"pass","actual":"fail"}`, nil)
+	bugResponse := request(t, s.Routes(), http.MethodPost, "/api/v1/bugs", `{"workspace_id":"local","title":"Linked regression","requirement_id":"`+requirement.ID+`","repository_id":"ignored-repo","assignee_member_id":"ignored-member","steps_to_reproduce":"run acceptance","expected":"pass","actual":"fail"}`, nil)
 	if bugResponse.Code != http.StatusCreated {
 		t.Fatalf("bug status=%d body=%s", bugResponse.Code, bugResponse.Body.String())
 	}

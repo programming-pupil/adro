@@ -144,6 +144,9 @@ func TestStandaloneChatUsesHarnessAndProjectIsolation(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &chat); err != nil {
 		t.Fatal(err)
 	}
+	if chat.ProjectID != "project-a" {
+		t.Fatalf("created chat lost project binding: %+v", chat)
+	}
 	message := request(t, server.Routes(), http.MethodPost, "/api/v1/chats/"+chat.ID+"/messages", `{"content":"retain this context"}`, map[string]string{"X-Workspace-ID": "w", "Idempotency-Key": "m1"})
 	if message.Code != http.StatusCreated {
 		t.Fatalf("message=%d %s", message.Code, message.Body.String())
@@ -175,10 +178,14 @@ func TestStandaloneChatUsesHarnessAndProjectIsolation(t *testing.T) {
 		t.Fatalf("read=%d %s", read.Code, read.Body.String())
 	}
 	var detail struct {
+		Chat     domain.ChatSession   `json:"chat"`
 		Messages []domain.ChatMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(read.Body.Bytes(), &detail); err != nil || len(detail.Messages) != 4 {
 		t.Fatalf("chat replay duplicated projections: messages=%d err=%v", len(detail.Messages), err)
+	}
+	if detail.Chat.ProjectID != "project-a" {
+		t.Fatalf("chat detail lost project binding after provider updates: %+v", detail.Chat)
 	}
 	foreign := request(t, server.Routes(), http.MethodGet, "/api/v1/chats/"+chat.ID, "", map[string]string{"X-Workspace-ID": "other"})
 	if foreign.Code != http.StatusNotFound {

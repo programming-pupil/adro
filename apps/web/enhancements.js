@@ -1,12 +1,12 @@
 (() => {
   const menuIDs = [
-    'workbench', 'requirements', 'bugs', 'humanQA', 'designReview', 'executions',
-    'diffs', 'testing', 'chats', 'repositories', 'agents', 'mcp', 'skills', 'automations',
+    'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats',
+    'repositories', 'agents', 'mcp', 'skills', 'automations',
     'integrations', 'artifacts', 'runners', 'cost', 'admin'
   ];
 
   Object.assign(translations.zh, {
-    chats: '普通聊天', chatSubtitle: '绑定项目的持久化讨论空间', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '输入消息，讨论方案或上下文', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '开始一段新的讨论', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件',
+    chats: '普通聊天', chatSubtitle: '把项目、文件与 Agent 放进同一段持续上下文', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '描述你想解决的问题，或把上下文交给 Agent...', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '从一个问题开始', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件', chatSearchPlaceholder: '搜索会话', chatContext: '上下文', chatProjectContext: '项目上下文', chatNoProject: '未绑定项目', chatChooseProject: '选择项目', chatProjectReady: '项目上下文已接入', chatAgentReady: 'Agent 已就绪', chatNoAgent: '使用默认执行器', chatRecent: '最近会话', chatWorkspace: 'AI 项目工作区', chatWorkspaceHint: '选择项目，上传文件，然后开始一段有记忆的问答。', chatSuggested: '你可以先问', chatSuggestionOne: '总结这个项目当前的风险', chatSuggestionTwo: '根据附件给出实现建议', chatSuggestionThree: '帮我梳理下一步研发任务', chatDropHint: '拖入文件，或直接粘贴图片', chatFilesReady: '个文件已加入上下文', chatUploadHint: '图片可预览，文件会随消息发送', chatRemoveFile: '移除附件', chatPreviewFile: '预览附件', chatSending: '正在交给 Agent...', chatEmptyTitle: '让项目成为对话的一部分', chatEmptyBody: '绑定一个项目后，Agent 会在同一条上下文里理解仓库、附件和你的问题。', chatConversation: '对话', chatRuntimeState: '运行态', chatPersisted: '已持久化', chatProjectFiles: '项目与附件', chatNoFiles: '发送附件后会显示在这里', chatMessages: '条消息', chatStart: '开始对话', chatNewTitlePlaceholder: '例如：支付发布讨论',
     authSystemName: '智能研发交付控制系统', secureAccess: '安全访问 / 身份边界', loginTitle: '进入交付控制面',
     loginSubtitle: '使用你的 ADRO 工作空间账号登录。可见菜单、执行权限与审计身份均由管理员分配。',
     username: '用户名', password: '密码', signIn: '登录控制台', signOut: '退出登录',
@@ -31,7 +31,7 @@
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.en, {
-    chats: 'Chat', chatSubtitle: 'Durable project-bound conversations', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Discuss an idea or share context', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start a new discussion', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments',
+    chats: 'Chat', chatSubtitle: 'A persistent workspace for project context, files, and Agent Q&A', newChat: 'New conversation', chatTitle: 'Conversation title', chatProject: 'Project binding', chatMessagePlaceholder: 'Describe the problem, or hand the context to your Agent...', sendMessage: 'Send', noChats: 'No conversations yet', noMessages: 'Start with a question', chatSendFailed: 'Could not send the message', chatCreateFailed: 'Could not create the conversation', chatAttachments: 'Add attachments', chatSearchPlaceholder: 'Search conversations', chatContext: 'Context', chatProjectContext: 'Project context', chatNoProject: 'No project bound', chatChooseProject: 'Choose a project', chatProjectReady: 'Project context connected', chatAgentReady: 'Agent ready', chatNoAgent: 'Using the default executor', chatRecent: 'Recent conversations', chatWorkspace: 'AI project workspace', chatWorkspaceHint: 'Choose a project, add files, and start a conversation with memory.', chatSuggested: 'Try asking', chatSuggestionOne: 'Summarize the current project risks', chatSuggestionTwo: 'Suggest an implementation from these files', chatSuggestionThree: 'Map the next engineering tasks', chatDropHint: 'Drop files here, or paste an image', chatFilesReady: 'files added to context', chatUploadHint: 'Images can be previewed; files travel with the message', chatRemoveFile: 'Remove attachment', chatPreviewFile: 'Preview attachment', chatSending: 'Handing off to Agent...', chatEmptyTitle: 'Make the project part of the conversation', chatEmptyBody: 'Bind a project and the Agent will reason over the repository, attachments, and your question in one context.', chatConversation: 'Conversation', chatRuntimeState: 'Runtime', chatPersisted: 'Persisted', chatProjectFiles: 'Project and files', chatNoFiles: 'Attachments will appear here after you send them', chatMessages: 'messages', chatStart: 'Start conversation', chatNewTitlePlaceholder: 'For example: Payment release discussion',
     authSystemName: 'Agentic delivery control system', secureAccess: 'Secure access / identity boundary', loginTitle: 'Enter the delivery control plane',
     loginSubtitle: 'Sign in with your ADRO workspace account. Menu visibility, execution access, and audit identity are assigned by an administrator.',
     username: 'Username', password: 'Password', signIn: 'Sign in to console', signOut: 'Sign out',
@@ -54,6 +54,56 @@
     workspaceMigration: 'Workspace migration', exportWorkspace: 'Export workspace', chooseBundle: 'Choose bundle', preflightBundle: 'Preflight', importWorkspace: 'Import workspace', migrationReady: 'Preflight passed; ready to import', migrationFailed: 'Migration failed; check the bundle and conflict policy', migrationDone: 'Workspace import completed', conflictMode: 'Conflict policy', conflictRename: 'Remap IDs', conflictSkip: 'Skip conflicts', conflictFail: 'Stop on conflict', migrationEmpty: 'No migration bundle selected', migrationEntities: 'entities', migrateExisting: 'Migrate an existing workspace',
     agentEditTitle: 'Edit agent', agentSave: 'Save agent', agentAvatarLabel: 'Avatar URL', agentSkillsLabel: 'Available skills', agentMCPServersLabel: 'MCP servers', agentRuntimeConfigLabel: 'Runtime configuration', agentRuntimeConfigPlaceholder: 'One key=value per line, for example sandbox_mode=workspace-write', agentEnvironmentLabel: 'Secret-backed environment', agentEnvironmentPlaceholder: 'One NAME=env:SECRET_NAME per line; never enter plaintext secrets', agentNoResources: 'No selectable resources yet'
     ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
+  });
+  Object.assign(translations.zh, {
+    autoGeneratePlan: '自动生成方案',
+    autoGeneratePlanHelp: '创建需求后立即用选定 Agent 生成冻结方案。',
+    planAgent: '方案生成 Agent',
+    planAgentRequired: '开启自动生成方案后必须选择 Agent。',
+    planCreated: '需求已创建，方案已生成',
+    planCreateAfterRequirementFailed: '需求已创建，但方案生成失败，请在执行页重试。',
+    executionCockpit: '执行舱',
+    executionCockpitSubtitle: '按 Squad 图实时呈现节点、事件与本地执行器输出',
+    runGraph: '运行图',
+    runConsole: '实时事件终端',
+    runEvidence: '证据与状态',
+    runSelect: '选择一个执行计划查看运行态',
+    runNoPlans: '还没有执行计划',
+    runNoEvents: '等待真实执行事件',
+    runNodes: '图节点',
+    runEvents: '事件',
+    runRevision: '冻结版本',
+    runLive: '实时',
+    runRefresh: '刷新时间线',
+    runSelectedBy: '执行目标',
+    runPlanHash: '计划摘要',
+    runStatus: '运行状态',
+    runNoStagePipeline: '执行由 Squad 图决定，不使用固定阶段。'
+  });
+  Object.assign(translations.en, {
+    autoGeneratePlan: 'Generate plan automatically',
+    autoGeneratePlanHelp: 'Create the requirement and immediately freeze a plan with the selected Agent.',
+    planAgent: 'Plan-generation Agent',
+    planAgentRequired: 'Choose an Agent when automatic plan generation is enabled.',
+    planCreated: 'Requirement created and plan generated',
+    planCreateAfterRequirementFailed: 'Requirement created, but plan generation failed. Retry from Engineering runs.',
+    executionCockpit: 'Execution cockpit',
+    executionCockpitSubtitle: 'Live graph nodes, events, and local executor output from the selected Squad graph',
+    runGraph: 'Run graph',
+    runConsole: 'Live event terminal',
+    runEvidence: 'Evidence and state',
+    runSelect: 'Select an execution plan to inspect its live state',
+    runNoPlans: 'No execution plans yet',
+    runNoEvents: 'Waiting for real execution events',
+    runNodes: 'Graph nodes',
+    runEvents: 'Events',
+    runRevision: 'Frozen revision',
+    runLive: 'LIVE',
+    runRefresh: 'Refresh timeline',
+    runSelectedBy: 'Selected target',
+    runPlanHash: 'Plan digest',
+    runStatus: 'Run status',
+    runNoStagePipeline: 'Execution follows the Squad graph. There is no fixed stage pipeline.'
   });
   Object.assign(translations.zh, {
     agentRuntimeControls: '运行时策略',
@@ -173,6 +223,37 @@
     localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project'
   });
 
+  Object.assign(translations.zh, {
+    deliveryComposerKicker: '交付项 / 统一入口',
+    requirementType: '需求', bugType: 'Bug',
+    deliveryParentHelp: 'Bug 会继承父需求的项目与执行人，并沿同一条交付链追踪。',
+    deliveryInheritedContext: '已从父需求继承项目与执行人',
+    deliveryTitle: '交付台', deliverySubtitle: '需求、方案、开发、验证与 Bug 在同一个交付上下文中完成。',
+    deliveryCreate: '新建交付项', deliveryTotal: '交付项', deliveryRequirements: '需求', deliveryBugs: 'Bug', deliveryUnresolved: '未解决 Bug', deliveryPlan: '方案 / Run',
+    deliveryAll: '全部类型', deliveryRequirementFilter: '仅需求', deliveryBugFilter: '仅 Bug', deliveryExpand: '展开 Bug', deliveryCollapse: '收起 Bug',
+    deliveryAddBug: '在此需求下创建 Bug', deliveryUnlinkedBugs: '未关联需求的 Bug', deliveryOpenDetail: '打开交付详情', deliveryCanvas: '交付画布',
+    deliveryContext: '上下文', deliveryDesign: '方案', deliveryDevelopment: '开发', deliveryValidation: '验证', deliveryRelatedBugs: '关联 Bug', deliveryNoPlan: '尚未生成方案', deliveryPlanReady: '方案已生成', deliveryPlanRunning: '执行中', deliveryNoChildren: '暂无关联 Bug',
+    deliveryBugCreated: 'Bug 已创建并关联到父需求', deliveryRequirementCreated: '需求已创建', deliveryTypeLabel: '交付类型', deliveryDescriptionLabel: '描述', deliveryRequirementTitle: '创建需求', deliveryBugTitle: '创建 Bug', deliveryRequirementSubtitle: '记录一个可验证的交付结果', deliveryBugSubtitle: '在父需求下记录一个可复现的缺陷',
+    deliveryChooseParent: '请选择所属需求', deliveryParentRequired: '创建 Bug 前必须选择所属需求',
+    deliveryBugDescriptionHelp: '先写故障现象，再补充复现步骤、预期与实际结果。', deliveryRequirementDescriptionHelp: '描述要交付的结果、背景、约束和验收重点。',
+    deliverySearch: '搜索交付项、Key 或负责人', deliveryStatusFilter: '按状态筛选', deliveryStatusAll: '全部状态', deliveryStartDevelopment: '开始开发', deliveryOpenExecution: '打开执行舱', deliveryBack: '返回交付台', deliveryPlanNone: '未建立方案', deliveryPlanReady: '方案已就绪', deliveryPlanRunning: '方案执行中', deliveryPlanFailed: '方案执行失败', deliveryValidationPending: '等待验证证据', deliveryValidationFromStatus: '由交付状态驱动', deliveryProject: '项目', deliveryOwner: '负责人', deliveryTeam: '执行小队', deliveryBugSummary: '共 {total} 个 Bug · {open} 个未解决', deliveryUnlinkedHint: '这些 Bug 尚未绑定父需求，先保留在交付台以便补齐上下文。', deliveryContextSummary: '所有上下文都沿同一条交付链保留。', deliveryPlanSummary: '方案生成、评审与开发 Run 共用同一交付项。', deliveryDevelopmentSummary: '开发由冻结的 Agent / Squad 图执行。', deliveryValidationSummary: '验证结果与 Bug 修复状态回写到父需求。', deliveryNoPlanAction: '生成方案后即可开始开发。', deliveryOpenBug: '打开 Bug', deliveryNoRelatedBugs: '暂无关联 Bug', deliveryNoUnlinkedBugs: '暂无未关联 Bug'
+  });
+  Object.assign(translations.en, {
+    deliveryComposerKicker: 'DELIVERY / SINGLE ENTRY',
+    requirementType: 'Requirement', bugType: 'Bug',
+    deliveryParentHelp: 'Bugs inherit the parent requirement project and executor, then stay on the same delivery thread.',
+    deliveryInheritedContext: 'Project and executor inherited from parent requirement',
+    deliveryTitle: 'Delivery', deliverySubtitle: 'Context, plan, development, validation, and bugs live in one delivery workspace.',
+    deliveryCreate: 'New delivery item', deliveryTotal: 'delivery items', deliveryRequirements: 'requirements', deliveryBugs: 'bugs', deliveryUnresolved: 'unresolved bugs', deliveryPlan: 'Plan / run',
+    deliveryAll: 'All types', deliveryRequirementFilter: 'Requirements only', deliveryBugFilter: 'Bugs only', deliveryExpand: 'Expand bugs', deliveryCollapse: 'Collapse bugs',
+    deliveryAddBug: 'Create a bug under this requirement', deliveryUnlinkedBugs: 'Bugs without a requirement', deliveryOpenDetail: 'Open delivery detail', deliveryCanvas: 'Delivery canvas',
+    deliveryContext: 'Context', deliveryDesign: 'Plan', deliveryDevelopment: 'Development', deliveryValidation: 'Validation', deliveryRelatedBugs: 'Related bugs', deliveryNoPlan: 'No plan generated yet', deliveryPlanReady: 'Plan ready', deliveryPlanRunning: 'Running', deliveryNoChildren: 'No related bugs',
+    deliveryBugCreated: 'Bug created and linked to the parent requirement', deliveryRequirementCreated: 'Requirement created', deliveryTypeLabel: 'Delivery type', deliveryDescriptionLabel: 'Description', deliveryRequirementTitle: 'Create requirement', deliveryBugTitle: 'Create bug', deliveryRequirementSubtitle: 'Record a verifiable delivery outcome', deliveryBugSubtitle: 'Record a reproducible defect under its parent requirement',
+    deliveryChooseParent: 'Choose a parent requirement', deliveryParentRequired: 'Choose a parent requirement before creating a bug',
+    deliveryBugDescriptionHelp: 'Start with the failure, then add reproduction steps, expected behavior, and actual behavior.', deliveryRequirementDescriptionHelp: 'Describe the outcome, context, constraints, and acceptance focus.',
+    deliverySearch: 'Search delivery items, keys, or owners', deliveryStatusFilter: 'Filter by status', deliveryStatusAll: 'All statuses', deliveryStartDevelopment: 'Start development', deliveryOpenExecution: 'Open execution cockpit', deliveryBack: 'Back to delivery', deliveryPlanNone: 'No plan yet', deliveryPlanReady: 'Plan ready', deliveryPlanRunning: 'Plan running', deliveryPlanFailed: 'Plan failed', deliveryValidationPending: 'Waiting for validation evidence', deliveryValidationFromStatus: 'Driven by delivery status', deliveryProject: 'Project', deliveryOwner: 'Owner', deliveryTeam: 'Execution team', deliveryBugSummary: '{total} bugs total · {open} unresolved', deliveryUnlinkedHint: 'These bugs do not have a parent requirement yet; keep them visible until context is restored.', deliveryContextSummary: 'All context stays on one delivery thread.', deliveryPlanSummary: 'Plan generation, review, and development runs share the same delivery item.', deliveryDevelopmentSummary: 'Development runs from a frozen Agent / Squad graph.', deliveryValidationSummary: 'Validation and bug repair status roll back into the parent requirement.', deliveryNoPlanAction: 'Generate a plan before starting development.', deliveryOpenBug: 'Open bug', deliveryNoRelatedBugs: 'No related bugs', deliveryNoUnlinkedBugs: 'No unlinked bugs'
+  });
+
   let currentUser = null;
   const entityDraftFiles = { requirement: [], bug: [] };
   let directory = [];
@@ -182,6 +263,9 @@
   let nativeSquads = [];
   let nativePlans = [];
   let activeGraphEditor = null;
+  let activeExecutionPlanID = '';
+  const executionTimelineCache = new Map();
+  let executionTimelineRefreshTimer = null;
   let commentReplyParentID = '';
   let commentMentionIndex = -1;
   let commentMentionOptions = [];
@@ -202,6 +286,13 @@
   let agentRuntimeConfigs = new Map();
   let agentRuntimeEnvironments = new Map();
   let agentPreservedCustomArgs = [];
+  let deliveryComposerKind = 'requirement';
+  let deliveryComposerParentID = '';
+  const deliveryExpandedRequirements = new Set();
+  let deliveryFilterKind = 'all';
+  let deliveryFilterStatus = '';
+  let deliverySearchTerm = '';
+  let orchestrationStatusState = {message: '', bad: false};
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
@@ -212,7 +303,7 @@
   };
 
   async function loadAllRequirementPages() {
-    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('requirements')) return;
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('delivery')) return;
     let cursor = '';
     const seen = new Set();
     const all = [];
@@ -241,7 +332,7 @@
   }
 
   async function loadAllBugPages() {
-    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('bugs')) return;
+    if (typeof window.adroCanAccessMenu === 'function' && !window.adroCanAccessMenu('delivery')) return;
     let cursor = '';
     const seen = new Set();
     const all = [];
@@ -278,7 +369,7 @@
     if (settled[0].status === 'fulfilled') nativeAgents = settled[0].value.items || [];
     if (settled[1].status === 'fulfilled') nativeSquads = settled[1].value.items || [];
     if (settled[2].status === 'fulfilled') nativePlans = settled[2].value.items || [];
-    if (currentView === 'agents') render();
+    if (currentView === 'agents' || currentView === 'executions') render();
   }
 
   const focusIfPresent = selector => {
@@ -321,7 +412,7 @@
     const files = entityDraftFiles[kind];
     target.innerHTML = files.map((item, index) => {
       const image = item.file.type.startsWith('image/')
-        ? `<img src="${escapeHTML(item.previewURL)}" alt="${escapeHTML(item.file.name)}">`
+        ? `<button class="entity-attachment-preview-button" type="button" data-preview-entity-attachment="${escapeHTML(kind)}" data-entity-attachment-index="${index}" aria-label="${escapeHTML(t('preview'))}"><img src="${escapeHTML(item.previewURL)}" alt="${escapeHTML(item.file.name)}"></button>`
         : `<span class="entity-attachment-icon" aria-hidden="true">▤</span>`;
       return `<div class="entity-attachment" data-entity-attachment="${kind}" data-entity-attachment-index="${index}"><div class="entity-attachment-media">${image}</div><div class="entity-attachment-copy"><strong title="${escapeHTML(item.file.name)}">${escapeHTML(item.file.name)}</strong><small>${escapeHTML(formatBytes(item.file.size))}</small></div><button class="entity-attachment-remove" type="button" data-remove-entity-attachment="${kind}" data-entity-attachment-index="${index}" title="${escapeHTML(t('attachmentRemove'))}" aria-label="${escapeHTML(t('attachmentRemove'))}">×</button></div>`;
     }).join('');
@@ -409,7 +500,45 @@
     renderEntityFilePreview(kind);
   });
 
-  window.adroCanAccessMenu = menu => (currentUser && currentUser.role === 'admin') || availableMenus.includes(menu);
+  function ensureAttachmentPreviewDialog() {
+    if ($('#attachmentPreviewDialog')) return;
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="attachmentPreviewDialog" class="attachment-preview-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / ATTACHMENT</p><h2 id="attachmentPreviewTitle"></h2></div><button class="dialog-close" id="closeAttachmentPreview" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><div id="attachmentPreviewBody" class="attachment-preview-body"></div></dialog>`);
+    const dialog = $('#attachmentPreviewDialog');
+    $('#closeAttachmentPreview').onclick = () => dialog.close();
+    dialog.addEventListener('click', event => { if (event.target === event.currentTarget) dialog.close(); });
+  }
+
+  function openAttachmentPreview(file, title = '') {
+    if (!file) return;
+    ensureAttachmentPreviewDialog();
+    const dialog = $('#attachmentPreviewDialog');
+    $('#attachmentPreviewTitle').textContent = title || file.name || t('preview');
+    const body = $('#attachmentPreviewBody');
+    if (file.type?.startsWith('image/') && (file instanceof Blob || file.previewURL)) {
+      const source = file.previewURL || URL.createObjectURL(file);
+      body.innerHTML = `<img src="${escapeHTML(source)}" alt="${escapeHTML(file.name || '')}">`;
+      if (!file.previewURL) body.dataset.revokeURL = source;
+    } else {
+      body.innerHTML = `<div class="attachment-file-preview"><strong>${escapeHTML(file.name || t('attachmentFile'))}</strong><span>${escapeHTML(formatBytes(file.size || 0))}</span></div>`;
+    }
+    dialog.showModal();
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('[data-preview-entity-attachment]');
+    if (!button) return;
+    const kind = button.dataset.previewEntityAttachment;
+    const item = entityDraftFiles[kind]?.[Number(button.dataset.entityAttachmentIndex)];
+    if (item) openAttachmentPreview(item.file, item.file.name);
+  });
+
+  window.adroCanAccessMenu = menu => {
+    if (currentUser && currentUser.role === 'admin') return true;
+    if (['delivery', 'requirements', 'bugs', 'designReview', 'executions'].includes(menu)) {
+      return availableMenus.some(item => ['delivery', 'requirements', 'bugs', 'designReview', 'executions'].includes(item));
+    }
+    return availableMenus.includes(menu);
+  };
 
   const roleLabel = role => t(role === 'admin' ? 'roleAdmin' : role === 'viewer' ? 'roleViewer' : 'roleMember');
   const userLabel = id => {
@@ -429,6 +558,7 @@
   applyTranslations = function enhancedTranslations() {
     baseApplyTranslations();
     updateUserChip();
+    if ($('#requirementDialog')?.open) syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
   };
 
   function updateUserChip() {
@@ -458,7 +588,7 @@
 
   function applyMenuAccess() {
     document.querySelectorAll('.nav-item, .nav-chat').forEach(item => {
-      item.hidden = !availableMenus.includes(item.dataset.view);
+      item.hidden = !window.adroCanAccessMenu(item.dataset.view);
     });
     document.querySelectorAll('.nav-section').forEach(section => {
       let sibling = section.nextElementSibling;
@@ -469,10 +599,12 @@
       }
       section.hidden = !visible;
     });
-    if (!availableMenus.includes(currentView)) {
-      currentView = availableMenus[0] || 'workbench';
+    if (!window.adroCanAccessMenu(currentView)) {
+      const firstVisible = document.querySelector('.nav-item:not([hidden]), .nav-chat:not([hidden])');
+      currentView = firstVisible?.dataset.view || 'workbench';
     }
-    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => item.classList.toggle('active', item.dataset.view === currentView));
+    const activeView = ['requirements', 'bugs', 'designReview', 'executions'].includes(currentView) ? 'delivery' : currentView;
+    document.querySelectorAll('.nav-item, .nav-chat').forEach(item => item.classList.toggle('active', item.dataset.view === activeView));
   }
 
   async function loadIdentityData() {
@@ -569,23 +701,134 @@
     return null;
   }
 
-  showDialog = function enhancedRequirementDialog() {
+  function populateRequirementPlanAgents() {
+    const select = $('#planAgent');
+    if (!select) return;
+    const active = nativeAgents.filter(agent => agent.status === 'active');
+    select.innerHTML = `<option value="">${escapeHTML(t('noExecutors'))}</option>${active.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name || agent.id)} · r${escapeHTML(String(agent.revision || 0))}</option>`).join('')}`;
+  }
+
+  function ensureRequirementOrchestrationControls() {
+    const checkbox = $('#autoGeneratePlan');
+    const field = $('#planAgentField');
+    const select = $('#planAgent');
+    if (!checkbox || !field || !select) return;
+    populateRequirementPlanAgents();
+    const sync = () => {
+      field.hidden = !checkbox.checked;
+      select.required = checkbox.checked;
+      select.disabled = !checkbox.checked;
+    };
+    checkbox.onchange = sync;
+    sync();
+  }
+
+  function syncDeliveryComposer(kind = deliveryComposerKind, parentID = deliveryComposerParentID) {
+    const form = $('#requirementForm');
+    if (!form) return;
+    const bug = kind === 'bug';
+    deliveryComposerKind = bug ? 'bug' : 'requirement';
+    deliveryComposerParentID = parentID || '';
+    form.dataset.deliveryKind = deliveryComposerKind;
+    form.querySelectorAll('[data-delivery-kind]').forEach(button => {
+      const active = button.dataset.deliveryKind === deliveryComposerKind;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    const parentField = $('#deliveryParentField');
+    const parentSelect = $('#bugRequirement');
+    const orchestration = $('#deliveryOrchestration');
+    const repository = $('#requirementRepository');
+    const assignee = $('#requirementAssignee');
+    const inheritanceHint = $('#deliveryInheritanceHint');
+    const description = $('#requirementDescription');
+    const descriptionLabel = $('#deliveryDescriptionLabel');
+    const descriptionHelp = $('#deliveryDescriptionHelp');
+    const status = $('#deliveryStatus');
+    const submitLabel = $('#deliverySubmitLabel');
+    const submit = form.querySelector('button[type="submit"]');
+    const dialogTitle = $('#deliveryDialogTitle');
+    const dialogSubtitle = $('#deliveryDialogSubtitle');
+    if (parentField) parentField.hidden = !bug;
+    if (parentSelect) parentSelect.required = bug;
+    if (orchestration) orchestration.hidden = bug;
+    if (repository) repository.disabled = bug;
+    if (assignee) assignee.disabled = bug;
+    const selected = bug ? requirements.find(item => item.id === (parentSelect?.value || parentID)) : null;
+    if (inheritanceHint) inheritanceHint.hidden = !selected;
+    if (descriptionLabel) descriptionLabel.textContent = t('deliveryDescriptionLabel');
+    if (descriptionHelp) descriptionHelp.textContent = t(bug ? 'deliveryBugDescriptionHelp' : 'deliveryRequirementDescriptionHelp');
+    if (dialogTitle) dialogTitle.textContent = t(bug ? 'deliveryBugTitle' : 'deliveryRequirementTitle');
+    if (dialogSubtitle) dialogSubtitle.textContent = t(bug ? 'deliveryBugSubtitle' : 'deliveryRequirementSubtitle');
+    if (description) {
+      description.placeholder = t(bug ? 'bugDescriptionPlaceholder' : 'requirementDescriptionPlaceholder');
+      description.setAttribute('aria-label', t(bug ? 'bugDescriptionOnly' : 'requirementDescriptionOnly'));
+    }
+    if (status) {
+      status.className = `status ${bug ? 'bad' : 'active'}`;
+      status.textContent = t(bug ? 'open' : 'statusReceived');
+    }
+    if (submitLabel) submitLabel.textContent = t(bug ? 'createBug' : 'createRequirement');
+    if (submit) submit.disabled = bug && !selected;
+    if (parentSelect) parentSelect.setAttribute('aria-invalid', String(bug && !selected));
+    if (selected) {
+      const repositoryID = selected.repository_ids?.[0] || '';
+      const assigneeID = selected.assignee_member_ids?.[0] || '';
+      if (repository && repositoryID && [...repository.options].some(option => option.value === repositoryID)) repository.value = repositoryID;
+      if (assignee && assigneeID && [...assignee.options].some(option => option.value === assigneeID)) assignee.value = assigneeID;
+    }
+  }
+
+  function populateDeliveryComposer(parentID = deliveryComposerParentID) {
+    const repository = $('#requirementRepository');
+    const assignee = $('#requirementAssignee');
+    const parent = $('#bugRequirement');
+    if (repository) repository.innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
+    if (assignee) assignee.innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
+    if (parent) {
+      const placeholder = requirements.length ? t('deliveryChooseParent') : t('noRequirements');
+      parent.innerHTML = `<option value="" disabled selected>${escapeHTML(placeholder)}</option>${requirements.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(`${item.key} · ${item.title}`)}</option>`).join('')}`;
+      if (parentID && [...parent.options].some(option => option.value === parentID)) parent.value = parentID;
+    }
+    syncDeliveryComposer(deliveryComposerKind, parent?.value || parentID);
+  }
+
+  function bindDeliveryComposer() {
+    const form = $('#requirementForm');
+    if (!form || form.dataset.deliveryBound === 'true') return;
+    form.dataset.deliveryBound = 'true';
+    form.querySelectorAll('[data-delivery-kind]').forEach(button => {
+      button.addEventListener('click', () => {
+        const kind = button.dataset.deliveryKind || 'requirement';
+        syncDeliveryComposer(kind, kind === 'bug' ? ($('#bugRequirement')?.value || '') : '');
+      });
+    });
+    $('#bugRequirement')?.addEventListener('change', () => syncDeliveryComposer('bug', $('#bugRequirement').value));
+  }
+
+  showDialog = function enhancedDeliveryDialog(kind = 'requirement', parentID = '') {
+    const form = $('#requirementForm');
+    if (!form) return;
+    deliveryComposerKind = kind === 'bug' ? 'bug' : 'requirement';
+    deliveryComposerParentID = parentID || '';
     $('#formError').textContent = '';
     clearEntityFiles('requirement');
-    $('#requirementForm').reset();
-    const populate = () => {
-      $('#requirementRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-      $('#requirementAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-    };
-    populate();
+    form.reset();
+    bindDeliveryComposer();
+    populateDeliveryComposer(deliveryComposerParentID);
+    ensureRequirementOrchestrationControls();
+    syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
     applyTranslations();
+    syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
     $('#requirementDialog').showModal();
     bindEntityAttachments('requirement', '#requirementDescription');
     setTimeout(() => focusIfPresent('#requirementDescription'), 0);
     void loadIdentityData().then(() => {
       if ($('#requirementDialog').open) {
-        populate();
+        populateDeliveryComposer(deliveryComposerParentID);
+        populateRequirementPlanAgents();
         applyTranslations();
+        syncDeliveryComposer(deliveryComposerKind, deliveryComposerParentID);
       }
     });
   };
@@ -608,21 +851,60 @@
     const data = new FormData(formElement);
     const submit = formElement.querySelector('button[type="submit"]');
     const description = String(data.get('description') || '').trim();
-    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('requirementDescriptionOnly');
+    const kind = formElement.dataset.deliveryKind || deliveryComposerKind;
+    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t(kind === 'bug' ? 'bugDescriptionOnly' : 'requirementDescriptionOnly');
     const files = entityFiles('requirement');
+    const parentID = String(data.get('requirement') || '').trim();
+    const parent = requirements.find(item => item.id === parentID);
+    const autoGeneratePlan = Boolean(data.get('auto_generate_plan'));
+    const planAgentID = String(data.get('plan_agent_id') || '').trim();
+    const planAgent = nativeAgents.find(agent => agent.id === planAgentID && agent.status === 'active');
     $('#formError').textContent = '';
+    if (kind === 'bug' && !parent) {
+      $('#formError').textContent = t('deliveryParentRequired');
+      return;
+    }
+    if (autoGeneratePlan && !planAgent) {
+      $('#formError').textContent = t('planAgentRequired');
+      return;
+    }
     submit.disabled = true;
     try {
-      const created = await api('/api/v1/requirements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() },
-        body: JSON.stringify({
-          workspace_id: 'local', title, description,
-          acceptance_criteria: [description], assignee_member_ids: [String(data.get('assignee'))],
-          repository_ids: [String(data.get('repository'))], priority: String(data.get('priority') || 'normal')
+      const creationKey = idempotencyKey();
+      const created = kind === 'bug'
+        ? await api('/api/v1/bugs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': creationKey },
+          body: JSON.stringify({
+            workspace_id: 'local', title,
+            repository_id: parent.repository_ids?.[0] || String(data.get('repository') || ''),
+            assignee_member_id: parent.assignee_member_ids?.[0] || String(data.get('assignee') || ''),
+            requirement_id: parent.id, steps_to_reproduce: description, expected: '', actual: description, log_excerpt: ''
+          })
         })
-      });
-      try { await uploadEntityFiles('requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
+        : await api('/api/v1/requirements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': creationKey },
+          body: JSON.stringify({
+            workspace_id: 'local', title, description,
+            acceptance_criteria: [description], assignee_member_ids: [String(data.get('assignee'))],
+            repository_ids: [String(data.get('repository'))], priority: String(data.get('priority') || 'normal')
+          })
+        });
+      try { await uploadEntityFiles(kind === 'bug' ? 'bug' : 'requirement', created.id, files); } catch (_) { $('#formError').textContent = t('uploadFailed'); return; }
+      if (kind === 'requirement' && autoGeneratePlan) {
+        try {
+          await api(`/api/v1/requirements/${encodeURIComponent(created.id)}/execution-plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `requirement-plan:${created.id}:${planAgent.id}` },
+            body: JSON.stringify({agent_id: planAgent.id, agent_revision: planAgent.revision, idempotency_key: `requirement-plan:${created.id}:${planAgent.id}`})
+          });
+        } catch (_) {
+          $('#formError').textContent = t('planCreateAfterRequirementFailed');
+          return;
+        }
+      }
+      if (kind === 'bug' && parent) deliveryExpandedRequirements.add(parent.id);
       closeDialog();
       formElement.reset();
       clearEntityFiles('requirement');
@@ -648,7 +930,7 @@
   translations.en.createRepository = translations.en.createProject;
   openResourceDialog = function enhancedResourceDialog(kind) {
     if (kind === 'bug') {
-      showBugDialog();
+      showDialog('bug');
       return;
     }
     baseOpenResourceDialog(kind);
@@ -728,95 +1010,143 @@
     }
   };
 
-  async function showBugDialog() {
-    $('#bugFormError').textContent = '';
-    $('#bugForm').reset();
-    clearEntityFiles('bug');
-    // Open from the cached control-plane snapshot first. Directory refreshes
-    // can be slow while the stream is reconnecting, but they must not make the
-    // create action appear unresponsive.
-    const populate = () => {
-      const previous = {
-        requirement: $('#bugRequirement')?.value || '',
-        repository: $('#bugRepository')?.value || '',
-        assignee: $('#bugAssignee')?.value || ''
-      };
-      $('#bugRepository').innerHTML = optionMarkup(repositories, item => item.id, item => item.canonical_name, 'noProjects');
-      $('#bugAssignee').innerHTML = optionMarkup(directory, item => item.id, item => `${item.display_name} · ${item.username}`, 'noExecutors');
-      $('#bugRequirement').innerHTML = optionMarkup(requirements, item => item.id, item => `${item.key} · ${item.title}`, 'noRelatedRequirement', true);
-      for (const [id, value] of Object.entries({bugRequirement: previous.requirement, bugRepository: previous.repository, bugAssignee: previous.assignee})) {
-        const select = $(`#${id}`);
-        if (select && Array.from(select.options).some(option => option.value === value)) select.value = value;
-      }
-    };
-    populate();
-    applyTranslations();
-    $('#bugDialog').showModal();
-    bindEntityAttachments('bug', '#bugDescription');
-    setTimeout(() => focusIfPresent('#bugDescription'), 0);
-    await loadIdentityData();
-    if ($('#bugDialog').open) {
-      populate();
-      applyTranslations();
-    }
-  }
-
-  function bindBugRequirementAutofill() {
-    const requirementSelect = $('#bugRequirement');
-    if (!requirementSelect || requirementSelect.dataset.autofillBound === 'true') return;
-    requirementSelect.dataset.autofillBound = 'true';
-    requirementSelect.addEventListener('change', () => {
-      const selected = requirements.find(item => item.id === requirementSelect.value);
-      if (!selected) return;
-      const repositoryID = selected.repository_ids?.[0] || '';
-      const assigneeID = selected.assignee_member_ids?.[0] || '';
-      const repository = $('#bugRepository');
-      const assignee = $('#bugAssignee');
-      if (repository && repositoryID && Array.from(repository.options).some(option => option.value === repositoryID)) repository.value = repositoryID;
-      if (assignee && assigneeID && Array.from(assignee.options).some(option => option.value === assigneeID)) assignee.value = assigneeID;
-    });
-  }
-
-  const closeBugDialog = () => $('#bugDialog').close();
-  $('#closeBugDialog').onclick = closeBugDialog;
-  $('#cancelBugDialog').onclick = closeBugDialog;
-  $('#bugDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeBugDialog(); });
-  bindBugRequirementAutofill();
-  $('#bugForm').onsubmit = async event => {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const data = new FormData(formElement);
-    const submit = formElement.querySelector('button[type="submit"]');
-    const description = String(data.get('description') || '').trim();
-    const title = description.split(/\r?\n/).map(item => item.trim()).find(Boolean)?.slice(0, 120) || t('bugDescriptionOnly');
-    const files = entityFiles('bug');
-    $('#bugFormError').textContent = '';
-    submit.disabled = true;
-    try {
-      const created = await api('/api/v1/bugs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: 'local', title, repository_id: String(data.get('repository')),
-          assignee_member_id: String(data.get('assignee')), requirement_id: String(data.get('requirement') || ''),
-          steps_to_reproduce: description, expected: '', actual: description, log_excerpt: ''
-        })
-      });
-      try { await uploadEntityFiles('bug', created.id, files); } catch (_) { $('#bugFormError').textContent = t('uploadFailed'); return; }
-      closeBugDialog();
-      formElement.reset();
-      clearEntityFiles('bug');
-      await loadCore(true);
-    } catch (_) {
-      $('#bugFormError').textContent = t('resourceSaveFailed');
-    } finally {
-      submit.disabled = false;
-    }
-  };
-
   renderBugs = function enhancedBugTable() {
     const rows = bugs.map(item => `<tr data-bug-id="${escapeHTML(item.id)}" tabindex="0"><td class="mono">${escapeHTML((item.id || '').slice(0, 10))}</td><td class="title-cell">${escapeHTML(item.title || '-')}</td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td>${escapeHTML(repositoryLabel(item.repository_id))}</td><td class="muted">${escapeHTML(requirementLabel(item.requirement_id))}</td><td class="muted">${escapeHTML(userLabel(item.assignee_member_id))}</td><td><div class="row-actions">${item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : ''}${item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : ''}${item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : ''}</div></td></tr>`);
     return `<div class="view-stack"><div class="menu-intro"><strong>${escapeHTML(t('menuOwned'))}</strong><span>${escapeHTML(t('menuActionHint'))}</span></div><div class="view-grid">${summaryCard(t('openBugs'), bugs.filter(item => item.status === 'OPEN').length, t('needsAttention'))}${summaryCard(t('repairingTitle'), bugs.filter(item => item.status === 'REPAIRING').length, t('repairing'))}${summaryCard(t('escalatedTitle'), bugs.filter(item => item.status === 'HUMAN_TRIAGE_REQUIRED').length, t('escalated'))}</div>${genericTable(t('bugs'), [t('key'), t('title'), t('status'), t('project'), t('requirementRelation'), t('executorColumn'), t('actions')], rows, t('noBugs'))}</div>`;
   };
+
+  function deliveryPlanFor(requirementID) {
+    return nativePlans.slice().reverse().find(item => item.requirement_id === requirementID) || null;
+  }
+
+  function deliveryPlanLabel(plan) {
+    if (!plan) return {text: t('deliveryPlanNone'), className: 'warn'};
+    const status = executionPlanStatus(plan, executionTimelineCache.get(plan.id)?.projection);
+    if (['failed', 'cancelled', 'timed_out', 'blocked'].includes(status)) return {text: t('deliveryPlanFailed'), className: 'bad'};
+    if (['running', 'ready', 'waiting'].includes(status)) return {text: status === 'running' ? t('deliveryPlanRunning') : t('deliveryPlanReady'), className: 'active'};
+    return {text: status, className: executionStatusClass(status)};
+  }
+
+  function deliveryBugIsOpen(item) {
+    return !['VERIFIED', 'CLOSED', 'RESOLVED', 'ACCEPTED', 'RELEASED'].includes(String(item.status || '').toUpperCase());
+  }
+
+  function deliveryRequirementMatches(requirement, children) {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    if (!term) return true;
+    const requirementText = `${requirement.key || ''} ${requirement.title || ''} ${requirement.description || ''} ${(requirement.assignee_member_ids || []).join(' ')}`.toLowerCase();
+    return requirementText.includes(term) || children.some(item => `${item.id || ''} ${item.title || ''} ${item.actual || ''} ${item.steps_to_reproduce || ''}`.toLowerCase().includes(term));
+  }
+
+  function deliveryBugMatches(item) {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    const statusMatches = !deliveryFilterStatus || String(item.status || '') === deliveryFilterStatus;
+    const textMatches = !term || `${item.id || ''} ${item.title || ''} ${item.actual || ''} ${item.steps_to_reproduce || ''}`.toLowerCase().includes(term);
+    return statusMatches && textMatches;
+  }
+
+  function deliveryPlanTarget(plan) {
+    if (!plan?.selected_ref?.id) return '-';
+    const version = plan.selected_ref.version || plan.selected_ref.revision;
+    return `${plan.selected_ref.id}${version ? `@${version}` : ''}`;
+  }
+
+  function deliveryRequirementRow(requirement, allChildren, expanded) {
+    const plan = deliveryPlanFor(requirement.id);
+    const planLabel = deliveryPlanLabel(plan);
+    const total = allChildren.length;
+    const open = allChildren.filter(deliveryBugIsOpen).length;
+    const owner = requirement.assignee_member_ids?.[0] ? userLabel(requirement.assignee_member_ids[0]) : '-';
+    const team = deliveryPlanTarget(plan);
+    const toggleLabel = expanded ? t('deliveryCollapse') : t('deliveryExpand');
+    return `<tr class="delivery-parent-row" data-delivery-requirement-id="${escapeHTML(requirement.id)}" tabindex="0"><td><span class="delivery-type-mark requirement">REQ</span><span class="mono delivery-key">${escapeHTML(requirement.key || requirement.id || '-')}</span></td><td class="title-cell"><strong>${escapeHTML(requirement.title || '-')}</strong><small>${escapeHTML(t('deliveryContextSummary'))}</small></td><td><span class="status ${statusClass(requirement.status)}">${escapeHTML(statusLabel(requirement.status))}</span></td><td class="muted">${escapeHTML(owner)}</td><td class="muted delivery-team" title="${escapeHTML(team)}">${escapeHTML(team)}</td><td><span class="status ${planLabel.className}">${escapeHTML(planLabel.text)}</span></td><td><div class="delivery-bug-summary"><strong>${escapeHTML(String(total))}</strong><span>${escapeHTML(t('deliveryBugs'))}</span><small>${escapeHTML(t('deliveryBugSummary').replace('{total}', String(total)).replace('{open}', String(open)))}</small></div><div class="row-actions"><button class="action-button accent" type="button" data-delivery-toggle="${escapeHTML(requirement.id)}" aria-expanded="${String(expanded)}" title="${escapeHTML(toggleLabel)}">${escapeHTML(toggleLabel)}</button><button class="action-button" type="button" data-delivery-add-bug="${escapeHTML(requirement.id)}" title="${escapeHTML(t('deliveryAddBug'))}">＋</button></div></td></tr>`;
+  }
+
+  function deliveryBugRow(item, requirement) {
+    const owner = item.assignee_member_id ? userLabel(item.assignee_member_id) : requirement?.assignee_member_ids?.[0] ? userLabel(requirement.assignee_member_ids[0]) : '-';
+    const plan = requirement ? deliveryPlanFor(requirement.id) : null;
+    const team = deliveryPlanTarget(plan);
+    const actionMarkup = item.status === 'OPEN' ? actionButton(item.id, 'bug', 'repair', 'accent') : item.status === 'HUMAN_TRIAGE_REQUIRED' ? actionButton(item.id, 'bug', 'triage') : item.status === 'REPAIRING' ? actionButton(item.id, 'bug', 'verify', 'accent') : '';
+    return `<tr class="delivery-bug-row" data-bug-id="${escapeHTML(item.id)}" tabindex="0"><td><span class="delivery-type-mark bug">BUG</span><span class="mono delivery-key">${escapeHTML((item.id || '').slice(0, 10))}</span></td><td class="title-cell delivery-child-title"><span aria-hidden="true">↳</span><strong>${escapeHTML(item.title || '-')}</strong><small>${escapeHTML(requirement ? requirementLabel(requirement.id) : t('deliveryUnlinkedBugs'))}</small></td><td><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></td><td class="muted">${escapeHTML(owner)}</td><td class="muted delivery-team" title="${escapeHTML(team)}">${escapeHTML(team)}</td><td><span class="status ${deliveryBugIsOpen(item) ? 'warn' : 'good'}">${escapeHTML(deliveryBugIsOpen(item) ? t('open') : t('verified'))}</span></td><td><div class="row-actions">${actionMarkup}</div></td></tr>`;
+  }
+
+  function deliveryStatusOptions() {
+    const statuses = [...new Set([...requirements.map(item => item.status), ...bugs.map(item => item.status)].filter(Boolean))];
+    return statuses.sort().map(status => `<option value="${escapeHTML(status)}" ${status === deliveryFilterStatus ? 'selected' : ''}>${escapeHTML(statusLabel(status))}</option>`).join('');
+  }
+
+  function renderDelivery() {
+    const term = deliverySearchTerm.trim().toLowerCase();
+    const grouped = new Map(requirements.map(item => [item.id, []]));
+    const unlinked = [];
+    for (const bug of bugs) {
+      if (grouped.has(bug.requirement_id)) grouped.get(bug.requirement_id).push(bug);
+      else unlinked.push(bug);
+    }
+    const rows = [];
+    for (const requirement of requirements) {
+      const allChildren = grouped.get(requirement.id) || [];
+      const matchingChildren = allChildren.filter(deliveryBugMatches);
+      const requirementStatusMatches = !deliveryFilterStatus || requirement.status === deliveryFilterStatus;
+      const statusMatches = requirementStatusMatches || matchingChildren.length > 0;
+      const kindMatches = deliveryFilterKind !== 'bug' || matchingChildren.length > 0;
+      const searchMatches = deliveryRequirementMatches(requirement, allChildren);
+      if (!statusMatches || !kindMatches || !searchMatches) continue;
+      const children = deliveryFilterKind === 'requirement' ? [] : (deliverySearchTerm || deliveryFilterStatus ? matchingChildren : allChildren);
+      const expanded = deliveryExpandedRequirements.has(requirement.id);
+      rows.push(deliveryRequirementRow(requirement, allChildren, expanded));
+      if (expanded || deliveryFilterKind === 'bug' || Boolean(term)) rows.push(...children.map(item => deliveryBugRow(item, requirement)));
+    }
+    const visibleUnlinked = unlinked.filter(deliveryBugMatches);
+    const unlinkedMarkup = (deliveryFilterKind !== 'requirement' && visibleUnlinked.length) ? `<section class="panel delivery-unlinked"><div class="panel-head"><div><h2>${escapeHTML(t('deliveryUnlinkedBugs'))}</h2><small>${escapeHTML(t('deliveryUnlinkedHint'))}</small></div><span class="status warn">${escapeHTML(String(visibleUnlinked.length))}</span></div><div class="table-scroll"><table class="delivery-table"><thead><tr><th>${escapeHTML(t('key'))}</th><th>${escapeHTML(t('title'))}</th><th>${escapeHTML(t('status'))}</th><th>${escapeHTML(t('deliveryOwner'))}</th><th>${escapeHTML(t('deliveryTeam'))}</th><th>${escapeHTML(t('deliveryPlan'))}</th><th>${escapeHTML(t('actions'))}</th></tr></thead><tbody>${visibleUnlinked.map(item => deliveryBugRow(item, null)).join('')}</tbody></table></div></section>` : '';
+    const openBugCount = bugs.filter(deliveryBugIsOpen).length;
+    const plannedCount = requirements.filter(item => deliveryPlanFor(item.id)).length;
+    const visibleRequirementCount = requirements.filter(requirement => {
+      const allChildren = grouped.get(requirement.id) || [];
+      return (!deliveryFilterStatus || requirement.status === deliveryFilterStatus || allChildren.some(deliveryBugMatches))
+        && (deliveryFilterKind !== 'bug' || allChildren.some(deliveryBugMatches))
+        && deliveryRequirementMatches(requirement, allChildren);
+    }).length;
+    return `<div class="view-stack delivery-view"><div class="delivery-intro"><div><span class="menu-kicker">DELIVERY GRAPH / ONE CONTEXT</span><p>${escapeHTML(t('deliverySubtitle'))}</p></div><div class="delivery-intro-stats"><span><strong>${escapeHTML(String(requirements.length + bugs.length))}</strong>${escapeHTML(t('deliveryTotal'))}</span><span><strong>${escapeHTML(String(openBugCount))}</strong>${escapeHTML(t('deliveryUnresolved'))}</span><span><strong>${escapeHTML(String(plannedCount))}</strong>${escapeHTML(t('deliveryPlan'))}</span></div></div><div class="view-grid delivery-summary-grid">${summaryCard(t('deliveryRequirements'), requirements.length, t('deliveryContextSummary'))}${summaryCard(t('deliveryBugs'), bugs.length, t('deliveryBugSummary').replace('{total}', String(bugs.length)).replace('{open}', String(openBugCount)))}${summaryCard(t('deliveryPlan'), plannedCount, t('deliveryPlanSummary'))}</div><section class="panel delivery-board"><div class="panel-head"><div><h2>${escapeHTML(t('deliveryTitle'))}</h2><small>${escapeHTML(t('deliveryDevelopmentSummary'))}</small></div><span class="status active">${escapeHTML(String(visibleRequirementCount))}</span></div><div class="toolbar delivery-toolbar"><input id="deliverySearch" type="search" value="${escapeHTML(deliverySearchTerm)}" placeholder="${escapeHTML(t('deliverySearch'))}" aria-label="${escapeHTML(t('deliverySearch'))}"><select id="deliveryKindFilter" aria-label="${escapeHTML(t('deliveryTypeLabel'))}"><option value="all" ${deliveryFilterKind === 'all' ? 'selected' : ''}>${escapeHTML(t('deliveryAll'))}</option><option value="requirement" ${deliveryFilterKind === 'requirement' ? 'selected' : ''}>${escapeHTML(t('deliveryRequirementFilter'))}</option><option value="bug" ${deliveryFilterKind === 'bug' ? 'selected' : ''}>${escapeHTML(t('deliveryBugFilter'))}</option></select><select id="deliveryStatusSelect" aria-label="${escapeHTML(t('deliveryStatusFilter'))}"><option value="">${escapeHTML(t('deliveryStatusAll'))}</option>${deliveryStatusOptions()}</select></div><div class="table-scroll"><table class="delivery-table"><thead><tr><th>${escapeHTML(t('deliveryTypeLabel'))}</th><th>${escapeHTML(t('title'))}</th><th>${escapeHTML(t('status'))}</th><th>${escapeHTML(t('deliveryOwner'))}</th><th>${escapeHTML(t('deliveryTeam'))}</th><th>${escapeHTML(t('deliveryPlan'))}</th><th>${escapeHTML(t('deliveryRelatedBugs'))}</th></tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="7" class="empty">${escapeHTML(t('noItems'))}</td></tr>`}</tbody></table></div></section>${unlinkedMarkup}</div>`;
+  }
+
+  function bindDeliveryView() {
+    const root = $('#appView');
+    if (!root) return;
+    const rerender = () => { root.innerHTML = renderDelivery(); bindDeliveryView(); };
+    const search = $('#deliverySearch');
+    if (search) search.oninput = event => { deliverySearchTerm = event.currentTarget.value; rerender(); const next = $('#deliverySearch'); next?.focus(); next?.setSelectionRange(deliverySearchTerm.length, deliverySearchTerm.length); };
+    const kind = $('#deliveryKindFilter');
+    if (kind) kind.onchange = event => { deliveryFilterKind = event.currentTarget.value; rerender(); };
+    const status = $('#deliveryStatusSelect');
+    if (status) status.onchange = event => { deliveryFilterStatus = event.currentTarget.value; rerender(); };
+    root.querySelectorAll('[data-delivery-toggle]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); const id = button.dataset.deliveryToggle; if (deliveryExpandedRequirements.has(id)) deliveryExpandedRequirements.delete(id); else deliveryExpandedRequirements.add(id); rerender(); };
+    });
+    root.querySelectorAll('[data-delivery-add-bug]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); showDialog('bug', button.dataset.deliveryAddBug); };
+    });
+    root.querySelectorAll('[data-delivery-requirement-id]').forEach(row => {
+      row.onclick = event => { if (event.target.closest('button')) return; openRequirement(row.dataset.deliveryRequirementId); };
+      row.onkeydown = event => { if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('button')) { event.preventDefault(); openRequirement(row.dataset.deliveryRequirementId); } };
+    });
+    root.querySelectorAll('[data-resource-action]').forEach(button => {
+      button.onclick = event => { event.stopPropagation(); applyResourceAction(button.dataset.resourceKind, button.dataset.resourceId, button.dataset.resourceAction); };
+    });
+  }
+
+  function renderDeliveryDetailCanvas(requirement, detail = {}) {
+    const children = bugs.filter(item => item.requirement_id === requirement.id);
+    const openCount = children.filter(deliveryBugIsOpen).length;
+    const plan = deliveryPlanFor(requirement.id);
+    const planLabel = deliveryPlanLabel(plan);
+    const cache = plan ? executionTimelineCache.get(plan.id) || {} : {};
+    const statusText = plan ? planLabel.text : t('deliveryPlanNone');
+    const target = deliveryPlanTarget(plan);
+    const workItemIDs = (detail.work_items || []).map(item => item.id).filter(Boolean);
+    const validation = ['TEST_FAILED', 'AUTO_REPAIRING', 'BLOCKED'].includes(String(requirement.status || '').toUpperCase()) ? t('deliveryPlanFailed') : ['ACCEPTED', 'RELEASED'].includes(String(requirement.status || '').toUpperCase()) ? t('verified') : t('deliveryValidationPending');
+    return `<section class="delivery-detail-canvas"><header class="delivery-canvas-head"><div><span class="menu-kicker">DELIVERY CANVAS / ${escapeHTML(requirement.key || '')}</span><h3>${escapeHTML(t('deliveryCanvas'))}</h3><p>${escapeHTML(t('deliveryContextSummary'))}</p></div><div class="delivery-canvas-head-meta"><span class="status ${statusClass(requirement.status)}">${escapeHTML(statusLabel(requirement.status))}</span><span class="status ${openCount ? 'warn' : 'good'}">${escapeHTML(String(children.length))} ${escapeHTML(t('deliveryBugs'))}</span></div></header><div class="delivery-canvas-grid"><article class="delivery-canvas-stage context"><span class="delivery-stage-index">01</span><h4>${escapeHTML(t('deliveryContext'))}</h4><p>${escapeHTML(requirement.description || '-')}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('deliveryProject'))}<strong>${escapeHTML(requirement.repository_ids?.map(repositoryLabel).join(', ') || '-')}</strong></span><span>${escapeHTML(t('deliveryOwner'))}<strong>${escapeHTML(requirement.assignee_member_ids?.map(userLabel).join(', ') || '-')}</strong></span></div></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">02</span><h4>${escapeHTML(t('deliveryDesign'))}</h4><strong class="delivery-stage-state"><span class="status ${planLabel.className}">${escapeHTML(statusText)}</span></strong><p>${escapeHTML(plan ? t('deliveryPlanSummary') : t('deliveryNoPlanAction'))}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('deliveryTeam'))}<strong title="${escapeHTML(target)}">${escapeHTML(target)}</strong></span><span>${escapeHTML(t('revision'))}<strong>${escapeHTML(String(plan?.revision || plan?.selected_ref?.version || '-'))}</strong></span></div></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">03</span><h4>${escapeHTML(t('deliveryDevelopment'))}</h4><p>${escapeHTML(t('deliveryDevelopmentSummary'))}</p><div class="delivery-stage-actions">${plan ? `<button class="secondary" type="button" data-delivery-open-execution="${escapeHTML(plan.id)}">${escapeHTML(t('deliveryOpenExecution'))}</button>` : `<span class="form-help">${escapeHTML(t('deliveryNoPlanAction'))}</span>`}</div><small class="mono">${escapeHTML(cache.projection?.status || plan?.status || '-')}</small></article><article class="delivery-canvas-stage"><span class="delivery-stage-index">04</span><h4>${escapeHTML(t('deliveryValidation'))}</h4><strong class="delivery-stage-state"><span class="status ${validation === t('verified') ? 'good' : validation === t('deliveryPlanFailed') ? 'bad' : 'warn'}">${escapeHTML(validation)}</span></strong><p>${escapeHTML(t('deliveryValidationSummary'))}</p><div class="delivery-stage-meta"><span>${escapeHTML(t('workItems'))}<strong>${escapeHTML(workItemIDs.join(', ') || '-')}</strong></span><span>${escapeHTML(t('deliveryRelatedBugs'))}<strong>${escapeHTML(`${openCount}/${children.length}`)}</strong></span></div></article></div><section class="delivery-related-bugs"><div class="delivery-related-head"><div><span class="menu-kicker">LINKED DEFECTS</span><h4>${escapeHTML(t('deliveryRelatedBugs'))}</h4></div><button class="action-button accent" type="button" data-delivery-detail-add-bug="${escapeHTML(requirement.id)}">＋ ${escapeHTML(t('deliveryAddBug'))}</button></div>${children.length ? `<div class="delivery-related-list">${children.map(item => `<button type="button" class="delivery-related-item" data-delivery-open-bug="${escapeHTML(item.id)}"><span class="delivery-type-mark bug">BUG</span><span><strong>${escapeHTML(item.title || '-')}</strong><small>${escapeHTML(statusLabel(item.status))}</small></span><span class="status ${statusClass(item.status)}">${escapeHTML(statusLabel(item.status))}</span></button>`).join('')}</div>` : `<p class="delivery-related-empty">${escapeHTML(t('deliveryNoRelatedBugs'))}</p>`}</section></section>`;
+  }
 
   renderAdmin = function enhancedAdmin() {
     const userRows = managedUsers.map(user => `<tr><td><strong>${escapeHTML(user.display_name)}</strong><div class="mono">${escapeHTML(user.username)}</div></td><td><span class="status ${user.role === 'admin' ? 'active' : ''}">${escapeHTML(roleLabel(user.role))}</span></td><td><span class="status ${user.status === 'active' ? 'good' : 'bad'}">${escapeHTML(t(user.status === 'active' ? 'activeAccount' : 'disabledAccount'))}</span></td><td><span class="permission-count">${user.menu_ids.length} / ${menuIDs.length}</span></td><td><button class="action-button" type="button" data-edit-user="${escapeHTML(user.id)}">${escapeHTML(t('edit'))}</button></td></tr>`);
@@ -1403,7 +1733,8 @@
     });
     const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
     const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
-    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status" role="status"></div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
+    const statusClass = orchestrationStatusState.message ? (orchestrationStatusState.bad ? 'bad' : 'good') : '';
+    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status ${statusClass}" role="status">${escapeHTML(orchestrationStatusState.message)}</div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
   };
 
   function ensureOrchestrationDialogs() {
@@ -1427,6 +1758,7 @@
   }
 
   function setOrchestrationStatus(message, bad = false) {
+    orchestrationStatusState = {message, bad};
     const target = $('#orchestrationStatus');
     if (!target) return;
     target.textContent = message;
@@ -1552,7 +1884,7 @@
     form.elements.status.value = (user && user.status) || 'active';
     form.elements.password.required = !user;
     $('#userDialogTitle').textContent = t(user ? 'editUser' : 'createUser');
-    renderPermissionGrid((user && user.menu_ids) || ['workbench', 'requirements', 'bugs'], form.elements.role.value);
+    renderPermissionGrid((user && user.menu_ids) || ['workbench', 'delivery'], form.elements.role.value);
     $('#userDialog').showModal();
     setTimeout(() => {
       const element = form.querySelector('input:not([type="hidden"]):not(:disabled)');
@@ -2597,6 +2929,45 @@
     loadCommentThread(targetType, targetID, initialItems);
   }
 
+  function attachmentContentURL(item) {
+    const parts = String(item?.artifact_uri || '').split('/');
+    const artifactID = parts.at(-2);
+    const version = parts.at(-1) || '1';
+    return artifactID ? `/api/v1/artifacts/${encodeURIComponent(artifactID)}/versions/${encodeURIComponent(version)}/content` : '';
+  }
+
+  function renderStoredAttachments(items) {
+    return items.map(item => {
+      const url = attachmentContentURL(item);
+      const previewable = String(item.media_type || '').startsWith('image/') && url;
+      return `<button type="button" class="attachment-item ${previewable ? 'attachment-preview-trigger' : ''}" ${previewable ? `data-attachment-url="${escapeHTML(url)}" data-attachment-title="${escapeHTML(item.filename)}"` : ''}><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></button>`;
+    }).join('');
+  }
+
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest?.('[data-attachment-url]');
+    if (!trigger) return;
+    if (event.target.closest?.('button[data-chat-remove-file]')) return;
+    ensureAttachmentPreviewDialog();
+    const title = trigger.dataset.attachmentTitle || t('preview');
+    const url = trigger.dataset.attachmentUrl;
+    $('#attachmentPreviewTitle').textContent = title;
+    if (trigger.classList.contains('is-image') || trigger.querySelector('img')) {
+      $('#attachmentPreviewBody').innerHTML = `<img src="${escapeHTML(url)}" alt="${escapeHTML(title)}">`;
+    } else {
+      $('#attachmentPreviewBody').innerHTML = `<div class="attachment-file-preview"><span class="chat-attachment-icon">FILE</span><strong>${escapeHTML(title)}</strong><a class="primary" href="${escapeHTML(url)}" target="_blank" rel="noreferrer">${escapeHTML(t('chatPreviewFile'))}</a></div>`;
+    }
+    $('#attachmentPreviewDialog').showModal();
+  });
+
+  document.addEventListener('keydown', event => {
+    const trigger = event.target.closest?.('[data-attachment-url]');
+    if (trigger && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      trigger.click();
+    }
+  });
+
   const baseOpenRequirement = openRequirement;
   openRequirement = async function enhancedRequirementDetails(id) {
     await baseOpenRequirement(id);
@@ -2604,11 +2975,12 @@
       const detail = await api(`/api/v1/requirements/${encodeURIComponent(id)}`);
       const body = $('#detailBody');
       if (!body) return;
+      body.insertAdjacentHTML('afterbegin', renderDeliveryDetailCanvas(requirements.find(item => item.id === id) || detail, detail));
       const items = detail.attachments || [];
       if (items.length) {
         const block = document.createElement('div');
         block.className = 'detail-block';
-        block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${items.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div>`;
+        block.innerHTML = `<h3>${escapeHTML(t('attachments'))} · ${items.length}</h3><div class="attachment-list">${renderStoredAttachments(items)}</div>`;
         body.appendChild(block);
       }
       renderCommentSection('requirement', id, detail.comments || []);
@@ -2630,7 +3002,7 @@
       const body = $('#detailBody');
       if (body && (detail.attachments || []).length) {
         const attachments = detail.attachments;
-        body.insertAdjacentHTML('beforeend', `<div class="detail-block"><h3>${escapeHTML(t('attachments'))} · ${attachments.length}</h3><div class="attachment-list">${attachments.map(item => `<div class="attachment-item"><span>${escapeHTML(item.filename)}</span><span class="mono">${escapeHTML(formatBytes(item.size_bytes))}</span></div>`).join('')}</div></div>`);
+        body.insertAdjacentHTML('beforeend', `<div class="detail-block"><h3>${escapeHTML(t('attachments'))} · ${attachments.length}</h3><div class="attachment-list">${renderStoredAttachments(attachments)}</div></div>`);
       }
       renderCommentSection('bug', id, detail.comments || []);
     } catch (_) {
@@ -2654,6 +3026,31 @@
     }
   });
 
+  document.addEventListener('click', event => {
+    const addBug = event.target.closest?.('[data-delivery-detail-add-bug]');
+    if (addBug) {
+      event.preventDefault();
+      showDialog('bug', addBug.dataset.deliveryDetailAddBug);
+      return;
+    }
+    const openBugButton = event.target.closest?.('[data-delivery-open-bug]');
+    if (openBugButton) {
+      event.preventDefault();
+      openBug(openBugButton.dataset.deliveryOpenBug);
+      return;
+    }
+    const openExecution = event.target.closest?.('[data-delivery-open-execution]');
+    if (openExecution) {
+      event.preventDefault();
+      activeExecutionPlanID = openExecution.dataset.deliveryOpenExecution;
+      if ($('#detailDialog')?.open) $('#detailDialog').close();
+      currentView = 'executions';
+      applyMenuAccess();
+      render();
+      void loadExecutionTimeline(activeExecutionPlanID);
+    }
+  });
+
   function formatBytes(value) {
     if (value < 1024) return `${value} B`;
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
@@ -2662,65 +3059,268 @@
 
   let activeChatID = '';
   let activeChatData = null;
+  let chatAttachmentItems = [];
+  let chatDraftFiles = [];
+  let chatSearchTerm = '';
+  let chatSending = false;
+  let chatRepositories = [];
+  let chatAgents = [];
+  let chatRuntimes = [];
+  let chatRuntimeDiscoveryComplete = false;
+  let chatResourceRequest = 0;
+  let chatStateRequest = 0;
+  let chatCreateRequest = 0;
+  let chatCreateProjectDraft = '';
+  let chatCreateAgentDraft = '';
+  let chatPendingCreateID = '';
+  let chatPendingCreateProjectID = '';
+  let chatPendingCreateAgentID = '';
+  let chatCreatingProjectID = '';
+  let chatCreatingAgentID = '';
+  const chatCreationBindings = new Map();
+
+  function releaseChatDraftFile(item) {
+    if (item?.previewURL) URL.revokeObjectURL(item.previewURL);
+  }
+
+  function clearChatDraftFiles() {
+    chatDraftFiles.forEach(releaseChatDraftFile);
+    chatDraftFiles = [];
+  }
+
+  function addChatDraftFiles(files) {
+    const existing = new Set(chatDraftFiles.map(item => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
+    for (const [index, file] of Array.from(files || []).entries()) {
+      if (!file || !file.name) continue;
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+      chatDraftFiles.push({file, previewURL: file.type.startsWith('image/') ? URL.createObjectURL(file) : ''});
+    }
+    renderChatPage();
+  }
+
+  function chatProject() {
+    const projectID = activeChatData?.chat?.project_id;
+    return [...chatRepositories, ...repositories].find(item => item.id === projectID);
+  }
+
+  function chatAgent() {
+    const agentID = activeChatData?.chat?.agent_id;
+    return [...chatAgents, ...nativeAgents].find(item => item.id === agentID);
+  }
+
+  function chatAttachmentTile(item, index, draft = false) {
+    const file = draft ? item.file : item;
+    const mediaType = file.type || file.media_type || '';
+    const image = mediaType.startsWith('image/');
+    const url = draft ? item.previewURL : attachmentContentURL(item);
+    const title = file.name || file.filename || t('attachmentFile');
+    const remove = draft ? `<button type="button" class="chat-attachment-remove" data-chat-remove-file="${index}" aria-label="${escapeHTML(t('chatRemoveFile'))}" title="${escapeHTML(t('chatRemoveFile'))}">×</button>` : '';
+    const preview = url ? `data-attachment-url="${escapeHTML(url)}" data-attachment-title="${escapeHTML(title)}"` : '';
+    return `<div class="chat-attachment-tile ${image ? 'is-image' : ''} ${url ? 'is-previewable' : ''}" ${preview} role="${url ? 'button' : 'group'}" tabindex="${url ? '0' : '-1'}">${image && url ? `<img src="${escapeHTML(url)}" alt="${escapeHTML(title)}">` : `<span class="chat-attachment-icon">${image ? 'IMG' : 'FILE'}</span>`}<span class="chat-attachment-copy"><strong>${escapeHTML(title)}</strong><small>${escapeHTML(image ? t('attachmentImage') : formatBytes(file.size || file.size_bytes || 0))}</small></span>${remove}</div>`;
+  }
+
+  function setChatContextSelectValue(selector, value, label) {
+    const select = $(selector);
+    const normalized = String(value || '').trim();
+    if (!select || !normalized) return;
+    if (![...select.options].some(option => option.value === normalized)) {
+      select.append(new Option(label || normalized, normalized));
+    }
+    select.value = normalized;
+  }
+
+  function chatAgentOptionMarkup(items) {
+    return items.filter(item => item.status === 'active').map(item => {
+      const runtimeID = item.executor_binding?.runtime_id || 'local';
+      const runtime = chatRuntimes.find(candidate => candidate.id === runtimeID);
+      const unavailable = chatRuntimeDiscoveryComplete && (!runtime || !runtime.installed || !runtime.adapter_available);
+      const unavailableLabel = unavailable ? ` · ${t(!runtime || !runtime.installed ? 'notInstalled' : 'adapterUnavailable')}` : '';
+      return `<option value="${escapeHTML(item.id)}" ${unavailable ? 'disabled' : ''}>${escapeHTML(item.name || item.id)} · ${escapeHTML(runtimeID)}${escapeHTML(unavailableLabel)}</option>`;
+    }).join('');
+  }
+
+  function chatMessageHTML(item) {
+    const attachments = (item.attachment_ids || []).map(id => chatAttachmentItems.find(candidate => candidate.id === id)).filter(Boolean);
+    const attachmentMarkup = attachments.length ? `<div class="chat-message-attachments">${attachments.map(attachment => chatAttachmentTile(attachment, 0)).join('')}</div>` : '';
+    const fallback = item.attachment_ids?.length && !attachments.length ? `<small class="chat-message-attachment-count">${escapeHTML(String(item.attachment_ids.length))} ${escapeHTML(t('attachments'))}</small>` : '';
+    const isAssistant = item.role === 'assistant';
+    const agent = chatAgent();
+    return `<article class="chat-message ${isAssistant ? 'assistant' : 'user'}"><header><span class="chat-message-author"><i class="chat-avatar ${isAssistant ? 'agent' : 'human'}">${isAssistant ? 'AI' : 'ME'}</i><b>${escapeHTML(isAssistant ? (agent?.name || 'Agent') : 'You')}</b></span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${attachmentMarkup || fallback}</article>`;
+  }
 
   function renderChatPage() {
     $('#pageTitle').textContent = t('chats');
     $('#pageSubtitle').textContent = t('chatSubtitle');
     $('#pageActions').innerHTML = `<button class="primary" id="chatNew"><span aria-hidden="true">＋</span>${escapeHTML(t('newChat'))}</button>`;
-    const list = chats.map(item => {
-      const agent = nativeAgents.find(candidate => candidate.id === item.agent_id);
-      const detail = [item.project_id || t('project'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
-      return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(detail)}</small></button>`;
+    const visibleChats = chats.filter(item => `${item.title || ''} ${item.project_id || ''}`.toLowerCase().includes(chatSearchTerm.toLowerCase()));
+    const list = visibleChats.map(item => {
+      const agent = [...chatAgents, ...nativeAgents].find(candidate => candidate.id === item.agent_id);
+      const project = [...chatRepositories, ...repositories].find(candidate => candidate.id === item.project_id);
+      const detail = [project?.canonical_name || item.project_id || t('chatNoProject'), agent?.name || item.runtime_id || 'local'].filter(Boolean).join(' · ');
+      return `<button type="button" class="chat-list-item ${item.id === activeChatID ? 'active' : ''}" data-chat-id="${escapeHTML(item.id)}"><span class="chat-list-item-top"><i class="chat-list-dot"></i><small>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</small></span><strong>${escapeHTML(item.title)}</strong><small class="chat-list-meta">${escapeHTML(detail)}</small></button>`;
     }).join('');
     const messages = activeChatData?.messages || [];
-    const messageHTML = messages.length ? messages.map(item => `<article class="chat-message ${item.role === 'user' ? 'user' : 'assistant'}"><header><span>${escapeHTML(item.role)}</span><time>${escapeHTML(new Date(item.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour: '2-digit', minute: '2-digit'}))}</time></header><p>${escapeHTML(item.content)}</p>${item.attachment_ids?.length ? `<small>${escapeHTML(item.attachment_ids.length)} ${escapeHTML(t('attachments'))}</small>` : ''}</article>`).join('') : `<p class="chat-empty">${escapeHTML(t('noMessages'))}</p>`;
-    const projectOptions = repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('');
-    const agentOptions = nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('');
-    const selectedAgent = activeChatData?.chat?.agent_id || '';
+    const messageHTML = messages.length ? messages.map(chatMessageHTML).join('') : `<div class="chat-empty-state"><div class="chat-empty-orbit"><span></span><b>✦</b></div><h2>${escapeHTML(t('chatEmptyTitle'))}</h2><p>${escapeHTML(t('chatEmptyBody'))}</p><div class="chat-suggestions"><span>${escapeHTML(t('chatSuggested'))}</span>${[t('chatSuggestionOne'), t('chatSuggestionTwo'), t('chatSuggestionThree')].map(text => `<button type="button" data-chat-suggestion="${escapeHTML(text)}">${escapeHTML(text)}</button>`).join('')}</div></div>`;
+    const projectSourceItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const agentSourceItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const pendingProject = activeChatID === chatPendingCreateID ? chatPendingCreateProjectID : '';
+    const creatingProject = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingProjectID : '';
+    const creationBinding = activeChatID ? chatCreationBindings.get(activeChatID) : null;
+    const selectedProject = creationBinding?.projectID || pendingProject || creatingProject || activeChatData?.chat?.project_id || '';
+    const selectedProjectKnown = projectSourceItems.some(item => item.id === selectedProject);
+    const projectOptions = `${selectedProject && !selectedProjectKnown ? `<option value="${escapeHTML(selectedProject)}">${escapeHTML(selectedProject)}</option>` : ''}${projectSourceItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
+    const agentOptions = chatAgentOptionMarkup(agentSourceItems);
+    const pendingAgent = activeChatID === chatPendingCreateID ? chatPendingCreateAgentID : '';
+    const creatingAgent = activeChatID && activeChatID === chatPendingCreateID ? chatCreatingAgentID : '';
+    const selectedAgent = creationBinding?.agentID || pendingAgent || creatingAgent || activeChatData?.chat?.agent_id || '';
+    const project = chatProject();
+    const agent = chatAgent();
     const runtimeLabel = activeChatData?.chat?.runtime_id || 'local';
     const continuityLabel = activeChatData?.chat?.continuity_mode === 'native_session' ? t('chatNativeContinuity') : activeChatData?.chat?.provider_session_id ? t('chatCompiledContinuity') : t('chatReadyContinuity');
-    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><strong>${escapeHTML(t('chats'))}</strong><span>${escapeHTML(chats.length)} ${escapeHTML(t('items'))}</span></div><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><div class="chat-panel-meta"><span>${escapeHTML(t('chatRuntime'))}: <strong>${escapeHTML(runtimeLabel)}</strong></span><span>${escapeHTML(continuityLabel)}</span></div><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer"><div class="chat-compose-meta"><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatProject'))}</option>${projectOptions}</select><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatAgent'))}</option>${agentOptions}</select><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}">＋ <input id="chatFiles" type="file" multiple hidden></label></div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-actions"><span id="chatComposerStatus" role="status"></span><button class="primary" type="submit">${escapeHTML(t('sendMessage'))}</button></div></form></section></div>`;
-    if ($('#chatProject') && activeChatData?.chat?.project_id) $('#chatProject').value = activeChatData.chat.project_id;
-    if ($('#chatAgent')) $('#chatAgent').value = selectedAgent;
-    if ($('#chatAgent') && activeChatData?.chat) {
-      $('#chatAgent').onchange = async event => {
-        try {
-          await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({agent_id: event.currentTarget.value})});
-          await loadChatDetail(activeChatID);
-        } catch (_) {
-          event.currentTarget.value = selectedAgent;
-        }
-      };
-    }
-    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { activeChatID = button.dataset.chatId; loadChatDetail(activeChatID); }; });
+    const contextFiles = chatAttachmentItems.length ? chatAttachmentItems.map(item => chatAttachmentTile(item, 0)).join('') : `<p class="chat-context-empty">${escapeHTML(t('chatNoFiles'))}</p>`;
+    const projectSource = project?.metadata?.local_path || project?.clone_url || project?.canonical_name || '-';
+    $('#appView').innerHTML = `<div class="chat-workspace"><aside class="chat-sidebar"><div class="chat-sidebar-head"><div><span class="chat-eyebrow">${escapeHTML(t('chatWorkspace'))}</span><strong>${escapeHTML(t('chatRecent'))}</strong></div><span class="chat-count">${escapeHTML(String(chats.length).padStart(2, '0'))}</span></div><label class="chat-search"><span aria-hidden="true">⌕</span><input id="chatSearch" type="search" value="${escapeHTML(chatSearchTerm)}" placeholder="${escapeHTML(t('chatSearchPlaceholder'))}" aria-label="${escapeHTML(t('chatSearchPlaceholder'))}"></label><div class="chat-list">${list || `<p class="chat-empty">${escapeHTML(t('noChats'))}</p>`}</div></aside><section class="chat-panel"><header class="chat-panel-head"><div class="chat-panel-title"><span class="chat-eyebrow">${escapeHTML(t('chatConversation'))} / ${escapeHTML(activeChatData?.chat?.id?.slice(0, 8) || 'NEW')}</span><h2>${escapeHTML(activeChatData?.chat?.title || t('chatWorkspace'))}</h2><div class="chat-context-line"><span class="chat-status-pulse"></span>${escapeHTML(continuityLabel)}<span>·</span>${escapeHTML(runtimeLabel)}</div></div><div class="chat-panel-actions"><span class="chat-live-pill"><i></i>${escapeHTML(t('chatPersisted'))}</span><button type="button" class="icon-button" id="chatNewTop" title="${escapeHTML(t('newChat'))}" aria-label="${escapeHTML(t('newChat'))}">＋</button></div></header><div class="chat-history" id="chatHistory">${messageHTML}</div><form id="chatComposer" class="chat-composer" data-chat-dropzone="true"><div class="chat-drop-hint">${escapeHTML(t('chatDropHint'))}</div><div class="chat-draft-files" id="chatDraftFiles">${chatDraftFiles.map((item, index) => chatAttachmentTile(item, index, true)).join('')}</div><textarea id="chatInput" required placeholder="${escapeHTML(t('chatMessagePlaceholder'))}"></textarea><div class="chat-compose-footer"><div class="chat-compose-context"><label class="chat-select-control"><span>${escapeHTML(t('chatProject'))}</span><select id="chatProject" aria-label="${escapeHTML(t('chatProject'))}"><option value="">${escapeHTML(t('chatChooseProject'))}</option>${projectOptions}</select></label><label class="chat-select-control"><span>${escapeHTML(t('chatAgent'))}</span><select id="chatAgent" aria-label="${escapeHTML(t('chatAgent'))}"><option value="">${escapeHTML(t('chatNoAgent'))}</option>${agentOptions}</select></label></div><div class="chat-compose-actions"><label class="chat-file-label" title="${escapeHTML(t('chatAttachments'))}"><span aria-hidden="true">⊕</span><span>${escapeHTML(t('chatAttachments'))}</span><input id="chatFiles" type="file" multiple hidden></label><span id="chatComposerStatus" role="status"></span><button class="primary chat-send" type="submit" ${chatSending ? 'disabled' : ''}><span>${escapeHTML(chatSending ? t('chatSending') : t('sendMessage'))}</span><b aria-hidden="true">↗</b></button></div></div></form></section><aside class="chat-context-panel"><div class="chat-context-header"><span class="chat-eyebrow">${escapeHTML(t('chatContext'))}</span><span class="chat-context-signal"><i></i>LIVE</span></div><div class="chat-project-card"><span class="chat-project-glyph">${project ? '◎' : '○'}</span><div><small>${escapeHTML(t('chatProjectContext'))}</small><strong>${escapeHTML(project?.canonical_name || t('chatNoProject'))}</strong></div></div><div class="chat-context-block"><span>${escapeHTML(t('chatProjectReady'))}</span><strong>${escapeHTML(projectSource)}</strong></div><div class="chat-context-block"><span>${escapeHTML(t('chatAgentReady'))}</span><strong>${escapeHTML(agent?.name || t('chatNoAgent'))}</strong><small>${escapeHTML(agent?.executor_binding?.runtime_id || runtimeLabel)}</small></div><div class="chat-context-files"><div class="chat-context-block-head"><span>${escapeHTML(t('chatProjectFiles'))}</span><b>${escapeHTML(String(chatAttachmentItems.length))}</b></div>${contextFiles}</div><div class="chat-context-foot"><span class="chat-mini-ring"></span><div><strong>${escapeHTML(t('chatRuntimeState'))}</strong><small>${escapeHTML(continuityLabel)}</small></div></div></aside></div>`;
+    setChatContextSelectValue('#chatProject', selectedProject);
+    setChatContextSelectValue('#chatAgent', selectedAgent);
+    if ($('#chatProject') && activeChatData?.chat) $('#chatProject').onchange = event => {
+      const binding = chatCreationBindings.get(activeChatID) || {};
+      chatCreationBindings.set(activeChatID, {...binding, projectID: event.currentTarget.value});
+      persistChatField('project_id', event.currentTarget.value, activeChatData.chat.project_id || '');
+    };
+    if ($('#chatAgent') && activeChatData?.chat) $('#chatAgent').onchange = event => {
+      const binding = chatCreationBindings.get(activeChatID) || {};
+      chatCreationBindings.set(activeChatID, {...binding, agentID: event.currentTarget.value});
+      persistChatField('agent_id', event.currentTarget.value, selectedAgent);
+    };
+    $('#chatSearch').oninput = event => { chatSearchTerm = event.currentTarget.value; renderChatPage(); focusIfPresent('#chatSearch'); const input = $('#chatSearch'); if (input) input.setSelectionRange(chatSearchTerm.length, chatSearchTerm.length); };
+    document.querySelectorAll('[data-chat-id]').forEach(button => { button.onclick = () => { if (button.dataset.chatId === activeChatID) return; clearChatDraftFiles(); chatPendingCreateID = ''; chatPendingCreateProjectID = ''; chatPendingCreateAgentID = ''; chatCreatingProjectID = ''; chatCreatingAgentID = ''; activeChatID = button.dataset.chatId; const requestID = ++chatStateRequest; void loadChatDetail(activeChatID, null, requestID); }; });
     $('#chatNew').onclick = showChatCreateDialog;
+    $('#chatNewTop').onclick = showChatCreateDialog;
     $('#chatComposer').onsubmit = sendChatFromUI;
+    const fileInput = $('#chatFiles');
+    if (fileInput) fileInput.onchange = event => { addChatDraftFiles(event.currentTarget.files); event.currentTarget.value = ''; };
+    document.querySelectorAll('[data-chat-remove-file]').forEach(button => { button.onclick = event => { event.stopPropagation(); const index = Number(button.dataset.chatRemoveFile); releaseChatDraftFile(chatDraftFiles[index]); chatDraftFiles.splice(index, 1); renderChatPage(); }; });
+    document.querySelectorAll('[data-chat-suggestion]').forEach(button => { button.onclick = () => { const input = $('#chatInput'); if (input) { input.value = button.dataset.chatSuggestion; input.focus(); } }; });
+    const dropZone = $('#chatComposer');
+    if (dropZone) {
+      dropZone.ondragover = event => { event.preventDefault(); dropZone.classList.add('is-dragging'); };
+      dropZone.ondragleave = event => { if (!dropZone.contains(event.relatedTarget)) dropZone.classList.remove('is-dragging'); };
+      dropZone.ondrop = event => { event.preventDefault(); dropZone.classList.remove('is-dragging'); addChatDraftFiles(event.dataTransfer?.files || []); };
+      $('#chatInput').onpaste = event => { const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean); if (files.length) { event.preventDefault(); addChatDraftFiles(files); } };
+      $('#chatInput').oninput = event => { event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 220)}px`; };
+    }
   }
 
-  async function loadChatDetail(id) {
-    try { activeChatData = await api(`/api/v1/chats/${encodeURIComponent(id)}`); renderChatPage(); } catch (_) { activeChatData = null; renderChatPage(); }
+  async function persistChatField(field, value, previous) {
+    const status = $('#chatComposerStatus');
+    try {
+      if (!activeChatID) return;
+      if (activeChatData?.chat) activeChatData.chat[field] = value;
+      if (status) status.textContent = '...';
+      const saved = await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[field]: value})});
+      if (activeChatData?.chat) activeChatData.chat = saved;
+      renderChatPage();
+    } catch (_) {
+      if (activeChatData?.chat) activeChatData.chat[field] = previous;
+      renderChatPage();
+      if ($('#chatComposerStatus')) $('#chatComposerStatus').textContent = t('chatSendFailed');
+    }
+  }
+
+  async function loadChatDetail(id, fallbackChat = null, requestID = chatStateRequest, creationRequestID = 0) {
+    const isCurrent = () => id === activeChatID && (creationRequestID ? creationRequestID === chatCreateRequest : requestID === chatStateRequest && !chatPendingCreateID);
+    try {
+      const [detail, attachments] = await Promise.all([api(`/api/v1/chats/${encodeURIComponent(id)}`), api(`/api/v1/attachments?owner_type=chat_session&owner_id=${encodeURIComponent(id)}`)]);
+      if (!isCurrent()) return;
+      const chat = {...(fallbackChat || {}), ...(detail?.chat || {})};
+      for (const field of ['project_id', 'agent_id', 'title']) {
+        if (!chat[field] && fallbackChat?.[field]) chat[field] = fallbackChat[field];
+      }
+      const creationBinding = chatCreationBindings.get(id);
+      if (creationBinding) {
+        if (!chat.project_id && creationBinding.projectID) chat.project_id = creationBinding.projectID;
+        if (!chat.agent_id && creationBinding.agentID) chat.agent_id = creationBinding.agentID;
+      }
+      activeChatData = {...detail, chat};
+      chatAttachmentItems = attachments?.items || [];
+      renderChatPage();
+      requestAnimationFrame(() => { const history = $('#chatHistory'); if (history) history.scrollTop = history.scrollHeight; });
+    } catch (_) {
+      if (!isCurrent()) return;
+      activeChatData = fallbackChat ? {chat: fallbackChat, messages: []} : null;
+      chatAttachmentItems = [];
+      renderChatPage();
+    }
   }
 
   async function loadChatList() {
+    const requestID = ++chatStateRequest;
     try {
       const response = await api('/api/v1/chats');
-      chats = response.items || [];
+      if (requestID !== chatStateRequest) return;
+      const serverChats = response.items || [];
+      const pendingChat = chatPendingCreateID && chats.find(item => item.id === chatPendingCreateID);
+      const optimisticActiveChat = activeChatID && chatCreationBindings.has(activeChatID) ? chats.find(item => item.id === activeChatID) : null;
+      const optimisticChat = pendingChat || optimisticActiveChat;
+      const mergedChats = optimisticChat
+        ? serverChats.map(item => item.id === optimisticChat.id ? {
+          ...optimisticChat,
+          ...item,
+          project_id: item.project_id || optimisticChat.project_id,
+          agent_id: item.agent_id || optimisticChat.agent_id
+        } : item)
+        : serverChats;
+      chats = optimisticChat && !mergedChats.some(item => item.id === optimisticChat.id) ? [optimisticChat, ...mergedChats] : mergedChats;
+      if (chatPendingCreateID) {
+        if (!chats.some(item => item.id === chatPendingCreateID)) chats = [pendingChat, ...chats].filter(Boolean);
+        renderChatPage();
+        return;
+      }
+      if (activeChatID && !chats.some(item => item.id === activeChatID) && !chatCreationBindings.has(activeChatID)) { activeChatID = ''; clearChatDraftFiles(); }
       if (!activeChatID && chats[0]) activeChatID = chats[0].id;
-      if (activeChatID) await loadChatDetail(activeChatID); else { activeChatData = null; renderChatPage(); }
-    } catch (_) { renderChatPage(); }
+      if (activeChatID) await loadChatDetail(activeChatID, chats.find(item => item.id === activeChatID) || null, requestID); else { activeChatData = null; renderChatPage(); }
+    } catch (_) {
+      if (requestID === chatStateRequest) renderChatPage();
+    }
   }
 
-  function showChatCreateDialog() {
+  async function showChatCreateDialog() {
     const projectSelect = $('#chatCreateProject');
     const agentSelect = $('#chatCreateAgent');
     const form = $('#chatCreateForm');
     if (!projectSelect || !agentSelect || !form) return;
-    projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${repositories.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
-    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${nativeAgents.filter(item => item.status === 'active').map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name || item.id)} · ${escapeHTML(item.executor_binding?.runtime_id || 'local')}</option>`).join('')}`;
     form.reset();
+    chatCreateProjectDraft = '';
+    chatCreateAgentDraft = '';
     $('#chatCreateError').textContent = '';
     $('#chatCreateDialog').showModal();
     setTimeout(() => focusIfPresent('#chatCreateTitle'), 0);
+
+    const requestID = ++chatResourceRequest;
+    projectSelect.disabled = true;
+    agentSelect.disabled = true;
+    projectSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('loading'))}</option>`;
+    projectSelect.onchange = event => { chatCreateProjectDraft = String(event.currentTarget.value || '').trim(); };
+    agentSelect.onchange = event => { chatCreateAgentDraft = String(event.currentTarget.value || '').trim(); };
+    const [projectResult, agentResult, runtimeResult] = await Promise.allSettled([
+      api('/api/v1/repositories'),
+      api('/api/v1/workspaces/local/agents'),
+      api('/api/v1/runtimes/discovered')
+    ]);
+    if (requestID !== chatResourceRequest || !$('#chatCreateDialog')?.open) return;
+    if (projectResult.status === 'fulfilled') chatRepositories = projectResult.value.items || [];
+    if (agentResult.status === 'fulfilled') chatAgents = agentResult.value.items || [];
+    chatRuntimeDiscoveryComplete = runtimeResult.status === 'fulfilled';
+    chatRuntimes = chatRuntimeDiscoveryComplete ? (runtimeResult.value.items || []) : [];
+    const projectItems = [...chatRepositories, ...repositories].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    const agentItems = [...chatAgents, ...nativeAgents].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index);
+    projectSelect.innerHTML = `<option value="">${escapeHTML(t('chatProject'))}</option>${projectItems.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.canonical_name || item.id)}</option>`).join('')}`;
+    agentSelect.innerHTML = `<option value="">${escapeHTML(t('chatAgent'))}</option>${chatAgentOptionMarkup(agentItems)}`;
+    projectSelect.disabled = false;
+    agentSelect.disabled = false;
   }
 
   function closeChatCreateDialog() {
@@ -2731,23 +3331,87 @@
   async function createChatFromUI() {
     const title = String($('#chatCreateTitle')?.value || '').trim();
     if (!title) return;
-    const projectID = $('#chatCreateProject')?.value || '';
-    const agentID = $('#chatCreateAgent')?.value || '';
+    const projectID = chatCreateProjectDraft || String($('#chatCreateProject')?.value || '').trim();
+    const agentID = chatCreateAgentDraft || String($('#chatCreateAgent')?.value || '').trim();
     const submit = $('#chatCreateForm button[type="submit"]');
     if (submit) submit.disabled = true;
     $('#chatCreateError').textContent = '';
+    const creationRequestID = ++chatCreateRequest;
+    ++chatStateRequest;
+    chatCreatingProjectID = projectID;
+    chatCreatingAgentID = agentID;
+    let created;
+    const requestKey = idempotencyKey();
+    const requestBody = JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()});
+    const createChatRequest = (signal) => api('/api/v1/chats', {method: 'POST', ...(signal ? {signal} : {}), headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: requestBody});
+    const requestController = new AbortController();
+    const requestTimeout = setTimeout(() => requestController.abort(), 10000);
     try {
-      const created = await api('/api/v1/chats', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({workspace_id: 'local', project_id: projectID, agent_id: agentID, title: title.trim()})});
-      chats = [created, ...chats.filter(item => item.id !== created.id)];
-      activeChatID = created.id;
-      closeChatCreateDialog();
-      $('#chatCreateForm').reset();
-      await loadChatDetail(activeChatID);
+      created = await createChatRequest(requestController.signal);
+      const record = created?.chat || created?.item || created?.data || created;
+      if (!record?.id) throw new Error('chat creation response did not include an id');
+      created = record;
     } catch (_) {
-      $('#chatCreateError').textContent = t('chatCreateFailed');
+      // The POST may have committed before the browser lost its response body.
+      // Replaying the same key asks the API for the durable response and avoids
+      // guessing the new session from a title or a stale list snapshot.
+      try {
+        const replay = await createChatRequest();
+        created = replay?.chat || replay?.item || replay?.data || replay;
+        if (!created?.id) throw new Error('chat creation replay did not include an id');
+      } catch (_) {
+        // A replay can race the first request's persistence. Keep a bounded
+        // authoritative-list fallback for that narrow window.
+        try {
+          for (let attempt = 0; attempt < 20 && !created?.id; attempt += 1) {
+            if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 250));
+            const response = await api('/api/v1/chats');
+            const items = Array.isArray(response?.items) ? response.items : [];
+            const matches = items.filter(item => item.title === title && (!projectID || item.project_id === projectID) && (!agentID || item.agent_id === agentID));
+            created = matches.sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+          }
+          if (!created?.id) throw new Error('chat creation recovery did not find a session');
+        } catch (_) {
+          $('#chatCreateError').textContent = t('chatCreateFailed');
+          chatCreatingProjectID = '';
+          chatCreatingAgentID = '';
+          return;
+        }
+      }
     } finally {
+      clearTimeout(requestTimeout);
       if (submit) submit.disabled = false;
     }
+    const createdWithContext = {
+      ...created,
+      id: String(created.id),
+      title: created.title || title,
+      project_id: String(created.project_id || projectID),
+      agent_id: String(created.agent_id || agentID)
+    };
+    chatCreationBindings.set(createdWithContext.id, {projectID, agentID});
+    chats = [createdWithContext, ...chats.filter(item => item.id !== createdWithContext.id)];
+    activeChatID = createdWithContext.id;
+    chatPendingCreateID = createdWithContext.id;
+    chatPendingCreateProjectID = projectID;
+    chatPendingCreateAgentID = agentID;
+    activeChatData = {chat: createdWithContext, messages: []};
+    chatAttachmentItems = [];
+    closeChatCreateDialog();
+    $('#chatCreateForm').reset();
+    renderChatPage();
+    setChatContextSelectValue('#chatProject', createdWithContext.project_id);
+    setChatContextSelectValue('#chatAgent', createdWithContext.agent_id);
+    const detailLoad = loadChatDetail(activeChatID, createdWithContext, chatStateRequest, creationRequestID);
+    void detailLoad.then(() => {
+      if (creationRequestID !== chatCreateRequest || chatPendingCreateID !== createdWithContext.id) return;
+      chatPendingCreateID = '';
+      chatPendingCreateProjectID = '';
+      chatPendingCreateAgentID = '';
+      chatCreatingProjectID = '';
+      chatCreatingAgentID = '';
+      renderChatPage();
+    });
   }
 
   $('#closeChatCreateDialog').onclick = closeChatCreateDialog;
@@ -2758,29 +3422,160 @@
   async function sendChatFromUI(event) {
     event.preventDefault();
     if (!activeChatID) { showChatCreateDialog(); return; }
-    const form = event.currentTarget; const input = $('#chatInput'); const files = Array.from($('#chatFiles')?.files || []); const status = $('#chatComposerStatus');
+    const form = event.currentTarget; const input = $('#chatInput'); const files = chatDraftFiles.map(item => item.file); const status = $('#chatComposerStatus');
+    if (!String(input?.value || '').trim()) return;
+    chatSending = true;
+    renderChatPage();
     const attachmentIDs = [];
     try {
-      status.textContent = '';
       for (const file of files) { const payload = new FormData(); payload.append('owner_type', 'chat_session'); payload.append('owner_id', activeChatID); payload.append('file', file); const attachment = await api('/api/v1/attachments', {method: 'POST', body: payload}); attachmentIDs.push(attachment.id); }
       await api(`/api/v1/chats/${encodeURIComponent(activeChatID)}/messages`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({content: input.value, attachment_ids: attachmentIDs})});
-      form.reset(); await loadChatDetail(activeChatID);
+      form.reset(); clearChatDraftFiles(); chatSending = false; await loadChatDetail(activeChatID);
     } catch (_) {
       // The user turn is durable before provider execution starts. Reload the
       // authoritative transcript so a provider failure does not make the
       // message appear lost in the browser.
+      chatSending = false;
       await loadChatDetail(activeChatID);
-      status.textContent = t('chatSendFailed');
+      if ($('#chatComposerStatus')) $('#chatComposerStatus').textContent = t('chatSendFailed');
     }
   }
+
+  function executionPlanStatus(plan, projection) {
+    const terminal = projection?.terminal_outcome || projection?.status;
+    return String(terminal || plan?.status || 'draft').toLowerCase();
+  }
+
+  function executionNodeStatus(projection, nodeID) {
+    return String(projection?.nodes?.[nodeID]?.status || 'pending').toLowerCase();
+  }
+
+  function executionNodeLabel(node) {
+    if (node.kind === 'agent') {
+      const ref = node.agent_ref?.id;
+      return nativeAgents.find(item => item.id === ref)?.name || ref || node.id;
+    }
+    if (node.kind === 'squad') {
+      const ref = node.squad_ref?.id;
+      return nativeSquads.find(item => item.id === ref)?.name || ref || node.id;
+    }
+    return node.kind || node.id;
+  }
+
+  function executionStatusClass(status) {
+    if (['passed', 'completed', 'success', 'succeeded'].includes(status)) return 'good';
+    if (['failed', 'cancelled', 'timed_out', 'blocked'].includes(status)) return 'bad';
+    if (['running', 'ready', 'waiting'].includes(status)) return 'active';
+    return 'warn';
+  }
+
+  function executionPlanCard(plan, selected) {
+    const requirement = requirements.find(item => item.id === plan.requirement_id);
+    const cache = executionTimelineCache.get(plan.id) || {};
+    const projection = cache.projection;
+    const status = executionPlanStatus(plan, projection);
+    const graph = plan.graph_snapshot || {};
+    const target = plan.selected_ref?.id || '-';
+    return `<button type="button" class="execution-plan-card ${selected ? 'selected' : ''}" data-execution-plan-id="${escapeHTML(plan.id)}"><span class="execution-plan-card-top"><span class="mono">${escapeHTML((plan.id || '').slice(0, 12))}</span><span class="status ${executionStatusClass(status)}">${escapeHTML(status)}</span></span><strong>${escapeHTML(requirement?.title || requirement?.key || plan.requirement_id || t('executionPlans'))}</strong><span class="execution-plan-card-meta">${escapeHTML(target)} · ${escapeHTML(String((graph.nodes || []).length))} ${escapeHTML(t('runNodes'))}</span></button>`;
+  }
+
+  function executionGraphHTML(plan, projection) {
+    const graph = plan?.graph_snapshot || {};
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    if (!nodes.length) return `<div class="execution-empty">${escapeHTML(t('runNoEvents'))}</div>`;
+    return `<div class="execution-graph-grid">${nodes.map((node, index) => { const status = executionNodeStatus(projection, node.id); return `<article class="execution-node ${executionStatusClass(status)}" style="--node-delay:${index * 55}ms"><div class="execution-node-orbit"><span></span></div><header><span class="mono">${escapeHTML(node.id || `node-${index + 1}`)}</span><span class="status ${executionStatusClass(status)}">${escapeHTML(status)}</span></header><strong>${escapeHTML(executionNodeLabel(node))}</strong><small>${escapeHTML(node.kind || 'node')} · ${escapeHTML(String(node.agent_ref?.revision || node.squad_ref?.version || graph.version || 0))}</small></article>`; }).join('')}</div>`;
+  }
+
+  function executionLogHTML(cache) {
+    const events = Array.isArray(cache?.events) ? cache.events : [];
+    if (!events.length) return `<div class="execution-log-empty"><span class="terminal-cursor">▋</span>${escapeHTML(t('runNoEvents'))}</div>`;
+    return events.map(event => {
+      const payload = event.payload ? (typeof event.payload === 'string' ? event.payload : JSON.stringify(event.payload)) : '';
+      const text = [event.event_type || event.type || 'event', event.node_id || '', payload].filter(Boolean).join('  ');
+      return `<div class="execution-log-line"><span class="execution-log-seq">${escapeHTML(String(event.sequence || ''))}</span><span class="execution-log-time">${escapeHTML(event.created_at ? new Date(event.created_at).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', {hour12: false}) : '--:--:--')}</span><code>${escapeHTML(text)}</code></div>`;
+    }).join('');
+  }
+
+  function executionEvidenceHTML(cache) {
+    const projection = cache?.projection || {};
+    const plan = cache?.plan || {};
+    const attempts = Array.isArray(projection.attempts) ? projection.attempts : [];
+    const eventCount = Array.isArray(cache?.events) ? cache.events.length : 0;
+    return `<div class="execution-evidence-list"><div><span>${escapeHTML(t('runStatus'))}</span><strong>${escapeHTML(executionPlanStatus(plan, projection))}</strong></div><div><span>${escapeHTML(t('runSelectedBy'))}</span><strong class="mono">${escapeHTML(plan.selected_ref?.id || '-')}</strong></div><div><span>${escapeHTML(t('runRevision'))}</span><strong class="mono">${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</strong></div><div><span>${escapeHTML(t('runEvents'))}</span><strong>${escapeHTML(String(eventCount))}</strong></div><div><span>${escapeHTML(t('runNodes'))}</span><strong>${escapeHTML(String(Object.keys(projection.nodes || {}).length || (plan.graph_snapshot?.nodes || []).length))}</strong></div><div><span>attempts</span><strong>${escapeHTML(String(attempts.length))}</strong></div></div><div class="execution-digest mono">${escapeHTML(t('runPlanHash'))}: ${escapeHTML(plan.plan_hash || '-')}</div>`;
+  }
+
+  async function loadExecutionTimeline(planID) {
+    if (!planID) return;
+    const current = executionTimelineCache.get(planID) || {};
+    executionTimelineCache.set(planID, {...current, loading: true});
+    if (currentView === 'executions') render();
+    try {
+      const response = await api(`/api/v1/execution-plans/${encodeURIComponent(planID)}/timeline`);
+      executionTimelineCache.set(planID, {...response, loading: false, fetchedAt: Date.now()});
+    } catch (_) {
+      executionTimelineCache.set(planID, {...current, loading: false, error: true});
+    }
+    if (currentView === 'executions') render();
+  }
+
+  window.adroOnStreamEvent = () => {
+    if (currentView !== 'executions' || !activeExecutionPlanID) return;
+    if (executionTimelineRefreshTimer) return;
+    executionTimelineRefreshTimer = setTimeout(() => {
+      executionTimelineRefreshTimer = null;
+      void loadExecutionTimeline(activeExecutionPlanID);
+    }, 120);
+  };
+
+  renderPipelines = function graphExecutionCockpit() {
+    const plans = nativePlans.slice().reverse();
+    if (!activeExecutionPlanID && plans[0]) activeExecutionPlanID = plans[0].id;
+    const activePlan = plans.find(item => item.id === activeExecutionPlanID) || plans[0];
+    if (activePlan && activePlan.id !== activeExecutionPlanID) activeExecutionPlanID = activePlan.id;
+    const cache = activePlan ? (executionTimelineCache.get(activePlan.id) || {}) : {};
+    const cards = plans.map(plan => executionPlanCard(plan, plan.id === activePlan?.id)).join('');
+    if (!activePlan) return `<div class="execution-cockpit view-stack"><section class="execution-hero"><div><span class="execution-kicker">GRAPH RUNNER / LOCAL RUNTIME</span><h2>${escapeHTML(t('executionCockpit'))}</h2><p>${escapeHTML(t('executionCockpitSubtitle'))}</p></div></section><div class="execution-empty-state"><div class="execution-empty-mark">∿</div><strong>${escapeHTML(t('runNoPlans'))}</strong><span>${escapeHTML(t('runNoStagePipeline'))}</span></div></div>`;
+    return `<div class="execution-cockpit view-stack"><section class="execution-hero"><div><span class="execution-kicker">GRAPH RUNNER / LOCAL RUNTIME <i></i></span><h2>${escapeHTML(t('executionCockpit'))}</h2><p>${escapeHTML(t('executionCockpitSubtitle'))}</p></div><div class="execution-hero-badge"><span class="terminal-cursor">▋</span>${escapeHTML(t('runLive'))}</div></section><div class="execution-plan-strip">${cards}</div><section class="execution-run-head"><div><span class="mono">${escapeHTML(activePlan.id)}</span><h3>${escapeHTML(requirements.find(item => item.id === activePlan.requirement_id)?.title || activePlan.requirement_id)}</h3><p>${escapeHTML(t('runNoStagePipeline'))}</p></div><button class="secondary" type="button" data-refresh-execution-plan="${escapeHTML(activePlan.id)}">↻ ${escapeHTML(t('runRefresh'))}</button></section><div class="execution-cockpit-grid"><section class="execution-graph-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runGraph'))}</span><small>${escapeHTML(String(activePlan.graph_snapshot?.nodes?.length || 0))} ${escapeHTML(t('runNodes'))}</small></div><span class="status ${executionStatusClass(executionPlanStatus(activePlan, cache.projection))}">${escapeHTML(executionPlanStatus(activePlan, cache.projection))}</span></div>${executionGraphHTML(activePlan, cache.projection)}</section><section class="execution-log-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runConsole'))}</span><small>${escapeHTML(String(cache.events?.length || 0))} ${escapeHTML(t('runEvents'))}</small></div><span class="execution-live-dot"></span></div><div class="execution-log" aria-live="polite">${executionLogHTML(cache)}</div></section></div><section class="execution-evidence-panel"><div class="execution-panel-head"><div><span>${escapeHTML(t('runEvidence'))}</span><small>${escapeHTML(activePlan.selected_ref?.id || '-')}</small></div></div>${executionEvidenceHTML({...cache, plan: activePlan})}</section></div>`;
+  };
+
+  document.addEventListener('click', event => {
+    const planButton = event.target.closest?.('[data-execution-plan-id]');
+    if (planButton) {
+      activeExecutionPlanID = planButton.dataset.executionPlanId;
+      render();
+      void loadExecutionTimeline(activeExecutionPlanID);
+      return;
+    }
+    const refresh = event.target.closest?.('[data-refresh-execution-plan]');
+    if (refresh) void loadExecutionTimeline(refresh.dataset.refreshExecutionPlan);
+  });
 
   const baseRender = render;
   render = function enhancedRender() {
     // Core polling refreshes the shared data model every 20 seconds. Keep an
     // active chat DOM stable during that refresh; chat-specific operations
     // already reload the transcript and own their render cycle.
-    if (currentView === 'chats' && $('#chatComposer')) return;
+    if (currentView === 'chats' && ($('#chatComposer' || $('#chatCreateDialog')?.open))) return;
     baseRender();
+    if (currentView === 'delivery') {
+      $('#pageTitle').textContent = t('deliveryTitle');
+      $('#pageSubtitle').textContent = t('deliverySubtitle');
+      $('#pageActions').innerHTML = `<button class="primary" id="newRequirement"><span aria-hidden="true">＋</span>${escapeHTML(t('deliveryCreate'))}</button>`;
+      $('#appView').innerHTML = renderDelivery();
+      $('#newRequirement').onclick = () => showDialog('requirement');
+      bindDeliveryView();
+    }
+    if (currentView === 'executions') {
+      $('#pageTitle').textContent = t('deliveryTitle');
+      $('#pageSubtitle').textContent = t('executionCockpitSubtitle');
+      $('#pageActions').innerHTML = `<button class="secondary" id="deliveryBack" type="button">← ${escapeHTML(t('deliveryBack'))}</button>`;
+      $('#deliveryBack').onclick = () => {
+        currentView = 'delivery';
+        applyMenuAccess();
+        render();
+      };
+      if (activeExecutionPlanID && !executionTimelineCache.has(activeExecutionPlanID)) void loadExecutionTimeline(activeExecutionPlanID);
+    }
     if (currentView === 'chats') renderChatPage();
   };
   const chatNav = document.querySelector('[data-view="chats"]');

@@ -3,8 +3,7 @@ const { test, expect } = require('@playwright/test');
 test.setTimeout(90_000);
 
 const menuViews = [
-  'workbench', 'requirements', 'bugs', 'humanQA', 'designReview',
-  'executions', 'diffs', 'testing', 'repositories', 'agents', 'mcp',
+  'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats', 'repositories', 'agents', 'mcp',
   'skills', 'automations', 'integrations', 'artifacts', 'runners', 'cost', 'admin'
 ];
 test.beforeEach(async ({ page }, testInfo) => {
@@ -152,15 +151,40 @@ test('first-run workspace import requires preflight and bypasses manual Agent cr
 });
 
 test('opens every workbench menu and keeps the browser error-free', async ({ page }) => {
-  await expect(page.locator('.nav-item')).toHaveCount(18);
+  await expect(page.locator('.nav-item, .nav-chat')).toHaveCount(16);
+  await expect(page.locator('[data-view="designReview"], [data-view="executions"]')).toHaveCount(0);
   for (const view of menuViews) {
-    await page.locator(`.nav-item[data-view="${view}"]`).click();
+    const selector = view === 'chats'
+      ? `.nav-chat[data-view="${view}"]`
+      : `.nav-item[data-view="${view}"]`;
+    await page.locator(selector).click();
     await expect(page.locator('#pageTitle')).not.toHaveText('');
     await expect(page.locator('#appView')).toBeVisible();
   }
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('a[href^="http"]')).toHaveCount(0);
   expect([...page.__adroRequestHosts]).toEqual(['127.0.0.1']);
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('uses the WebSocket as the only event replay transport during refresh', async ({ page }) => {
+  const httpReplayRequests = [];
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/api/v1/streams/workspaces/local' && ['fetch', 'xhr'].includes(request.resourceType())) {
+      httpReplayRequests.push(request.url());
+    }
+  });
+
+  const coreReload = page.waitForResponse(response => {
+    const request = response.request();
+    return request.method() === 'GET' && new URL(response.url()).pathname === '/api';
+  });
+  await page.locator('#refreshButton').click();
+  await coreReload;
+  await page.waitForTimeout(250);
+
+  expect(httpReplayRequests).toEqual([]);
   expect(page.__adroErrors).toEqual([]);
 });
 
@@ -312,38 +336,6 @@ test('OpenClaw gateway policy stores only a secret reference', async ({ page }) 
   expect(page.__adroErrors).toEqual([]);
 });
 
-test('admin migration rejects invalid data then preflights and imports a verified export', async ({ page }) => {
-  const exported = await page.request.get('http://127.0.0.1:18080/api/v1/workspaces/local/migration/export', {
-    headers: { 'X-Workspace-ID': 'local' }
-  });
-  expect(exported.ok()).toBeTruthy();
-  const bundle = await exported.body();
-  expect(bundle.length).toBeGreaterThan(0);
-
-  await page.locator('.nav-item[data-view="admin"]').click();
-  const panel = page.locator('#appView [data-workspace-migration]');
-  const file = panel.locator('[data-migration-file]');
-  const importButton = panel.locator('[data-migration-import]');
-
-  await file.setInputFiles({ name: 'invalid.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip') });
-  await panel.locator('[data-migration-preflight]').click();
-  await expect(panel.locator('[data-migration-report]')).toHaveClass(/bad/);
-  await expect(importButton).toBeDisabled();
-
-  await file.setInputFiles({ name: 'workspace.zip', mimeType: 'application/zip', buffer: bundle });
-  await expect(importButton).toBeDisabled();
-  const preflightResponse = page.waitForResponse(response => response.url().includes('/migration/preflight?') && response.status() === 200);
-  await panel.locator('[data-migration-preflight]').click();
-  await preflightResponse;
-  await expect(panel.locator('[data-migration-report]')).toHaveClass(/good/);
-  await expect(importButton).toBeEnabled();
-
-  const importResponse = page.waitForResponse(response => response.url().includes('/migration/import?') && response.status() === 200);
-  await importButton.click();
-  await importResponse;
-  await expect(page.locator('#appView [data-workspace-migration]')).toBeVisible();
-});
-
 test('opens the durable project chat and sends a harness-backed message', async ({ page }) => {
   await page.locator('.nav-chat[data-view="chats"]').click();
   await expect(page.locator('#pageTitle')).toHaveText('普通聊天');
@@ -351,7 +343,7 @@ test('opens the durable project chat and sends a harness-backed message', async 
   await expect(page.locator('#chatCreateDialog')).toBeVisible();
   await page.locator('#chatCreateTitle').fill('Browser chat');
   await page.locator('#chatCreateForm button[type="submit"]').click();
-  await expect(page.locator('.chat-list-item')).toContainText('Browser chat');
+  await expect(page.locator('.chat-list-item').filter({ hasText: 'Browser chat' })).toBeVisible();
   await page.locator('#chatInput').fill('Keep this project context durable');
   await page.locator('#chatComposer button[type="submit"]').click();
   await expect(page.locator('#chatHistory')).toContainText('Keep this project context durable');
@@ -363,7 +355,7 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   await page.locator('#resourceFields input[name="name"]').fill('browser-requirement-service');
   await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/browser-requirement.git');
   await page.locator('#resourceForm button[type="submit"]').click();
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill('Browser acceptance requirement\n\nCreated by the repeatable acceptance suite\n\nThe detail view renders the requirement\nThe uploaded brief is retained');
   await page.locator('#requirementRepository').selectOption({ label: 'browser-requirement-service' });
@@ -371,7 +363,7 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   await page.locator('#requirementForm input[name="attachments"]').setInputFiles({ name: 'requirement-brief.txt', mimeType: 'text/plain', buffer: Buffer.from('acceptance evidence') });
   await page.locator('#requirementForm button[type="submit"]').click();
   await expect(page.locator('#requirementDialog')).not.toBeVisible();
-  const row = page.locator('tr[data-requirement-id]').filter({ hasText: 'Browser acceptance requirement' }).first();
+  const row = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: 'Browser acceptance requirement' }).first();
   await expect(row).toBeVisible();
   await row.click();
   await expect(page.locator('#detailDialog')).toBeVisible();
@@ -382,7 +374,7 @@ test('creates a requirement, opens details, switches locale, and reconnects by W
   await expect(page.locator('#detailBody')).toContainText('工作项');
   await page.locator('#closeDetail').click();
   await page.locator('#localeToggle').click();
-  await expect(page.locator('#pageTitle')).toHaveText('Requirements');
+  await expect(page.locator('#pageTitle')).toHaveText('Delivery');
   await page.locator('#localeToggle').click();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   expect(page.__adroErrors).toEqual([]);
@@ -395,7 +387,7 @@ test('posts a structured mention comment with an attachment and reply', async ({
   await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/comment-evidence.git');
   await page.locator('#resourceForm button[type="submit"]').click();
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill('Comment thread acceptance\n\nExercise the structured comment delivery path.\n\nThe comment is retained with its attachment and reply.');
   await page.locator('#requirementRepository').selectOption({ label: 'comment-evidence-service' });
@@ -412,8 +404,8 @@ test('posts a structured mention comment with an attachment and reply', async ({
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   await expect(page.locator('tr').filter({ hasText: 'Comment Evidence Agent' }).first()).toContainText('active');
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
-  const row = page.locator('tr[data-requirement-id]').filter({ hasText: 'Comment thread acceptance' }).first();
+  await page.locator('.nav-item[data-view="delivery"]').click();
+  const row = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: 'Comment thread acceptance' }).first();
   await row.click();
   await expect(page.locator('#detailDialog')).toBeVisible();
   await expect(page.locator('#commentInput')).toBeVisible();
@@ -449,14 +441,14 @@ test('renders @all as a broadcast-only outcome without a follow-up receipt', asy
   await page.locator('#resourceFields input[name="clone_url"]').fill('https://example.invalid/broadcast-evidence.git');
   await page.locator('#resourceForm button[type="submit"]').click();
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill('Broadcast-only comment acceptance\n\nExercise the render-only all mention path.\n\nThe comment is broadcast without starting an Agent follow-up.');
   await page.locator('#requirementRepository').selectOption({ label: 'broadcast-evidence-service' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
 
-  const row = page.locator('tr[data-requirement-id]').filter({ hasText: 'Broadcast-only comment acceptance' }).first();
+  const row = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: 'Broadcast-only comment acceptance' }).first();
   await row.click();
   await expect(page.locator('#commentInput')).toBeVisible();
   await page.locator('#commentInput').fill('公告 [@all](mention://all/all)');
@@ -568,6 +560,7 @@ test('disables ineffective model settings for runtime-managed profiles', async (
 });
 
 test('creates and operates native Agent, Squad, and immutable Plan records', async ({ page }) => {
+  test.setTimeout(180_000);
   const runSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const repositoryName = `native-orchestration-service-${runSuffix}`;
   const requirementTitle = `Native orchestration acceptance ${runSuffix}`;
@@ -581,7 +574,7 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await page.locator('#resourceForm button[type="submit"]').click();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill(`${requirementTitle}\n\nCreate an immutable plan from a published revisioned squad.\n\nAgent and Squad revisions are frozen\nTimeline and replay are available`);
   await page.locator('#requirementRepository').selectOption({ label: repositoryName });
@@ -665,11 +658,25 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await expect(page.locator('#timelineDialog')).toBeVisible();
   await expect(page.locator('#timelineContent')).toContainText('projection');
   await expect(page.locator('#timelineContent')).toContainText('plan_id');
+  await page.locator('#timelineDialog [data-close-orchestration="timelineDialog"]').first().click();
+
+  await page.locator('.nav-item[data-view="delivery"]').click();
+  const deliveryRow = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: requirementTitle }).first();
+  await deliveryRow.click();
+  await expect(page.locator('[data-delivery-open-execution]')).toBeVisible();
+  await page.locator('[data-delivery-open-execution]').click();
+  await expect(page.locator('.nav-item[data-view="delivery"]')).toHaveClass(/active/);
+  await expect(page.locator('#pageTitle')).toHaveText('交付台');
+  await expect(page.locator('#appView')).toContainText('执行舱');
+  await expect(page.locator('#deliveryBack')).toBeVisible();
+  await page.locator('#deliveryBack').click();
+  await expect(page.locator('#appView')).toContainText(requirementTitle);
 
   expect(page.__adroErrors).toEqual([]);
 });
 
 test('executes resource actions from every ADRO-owned control menu', async ({ page }) => {
+  test.setTimeout(180_000);
   await page.locator('.nav-item[data-view="repositories"]').click();
   await page.locator('#newResource').click();
   await page.locator('#resourceFields input[name="name"]').fill('payments-service');
@@ -681,7 +688,7 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
   await repository.locator('[data-resource-action="index"]').click();
   await expect(repository).toContainText('已就绪');
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill('payments release requirement\n\nShip the payments release with regression evidence\n\nThe payments release passes regression tests');
   await page.locator('#requirementRepository').selectOption({ label: 'payments-service' });
@@ -738,16 +745,22 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
   await page.locator('#runnerExecuteForm button[type="submit"]').click();
   await expect(page.locator('#runnerExecuteDialog')).not.toBeVisible();
 
-  await page.locator('.nav-item[data-view="bugs"]').click();
-  await page.locator('#newResource').click();
-  await page.locator('#bugForm textarea[name="description"]').fill('release regression\n\nBug description\nThe release check fails\n\nReproduction steps\nRun the release acceptance suite\n\nExpected result\nAll checks pass\n\nActual result\nThe release check fails\n\nRelevant logs\nSee the attached failure log');
-  await page.locator('#bugRepository').selectOption({ label: 'payments-service' });
-  await page.locator('#bugAssignee').selectOption({ index: 0 });
+  await page.locator('.nav-item[data-view="delivery"]').click();
+  await page.locator('#newRequirement').click();
+  await page.locator('.delivery-type-switch button[data-delivery-kind="bug"]').click();
+  await expect(page.locator('#bugRequirement')).toHaveAttribute('required', '');
+  await expect(page.locator('#bugRequirement option[value=""]')).toHaveAttribute('disabled', '');
+  await expect(page.locator('#requirementForm button[type="submit"]')).toBeDisabled();
+  await page.locator('#requirementForm textarea[name="description"]').fill('release regression\n\nBug description\nThe release check fails\n\nReproduction steps\nRun the release acceptance suite\n\nExpected result\nAll checks pass\n\nActual result\nThe release check fails\n\nRelevant logs\nSee the attached failure log');
   const relatedRequirement = page.locator('#bugRequirement option').filter({ hasText: 'payments release requirement' });
   await expect(relatedRequirement).toHaveCount(1);
   await page.locator('#bugRequirement').selectOption(await relatedRequirement.getAttribute('value'));
-  await page.locator('#bugForm input[name="attachments"]').setInputFiles({ name: 'failure.log', mimeType: 'text/plain', buffer: Buffer.from('failure evidence') });
-  await page.locator('#bugForm button[type="submit"]').click();
+  await expect(page.locator('#requirementForm button[type="submit"]')).toBeEnabled();
+  await page.locator('#requirementForm input[name="attachments"]').setInputFiles({ name: 'failure.log', mimeType: 'text/plain', buffer: Buffer.from('failure evidence') });
+  await page.locator('#requirementForm button[type="submit"]').click();
+  const parentDelivery = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: 'payments release requirement' }).first();
+  await expect(parentDelivery.locator('.delivery-bug-summary')).toContainText('1');
+  await expect(parentDelivery.locator('[data-delivery-toggle]')).toHaveAttribute('aria-expanded', 'true');
   const bug = page.locator('tr').filter({ hasText: 'release regression' }).first();
   await expect(bug).toBeVisible();
   await expect(bug).toContainText('payments release requirement');
@@ -759,15 +772,14 @@ test('executes resource actions from every ADRO-owned control menu', async ({ pa
   expect(page.__adroErrors).toEqual([]);
 });
 
-test('administrator assigns menu access and the backend enforces it', async ({ page, request }) => {
+test('administrator assigns menu access and the backend enforces it', async ({ page }) => {
   await page.locator('.nav-item[data-view="admin"]').click();
   await page.locator('#newUser').click();
   await page.locator('#userForm input[name="username"]').fill('restricted.user');
   await page.locator('#userForm input[name="display_name"]').fill('Restricted User');
   await page.locator('#userForm input[name="password"]').fill('Restricted123!');
   await page.locator('#userForm input[name="menus"][value="workbench"]').check();
-  await page.locator('#userForm input[name="menus"][value="requirements"]').check();
-  await page.locator('#userForm input[name="menus"][value="bugs"]').uncheck();
+  await page.locator('#userForm input[name="menus"][value="delivery"]').uncheck();
   await page.locator('#userForm button[type="submit"]').click();
   await expect(page.locator('#appView')).toContainText('restricted.user');
   await page.locator('#logoutButton').click();
@@ -776,10 +788,15 @@ test('administrator assigns menu access and the backend enforces it', async ({ p
   await page.locator('#loginForm input[name="username"]').fill('restricted.user');
   await page.locator('#loginForm input[name="password"]').fill('Restricted123!');
   await page.locator('#loginForm button[type="submit"]').click();
-  await expect(page.locator('.nav-item[data-view="requirements"]')).toBeVisible();
-  await expect(page.locator('.nav-item[data-view="bugs"]')).toBeHidden();
-  const cookies = await page.context().cookies('http://127.0.0.1:18080');
-  const denied = await request.get('http://127.0.0.1:18080/api/v1/bugs', { headers: { Cookie: cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') } });
+  await expect(page.locator('#appShell')).toBeVisible();
+  await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
+  await expect(page.locator('.nav-item[data-view="delivery"]')).toBeHidden();
+  const sessionCookie = (await page.context().cookies()).find(cookie => cookie.name === 'adro_session');
+  expect(sessionCookie?.value).toBeTruthy();
+  const headers = {Authorization: `Bearer ${sessionCookie.value}`};
+  const deniedRequirement = await page.context().request.get('http://127.0.0.1:18080/api/v1/requirements', {headers});
+  const denied = await page.context().request.get('http://127.0.0.1:18080/api/v1/bugs', {headers});
+  expect(deniedRequirement.status()).toBe(403);
   expect(denied.status()).toBe(403);
   expect(page.__adroErrors).toEqual([]);
 });

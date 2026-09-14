@@ -31,7 +31,7 @@ function writeEvidence(name, value) {
 test('release coverage ledger renders every declared menu', async ({ page }) => {
   await login(page);
   const results = [];
-  expect(menus).toHaveLength(19);
+  expect(menus).toHaveLength(16);
   for (const menu of menus) {
     const selector = menu.menu_id === 'chats'
       ? `.nav-chat[data-view="${menu.menu_id}"]`

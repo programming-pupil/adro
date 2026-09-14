@@ -38,16 +38,16 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
   await page.locator('#resourceFields input[name="clone_url"]').fill(repositoryURL);
   await page.locator('#resourceForm button[type="submit"]').click();
 
-  await page.locator('.nav-item[data-view="requirements"]').click();
+  await page.locator('.nav-item[data-view="delivery"]').click();
   await page.locator('#newRequirement').click();
   await page.locator('#requirementForm textarea[name="description"]').fill('Browser-created real graph acceptance\n\nExecute one immutable browser-created graph through the real local Codex provider.\n\nThe browser-created plan reaches a terminal pass and its timeline and replay are consistent.');
   await page.locator('#requirementRepository').selectOption({ label: 'browser-real-graph-repository' });
   await page.locator('#requirementAssignee').selectOption({ index: 0 });
   await page.locator('#requirementForm button[type="submit"]').click();
 
-  const requirementRow = page.locator('tr[data-requirement-id]').filter({ hasText: 'Browser-created real graph acceptance' }).first();
+  const requirementRow = page.locator('tr[data-delivery-requirement-id]').filter({ hasText: 'Browser-created real graph acceptance' }).first();
   await expect(requirementRow).toBeVisible();
-  const requirementID = await requirementRow.getAttribute('data-requirement-id');
+  const requirementID = await requirementRow.getAttribute('data-delivery-requirement-id');
   expect(requirementID).toBeTruthy();
 
   await page.locator('.nav-item[data-view="agents"]').click();
