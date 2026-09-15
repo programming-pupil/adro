@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
 	"flag"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -203,10 +207,107 @@ func setDefaultEnv(name, value string) {
 func withRequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		next.ServeHTTP(w, r)
 		method := strings.ReplaceAll(strings.ReplaceAll(r.Method, "\n", "\\n"), "\r", "\\r")
 		path := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", "\\n"), "\r", "\\r")
-		requestID := strings.ReplaceAll(strings.ReplaceAll(w.Header().Get("X-Request-ID"), "\n", "\\n"), "\r", "\\r")
-		slog.Info("http request", "method", method, "path", path, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestID)
+		writer := &requestLogWriter{ResponseWriter: w}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("http panic recovered", "method", method, "path", path, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestLogRequestID(r, writer), "panic", recovered, "stack", string(debug.Stack()))
+				if !writer.started {
+					writer.Header().Set("Content-Type", "application/problem+json")
+					writer.WriteHeader(http.StatusInternalServerError)
+					_, _ = writer.Write([]byte(`{"type":"https://adro.dev/problems/internal_server_error","title":"Internal Server Error","status":500,"detail":"the request failed unexpectedly","error_code":"internal_server_error"}`))
+				}
+			}
+			status := writer.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			args := []any{"method", method, "path", path, "status", status, "bytes", writer.bytes, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestLogRequestID(r, writer)}
+			switch {
+			case status >= http.StatusInternalServerError:
+				slog.Error("http request failed", args...)
+			case status >= http.StatusBadRequest:
+				slog.Warn("http request rejected", args...)
+			default:
+				slog.Info("http request", args...)
+			}
+		}()
+		next.ServeHTTP(writer, r)
 	})
 }
+
+func requestLogRequestID(r *http.Request, writer *requestLogWriter) string {
+	requestID := writer.Header().Get("X-Request-ID")
+	if requestID == "" {
+		requestID = r.Header.Get("X-Request-ID")
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(requestID, "\n", "\\n"), "\r", "\\r")
+}
+
+type requestLogWriter struct {
+	http.ResponseWriter
+	status  int
+	bytes   int64
+	started bool
+}
+
+func (w *requestLogWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *requestLogWriter) WriteHeader(status int) {
+	if w.started {
+		return
+	}
+	w.started = true
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *requestLogWriter) Write(body []byte) (int, error) {
+	if !w.started {
+		w.WriteHeader(http.StatusOK)
+	}
+	written, err := w.ResponseWriter.Write(body)
+	w.bytes += int64(written)
+	return written, err
+}
+
+func (w *requestLogWriter) Flush() {
+	if !w.started {
+		w.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *requestLogWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hijacker.Hijack()
+}
+
+func (w *requestLogWriter) Push(target string, options *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, options)
+}
+
+func (w *requestLogWriter) ReadFrom(reader io.Reader) (int64, error) {
+	if !w.started {
+		w.WriteHeader(http.StatusOK)
+	}
+	if readerFrom, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		written, err := readerFrom.ReadFrom(reader)
+		w.bytes += written
+		return written, err
+	}
+	written, err := io.Copy(writerOnly{Writer: w}, reader)
+	return written, err
+}
+
+type writerOnly struct{ io.Writer }

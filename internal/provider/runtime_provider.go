@@ -117,12 +117,14 @@ func (p *RuntimeProviderPool) Resolve(selection RuntimeSelection) (ExecutionProv
 		return selectedRuntimeProvider{pool: p, provider: existing}, nil
 	}
 	p.mu.Unlock()
-	catalog, err := DiscoverRuntimeModels(context.Background(), runtimeID)
-	if err != nil {
-		return nil, fmt.Errorf("discover runtime %q models: %w", runtimeID, err)
-	}
-	if err := validateRuntimeSelection(catalog, selection); err != nil {
-		return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
+	if strings.TrimSpace(selection.Model) != "" || strings.TrimSpace(selection.ThinkingLevel) != "" || strings.TrimSpace(selection.ServiceTier) != "" {
+		catalog, err := DiscoverRuntimeModels(context.Background(), runtimeID)
+		if err != nil {
+			return nil, fmt.Errorf("discover runtime %q models: %w", runtimeID, err)
+		}
+		if err := validateRuntimeSelection(catalog, selection); err != nil {
+			return nil, fmt.Errorf("runtime %q configuration: %w", runtimeID, err)
+		}
 	}
 	created := NewLocalProvider(executable, baseArgs, p.workRoot, p.bus).
 		WithRuntimeID(runtimeID)

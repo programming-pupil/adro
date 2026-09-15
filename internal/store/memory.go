@@ -213,6 +213,15 @@ func (m *Memory) load() error {
 	if state.Pipelines != nil {
 		m.pipelines = state.Pipelines
 	}
+	if m.commentRevisions == nil {
+		m.commentRevisions = map[string][]domain.CommentRevision{}
+	}
+	if m.commentFollowUps == nil {
+		m.commentFollowUps = map[string]domain.CommentFollowUp{}
+	}
+	if m.idempotency == nil {
+		m.idempotency = map[string]any{}
+	}
 	for key, raw := range state.Idempotency {
 		m.idempotency[key] = raw
 	}

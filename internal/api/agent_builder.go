@@ -218,23 +218,45 @@ func waitForAgentDraftRun(ctx context.Context, executor provider.ExecutionProvid
 func parseAgentDraft(output string) (agentDraft, error) {
 	const open, close = "<agent_draft>", "</agent_draft>"
 	start := strings.LastIndex(output, open)
-	if start < 0 {
-		return agentDraft{}, errors.New("runtime output has no agent_draft block")
+	if start >= 0 {
+		start += len(open)
+		endOffset := strings.Index(output[start:], close)
+		if endOffset >= 0 {
+			return decodeAgentDraft(strings.TrimSpace(output[start:start+endOffset]), true)
+		}
 	}
-	start += len(open)
-	endOffset := strings.Index(output[start:], close)
-	if endOffset < 0 {
-		return agentDraft{}, errors.New("runtime output has an unterminated agent_draft block")
+	var lastErr error
+	for offset := 0; offset < len(output); {
+		index := strings.IndexByte(output[offset:], '{')
+		if index < 0 {
+			break
+		}
+		offset += index
+		if draft, err := decodeAgentDraft(output[offset:], false); err == nil {
+			return draft, nil
+		} else {
+			lastErr = err
+		}
+		offset++
 	}
-	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(output[start : start+endOffset])))
+	if lastErr != nil {
+		return agentDraft{}, fmt.Errorf("runtime output contains no valid agent draft: %w", lastErr)
+	}
+	return agentDraft{}, errors.New("runtime output contains no agent draft JSON")
+}
+
+func decodeAgentDraft(payload string, requireEOF bool) (agentDraft, error) {
+	decoder := json.NewDecoder(strings.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var draft agentDraft
 	if err := decoder.Decode(&draft); err != nil {
 		return agentDraft{}, fmt.Errorf("decode agent_draft: %w", err)
 	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return agentDraft{}, errors.New("agent_draft must contain exactly one JSON object")
+	if requireEOF {
+		var extra any
+		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+			return agentDraft{}, errors.New("agent_draft must contain exactly one JSON object")
+		}
 	}
 	draft.Name = strings.TrimSpace(draft.Name)
 	draft.Description = strings.TrimSpace(draft.Description)

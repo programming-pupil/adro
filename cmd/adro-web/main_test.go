@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,5 +61,40 @@ func TestWorkbenchHandlerProxiesAPI(t *testing.T) {
 func TestWorkbenchHandlerRejectsInvalidAPIURL(t *testing.T) {
 	if _, err := newWorkbenchHandler(t.TempDir(), "not-a-url"); err == nil {
 		t.Fatal("expected invalid API URL error")
+	}
+}
+
+func TestWorkbenchDirectoryPickerReturnsAbsoluteDirectory(t *testing.T) {
+	selected := t.TempDir()
+	handler, err := newWorkbenchHandlerWithDirectoryPicker(t.TempDir(), "http://127.0.0.1:8080", func(context.Context) (string, error) {
+		return selected, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/_adro/directory-picker", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("directory picker status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Path != selected {
+		t.Fatalf("directory picker body=%+v err=%v", body, err)
+	}
+}
+
+func TestWorkbenchDirectoryPickerRejectsRelativePaths(t *testing.T) {
+	handler, err := newWorkbenchHandlerWithDirectoryPicker(t.TempDir(), "http://127.0.0.1:8080", func(context.Context) (string, error) {
+		return ".", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/_adro/directory-picker", nil))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("directory picker status=%d body=%s", response.Code, response.Body.String())
 	}
 }

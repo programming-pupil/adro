@@ -1,13 +1,42 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
 )
+
+func TestPersistentMemoryUpgradesLegacyCommentMaps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.json")
+	requirement := domain.Requirement{ID: "req-legacy", WorkspaceID: "w", Title: "legacy", Description: "legacy state", AcceptanceCriteria: []string{"comments remain writable"}, AssigneeMemberIDs: []string{"author"}}
+	data, err := json.Marshal(persistedState{Version: 2, Revision: 1, Requirements: map[string]domain.Requirement{requirement.ID: requirement}, Comments: map[string]domain.Comment{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	memory, err := NewPersistentMemory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := memory.CreateComment(domain.Comment{WorkspaceID: "w", TargetType: "requirement", TargetID: requirement.ID, AuthorID: "author", AuthorType: "member", Content: "first comment after upgrade"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := memory.ListCommentRevisions(comment.ID)
+	if err != nil || len(revisions) != 1 || revisions[0].Content != comment.Content {
+		t.Fatalf("revisions=%+v err=%v", revisions, err)
+	}
+	if err := memory.RememberIdempotency("legacy-upgrade", comment); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestConcurrentCommentEditAllowsSingleRevisionWinner(t *testing.T) {
 	m := NewMemory()

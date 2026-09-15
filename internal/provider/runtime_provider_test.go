@@ -208,6 +208,25 @@ func TestRuntimeProviderPoolRoutesAndFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderPoolSkipsModelDiscoveryForDefaults(t *testing.T) {
+	dir := t.TempDir()
+	trace := filepath.Join(dir, "trace")
+	executable := filepath.Join(dir, "claude")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+trace+"\"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	pool := NewRuntimeProviderPool(NewMockProvider(events.NewBus()), t.TempDir(), events.NewBus())
+	if _, err := pool.Resolve(RuntimeSelection{RuntimeID: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(trace); err == nil && len(data) > 0 {
+		t.Fatalf("default runtime selection probed the executable: %s", data)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func TestRuntimeProviderPreservesRegistryIdentityAndConfiguredCommand(t *testing.T) {
 	dir := t.TempDir()
 	discovered := filepath.Join(dir, "codex")
