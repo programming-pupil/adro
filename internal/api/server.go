@@ -2977,7 +2977,7 @@ func (s *Server) repositoryFiles(w http.ResponseWriter, r *http.Request, reposit
 	}
 	rootInfo, err := os.Stat(root)
 	if err != nil || !rootInfo.IsDir() {
-		s.problem(w, r, http.StatusUnprocessableEntity, "repository_path_unavailable", "local repository directory is unavailable", nil)
+		s.writeJSON(w, http.StatusOK, map[string]any{"available": false, "repository_id": repository.ID, "reason": "local repository directory is unavailable"})
 		return
 	}
 	_, relative, err := repositoryRelativePath(root, r.URL.Query().Get("path"))
@@ -2987,7 +2987,7 @@ func (s *Server) repositoryFiles(w http.ResponseWriter, r *http.Request, reposit
 	}
 	rootHandle, err := os.OpenRoot(root)
 	if err != nil {
-		s.problem(w, r, http.StatusUnprocessableEntity, "repository_path_unavailable", "local repository directory is unavailable", nil)
+		s.writeJSON(w, http.StatusOK, map[string]any{"available": false, "repository_id": repository.ID, "reason": "local repository directory is unavailable"})
 		return
 	}
 	defer rootHandle.Close()

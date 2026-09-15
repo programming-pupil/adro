@@ -119,7 +119,14 @@ test('uses the delivery label and polished project source controls', async ({ pa
     window.showDirectoryPicker = async () => ({name: 'selected-project'});
   });
   await page.locator('.resource-path-button').click();
-  await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('selected-project');
+  await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('');
+  await expect(page.locator('#resourceFields')).toContainText('请输入绝对路径');
+  await page.evaluate(() => {
+    window.adroNative = { chooseDirectory: async () => ({path: '/tmp/selected-project'}) };
+  });
+  await page.locator('.resource-path-button').click();
+  await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('/tmp/selected-project');
+  await expect(page.locator('.resource-path-selected')).toHaveText('已选择目录: selected-project');
 
   await page.locator('.resource-owner-trigger').click();
   const ownerOption = page.locator('.resource-owner-option').first();
@@ -134,12 +141,16 @@ test('uses the delivery label and polished project source controls', async ({ pa
   await page.locator('#resourceForm button[type="submit"]').click();
   const saveBody = JSON.parse((await saveRequest).postData());
   expect(saveBody.provider).toBe('local');
-  expect(saveBody.metadata.local_path).toBe('selected-project');
+  expect(saveBody.metadata.local_path).toBe('/tmp/selected-project');
   expect(saveBody.clone_url).toBeUndefined();
   expect(saveBody.default_branch).toBeUndefined();
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
   const projectRow = page.locator('tr[data-repository-id]').filter({ hasText: /folder-picker-/ }).first();
   await expect(projectRow).toBeVisible();
+  await projectRow.locator('[data-repository-action="browse"]').click();
+  await expect(page.locator('.repository-browser-dialog')).toBeVisible();
+  await expect(page.locator('.repository-browser-status')).not.toContainText('项目内容加载失败');
+  await page.locator('[data-close-browser]').click();
   await page.once('dialog', dialog => dialog.dismiss());
   await projectRow.locator('[data-repository-action="delete"]').click();
   await expect(projectRow).toBeVisible();
@@ -309,6 +320,8 @@ test('AI-assisted Agent creation supports one-click generation and creation', as
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
+  await expect(page.locator('.agent-resource-help')).toContainText('已登记在 ADRO 工作区');
+  await expect(page.locator('.agent-runtime-skills-help')).toContainText('运行时 Skills');
   await page.locator('#agentBuilderPrompt').fill('Create an incident response coordinator');
   const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
   await page.locator('#composeAndCreateAgent').click();
