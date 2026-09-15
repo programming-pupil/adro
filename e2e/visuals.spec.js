@@ -109,6 +109,7 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
+  await page.locator('[data-agent-method="blank"]').click();
   const ownerSelect = page.locator('#agentForm select[name="member"]');
   await ownerSelect.selectOption({ index: 0 });
   const ownerID = await ownerSelect.inputValue();

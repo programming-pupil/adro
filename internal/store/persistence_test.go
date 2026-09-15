@@ -38,6 +38,30 @@ func TestPersistentMemoryUpgradesLegacyCommentMaps(t *testing.T) {
 	}
 }
 
+func TestCommentMutationsRepairPartiallyInitializedMemory(t *testing.T) {
+	bug := domain.Bug{ID: "bug-legacy", WorkspaceID: "w", RepositoryID: "repo", Fingerprint: "legacy-comment-map", Title: "legacy", Actual: "comment maps were absent"}
+	memory := &Memory{bugs: map[string]domain.Bug{bug.ID: bug}}
+
+	comment, err := memory.CreateComment(domain.Comment{WorkspaceID: "w", TargetType: "bug", TargetID: bug.ID, AuthorID: "author", AuthorType: "member", Content: "first comment after repair"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := memory.UpdateComment(comment.ID, comment.Revision, "edited after repair", nil, nil, "author", "member")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.SetCommentTriggerOutcomes(updated.ID, updated.Revision, []domain.CommentTriggerOutcome{{Status: "queued"}}); err != nil {
+		t.Fatal(err)
+	}
+	followUp, err := memory.SaveCommentFollowUp(domain.CommentFollowUp{WorkspaceID: "w", CommentID: updated.ID, CommentRevision: updated.Revision, TargetType: "bug", TargetID: bug.ID, DispatchTargetType: "agent", DispatchTargetID: "agent-1", Status: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followUp.ID == "" || len(memory.commentRevisions[comment.ID]) != 2 || len(memory.commentFollowUps) != 1 {
+		t.Fatalf("comment=%+v follow_up=%+v revisions=%d receipts=%d", updated, followUp, len(memory.commentRevisions[comment.ID]), len(memory.commentFollowUps))
+	}
+}
+
 func TestConcurrentCommentEditAllowsSingleRevisionWinner(t *testing.T) {
 	m := NewMemory()
 	requirement, err := m.CreateRequirement(domain.Requirement{WorkspaceID: "w", Title: "comment race", Description: "exercise optimistic edit concurrency", AcceptanceCriteria: []string{"one revision wins"}, AssigneeMemberIDs: []string{"author"}})

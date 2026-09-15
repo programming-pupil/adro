@@ -329,6 +329,19 @@ func (m *Memory) Idempotent(key string, value any) (any, bool) {
 	}
 	return v, ok
 }
+
+func (m *Memory) ensureCommentMapsLocked() {
+	if m.comments == nil {
+		m.comments = map[string]domain.Comment{}
+	}
+	if m.commentRevisions == nil {
+		m.commentRevisions = map[string][]domain.CommentRevision{}
+	}
+	if m.commentFollowUps == nil {
+		m.commentFollowUps = map[string]domain.CommentFollowUp{}
+	}
+}
+
 func (m *Memory) RememberIdempotency(key string, value any) error {
 	if key == "" {
 		return nil
@@ -412,6 +425,7 @@ func (m *Memory) CreateComment(comment domain.Comment) (domain.Comment, error) {
 	comment.AttachmentIDs = normalizeCommentMentions(comment.AttachmentIDs)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.ensureCommentMapsLocked()
 	switch comment.TargetType {
 	case "requirement":
 		requirement, ok := m.requirements[comment.TargetID]
@@ -505,6 +519,7 @@ func (m *Memory) UpdateComment(id string, expectedRevision int64, content string
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.ensureCommentMapsLocked()
 	old, ok := m.comments[strings.TrimSpace(id)]
 	if !ok {
 		return domain.Comment{}, ErrNotFound
@@ -565,6 +580,7 @@ func (m *Memory) UpdateComment(id string, expectedRevision int64, content string
 func (m *Memory) SetCommentTriggerOutcomes(id string, revision int64, outcomes []domain.CommentTriggerOutcome) (domain.Comment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.ensureCommentMapsLocked()
 	old, ok := m.comments[strings.TrimSpace(id)]
 	if !ok {
 		return domain.Comment{}, ErrNotFound
@@ -647,6 +663,7 @@ func (m *Memory) SaveCommentFollowUp(followUp domain.CommentFollowUp) (domain.Co
 	key := followUpKey(followUp)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.ensureCommentMapsLocked()
 	comment, ok := m.comments[followUp.CommentID]
 	if !ok {
 		return domain.CommentFollowUp{}, ErrNotFound

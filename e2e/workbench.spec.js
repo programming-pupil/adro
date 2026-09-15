@@ -6,6 +6,27 @@ const menuViews = [
   'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats', 'repositories', 'agents', 'mcp',
   'skills', 'automations', 'integrations', 'artifacts', 'runners', 'cost', 'admin'
 ];
+
+async function openBlankAgent(page) {
+  await page.locator('#newAgent').click();
+  await expect(page.locator('.agent-method-stage')).toBeVisible();
+  await page.locator('[data-agent-method="blank"]').click();
+  await expect(page.locator('.agent-workspace-stage')).toBeVisible();
+  await expect(page.locator('.agent-studio-layout')).toHaveClass(/manual/);
+}
+
+async function openAIAgent(page) {
+  await page.locator('#newAgent').click();
+  await expect(page.locator('.agent-method-stage')).toBeVisible();
+  await page.locator('[data-agent-method="ai"]').click();
+  await expect(page.locator('.agent-setup-stage')).toBeVisible();
+  await expect(page.locator('#agentSetupRuntime')).not.toHaveValue('');
+  await page.locator('#agentSetupContinue').click();
+  await expect(page.locator('.agent-workspace-stage')).toBeVisible();
+  await expect(page.locator('.agent-builder-pane')).toBeVisible();
+  await expect(page.locator('.agent-config-shell')).toBeVisible();
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   const errors = [];
   const requestHosts = new Set();
@@ -97,6 +118,25 @@ test.beforeEach(async ({ page }, testInfo) => {
       body: JSON.stringify({ models: [{ id: 'stale-model', label: 'Stale model' }] })
     }));
     runtimeManagedWarmup = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/runtimes/local/models');
+  }
+  if (testInfo.title.includes('cached runtime controls')) {
+    let discoveryCalls = 0;
+    await page.route('**/api/v1/runtimes/discovered', async route => {
+      discoveryCalls += 1;
+      if (discoveryCalls > 1) await new Promise(resolve => setTimeout(resolve, 2500));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [{ id: 'codex', name: 'OpenAI Codex', installed: true, adapter_available: true }] })
+      });
+    });
+    await page.route('**/api/v1/runtimes/codex/models', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: [{ id: 'gpt-5', label: 'GPT-5' }] })
+    }));
+    await page.route('**/api/v1/runtimes/codex/skills', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+    runtimeManagedWarmup = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/runtimes/codex/models');
   }
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
@@ -270,12 +310,14 @@ test('uses the WebSocket as the only event replay transport during refresh', asy
 });
 
 test('AI-assisted Agent creation fills human controls and persists execution settings', async ({ page }) => {
-	await page.route('**/api/v1/workspaces/local/agents', route => {
-		if (route.request().method() !== 'POST') return route.continue();
-		return route.fulfill({status: 201, contentType: 'application/json', body: route.request().postData() || '{}'});
-	});
+  const createdBodies = [];
+  await page.route('**/api/v1/workspaces/local/agents', route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    createdBodies.push(JSON.parse(route.request().postData() || '{}'));
+    return route.fulfill({status: 201, contentType: 'application/json', body: route.request().postData() || '{}'});
+  });
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openAIAgent(page);
   await expect(page.locator('#agentDialog')).toBeVisible();
   await expect(page.locator('.agent-studio-layout')).toBeVisible();
   await expect(page.locator('.agent-builder-pane')).toBeVisible();
@@ -305,9 +347,12 @@ test('AI-assisted Agent creation fills human controls and persists execution set
   await page.locator('#agentBuilderPrompt').fill('Create a release reviewer');
   await expect(page.locator('#composeAgentDraft')).toHaveCount(0);
   await expect(page.locator('.agent-starters')).toHaveCount(0);
-  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
   await page.locator('#composeAndCreateAgent').click();
-  const body = JSON.parse((await createRequest).postData());
+  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Release reviewer');
+  expect(createdBodies).toHaveLength(0);
+  await page.locator('#agentForm button[type="submit"]').click();
+  await expect.poll(() => createdBodies.length).toBe(1);
+  const body = createdBodies[0];
   expect(body.description).toBe('Reviews release evidence before approval.');
   expect(body.access_policy).toEqual({ mode: 'workspace', member_ids: [] });
   expect(body.conversation_starters).toHaveLength(0);
@@ -320,9 +365,11 @@ test('AI-assisted Agent creation fills human controls and persists execution set
   expect(page.__adroErrors).toEqual([]);
 });
 
-test('AI-assisted Agent creation supports one-click generation and creation', async ({ page }) => {
+test('AI-assisted Agent creation keeps generation separate from final creation', async ({ page }) => {
+  let createCalls = 0;
   await page.route('**/api/v1/workspaces/local/agents', route => {
     if (route.request().method() !== 'POST') return route.continue();
+    createCalls += 1;
     return route.fulfill({ status: 201, contentType: 'application/json', body: route.request().postData() || '{}' });
   });
   await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
@@ -348,16 +395,22 @@ test('AI-assisted Agent creation supports one-click generation and creation', as
   }));
 
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openAIAgent(page);
   await expect(page.locator('.agent-resource-help')).toContainText('已登记在 ADRO 工作区');
   await expect(page.locator('.agent-runtime-skills-help')).toContainText('运行时 Skills');
   await page.locator('#agentBuilderPrompt').fill('Create an incident response coordinator');
-  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
   await page.locator('#composeAndCreateAgent').click();
+  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Incident coordinator');
+  await expect(page.locator('#composeAndCreateAgent')).toContainText('重新生成');
+  expect(createCalls).toBe(0);
+  await page.locator('#agentForm input[name="name"]').fill('Edited incident coordinator');
+  const createRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/workspaces/local/agents');
+  await page.locator('#agentForm button[type="submit"]').click();
   const body = JSON.parse((await createRequest).postData());
-  expect(body.name).toBe('Incident coordinator');
+  expect(body.name).toBe('Edited incident coordinator');
   expect(body.owner_id).toBe('agent-owner');
   expect(body.executor_binding.runtime_id).toBe('codex');
+  expect(createCalls).toBe(1);
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   expect(page.__adroErrors).toEqual([]);
 });
@@ -415,13 +468,53 @@ test('AI-assisted Agent creation keeps dialogs deliberate and every task editabl
   expect(page.__adroErrors).toEqual([]);
 });
 
+test('cached runtime controls open immediately while discovery refreshes', async ({ page }) => {
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await page.locator('#newAgent').click();
+  const cachedRender = await page.evaluate(async () => {
+    const startedAt = performance.now();
+    document.querySelector('[data-agent-method="ai"]').click();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const runtime = document.querySelector('#agentSetupRuntime');
+    const model = document.querySelector('#agentSetupModel');
+    return {
+      elapsed: performance.now() - startedAt,
+      ready: runtime?.value === 'codex' && Boolean(model?.querySelector('option[value="gpt-5"]'))
+    };
+  });
+  expect(cachedRender.ready).toBe(true);
+  expect(cachedRender.elapsed).toBeLessThan(1000);
+  await expect(page.locator('#agentSetupRuntime')).toHaveValue('codex', { timeout: 750 });
+  await expect(page.locator('#agentSetupModel option[value="gpt-5"]')).toHaveCount(1, { timeout: 750 });
+  await page.locator('#agentSetupContinue').click();
+  await expect(page.locator('#agentRuntime')).toHaveValue('codex');
+  await expect(page.locator('#agentModel option[value="gpt-5"]')).toHaveCount(1);
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('every attached dialog ignores backdrop clicks and Escape', async ({ page }) => {
+  const ids = await page.locator('dialog[id]').evaluateAll(dialogs => dialogs.map(dialog => dialog.id));
+  for (const id of ids) {
+    await page.evaluate(dialogID => {
+      const dialog = document.getElementById(dialogID);
+      if (!dialog.open) dialog.showModal();
+      dialog.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }, id);
+    await expect(page.locator(`#${id}`)).toHaveAttribute('open', '');
+    await page.keyboard.press('Escape');
+    await expect(page.locator(`#${id}`)).toHaveAttribute('open', '');
+    await page.evaluate(dialogID => document.getElementById(dialogID).close(), id);
+  }
+  expect(page.__adroErrors).toEqual([]);
+});
+
 test('OpenClaw gateway policy stores only a secret reference', async ({ page }) => {
   await page.route('**/api/v1/workspaces/local/agents', route => {
     if (route.request().method() !== 'POST') return route.continue();
     return route.fulfill({ status: 201, contentType: 'application/json', body: route.request().postData() || '{}' });
   });
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openBlankAgent(page);
   await expect(page.locator('[data-runtime-policy="openclaw"]')).toBeVisible();
   await expect(page.locator('#agentRuntimeSkillOptions input')).toBeDisabled();
   await page.locator('#agentForm input[name="name"]').fill('Gateway agent');
@@ -508,7 +601,7 @@ test('posts a structured mention comment with an attachment and reply', async ({
   await page.locator('#requirementForm button[type="submit"]').click();
 
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openBlankAgent(page);
   await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill('Comment Evidence Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Process the comment acceptance evidence.');
@@ -587,7 +680,7 @@ test('captures the screenshot delivery path through ArtifactStore and provider',
 
 test('creates an ADRO agent binding from the workspace UI', async ({ page }) => {
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openBlankAgent(page);
   const ownerSelect = page.locator('#agentForm select[name="member"]');
   await ownerSelect.selectOption({ index: 0 });
   const ownerID = await ownerSelect.inputValue();
@@ -604,7 +697,6 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
   await expect(page.locator('#agentDialog')).toBeVisible();
   await expect(page.locator('#agentForm select[name="member"]')).toHaveValue(ownerID);
   await page.locator('#agentForm textarea[name="description"]').fill('Owns browser delivery acceptance.');
-  await page.locator('#agentForm details.agent-advanced').evaluate(element => { element.open = true; });
   await expect(page.locator('#agentForm textarea[name="custom_args"]')).toBeHidden();
   await expect(page.locator('#agentForm textarea[name="runtime_config"]')).toBeHidden();
   await expect(page.locator('#agentForm textarea[name="environment"]')).toBeHidden();
@@ -633,6 +725,7 @@ test('creates an ADRO agent binding from the workspace UI', async ({ page }) => 
 
 test('disables ineffective model settings for runtime-managed profiles', async ({ page }) => {
   let unsupportedCatalogRequests = 0;
+  let refreshedLocalCatalogRequests = 0;
   await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -645,11 +738,14 @@ test('disables ineffective model settings for runtime-managed profiles', async (
     unsupportedCatalogRequests += 1;
     return route.fulfill({ status: 500, body: 'must not be requested' });
   });
-  await page.route('**/api/v1/runtimes/local/models', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ models: [{ id: 'model-a', label: 'Model A' }] })
-  }));
+  await page.route('**/api/v1/runtimes/local/models', route => {
+    refreshedLocalCatalogRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: [{ id: 'model-a', label: 'Model A' }] })
+    });
+  });
   await page.route('**/api/v1/runtimes/{qwenpaw,local}/skills', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -658,17 +754,23 @@ test('disables ineffective model settings for runtime-managed profiles', async (
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
-  await expect(page.locator('#agentRuntime')).toHaveValue('qwenpaw');
-  await expect(page.locator('#agentModel')).toBeDisabled();
-  await expect(page.locator('#agentThinking')).toBeDisabled();
-  await expect(page.locator('#agentServiceTier')).toBeDisabled();
+  await page.locator('[data-agent-method="ai"]').click();
+  await expect(page.locator('#agentSetupRuntime option[value="qwenpaw"]')).toHaveCount(1);
+  await page.locator('#agentSetupRuntime').selectOption('qwenpaw');
+  await expect(page.locator('#agentSetupRuntime')).toHaveValue('qwenpaw');
+  await expect(page.locator('#agentSetupModel')).toBeDisabled();
   expect(unsupportedCatalogRequests).toBe(0);
 
-  await page.locator('#agentRuntime').selectOption('local');
+  await page.locator('#agentSetupRuntime').selectOption('local');
+  await expect(page.locator('#agentSetupModel')).toBeEnabled();
+  await expect(page.locator('#agentSetupModel option[value="stale-model"]')).toHaveCount(1);
+  expect(refreshedLocalCatalogRequests).toBe(0);
+  await page.locator('#agentSetupContinue').click();
+  await expect(page.locator('#agentRuntime')).toHaveValue('local');
   await expect(page.locator('#agentModel')).toBeEnabled();
   await expect(page.locator('#agentThinking')).toBeEnabled();
   await expect(page.locator('#agentServiceTier')).toBeEnabled();
-  await expect(page.locator('#agentModel option[value="model-a"]')).toHaveCount(1);
+  await expect(page.locator('#agentModel option[value="stale-model"]')).toHaveCount(1);
   expect(page.__adroErrors).toEqual([]);
 });
 
@@ -696,7 +798,7 @@ test('creates and operates native Agent, Squad, and immutable Plan records', asy
   await expect(page.locator('#requirementDialog')).not.toBeVisible();
 
   await page.locator('.nav-item[data-view="agents"]').click();
-  await page.locator('#newAgent').click();
+  await openBlankAgent(page);
   await page.locator('#agentForm select[name="member"]').selectOption({ index: 0 });
   await page.locator('#agentForm input[name="name"]').fill(agentName);
   await page.locator('#agentForm textarea[name="instructions"]').fill('Execute the frozen graph with evidence.');
