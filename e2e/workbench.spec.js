@@ -9,6 +9,7 @@ const menuViews = [
 test.beforeEach(async ({ page }, testInfo) => {
   const errors = [];
   const requestHosts = new Set();
+  let runtimeManagedWarmup = null;
   if (testInfo.title.includes('first-run workspace import')) {
     await page.route('**/api/v1/workspaces/local/agents', route => route.fulfill({
       status: 200,
@@ -84,6 +85,19 @@ test.beforeEach(async ({ page }, testInfo) => {
       body: JSON.stringify({ runtime_id: 'openclaw', items: [{ key: 'planning', name: 'Planning', source_path: '~/.openclaw/skills/planning', provider: 'openclaw', root: 'provider', can_disable: false }] })
     }));
   }
+  if (testInfo.title.includes('runtime-managed profiles')) {
+    await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [{ id: 'local', name: 'Initial local runtime', installed: true, adapter_available: true }] })
+    }));
+    await page.route('**/api/v1/runtimes/local/models', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: [{ id: 'stale-model', label: 'Stale model' }] })
+    }));
+    runtimeManagedWarmup = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/runtimes/local/models');
+  }
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
@@ -98,6 +112,11 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  if (runtimeManagedWarmup) {
+    const response = await runtimeManagedWarmup;
+    await response.finished();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  }
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;

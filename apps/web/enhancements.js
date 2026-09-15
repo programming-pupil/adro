@@ -2654,6 +2654,12 @@
   async function getAgentRuntimeCatalog(force = false) {
     if (!force && agentRuntimeCatalog.length) return agentRuntimeCatalog;
     if (!force && agentRuntimeCatalogPromise) return agentRuntimeCatalogPromise;
+    if (force) {
+      agentModelCatalogCache.clear();
+      agentModelCatalogPromises.clear();
+      agentRuntimeSkillsCache.clear();
+      agentRuntimeSkillsPromises.clear();
+    }
     const requestID = ++agentRuntimeCatalogRequest;
     const request = api('/api/v1/runtimes/discovered').then(result => {
       const items = result.items || [];
@@ -2671,9 +2677,11 @@
     if (agentModelCatalogPromises.has(runtimeID)) return agentModelCatalogPromises.get(runtimeID);
     const request = api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/models`).then(result => {
       const models = result.models || [];
-      agentModelCatalogCache.set(runtimeID, models);
+      if (agentModelCatalogPromises.get(runtimeID) === request) agentModelCatalogCache.set(runtimeID, models);
       return models;
-    }).finally(() => { agentModelCatalogPromises.delete(runtimeID); });
+    }).finally(() => {
+      if (agentModelCatalogPromises.get(runtimeID) === request) agentModelCatalogPromises.delete(runtimeID);
+    });
     agentModelCatalogPromises.set(runtimeID, request);
     return request;
   }
@@ -2683,9 +2691,11 @@
     if (agentRuntimeSkillsPromises.has(runtimeID)) return agentRuntimeSkillsPromises.get(runtimeID);
     const request = api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/skills`).then(response => {
       const items = response.items || [];
-      agentRuntimeSkillsCache.set(runtimeID, items);
+      if (agentRuntimeSkillsPromises.get(runtimeID) === request) agentRuntimeSkillsCache.set(runtimeID, items);
       return items;
-    }).finally(() => { agentRuntimeSkillsPromises.delete(runtimeID); });
+    }).finally(() => {
+      if (agentRuntimeSkillsPromises.get(runtimeID) === request) agentRuntimeSkillsPromises.delete(runtimeID);
+    });
     agentRuntimeSkillsPromises.set(runtimeID, request);
     return request;
   }
