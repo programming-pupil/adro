@@ -1637,6 +1637,9 @@ func (m *Memory) UpsertRepository(repository domain.Repository) (domain.Reposito
 	if strings.TrimSpace(repository.WorkspaceID) == "" || strings.TrimSpace(repository.CanonicalName) == "" || (strings.TrimSpace(repository.CloneURL) == "" && strings.TrimSpace(localPath) == "") {
 		return domain.Repository{}, errors.New("workspace_id, canonical_name and either clone_url or metadata.local_path are required")
 	}
+	if strings.TrimSpace(localPath) != "" && !filepath.IsAbs(filepath.Clean(strings.TrimSpace(localPath))) {
+		return domain.Repository{}, errors.New("metadata.local_path must be an absolute path")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if repository.ID == "" {

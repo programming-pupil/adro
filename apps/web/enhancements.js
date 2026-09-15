@@ -27,7 +27,7 @@
     requirementRelation: '关联需求', executorColumn: '执行人', fileCount: '个附件', authLoading: '正在验证会话',
     runnerWorkspaceRoot: '工作区根目录', executeRunner: '执行命令', runnerCommand: '命令', runnerCommandPlaceholder: '例如 go test ./...', runnerWorkDir: '工作目录', runnerWorkDirPlaceholder: '留空使用 Runner 根目录', runnerEnv: '环境变量', runnerAddEnv: '添加变量', runnerEnvName: '变量名', runnerEnvValue: '变量值', runnerRemoveEnv: '移除变量', runnerTimeout: '超时（毫秒）', runnerExecuteFailed: 'Runner 执行失败，请检查命令、路径和权限', automationEvent: '触发条件', automationEventRequirement: '需求发生变化', automationEventFailure: '执行失败', automationEventComment: '收到新评论', automationAction: '执行动作', automationActionNotify: '通知相关人员', automationActionAgent: '调用 Agent', automationActionRepair: '进入修复流程',
     workspaceMigration: '工作区迁移', exportWorkspace: '导出工作区', chooseBundle: '选择迁移包', preflightBundle: '预检', importWorkspace: '导入工作区', migrationReady: '预检通过，可以导入', migrationFailed: '迁移失败，请检查文件和冲突策略', migrationDone: '工作区导入完成', conflictMode: '冲突策略', conflictRename: '重映射 ID', conflictSkip: '跳过冲突', conflictFail: '发现冲突即停止', migrationEmpty: '尚未选择迁移包', migrationEntities: '项实体', migrateExisting: '迁移已有工作区',
-    agentEditTitle: '编辑 Agent', agentSave: '保存 Agent', agentAvatarLabel: '头像 URL', agentSkillsLabel: '可用 Skills', agentMCPServersLabel: 'MCP 服务', agentRuntimeConfigLabel: '运行时配置', agentRuntimeConfigPlaceholder: '每行 key=value，例如 sandbox_mode=workspace-write', agentEnvironmentLabel: '密钥环境变量', agentEnvironmentPlaceholder: '每行 NAME=env:SECRET_NAME，不填写明文密钥', agentNoResources: '当前没有可选择的资源'
+    agentEditTitle: '编辑 Agent', agentSave: '保存 Agent', agentAvatarLabel: '头像 URL', agentSkillsLabel: '可用 Skills', agentMCPServersLabel: 'MCP 服务', agentResourceCatalogHelp: '这里是已登记在 ADRO 工作区的共享资源；运行时 Skills 是本机执行器发现的安装项，二者相互独立。', agentRuntimeSkillsHelp: '运行时 Skills 来自当前本地执行器的安装目录，不等同于工作区共享 Skills。', agentRuntimeConfigLabel: '运行时配置', agentRuntimeConfigPlaceholder: '每行 key=value，例如 sandbox_mode=workspace-write', agentEnvironmentLabel: '密钥环境变量', agentEnvironmentPlaceholder: '每行 NAME=env:SECRET_NAME，不填写明文密钥', agentNoResources: '当前没有可选择的资源'
     ,nativeAgents: '版本化 Agent', nativeSquads: '已定义小队', executionPlans: '执行计划', newSquad: '新建小队', newPlan: '新建计划', validate: '校验', dryRun: 'Dry run', publish: '发布', enable: '启用', disable: '停用', archive: '归档', timeline: '时间线', replay: '重放', revision: '修订', graphNodes: '图节点', selectedTarget: '执行目标', squadName: '小队名称', squadDescription: '职责说明', squadLeader: 'Leader Agent', squadCreateFailed: '小队创建失败', planRequirement: '需求', planTarget: 'Agent / 小队', planCreateFailed: '执行计划创建失败', orchestrationReady: '原生自由编排控制面', orchestrationHelp: 'Agent 与 Squad 使用冻结 revision；发布计划后可从 timeline 重放每个 attempt、edge 与 evidence。', legacyBindings: '兼容责任人绑定', nativeAgentHelp: '此表直接读取 revisioned AgentDefinition，不再以显示名或旧 developer profile 作为编排主键。', lifecycleActionFailed: '生命周期操作失败', noPublishedTarget: '请先启用 Agent 或发布 Squad', planHash: 'Plan hash', openTimeline: '查看不可变事件时间线', closeTimeline: '关闭时间线', editGraph: '编辑图', forkSquad: '复制模板', graphEditor: 'Workflow Graph 编辑器', graphJSON: 'Graph JSON', graphJSONHelp: '导入/导出同一份 WorkflowGraph；发布前必须校验。', formatGraph: '格式化', validateGraph: '校验图', saveGraph: '保存图', graphSaved: '图已保存', graphValidationFailed: '图校验失败', graphNodeHint: '节点与边可任意增删；条件、回退、重试和汇聚保存在 JSON 契约中。', graphCanvas: '可视化画布', addAgentNode: 'Agent 节点', addGateNode: 'Gate 节点', connectNodes: '连接节点', removeNode: '移除节点', nodeKind: '节点类型', noOutgoingEdges: '暂无出边', comments: '评论', commentPlaceholder: '输入评论，使用 @ 选择 Agent 或 Squad', preview: '预览触发', sendComment: '发布评论', commentSent: '评论已发布', commentPreviewFailed: '触发预览失败', noComments: '暂无评论', triggerOutcomes: '触发结果', invokeAgent: '调用 Agent', invokeSquad: '调用 Squad'
   });
   Object.assign(translations.zh, { agentAvatarLabel: '头像', agentCreateKicker: '创建 / 助手', agentStepDescribe: '先说清楚它要帮你做什么', agentStepDescribeHelp: '直接描述目标、输入和期待结果，技术配置可以稍后再调整。', agentReadyState: '可开始创建', agentCreatingState: '正在创建', agentCreatedState: '已创建', agentNeedsAttentionState: '需要处理', agentCreateRunning: '创建任务已开始，关闭窗口也会继续。', agentCreateDone: '助手已创建，可以在列表中继续操作。', agentCreateError: '创建没有完成', agentRetry: '重试', agentView: '查看', agentUploadAvatar: '上传头像', agentAvatarHelp: '支持 PNG、JPG、WebP，最大 5 MiB。', agentUseLocalExecution: '使用本地执行环境', agentNoProviderError: '当前执行环境不可用，请确认本地运行程序已安装并可运行。', agentActive: '可使用', agentDisabled: '已暂停', agentArchived: '已归档', agentDraft: '待启用', agentCreateJobs: '创建任务', agentCreateJobsHelp: '关闭窗口不会取消任务，完成后状态会保留在这里。' });
@@ -56,7 +56,7 @@
     requirementRelation: 'Requirement', executorColumn: 'Executor', fileCount: 'attachments', authLoading: 'Validating session',
     runnerWorkspaceRoot: 'Workspace root', executeRunner: 'Execute command', runnerCommand: 'Command', runnerCommandPlaceholder: 'For example: go test ./...', runnerWorkDir: 'Working directory', runnerWorkDirPlaceholder: 'Leave blank to use the runner root', runnerEnv: 'Environment variables', runnerAddEnv: 'Add variable', runnerEnvName: 'Variable name', runnerEnvValue: 'Variable value', runnerRemoveEnv: 'Remove variable', runnerTimeout: 'Timeout (ms)', runnerExecuteFailed: 'Runner execution failed; check the command, path, and permissions', automationEvent: 'Trigger condition', automationEventRequirement: 'Requirement changes', automationEventFailure: 'Execution fails', automationEventComment: 'A new comment arrives', automationAction: 'Action', automationActionNotify: 'Notify people', automationActionAgent: 'Invoke an agent', automationActionRepair: 'Start repair',
     workspaceMigration: 'Workspace migration', exportWorkspace: 'Export workspace', chooseBundle: 'Choose bundle', preflightBundle: 'Preflight', importWorkspace: 'Import workspace', migrationReady: 'Preflight passed; ready to import', migrationFailed: 'Migration failed; check the bundle and conflict policy', migrationDone: 'Workspace import completed', conflictMode: 'Conflict policy', conflictRename: 'Remap IDs', conflictSkip: 'Skip conflicts', conflictFail: 'Stop on conflict', migrationEmpty: 'No migration bundle selected', migrationEntities: 'entities', migrateExisting: 'Migrate an existing workspace',
-    agentEditTitle: 'Edit agent', agentSave: 'Save agent', agentAvatarLabel: 'Avatar URL', agentSkillsLabel: 'Available skills', agentMCPServersLabel: 'MCP servers', agentRuntimeConfigLabel: 'Runtime configuration', agentRuntimeConfigPlaceholder: 'One key=value per line, for example sandbox_mode=workspace-write', agentEnvironmentLabel: 'Secret-backed environment', agentEnvironmentPlaceholder: 'One NAME=env:SECRET_NAME per line; never enter plaintext secrets', agentNoResources: 'No selectable resources yet'
+    agentEditTitle: 'Edit agent', agentSave: 'Save agent', agentAvatarLabel: 'Avatar URL', agentSkillsLabel: 'Available skills', agentMCPServersLabel: 'MCP servers', agentResourceCatalogHelp: 'These are shared resources registered in the ADRO workspace. Runtime skills are installed items discovered by the local executor; the two catalogs are independent.', agentRuntimeSkillsHelp: 'Runtime skills come from the selected local executor installation and are not the same as shared workspace skills.', agentRuntimeConfigLabel: 'Runtime configuration', agentRuntimeConfigPlaceholder: 'One key=value per line, for example sandbox_mode=workspace-write', agentEnvironmentLabel: 'Secret-backed environment', agentEnvironmentPlaceholder: 'One NAME=env:SECRET_NAME per line; never enter plaintext secrets', agentNoResources: 'No selectable resources yet'
     ,nativeAgents: 'Revisioned agents', nativeSquads: 'Squad definitions', executionPlans: 'Execution plans', newSquad: 'New squad', newPlan: 'New plan', validate: 'Validate', dryRun: 'Dry run', publish: 'Publish', enable: 'Enable', disable: 'Disable', archive: 'Archive', timeline: 'Timeline', replay: 'Replay', revision: 'Revision', graphNodes: 'Graph nodes', selectedTarget: 'Execution target', squadName: 'Squad name', squadDescription: 'Responsibility', squadLeader: 'Leader agent', squadCreateFailed: 'Could not create squad', planRequirement: 'Requirement', planTarget: 'Agent / squad', planCreateFailed: 'Could not create execution plan', orchestrationReady: 'Native free-form orchestration', orchestrationHelp: 'Agents and squads pin immutable revisions; a published plan can replay every attempt, edge, and evidence receipt from its timeline.', legacyBindings: 'Compatibility member bindings', nativeAgentHelp: 'This table reads revisioned AgentDefinition records directly; display names and legacy developer profiles are not orchestration identities.', lifecycleActionFailed: 'Lifecycle action failed', noPublishedTarget: 'Enable an agent or publish a squad first', planHash: 'Plan hash', openTimeline: 'Open immutable event timeline', closeTimeline: 'Close timeline', editGraph: 'Edit graph', forkSquad: 'Copy template', graphEditor: 'Workflow Graph editor', graphJSON: 'Graph JSON', graphJSONHelp: 'Import or export the same WorkflowGraph contract; validate before publishing.', formatGraph: 'Format', validateGraph: 'Validate graph', saveGraph: 'Save graph', graphSaved: 'Graph saved', graphValidationFailed: 'Graph validation failed', graphNodeHint: 'Nodes and edges are free-form; predicates, feedback, retries, and joins stay in the JSON contract.', graphCanvas: 'Visual canvas', addAgentNode: 'Agent node', addGateNode: 'Gate node', connectNodes: 'Connect nodes', removeNode: 'Remove node', nodeKind: 'Node type', noOutgoingEdges: 'No outgoing edges', comments: 'Comments', commentPlaceholder: 'Write a comment; use @ to choose an Agent or Squad', preview: 'Preview triggers', sendComment: 'Post comment', commentSent: 'Comment posted', commentPreviewFailed: 'Could not preview triggers', noComments: 'No comments yet', triggerOutcomes: 'Trigger outcomes', invokeAgent: 'Invoke agent', invokeSquad: 'Invoke squad'
   });
   Object.assign(translations.zh, {
@@ -201,9 +201,9 @@
     chatCreateSubtitle: '先选一个项目和执行 Agent，再开始一段持久化讨论。',
     chatTitlePlaceholder: '例如：支付发布讨论',
     repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
-    repositorySourceHelp: '选择本地目录后显示目录名称；浏览器不会暴露绝对路径时，请粘贴完整路径。',
+    repositorySourceHelp: '项目必须使用绝对路径。原生桌面选择器会自动填入；普通浏览器出于安全限制只返回目录名，请手动粘贴完整路径。',
     repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
-    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人', repositoryEdit: '编辑', repositoryDelete: '删除', repositoryBrowse: '浏览', repositoryDeleteConfirm: '确定删除这个项目吗？删除后项目绑定关系也会移除。', repositoryIndexHelp: '索引中：正在记录项目文件的可检索快照状态，不会下载远程仓库。', repositoryReadyHelp: '已就绪：项目快照状态已记录。', repositoryRemoteUnavailable: '这是远程地址元数据，当前未下载到本机，暂时无法浏览。', repositoryBrowseTitle: '浏览项目', repositoryBrowseEmpty: '目录为空', repositoryBinary: '二进制文件，无法在线预览', repositoryTruncated: '文件过大，仅显示前 1 MiB', repositoryLoadFailed: '项目内容加载失败', repositoryPathFallback: '也可以直接粘贴完整本地路径'
+    localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositoryPathAbsoluteRequired: '请输入绝对路径，例如 /Users/me/project；仅有目录名称无法浏览。', repositoryPathPickerUnavailable: '浏览器只返回目录名称，未写入路径；请在输入框粘贴绝对路径。', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人', repositoryEdit: '编辑', repositoryDelete: '删除', repositoryBrowse: '浏览', repositoryDeleteConfirm: '确定删除这个项目吗？删除后项目绑定关系也会移除。', repositoryIndexHelp: '索引中：正在记录项目文件的可检索快照状态，不会下载远程仓库。', repositoryReadyHelp: '已就绪：项目快照状态已记录。', repositoryRemoteUnavailable: '这是远程地址元数据，当前未下载到本机，暂时无法浏览。', repositoryBrowseTitle: '浏览项目', repositoryBrowseEmpty: '目录为空', repositoryBinary: '二进制文件，无法在线预览', repositoryTruncated: '文件过大，仅显示前 1 MiB', repositoryLoadFailed: '项目内容加载失败', repositoryPathFallback: '也可以直接粘贴完整本地路径'
   });
   Object.assign(translations.en, {
     logoutConfirm: 'Sign out of the current account?',
@@ -222,9 +222,9 @@
     chatCreateSubtitle: 'Choose a project and execution agent before starting a durable discussion.',
     chatTitlePlaceholder: 'For example: Payment release discussion',
     repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
-    repositorySourceHelp: 'The folder name is shown after selection. If the browser cannot expose the absolute path, paste it manually.',
+    repositorySourceHelp: 'Projects require an absolute path. Native desktop pickers fill it automatically; regular browsers expose only the folder name, so paste the full path manually.',
     repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
-    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available', repositoryEdit: 'Edit', repositoryDelete: 'Delete', repositoryBrowse: 'Browse', repositoryDeleteConfirm: 'Delete this project? Its project bindings will also be removed.', repositoryIndexHelp: 'Indexing: recording a searchable snapshot state for the project files. It does not download a remote repository.', repositoryReadyHelp: 'Ready: the project snapshot state has been recorded.', repositoryRemoteUnavailable: 'This is remote URL metadata. It has not been downloaded locally, so it cannot be browsed yet.', repositoryBrowseTitle: 'Browse project', repositoryBrowseEmpty: 'Directory is empty', repositoryBinary: 'Binary file cannot be previewed online', repositoryTruncated: 'File is large; showing the first 1 MiB only', repositoryLoadFailed: 'Could not load project contents', repositoryPathFallback: 'You can also paste the full local path manually'
+    localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositoryPathAbsoluteRequired: 'Enter an absolute path, such as /Users/me/project; a folder name alone cannot be browsed.', repositoryPathPickerUnavailable: 'The browser returned only the folder name, so it was not used as a path. Paste the absolute path into the field.', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available', repositoryEdit: 'Edit', repositoryDelete: 'Delete', repositoryBrowse: 'Browse', repositoryDeleteConfirm: 'Delete this project? Its project bindings will also be removed.', repositoryIndexHelp: 'Indexing: recording a searchable snapshot state for the project files. It does not download a remote repository.', repositoryReadyHelp: 'Ready: the project snapshot state has been recorded.', repositoryRemoteUnavailable: 'This is remote URL metadata. It has not been downloaded locally, so it cannot be browsed yet.', repositoryBrowseTitle: 'Browse project', repositoryBrowseEmpty: 'Directory is empty', repositoryBinary: 'Binary file cannot be previewed online', repositoryTruncated: 'File is large; showing the first 1 MiB only', repositoryLoadFailed: 'Could not load project contents', repositoryPathFallback: 'You can also paste the full local path manually'
   });
 
   Object.assign(translations.zh, {
@@ -982,7 +982,9 @@
     const localPath = $('#resourceFields input[name="local_path"]');
     const owner = $('#resourceFields input[name="owner_id"]');
     const existing = editingRepositoryID ? repositories.find(item => item.id === editingRepositoryID) : null;
+    const isAbsoluteLocalPath = value => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(String(value || '').trim());
     let setOwner = () => {};
+    let setPathDisplay = () => {};
     if (localPath) localPath.placeholder = t('repositoryLocalPath');
     if (owner) {
       const picker = document.createElement('div');
@@ -1030,6 +1032,7 @@
       localPath.required = true;
       localPath.classList.add('resource-path-value');
       localPath.setAttribute('aria-describedby', 'repositoryPathHelp');
+      localPath.addEventListener('input', () => localPath.setCustomValidity(''));
       const pathLabel = localPath.parentElement;
       if (pathLabel) {
         const picker = document.createElement('div');
@@ -1038,6 +1041,8 @@
         choose.type = 'button';
         choose.className = 'secondary resource-path-button';
         choose.innerHTML = `<span aria-hidden="true">⌂</span><span>${escapeHTML(t('repositoryChooseFolder'))}</span>`;
+        const selected = document.createElement('small');
+        selected.className = 'resource-path-selected';
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
@@ -1045,15 +1050,32 @@
         input.setAttribute('directory', '');
         input.className = 'sr-only';
         input.setAttribute('aria-label', t('repositoryChooseFolder'));
+        setPathDisplay = path => {
+          const value = String(path || '').trim();
+          selected.textContent = value ? `${t('repositoryFolderChosen')}: ${value.split(/[\\/]/).filter(Boolean).pop() || value}` : '';
+          selected.hidden = !value;
+        };
         const updatePath = path => {
-          if (!path) return;
+          if (!path) return false;
+          if (!isAbsoluteLocalPath(path)) {
+            selected.textContent = t('repositoryPathPickerUnavailable');
+            selected.hidden = false;
+            localPath.setCustomValidity(t('repositoryPathAbsoluteRequired'));
+            return false;
+          }
+          localPath.setCustomValidity('');
           localPath.value = path;
-          choose.querySelector('span:last-child').textContent = `${t('repositoryFolderChosen')}: ${path}`;
+          setPathDisplay(path);
+          return true;
         };
         const updateFilesPath = files => {
           const first = files?.[0];
           if (!first) return;
-          updatePath(String(first.webkitRelativePath || first.name || '').split('/')[0]);
+          const nativePath = first.path || first.filePath;
+          if (nativePath && updatePath(nativePath)) return;
+          selected.textContent = t('repositoryPathPickerUnavailable');
+          selected.hidden = false;
+          localPath.setCustomValidity(t('repositoryPathAbsoluteRequired'));
         };
         choose.onclick = async () => {
           if (window.adroNative?.chooseDirectory) {
@@ -1069,7 +1091,7 @@
           if (window.showDirectoryPicker) {
             try {
               const handle = await window.showDirectoryPicker();
-              updatePath(handle.name);
+              updatePath(handle.path || handle.filePath || handle.name);
               return;
             } catch (_) {}
           }
@@ -1077,7 +1099,7 @@
         };
         input.onchange = () => updateFilesPath(input.files);
         picker.append(choose, input);
-        pathLabel.append(picker, Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathFallback')}));
+        pathLabel.append(picker, selected, Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathAbsoluteRequired')}), Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathFallback')}));
       }
     }
     const hint = document.createElement('small');
@@ -1087,7 +1109,10 @@
     $('#resourceFields').prepend(hint);
     if (existing) {
       $('#resourceFields input[name="name"]').value = existing.canonical_name || '';
-      if (localPath) localPath.value = existing.metadata?.local_path || '';
+      if (localPath) {
+        localPath.value = existing.metadata?.local_path || '';
+        setPathDisplay(localPath.value);
+      }
       setOwner(directory.find(item => item.id === existing.owner_id));
     }
   };
@@ -1109,7 +1134,7 @@
     const localPath = String(values.get('local_path') || '').trim();
     const ownerID = String(values.get('owner_id') || '').trim();
     $('#resourceFormError').textContent = '';
-    if (!name || !localPath) {
+    if (!name || !localPath || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(localPath)) {
       $('#resourceFormError').textContent = t('resourceSaveFailed');
       return;
     }
@@ -1270,8 +1295,10 @@
         if (result.binary) code.textContent = t('repositoryBinary');
         else code.innerHTML = highlightRepositoryCode(result.content || '', result.language);
         if (result.truncated) status.textContent = t('repositoryTruncated');
-      } catch (_) {
-        status.textContent = t('repositoryLoadFailed');
+      } catch (error) {
+        status.textContent = error.detail || t('repositoryLoadFailed');
+        tree.innerHTML = '';
+        code.textContent = status.textContent;
       }
     };
     dialog.querySelector('[data-close-browser]').onclick = () => { dialog.close(); dialog.remove(); };
@@ -2375,7 +2402,7 @@
       <div class="two-fields agent-resource-fields">
         <fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset>
         <fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset>
-      </div>`);
+      </div><p class="form-help agent-resource-help" data-i18n="agentResourceCatalogHelp"></p>`);
     form.elements.thinking.closest('.two-fields').insertAdjacentHTML('afterend', `
       <section id="agentRuntimeControls" class="agent-runtime-controls" aria-labelledby="agentRuntimeControlsTitle">
         <h3 id="agentRuntimeControlsTitle" data-i18n="agentRuntimeControls"></h3>
@@ -2411,7 +2438,7 @@
             <label><span data-i18n="agentGatewaySecretEnv"></span><input name="openclaw_secret_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label>
           </div>
         </div>
-        <fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset>
+        <fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><p class="form-help agent-runtime-skills-help" data-i18n="agentRuntimeSkillsHelp"></p><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset>
       </section>`);
     const customArgs = form.elements.custom_args.closest('label');
     customArgs.insertAdjacentHTML('beforebegin', `

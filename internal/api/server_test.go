@@ -452,6 +452,14 @@ func TestRepositoryCreateAcceptsLocalPathAndPreservesOwner(t *testing.T) {
 	}
 }
 
+func TestRepositoryCreateRejectsRelativeLocalPath(t *testing.T) {
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/repositories", `{"workspace_id":"w1","canonical_name":"relative-project","provider":"local","metadata":{"local_path":"im"}}`, map[string]string{"X-Workspace-ID": "w1"})
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "absolute path") {
+		t.Fatalf("relative local repository status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestRepositoryFilesBrowsesLocalProjectsAndRejectsUnsafeSources(t *testing.T) {
 	s := testServer(t)
 	root := t.TempDir()
