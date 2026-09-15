@@ -3,10 +3,10 @@
 GO ?= ./scripts/e2e-go.sh
 
 test:
-	$(GO) test ./...
+	$(GO) test ./... -count=1 -p 1
 
 test-race:
-	$(GO) test -race ./...
+	$(GO) test -race ./... -count=1 -p 1
 
 vet:
 	$(GO) vet ./...

@@ -52,6 +52,7 @@ test('creates a graph in the browser, executes it with real Codex, and replays e
 
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
+  await page.locator('[data-agent-method="blank"]').click();
   const runtimeSelect = page.locator('#agentForm select[name="runtime"]');
   await expect(runtimeSelect.locator('option[value="codex"]')).toBeEnabled();
   await runtimeSelect.selectOption('codex');

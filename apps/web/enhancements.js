@@ -1,6 +1,9 @@
 (() => {
   document.addEventListener('click', event => {
-    if (event.target?.tagName === 'DIALOG') event.stopPropagation();
+    if (event.target?.tagName === 'DIALOG') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
   }, true);
   document.addEventListener('cancel', event => {
     if (event.target?.tagName === 'DIALOG') event.preventDefault();
@@ -189,7 +192,13 @@
     agentExecutionSection: '执行配置', agentExecutionHelp: '运行时立即可选；模型目录会在后台加载，不阻塞弹窗。',
     agentAccessSection: '访问权限', agentAccessHelp: '控制谁可以运行这个 Agent，创建后仍可修改。',
     agentAdvancedSection: '高级执行限制', agentRuntimeLoading: '正在连接本地运行时…', agentModelLoading: '正在后台读取模型…',
-    agentRuntimeReady: '运行时已就绪', agentDraftInspect: '查看配置'
+    agentRuntimeReady: '运行时已就绪', agentDraftInspect: '查看配置',
+    agentChooseTitle: '你想如何创建 Agent？', agentChooseHelp: '先选择起点。无论哪种方式，创建前都可以完整检查并修改每一项配置。',
+    agentMethodBlank: '从空白配置开始', agentMethodBlankHelp: '直接进入分区配置页，逐项设置身份、行为、执行环境与权限。',
+    agentMethodAI: '使用 AI 创建', agentMethodAIHelp: '先选择执行软件与模型，再通过对话生成可继续编辑的配置草稿。', agentRecommended: '推荐',
+    agentContinue: '继续', agentBack: '返回', agentSetupTitle: '选择 AI 创建环境', agentSetupHelp: '执行软件与模型只决定本次生成过程，生成后的 Agent 配置仍可单独修改。',
+    agentStartBuilder: '开始设计', agentGenerateDraft: '生成配置草稿', agentGenerateAgain: '重新生成', agentManualWorkspace: '手动配置', agentAIWorkspace: 'AI 创建工作区',
+    agentSectionNav: '配置分区', agentSaveReview: '检查配置后创建 Agent'
   });
   Object.assign(translations.en, {
     agentBriefTitle: 'Conversation brief', agentBriefHelp: 'Describe the outcome and AI will prepare a first draft. Every field on the right remains independently editable.',
@@ -200,7 +209,13 @@
     agentExecutionSection: 'Execution configuration', agentExecutionHelp: 'Runtimes are immediately selectable while model catalogs hydrate in the background.',
     agentAccessSection: 'Access', agentAccessHelp: 'Control who can run this Agent. You can change this after creation.',
     agentAdvancedSection: 'Advanced execution limits', agentRuntimeLoading: 'Connecting to local runtimes…', agentModelLoading: 'Loading models in the background…',
-    agentRuntimeReady: 'Runtime ready', agentDraftInspect: 'View configuration'
+    agentRuntimeReady: 'Runtime ready', agentDraftInspect: 'View configuration',
+    agentChooseTitle: 'How would you like to create this Agent?', agentChooseHelp: 'Choose a starting point. Both paths keep every setting editable before creation.',
+    agentMethodBlank: 'Start from a blank configuration', agentMethodBlankHelp: 'Open the focused editor and configure identity, behavior, execution, and access directly.',
+    agentMethodAI: 'Create with AI', agentMethodAIHelp: 'Choose execution software and a model, then generate an editable configuration through conversation.', agentRecommended: 'Recommended',
+    agentContinue: 'Continue', agentBack: 'Back', agentSetupTitle: 'Choose the AI creation environment', agentSetupHelp: 'Execution software and model drive this generation session only. You can still edit the resulting Agent configuration.',
+    agentStartBuilder: 'Start designing', agentGenerateDraft: 'Generate configuration draft', agentGenerateAgain: 'Generate again', agentManualWorkspace: 'Manual configuration', agentAIWorkspace: 'AI creation workspace',
+    agentSectionNav: 'Configuration sections', agentSaveReview: 'Review the configuration, then create the Agent'
   });
   Object.assign(translations.en, {
     requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
@@ -491,16 +506,7 @@
         return;
       }
     }
-    const opening = showAgentDialog(false);
-    $('#agentBuilderPrompt').value = job.prompt || '';
-    if (job.draft) applyAgentDraft($('#agentForm'), job.draft);
-    await opening;
-    const form = $('#agentForm');
-    if (job.runtime_id && Array.from(form.elements.runtime.options).some(option => option.value === job.runtime_id && !option.disabled)) {
-      form.elements.runtime.value = job.runtime_id;
-      await changeAgentRuntime();
-      if (job.model && Array.from(form.elements.model.options).some(option => option.value === job.model)) form.elements.model.value = job.model;
-    }
+    await showAgentDialog(false, null, {mode: 'ai', stage: 'workspace', prompt: job.prompt, draft: job.draft, runtimeID: job.runtime_id, model: job.model, jobID: job.id});
   }
 
   function entityFileInput(kind) {
@@ -630,7 +636,6 @@
     document.body.insertAdjacentHTML('beforeend', `<dialog id="attachmentPreviewDialog" class="attachment-preview-dialog"><div class="dialog-head"><div><p class="dialog-kicker">ADRO / ATTACHMENT</p><h2 id="attachmentPreviewTitle"></h2></div><button class="dialog-close" id="closeAttachmentPreview" type="button" aria-label="${escapeHTML(t('close'))}">×</button></div><div id="attachmentPreviewBody" class="attachment-preview-body"></div></dialog>`);
     const dialog = $('#attachmentPreviewDialog');
     $('#closeAttachmentPreview').onclick = () => dialog.close();
-    dialog.addEventListener('click', event => { if (event.target === event.currentTarget) dialog.close(); });
   }
 
   function openAttachmentPreview(file, title = '') {
@@ -1638,7 +1643,6 @@
     graphJSONField.closest('label').hidden = true;
     $('#graphEditorFormat').hidden = true;
     $('#closeGraphEditor').onclick = () => $('#graphEditorDialog').close();
-    $('#graphEditorDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
     $('#graphEditorFormat').onclick = () => {
       try { const graph = JSON.parse($('#graphEditorJSON').value); $('#graphEditorJSON').value = JSON.stringify(graph, null, 2); renderGraphEditorSummary(graph); renderGraphCanvas(graph); setGraphEditorStatus(''); } catch (_) { setGraphEditorStatus(t('graphValidationFailed'), true); }
     };
@@ -2151,9 +2155,6 @@
     document.querySelectorAll('[data-close-orchestration]').forEach(button => {
       button.onclick = () => $(`#${button.dataset.closeOrchestration}`)?.close();
     });
-    $('#squadDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
-    $('#nativePlanDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
-    $('#timelineDialog').addEventListener('click', event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
     $('#squadForm').onsubmit = createNativeSquad;
     $('#nativePlanForm').onsubmit = createNativePlan;
     ensureNativePlanGraphControls();
@@ -2297,7 +2298,6 @@
   const closeUserDialog = () => $('#userDialog').close();
   $('#closeUserDialog').onclick = closeUserDialog;
   $('#cancelUserDialog').onclick = closeUserDialog;
-  $('#userDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeUserDialog(); });
   $('#userForm select[name="role"]').onchange = event => {
     const selected = Array.from($('#userForm').querySelectorAll('input[name="menus"]:checked')).map(input => input.value);
     renderPermissionGrid(selected, event.currentTarget.value);
@@ -2329,9 +2329,6 @@
   const closeRunnerExecuteDialog = () => $('#runnerExecuteDialog').close();
   $('#closeRunnerExecuteDialog').onclick = closeRunnerExecuteDialog;
   $('#cancelRunnerExecuteDialog').onclick = closeRunnerExecuteDialog;
-  $('#runnerExecuteDialog').addEventListener('click', event => {
-    if (event.target === event.currentTarget) closeRunnerExecuteDialog();
-  });
   function addRunnerEnvRow(name = '', value = '') {
     const host = $('#runnerEnvRows');
     if (!host) return;
@@ -2653,13 +2650,7 @@
 
   async function getAgentRuntimeCatalog(force = false) {
     if (!force && agentRuntimeCatalog.length) return agentRuntimeCatalog;
-    if (!force && agentRuntimeCatalogPromise) return agentRuntimeCatalogPromise;
-    if (force) {
-      agentModelCatalogCache.clear();
-      agentModelCatalogPromises.clear();
-      agentRuntimeSkillsCache.clear();
-      agentRuntimeSkillsPromises.clear();
-    }
+    if (agentRuntimeCatalogPromise) return agentRuntimeCatalogPromise;
     const requestID = ++agentRuntimeCatalogRequest;
     const request = api('/api/v1/runtimes/discovered').then(result => {
       const items = result.items || [];
@@ -2715,14 +2706,68 @@
     if (selected) select.value = selected.value;
   }
 
+  function populateAgentSetupRuntimeSelect(runtimes, preferred = '') {
+    const select = $('#agentSetupRuntime');
+    if (!select) return;
+    populateAgentRuntimeSelect(select, runtimes, preferred || $('#agentRuntime')?.value || '');
+    $('#agentSetupContinue').disabled = !Array.from(select.options).some(option => !option.disabled && option.value);
+  }
+
+  async function loadAgentSetupModelCatalog(preferred = '') {
+    const runtime = $('#agentSetupRuntime');
+    const model = $('#agentSetupModel');
+    const status = $('#agentSetupStatus');
+    if (!runtime || !model) return;
+    const runtimeID = runtime.value;
+    const unsupported = runtime.selectedOptions[0]?.dataset.modelUnsupported === 'true';
+    model.disabled = !runtimeID || unsupported;
+    if (!runtimeID || unsupported) {
+      model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>`;
+      if (status) status.textContent = runtimeID ? t('agentRuntimeReady') : t('agentRuntimeLoading');
+      return;
+    }
+    const render = models => {
+      model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + models.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.label || item.id)}</option>`).join('');
+      if (models.some(item => item.id === preferred)) model.value = preferred;
+      if (status) status.textContent = t('agentRuntimeReady');
+    };
+    if (agentModelCatalogCache.has(runtimeID)) {
+      render(agentModelCatalogCache.get(runtimeID));
+      return;
+    }
+    model.innerHTML = `<option value="">${escapeHTML(t('agentModelLoading'))}</option>`;
+    if (status) status.textContent = t('agentModelLoading');
+    try {
+      render(await getAgentModelCatalog(runtimeID));
+    } catch (_) {
+      model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>`;
+      model.disabled = false;
+      if (status) status.textContent = t('runtimeDiscoveryFailed');
+    }
+  }
+
+  async function prepareAgentAISetup(preferredModel = '') {
+    setAgentCreationStage('setup', 'ai');
+    if (!agentRuntimeCatalog.length) {
+      $('#agentSetupRuntime').innerHTML = `<option value="">${escapeHTML(t('agentRuntimeLoading'))}</option>`;
+      $('#agentSetupModel').innerHTML = `<option value="">${escapeHTML(t('agentModelLoading'))}</option>`;
+      $('#agentSetupContinue').disabled = true;
+      return;
+    }
+    populateAgentSetupRuntimeSelect(agentRuntimeCatalog, $('#agentRuntime').value);
+    await loadAgentSetupModelCatalog(preferredModel || $('#agentModel').value);
+  }
+
   async function warmAgentConfiguration() {
     const user = currentUser;
     if (!user || !window.adroCanAccessMenu?.('agents')) return;
     try {
       const runtimes = await getAgentRuntimeCatalog();
       if (currentUser !== user || !window.adroCanAccessMenu?.('agents')) return;
-      const runtime = runtimes.find(item => item.id === 'codex' && item.installed && item.adapter_available) || runtimes.find(item => item.installed && item.adapter_available);
-      if (runtime) await Promise.allSettled([getAgentModelCatalog(runtime.id), getAgentRuntimeSkills(runtime.id)]);
+      const available = runtimes.filter(item => item.installed && item.adapter_available);
+      await Promise.allSettled(available.flatMap(runtime => runtime.model_selection_unsupported
+        ? [getAgentRuntimeSkills(runtime.id)]
+        : [getAgentModelCatalog(runtime.id), getAgentRuntimeSkills(runtime.id)]));
     } catch (_) {}
   }
 
@@ -2836,6 +2881,30 @@
     await Promise.all([loadAgentModelCatalog(), loadAgentRuntimeSkills(runtimeID)]);
   }
 
+  function setAgentCreationStage(stage, mode = $('#agentForm')?.dataset.creationMode || 'blank') {
+    const form = $('#agentForm');
+    if (!form) return;
+    form.dataset.creationStage = stage;
+    form.dataset.creationMode = mode;
+    form.querySelectorAll('[data-agent-stage]').forEach(panel => { panel.hidden = panel.dataset.agentStage !== stage; });
+    const layout = form.querySelector('.agent-studio-layout');
+    layout?.classList.toggle('manual', mode !== 'ai');
+    const builder = form.querySelector('.agent-builder-pane');
+    if (builder) builder.hidden = mode !== 'ai';
+    const back = $('#agentFlowBack');
+    if (back) back.hidden = stage === 'method' || form.dataset.agentId !== '' || form.dataset.onboarding === 'true';
+    const state = $('#agentDialogState');
+    if (state) {
+      const key = stage === 'method' ? 'agentReadyState' : stage === 'setup' ? 'agentSetupTitle' : mode === 'ai' ? 'agentAIWorkspace' : 'agentManualWorkspace';
+      state.dataset.i18n = key;
+      state.textContent = t(key);
+    }
+    if (stage === 'workspace') {
+      const target = mode === 'ai' ? form.elements.builder_prompt : form.elements.name;
+      setTimeout(() => target?.focus(), 0);
+    }
+  }
+
   function rebuildAgentConfigurationStudio() {
     const dialog = $('#agentDialog');
     const form = $('#agentForm');
@@ -2843,45 +2912,43 @@
     form.dataset.studioReady = 'true';
     const head = dialog.querySelector('.dialog-head');
     head?.classList.add('agent-dialog-head');
+    if (head && !$('#agentFlowBack')) head.insertAdjacentHTML('afterbegin', `<button class="agent-flow-back" id="agentFlowBack" type="button" hidden aria-label="${escapeHTML(t('agentBack'))}"><span aria-hidden="true">←</span><span data-i18n="agentBack"></span></button>`);
     if (head && !$('#agentDialogState')) head.querySelector('.dialog-close')?.insertAdjacentHTML('beforebegin', `<span id="agentDialogState" class="agent-dialog-state" data-i18n="agentReadyState"></span>`);
     form.innerHTML = `
-      <div class="agent-studio-layout">
-        <section class="agent-builder-pane" aria-labelledby="agentBriefTitle">
-          <div class="agent-pane-heading"><span class="agent-pane-index">01</span><div><p class="agent-pane-kicker" data-i18n="agentCreateKicker"></p><h3 id="agentBriefTitle" data-i18n="agentBriefTitle"></h3><p data-i18n="agentBriefHelp"></p></div></div>
-          <div class="agent-builder-canvas">
-            <div class="agent-builder-orbit" aria-hidden="true"><span>✦</span><i></i><i></i><i></i></div>
-            <label class="agent-brief-field"><span data-i18n="agentBuilderPromptLabel"></span><textarea name="builder_prompt" id="agentBuilderPrompt" data-i18n-placeholder="agentBuilderPromptPlaceholder"></textarea></label>
-            <div class="agent-prompt-suggestions"><span data-i18n="agentPromptSuggestions"></span><div><button type="button" data-agent-suggestion="agentPromptSuggestionReview" data-i18n="agentPromptSuggestionReview"></button><button type="button" data-agent-suggestion="agentPromptSuggestionResearch" data-i18n="agentPromptSuggestionResearch"></button><button type="button" data-agent-suggestion="agentPromptSuggestionDelivery" data-i18n="agentPromptSuggestionDelivery"></button></div></div>
-          </div>
-          <div class="agent-builder-actions"><button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">✦</span><span data-i18n="agentBuilderCreate"></span></button><span id="agentBuilderStatus" class="form-help" role="status"></span></div>
-        </section>
-        <section class="agent-config-pane" aria-labelledby="agentConfigurationTitle">
-          <div class="agent-pane-heading agent-config-heading"><span class="agent-pane-index">02</span><div><h3 id="agentConfigurationTitle" data-i18n="agentConfigurationTitle"></h3><p data-i18n="agentConfigurationHelp"></p></div></div>
-          <section class="agent-config-section agent-identity-card"><header><div><h4 data-i18n="agentIdentitySection"></h4><p data-i18n="agentIdentityHelp"></p></div><span class="agent-section-mark" aria-hidden="true">ID</span></header>
-            <label class="agent-avatar-field"><span data-i18n="agentAvatarLabel"></span><div class="agent-avatar-picker"><input name="avatar_url" type="hidden"><input name="avatar_file" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="secondary" id="agentAvatarButton" type="button"><span aria-hidden="true">⌁</span><span data-i18n="agentUploadAvatar"></span></button><div id="agentAvatarPreview" class="agent-avatar-preview"><span data-i18n="agentAvatarHelp"></span></div></div></label>
-            <div class="two-fields"><label><span data-i18n="agentNameLabel"></span><input name="name" type="text" required></label><label><span data-i18n="agentMemberLabel"></span><select name="member" required></select></label></div>
-            <label><span data-i18n="agentDescriptionLabel"></span><textarea name="description" maxlength="255"></textarea></label>
+      <section class="agent-flow-stage agent-method-stage" data-agent-stage="method">
+        <div class="agent-method-intro"><p class="agent-pane-kicker" data-i18n="agentCreateKicker"></p><h3 data-i18n="agentChooseTitle"></h3><p data-i18n="agentChooseHelp"></p></div>
+        <div class="agent-method-grid">
+          <button class="agent-method-card" type="button" data-agent-method="blank"><span class="agent-method-icon" aria-hidden="true">□</span><strong data-i18n="agentMethodBlank"></strong><small data-i18n="agentMethodBlankHelp"></small><span class="agent-method-continue"><span data-i18n="agentContinue"></span><b aria-hidden="true">→</b></span></button>
+          <button class="agent-method-card recommended" type="button" data-agent-method="ai"><span class="agent-method-badge" data-i18n="agentRecommended"></span><span class="agent-method-icon" aria-hidden="true">✦</span><strong data-i18n="agentMethodAI"></strong><small data-i18n="agentMethodAIHelp"></small><span class="agent-method-continue"><span data-i18n="agentContinue"></span><b aria-hidden="true">→</b></span></button>
+        </div>
+      </section>
+      <section class="agent-flow-stage agent-setup-stage" data-agent-stage="setup" hidden>
+        <div class="agent-setup-panel"><p class="agent-pane-kicker" data-i18n="agentCreateKicker"></p><h3 data-i18n="agentSetupTitle"></h3><p data-i18n="agentSetupHelp"></p>
+          <div class="agent-setup-fields"><label><span data-i18n="agentRuntimeLabel"></span><select id="agentSetupRuntime"></select></label><label><span data-i18n="agentModelLabel"></span><select id="agentSetupModel"></select></label></div>
+          <p id="agentSetupStatus" class="form-help" role="status"></p><button class="primary" id="agentSetupContinue" type="button"><span data-i18n="agentStartBuilder"></span><b aria-hidden="true">→</b></button>
+        </div>
+      </section>
+      <section class="agent-flow-stage agent-workspace-stage" data-agent-stage="workspace" hidden>
+        <div class="agent-studio-layout">
+          <section class="agent-builder-pane" aria-labelledby="agentBriefTitle">
+            <div class="agent-pane-heading"><span class="agent-pane-index">AI</span><div><p class="agent-pane-kicker" data-i18n="agentAIWorkspace"></p><h3 id="agentBriefTitle" data-i18n="agentBriefTitle"></h3><p data-i18n="agentBriefHelp"></p></div></div>
+            <div class="agent-builder-canvas"><label class="agent-brief-field"><span data-i18n="agentBuilderPromptLabel"></span><textarea name="builder_prompt" id="agentBuilderPrompt" data-i18n-placeholder="agentBuilderPromptPlaceholder"></textarea></label><div class="agent-prompt-suggestions"><span data-i18n="agentPromptSuggestions"></span><div><button type="button" data-agent-suggestion="agentPromptSuggestionReview" data-i18n="agentPromptSuggestionReview"></button><button type="button" data-agent-suggestion="agentPromptSuggestionResearch" data-i18n="agentPromptSuggestionResearch"></button><button type="button" data-agent-suggestion="agentPromptSuggestionDelivery" data-i18n="agentPromptSuggestionDelivery"></button></div></div></div>
+            <div class="agent-builder-actions"><button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">✦</span><span data-i18n="agentGenerateDraft"></span></button><span id="agentBuilderStatus" class="form-help" role="status"></span></div>
           </section>
-          <section class="agent-config-section"><header><div><h4 data-i18n="agentBehaviorSection"></h4><p data-i18n="agentBehaviorHelp"></p></div><span class="agent-section-mark" aria-hidden="true">AI</span></header>
-            <div class="two-fields"><label><span data-i18n="agentRoleLabel"></span><input name="role" type="text" data-i18n-placeholder="agentRolePlaceholder"></label><label><span data-i18n="agentAccessLabel"></span><select name="access_mode" id="agentAccessMode"><option value="private" data-i18n="agentAccessPrivate"></option><option value="workspace" data-i18n="agentAccessWorkspace"></option><option value="members" data-i18n="agentAccessMembers"></option></select></label></div>
-            <fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>
-            <label><span data-i18n="agentInstructionsLabel"></span><textarea name="instructions"></textarea></label>
-            <div class="two-fields agent-resource-fields"><fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset><fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset></div>
-            <p class="form-help agent-resource-help" data-i18n="agentResourceCatalogHelp"></p>
-          </section>
-          <section class="agent-config-section agent-execution-card"><header><div><h4 data-i18n="agentExecutionSection"></h4><p data-i18n="agentExecutionHelp"></p></div><span class="agent-section-mark" aria-hidden="true">RUN</span></header>
-            <div class="two-fields agent-runtime-primary"><label><span data-i18n="agentRuntimeLabel"></span><select name="runtime" id="agentRuntime" required><option value="" data-i18n="agentRuntimeLoading"></option></select></label><label><span data-i18n="agentModelLabel"></span><select name="model" id="agentModel"><option value="" data-i18n="agentModelLoading"></option></select></label></div>
-            <div class="two-fields"><label><span data-i18n="agentThinkingLabel"></span><select name="thinking" id="agentThinking"><option value="" data-i18n="runtimeDefault"></option></select></label><label><span data-i18n="agentServiceTierLabel"></span><select name="service_tier" id="agentServiceTier"><option value="" data-i18n="runtimeDefault"></option></select></label></div>
-            <section id="agentRuntimeControls" class="agent-runtime-controls" aria-labelledby="agentRuntimeControlsTitle"><h3 id="agentRuntimeControlsTitle" data-i18n="agentRuntimeControls"></h3>
-              <div class="two-fields agent-runtime-policy" data-runtime-policy="codex" hidden><label><span data-i18n="agentCodexSandbox"></span><select name="codex_sandbox"><option value="" data-i18n="runtimeDefault"></option><option value="read-only" data-i18n="agentSandboxReadOnly"></option><option value="workspace-write" data-i18n="agentSandboxWorkspace"></option><option value="danger-full-access" data-i18n="agentSandboxUnrestricted"></option></select></label><label><span data-i18n="agentCodexApproval"></span><select name="codex_approval"><option value="" data-i18n="runtimeDefault"></option><option value="untrusted" data-i18n="agentApprovalUntrusted"></option><option value="on-request" data-i18n="agentApprovalOnRequest"></option><option value="on-failure" data-i18n="agentApprovalOnFailure"></option><option value="never" data-i18n="agentApprovalNever"></option></select></label></div>
-              <div class="agent-runtime-policy" data-runtime-policy="openclaw" hidden><div class="two-fields"><label><span data-i18n="agentOpenClawMode"></span><select name="openclaw_mode"><option value="local" data-i18n="agentOpenClawLocal"></option><option value="gateway" data-i18n="agentOpenClawGateway"></option></select></label><label class="toggle-line"><input name="openclaw_tls" type="checkbox"><span data-i18n="agentGatewayTLS"></span></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayHost"></span><input name="openclaw_host" type="text" autocomplete="off"></label><label><span data-i18n="agentGatewayPort"></span><input name="openclaw_port" type="number" min="1" max="65535" inputmode="numeric"></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayAuthEnv"></span><input name="openclaw_auth_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label><label><span data-i18n="agentGatewaySecretEnv"></span><input name="openclaw_secret_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label></div></div>
-              <fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><p class="form-help agent-runtime-skills-help" data-i18n="agentRuntimeSkillsHelp"></p><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset>
+          <section class="agent-config-shell" aria-labelledby="agentConfigurationTitle">
+            <nav class="agent-section-nav" aria-label="${escapeHTML(t('agentSectionNav'))}"><span data-i18n="agentSectionNav"></span><button type="button" data-agent-section="agentSectionIdentity" class="active"><b>01</b><span data-i18n="agentIdentitySection"></span></button><button type="button" data-agent-section="agentSectionBehavior"><b>02</b><span data-i18n="agentBehaviorSection"></span></button><button type="button" data-agent-section="agentSectionExecution"><b>03</b><span data-i18n="agentExecutionSection"></span></button><button type="button" data-agent-section="agentSectionAccess"><b>04</b><span data-i18n="agentAccessSection"></span></button><button type="button" data-agent-section="agentSectionAdvanced"><b>05</b><span data-i18n="agentAdvancedSection"></span></button></nav>
+            <section class="agent-config-pane">
+              <div class="agent-pane-heading agent-config-heading"><span class="agent-pane-index">CFG</span><div><h3 id="agentConfigurationTitle" data-i18n="agentConfigurationTitle"></h3><p data-i18n="agentConfigurationHelp"></p></div></div>
+              <section class="agent-config-section agent-identity-card" id="agentSectionIdentity"><header><div><h4 data-i18n="agentIdentitySection"></h4><p data-i18n="agentIdentityHelp"></p></div><span class="agent-section-mark" aria-hidden="true">ID</span></header><label class="agent-avatar-field"><span data-i18n="agentAvatarLabel"></span><div class="agent-avatar-picker"><input name="avatar_url" type="hidden"><input name="avatar_file" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="secondary" id="agentAvatarButton" type="button"><span aria-hidden="true">⌁</span><span data-i18n="agentUploadAvatar"></span></button><div id="agentAvatarPreview" class="agent-avatar-preview"><span data-i18n="agentAvatarHelp"></span></div></div></label><div class="two-fields"><label><span data-i18n="agentNameLabel"></span><input name="name" type="text" required></label><label><span data-i18n="agentMemberLabel"></span><select name="member" required></select></label></div><label><span data-i18n="agentDescriptionLabel"></span><textarea name="description" maxlength="255"></textarea></label></section>
+              <section class="agent-config-section" id="agentSectionBehavior"><header><div><h4 data-i18n="agentBehaviorSection"></h4><p data-i18n="agentBehaviorHelp"></p></div><span class="agent-section-mark" aria-hidden="true">AI</span></header><label><span data-i18n="agentRoleLabel"></span><input name="role" type="text" data-i18n-placeholder="agentRolePlaceholder"></label><label><span data-i18n="agentInstructionsLabel"></span><textarea name="instructions"></textarea></label><div class="two-fields agent-resource-fields"><fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset><fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset></div><p class="form-help agent-resource-help" data-i18n="agentResourceCatalogHelp"></p></section>
+              <section class="agent-config-section agent-execution-card" id="agentSectionExecution"><header><div><h4 data-i18n="agentExecutionSection"></h4><p data-i18n="agentExecutionHelp"></p></div><span class="agent-section-mark" aria-hidden="true">RUN</span></header><div class="two-fields agent-runtime-primary"><label><span data-i18n="agentRuntimeLabel"></span><select name="runtime" id="agentRuntime" required><option value="" data-i18n="agentRuntimeLoading"></option></select></label><label><span data-i18n="agentModelLabel"></span><select name="model" id="agentModel"><option value="" data-i18n="agentModelLoading"></option></select></label></div><div class="two-fields"><label><span data-i18n="agentThinkingLabel"></span><select name="thinking" id="agentThinking"><option value="" data-i18n="runtimeDefault"></option></select></label><label><span data-i18n="agentServiceTierLabel"></span><select name="service_tier" id="agentServiceTier"><option value="" data-i18n="runtimeDefault"></option></select></label></div><section id="agentRuntimeControls" class="agent-runtime-controls" aria-labelledby="agentRuntimeControlsTitle"><h3 id="agentRuntimeControlsTitle" data-i18n="agentRuntimeControls"></h3><div class="two-fields agent-runtime-policy" data-runtime-policy="codex" hidden><label><span data-i18n="agentCodexSandbox"></span><select name="codex_sandbox"><option value="" data-i18n="runtimeDefault"></option><option value="read-only" data-i18n="agentSandboxReadOnly"></option><option value="workspace-write" data-i18n="agentSandboxWorkspace"></option><option value="danger-full-access" data-i18n="agentSandboxUnrestricted"></option></select></label><label><span data-i18n="agentCodexApproval"></span><select name="codex_approval"><option value="" data-i18n="runtimeDefault"></option><option value="untrusted" data-i18n="agentApprovalUntrusted"></option><option value="on-request" data-i18n="agentApprovalOnRequest"></option><option value="on-failure" data-i18n="agentApprovalOnFailure"></option><option value="never" data-i18n="agentApprovalNever"></option></select></label></div><div class="agent-runtime-policy" data-runtime-policy="openclaw" hidden><div class="two-fields"><label><span data-i18n="agentOpenClawMode"></span><select name="openclaw_mode"><option value="local" data-i18n="agentOpenClawLocal"></option><option value="gateway" data-i18n="agentOpenClawGateway"></option></select></label><label class="toggle-line"><input name="openclaw_tls" type="checkbox"><span data-i18n="agentGatewayTLS"></span></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayHost"></span><input name="openclaw_host" type="text" autocomplete="off"></label><label><span data-i18n="agentGatewayPort"></span><input name="openclaw_port" type="number" min="1" max="65535" inputmode="numeric"></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayAuthEnv"></span><input name="openclaw_auth_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label><label><span data-i18n="agentGatewaySecretEnv"></span><input name="openclaw_secret_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label></div></div><fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><p class="form-help agent-runtime-skills-help" data-i18n="agentRuntimeSkillsHelp"></p><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset></section></section>
+              <section class="agent-config-section" id="agentSectionAccess"><header><div><h4 data-i18n="agentAccessSection"></h4><p data-i18n="agentAccessHelp"></p></div><span class="agent-section-mark" aria-hidden="true">ACL</span></header><label><span data-i18n="agentAccessLabel"></span><select name="access_mode" id="agentAccessMode"><option value="private" data-i18n="agentAccessPrivate"></option><option value="workspace" data-i18n="agentAccessWorkspace"></option><option value="members" data-i18n="agentAccessMembers"></option></select></label><fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset></section>
+              <section class="agent-config-section agent-advanced" id="agentSectionAdvanced"><header><div><h4 data-i18n="agentAdvancedSection"></h4><p data-i18n="agentSaveReview"></p></div><span class="agent-section-mark" aria-hidden="true">ADV</span></header><div class="two-fields"><label><span data-i18n="agentConcurrencyLabel"></span><input name="concurrent" type="number" min="1" max="16" value="1" required></label><label><span data-i18n="agentTokenBudgetLabel"></span><input name="tokens" type="number" min="1" max="10000000" value="120000" required></label></div><div class="two-fields"><label><span data-i18n="agentToolBudgetLabel"></span><input name="tool_calls" type="number" min="1" max="10000" value="200" required></label><label class="toggle-line"><input name="network" type="checkbox"><span data-i18n="agentNetworkLabel"></span></label></div><label hidden aria-hidden="true"><textarea name="custom_args"></textarea></label><label hidden aria-hidden="true"><textarea name="runtime_config"></textarea></label><label hidden aria-hidden="true"><textarea name="environment"></textarea></label></section>
+              <div class="agent-form-footer"><div><p class="form-error" id="agentFormError" role="alert"></p><span class="agent-footer-hint" data-i18n="agentSaveReview"></span></div><div class="form-actions"><button class="secondary" id="cancelAgentDialog" type="button" data-i18n="cancel"></button><button class="primary" type="submit"><span aria-hidden="true">＋</span><span data-i18n="agentCreate"></span></button></div></div>
             </section>
           </section>
-          <details class="agent-advanced agent-config-section"><summary data-i18n="agentAdvancedSection"></summary><div class="two-fields"><label><span data-i18n="agentConcurrencyLabel"></span><input name="concurrent" type="number" min="1" max="16" value="1" required></label><label><span data-i18n="agentTokenBudgetLabel"></span><input name="tokens" type="number" min="1" max="10000000" value="120000" required></label></div><div class="two-fields"><label><span data-i18n="agentToolBudgetLabel"></span><input name="tool_calls" type="number" min="1" max="10000" value="200" required></label><label class="toggle-line"><input name="network" type="checkbox"><span data-i18n="agentNetworkLabel"></span></label></div><label hidden aria-hidden="true"><textarea name="custom_args"></textarea></label><label hidden aria-hidden="true"><textarea name="runtime_config"></textarea></label><label hidden aria-hidden="true"><textarea name="environment"></textarea></label></details>
-          <div class="agent-form-footer"><div><p class="form-error" id="agentFormError" role="alert"></p><span class="agent-footer-hint" data-i18n="agentAccessHelp"></span></div><div class="form-actions"><button class="secondary" id="cancelAgentDialog" type="button" data-i18n="cancel"></button><button class="primary" type="submit"><span aria-hidden="true">＋</span><span data-i18n="agentCreate"></span></button></div></div>
-        </section>
-      </div>`;
+        </div>
+      </section>`;
     $('#agentAvatarButton').onclick = () => form.elements.avatar_file.click();
     form.elements.avatar_file.onchange = () => {
       const file = form.elements.avatar_file.files?.[0];
@@ -2901,6 +2968,35 @@
         form.elements.builder_prompt.focus();
       };
     });
+    form.querySelectorAll('[data-agent-method]').forEach(button => {
+      button.onclick = () => button.dataset.agentMethod === 'ai' ? prepareAgentAISetup() : setAgentCreationStage('workspace', 'blank');
+    });
+    $('#agentSetupRuntime').onchange = async () => {
+      const runtimeID = $('#agentSetupRuntime').value;
+      if (runtimeID && form.elements.runtime.value !== runtimeID) {
+        form.elements.runtime.value = runtimeID;
+        await changeAgentRuntime();
+      }
+      await loadAgentSetupModelCatalog();
+    };
+    $('#agentSetupContinue').onclick = async () => {
+      const runtimeID = $('#agentSetupRuntime').value;
+      if (!runtimeID) return;
+      if (form.elements.runtime.value !== runtimeID) {
+        form.elements.runtime.value = runtimeID;
+        await changeAgentRuntime();
+      }
+      form.elements.model.value = $('#agentSetupModel').value;
+      renderAgentModelOptions(form.elements.model.value);
+      setAgentCreationStage('workspace', 'ai');
+    };
+    form.querySelectorAll('[data-agent-section]').forEach(button => {
+      button.onclick = () => {
+        form.querySelectorAll('[data-agent-section]').forEach(item => item.classList.toggle('active', item === button));
+        form.querySelector(`#${CSS.escape(button.dataset.agentSection)}`)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+      };
+    });
+    $('#agentFlowBack').onclick = () => setAgentCreationStage(form.dataset.creationStage === 'workspace' && form.dataset.creationMode === 'ai' ? 'setup' : 'method', form.dataset.creationMode);
     $('#cancelAgentDialog').onclick = closeAgentDialog;
     applyTranslations();
   }
@@ -2968,7 +3064,7 @@
       $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
     }
   };
-  showAgentDialog = async function showAgentDialogWithMigration(onboarding = false, agent = null) {
+  showAgentDialog = async function showAgentDialogWithMigration(onboarding = false, agent = null, options = {}) {
     onboarding = onboarding === true;
     const form = $('#agentForm');
     form.reset();
@@ -2976,6 +3072,8 @@
     delete form.dataset.agentRevision;
     delete form.dataset.loadedRuntime;
     delete form.dataset.creationJobID;
+    const dialogSession = idempotencyKey();
+    form.dataset.dialogSession = dialogSession;
     agentRuntimeConfigs = new Map();
     agentRuntimeEnvironments = new Map();
     agentPreservedCustomArgs = (agent?.executor_binding?.custom_args || []).slice();
@@ -2984,6 +3082,8 @@
     form.dataset.onboarding = onboarding ? 'true' : '';
     form.dataset.agentId = agent?.id || '';
     form.dataset.agentRevision = agent?.revision ? String(agent.revision) : '';
+    form.dataset.creationMode = agent || onboarding ? 'blank' : String(options.mode || 'blank');
+    if (options.jobID) form.dataset.creationJobID = options.jobID;
     document.body.classList.toggle('onboarding-active', onboarding);
     $('#closeAgentDialog').hidden = onboarding;
     $('#cancelAgentDialog').hidden = onboarding;
@@ -3016,8 +3116,8 @@
       form.elements.role.value = 'generalist';
       form.elements.instructions.value = t('defaultAgentInstructions');
     }
-    const preferredRuntime = agent?.executor_binding?.runtime_id || '';
-    const preferredModel = agent?.executor_binding?.model || '';
+    const preferredRuntime = agent?.executor_binding?.runtime_id || String(options.runtimeID || '');
+    const preferredModel = agent?.executor_binding?.model || String(options.model || '');
     if (agent) {
       form.elements.avatar_url.value = agent.avatar_url || '';
       form.elements.custom_args.value = agentPreservedCustomArgs.join('\n');
@@ -3025,10 +3125,14 @@
       agentRuntimeEnvironments.set(preferredRuntime, (agent.executor_binding?.environment || []).map(item => ({...item})));
       applyAgentDraft(form, {...agent, network_access: agent.tool_policy?.network, max_concurrent_tasks: agent.concurrency_budget?.concurrent, token_budget: agent.concurrency_budget?.tokens, tool_call_budget: agent.concurrency_budget?.tool_calls});
       if (agent.avatar_url) $('#agentAvatarPreview').innerHTML = `<img src="${escapeHTML(agent.avatar_url)}" alt=""><span>${escapeHTML(t('agentAvatarLabel'))}</span>`;
+    } else if (options.draft) {
+      applyAgentDraft(form, options.draft);
     }
+    form.elements.builder_prompt.value = String(options.prompt || '');
     const runtimeSelect = form.elements.runtime;
     if (agentRuntimeCatalog.length) populateAgentRuntimeSelect(runtimeSelect, agentRuntimeCatalog, preferredRuntime);
     else runtimeSelect.innerHTML = `<option value="">${escapeHTML(t('agentRuntimeLoading'))}</option>`;
+    populateAgentSetupRuntimeSelect(agentRuntimeCatalog, runtimeSelect.value || preferredRuntime);
     const submitButton = form.querySelector('button[type="submit"]');
     submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled && option.value);
     const initialRuntime = runtimeSelect.value;
@@ -3041,25 +3145,32 @@
     };
     form.elements.openclaw_mode.onchange = updateOpenClawGatewayFields;
     if (!$('#agentDialog').open) $('#agentDialog').showModal();
-    setTimeout(() => form.elements.builder_prompt.focus(), 0);
-    try {
-      const runtimes = await getAgentRuntimeCatalog(true);
-      const selectedRuntime = runtimeSelectionChanged ? runtimeSelect.value : preferredRuntime;
+    const initialStage = agent || onboarding ? 'workspace' : String(options.stage || 'method');
+    setAgentCreationStage(initialStage, form.dataset.creationMode);
+    const hydrate = async runtimes => {
+      if (form.dataset.dialogSession !== dialogSession) return;
+      const selectedRuntime = runtimeSelectionChanged ? runtimeSelect.value : (runtimeSelect.value || preferredRuntime);
       populateAgentRuntimeSelect(runtimeSelect, runtimes, selectedRuntime);
+      populateAgentSetupRuntimeSelect(runtimes, runtimeSelect.value);
       const runtimeID = runtimeSelect.value;
       form.dataset.loadedRuntime = runtimeID;
       renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
       submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled && option.value);
-      await Promise.all([loadAgentModelCatalog(preferredModel), loadAgentRuntimeSkills(runtimeID)]);
+      await Promise.allSettled([loadAgentModelCatalog(preferredModel), loadAgentRuntimeSkills(runtimeID), loadAgentSetupModelCatalog(preferredModel)]);
+      if (form.dataset.dialogSession !== dialogSession) return;
       if (agent) {
         form.elements.thinking.value = agent.executor_binding?.thinking_level || '';
         form.elements.service_tier.value = agent.executor_binding?.service_tier || '';
       }
-      if (dialogState) dialogState.textContent = t('agentRuntimeReady');
-    } catch (_) {
+      if (form.dataset.creationStage === 'setup') $('#agentSetupStatus').textContent = t('agentRuntimeReady');
+    };
+    if (agentRuntimeCatalog.length) void hydrate(agentRuntimeCatalog);
+    void getAgentRuntimeCatalog(true).then(hydrate).catch(() => {
+      if (form.dataset.dialogSession !== dialogSession || agentRuntimeCatalog.length) return;
       $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
+      $('#agentSetupStatus').textContent = t('runtimeDiscoveryFailed');
       submitButton.disabled = true;
-    }
+    });
   };
 
   function agentFormStarters(form) {
@@ -3122,7 +3233,7 @@
     if (field) field.hidden = $('#agentAccessMode').value !== 'members';
   }
 
-  async function composeAgentDraft(createAfter = false) {
+  async function composeAgentDraft() {
     const form = $('#agentForm');
     const buttons = [$('#composeAndCreateAgent')].filter(Boolean);
     const status = $('#agentBuilderStatus');
@@ -3130,11 +3241,6 @@
     if (!prompt) {
       status.textContent = t('agentBuilderFailed');
       return false;
-    }
-    const jobID = createAfter ? idempotencyKey() : '';
-    if (jobID) {
-      form.dataset.creationJobID = jobID;
-      upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim(), prompt, draft: currentAgentDraft(form), runtime_id: String(form.elements.runtime.value || ''), model: String(form.elements.model.value || ''), status: 'running', started_at: new Date().toISOString()});
     }
     buttons.forEach(button => { button.disabled = true; });
     status.textContent = t('agentBuilderRunning');
@@ -3152,15 +3258,15 @@
       };
       const response = await api('/api/v1/workspaces/local/agents/compose', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
       applyAgentDraft(form, response.draft || {});
-      if (jobID) upsertAgentCreationJob({id: jobID, name: response.draft?.name || '', draft: response.draft || currentAgentDraft(form)});
       status.textContent = t('agentBuilderDone');
-      if (createAfter) form.requestSubmit();
+      const label = $('#composeAndCreateAgent span[data-i18n]');
+      if (label) { label.dataset.i18n = 'agentGenerateAgain'; label.textContent = t('agentGenerateAgain'); }
+      form.querySelector('[data-agent-section="agentSectionIdentity"]')?.click();
       return true;
     } catch (error) {
       status.textContent = t('agentBuilderFailed');
       $('#agentFormError').textContent = error.detail || error.message || t('agentCreateError');
       if (dialogState) dialogState.textContent = t('agentNeedsAttentionState');
-      if (jobID) upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim(), prompt, draft: currentAgentDraft(form), runtime_id: String(form.elements.runtime.value || ''), model: String(form.elements.model.value || ''), status: 'failed', error: error.detail || error.message || '', error_key: 'agentCreateError'});
       return false;
     } finally {
       buttons.forEach(button => { button.disabled = false; });
@@ -3168,7 +3274,7 @@
   }
 
   ensureOrchestrationDialogs();
-	$('#composeAndCreateAgent').onclick = () => composeAgentDraft(true);
+	$('#composeAndCreateAgent').onclick = composeAgentDraft;
 	$('#agentAccessMode').onchange = updateAgentAccessFields;
 	updateAgentAccessFields();
   $('#agentForm').onsubmit = async event => {
@@ -3211,8 +3317,14 @@
       tool_policy: {network: data.get('network') === 'on'}, memory_policy: {require_evidence: true}
     };
     $('#agentFormError').textContent = '';
+    const agentID = String(form.dataset.agentId || '');
+    let jobID = String(form.dataset.creationJobID || '');
+    if (!agentID && form.dataset.creationMode === 'ai' && !jobID) {
+      jobID = idempotencyKey();
+      form.dataset.creationJobID = jobID;
+      upsertAgentCreationJob({id: jobID, name, prompt: String(form.elements.builder_prompt.value || '').trim(), draft: currentAgentDraft(form), runtime_id: runtime, model, status: 'running', started_at: new Date().toISOString()});
+    }
     try {
-      const agentID = String(form.dataset.agentId || '');
       const requestBody = agentID ? {...nativeBody, expected_revision: Number(form.dataset.agentRevision)} : nativeBody;
       if (agentID) delete requestBody.created_by;
       const savedAgent = await api(agentID ? `/api/v1/workspaces/local/agents/${encodeURIComponent(agentID)}` : '/api/v1/workspaces/local/agents', {method: agentID ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(requestBody)});
@@ -3221,13 +3333,11 @@
         const avatarURL = await uploadAgentAvatar(savedAgent.id, avatarFile);
         if (avatarURL) await api(`/api/v1/workspaces/local/agents/${encodeURIComponent(savedAgent.id)}`, {method: 'PATCH', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify({expected_revision: savedAgent.revision, avatar_url: avatarURL})});
       }
-      const jobID = form.dataset.creationJobID;
       if (jobID) upsertAgentCreationJob({id: jobID, name: savedAgent?.name || name, agent_id: savedAgent?.id, status: 'done', finished_at: new Date().toISOString()});
       if ($('#agentDialogState')) $('#agentDialogState').textContent = t('agentCreatedState');
       agentPreservedCustomArgs = customArgs;
       delete form.dataset.onboarding; delete form.dataset.agentId; delete form.dataset.agentRevision; delete form.dataset.loadedRuntime; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
     } catch (error) {
-      const jobID = form.dataset.creationJobID;
       if (jobID) upsertAgentCreationJob({id: jobID, name, status: 'failed', error: error.detail || error.message || '', error_key: 'agentCreateError'});
       if ($('#agentDialogState')) $('#agentDialogState').textContent = t('agentNeedsAttentionState');
       $('#agentFormError').textContent = error.detail || error.message || t('agentSaveFailed');
@@ -4090,7 +4200,6 @@
 
   $('#closeChatCreateDialog').onclick = closeChatCreateDialog;
   $('#cancelChatCreateDialog').onclick = closeChatCreateDialog;
-  $('#chatCreateDialog').addEventListener('click', event => { if (event.target === event.currentTarget) closeChatCreateDialog(); });
   $('#chatCreateForm').onsubmit = async event => { event.preventDefault(); await createChatFromUI(); };
 
   async function sendChatFromUI(event) {
