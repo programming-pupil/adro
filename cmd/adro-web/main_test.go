@@ -98,3 +98,17 @@ func TestWorkbenchDirectoryPickerRejectsRelativePaths(t *testing.T) {
 		t.Fatalf("directory picker status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestWorkbenchDirectoryPickerTreatsCancellationAsNoContent(t *testing.T) {
+	handler, err := newWorkbenchHandlerWithDirectoryPicker(t.TempDir(), "http://127.0.0.1:8080", func(context.Context) (string, error) {
+		return "", errDirectoryPickerCancelled
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/_adro/directory-picker", nil))
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+		t.Fatalf("directory picker cancellation status=%d body=%q", response.Code, response.Body.String())
+	}
+}

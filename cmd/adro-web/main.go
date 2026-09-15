@@ -94,6 +94,10 @@ func serveDirectoryPicker(w http.ResponseWriter, r *http.Request, pickDirectory 
 	}
 	path, err := pickDirectory(r.Context())
 	if err != nil {
+		if errors.Is(err, errDirectoryPickerCancelled) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
 		return
@@ -124,9 +128,14 @@ func pickLocalDirectory(ctx context.Context) (string, error) {
 			return "", errors.New("no supported native directory picker is installed")
 		}
 	}
-	output, err := command.Output()
+	output, err := command.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("directory selection cancelled or unavailable: %w", err)
+		message := strings.ToLower(strings.TrimSpace(string(output)))
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && (exitErr.ExitCode() == 1 || strings.Contains(message, "cancel")) {
+			return "", errDirectoryPickerCancelled
+		}
+		return "", fmt.Errorf("directory selection unavailable: %w", err)
 	}
 	path := strings.TrimSpace(string(output))
 	if path == "" {
@@ -136,3 +145,4 @@ func pickLocalDirectory(ctx context.Context) (string, error) {
 }
 
 var errInvalidAPIURL = errors.New("API URL must include scheme and host")
+var errDirectoryPickerCancelled = errors.New("directory selection cancelled")

@@ -55,6 +55,7 @@ type localOutput struct {
 	data       bytes.Buffer
 	terminal   bool
 	onTerminal func()
+	onWrite    func([]byte)
 }
 
 func (o *localOutput) Write(data []byte) (int, error) {
@@ -65,7 +66,12 @@ func (o *localOutput) Write(data []byte) (int, error) {
 		o.terminal = true
 	}
 	stop := o.onTerminal
+	onWrite := o.onWrite
+	snapshot := append([]byte(nil), o.data.Bytes()...)
 	o.mu.Unlock()
+	if onWrite != nil {
+		onWrite(snapshot)
+	}
 	if shouldStop && stop != nil {
 		stop()
 	}
@@ -591,7 +597,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 	var runErr error
 	if pathErr == nil {
 		if p.executorKind() == "codex" && !codexExecMode(args) {
-			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier, runtimeEnvironment)
+			executorPID, output, runErr = executeCodexAppServer(ctx, path, args, input, workDir, sessionID, resumed, p.Model, p.ThinkingLevel, p.ServiceTier, runtimeEnvironment, func(output []byte) {
+				p.updateLiveRunOutput(runID, output)
+			})
 		} else if p.executorKind() == "dsh" && len(p.Args) == 0 {
 			executorPID, output, runErr = executeDSHRuntime(
 				ctx, path, args, runID, input, workDir, sessionID, p.Model, p.ThinkingLevel, resumed, p.Environment,
@@ -658,7 +666,9 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			if stdinErr != nil {
 				runErr = stdinErr
 			} else {
-				outputCapture := &localOutput{}
+				outputCapture := &localOutput{onWrite: func(output []byte) {
+					p.updateLiveRunOutput(runID, output)
+				}}
 				if codexOneShot {
 					outputCapture.onTerminal = func() {
 						// The structured turn result is already committed to the pipe.
@@ -905,6 +915,16 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		payload["error"] = "durable run snapshot unavailable"
 	}
 	_ = p.Bus.Publish(ctx, events.NewWithContext(ctx, "execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
+}
+
+func (p *LocalProvider) updateLiveRunOutput(runID string, output []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	run := p.runs[runID]
+	if run == nil || run.snapshot.Status != "running" {
+		return
+	}
+	run.snapshot.Output = truncateOutput(output)
 }
 
 func traceEnvironment(base, carrier []string) []string {

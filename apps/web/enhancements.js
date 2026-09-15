@@ -198,7 +198,11 @@
     agentMethodAI: '使用 AI 创建', agentMethodAIHelp: '先选择执行软件与模型，再通过对话生成可继续编辑的配置草稿。', agentRecommended: '推荐',
     agentContinue: '继续', agentBack: '返回', agentSetupTitle: '选择 AI 创建环境', agentSetupHelp: '执行软件与模型只决定本次生成过程，生成后的 Agent 配置仍可单独修改。',
     agentStartBuilder: '开始设计', agentGenerateDraft: '生成配置草稿', agentGenerateAgain: '重新生成', agentManualWorkspace: '手动配置', agentAIWorkspace: 'AI 创建工作区',
-    agentSectionNav: '配置分区', agentSaveReview: '检查配置后创建 Agent'
+    agentSectionNav: '配置分区', agentSaveReview: '检查配置后创建 Agent',
+    agentBuilderProgress: '生成进度', agentBuilderYou: '你的描述', agentBuilderAssistant: 'AI 设计助手', agentBuilderActivity: '执行步骤',
+    agentBuilderStarting: '正在启动执行环境…', agentBuilderWaiting: '执行环境已启动，等待模型响应…', agentBuilderApplying: '配置草稿已生成，正在同步到右侧…',
+    agentBuilderToolStarted: '正在执行', agentBuilderToolCompleted: '执行完成', agentBuilderRunFailed: '生成失败',
+    repositoryFolderOpening: '正在打开目录选择器…', repositoryFolderChooseFailed: '无法打开目录选择器，请直接输入绝对路径。', repositoryExpandFailed: '无法展开此目录'
   });
   Object.assign(translations.en, {
     agentBriefTitle: 'Conversation brief', agentBriefHelp: 'Describe the outcome and AI will prepare a first draft. Every field on the right remains independently editable.',
@@ -215,7 +219,11 @@
     agentMethodAI: 'Create with AI', agentMethodAIHelp: 'Choose execution software and a model, then generate an editable configuration through conversation.', agentRecommended: 'Recommended',
     agentContinue: 'Continue', agentBack: 'Back', agentSetupTitle: 'Choose the AI creation environment', agentSetupHelp: 'Execution software and model drive this generation session only. You can still edit the resulting Agent configuration.',
     agentStartBuilder: 'Start designing', agentGenerateDraft: 'Generate configuration draft', agentGenerateAgain: 'Generate again', agentManualWorkspace: 'Manual configuration', agentAIWorkspace: 'AI creation workspace',
-    agentSectionNav: 'Configuration sections', agentSaveReview: 'Review the configuration, then create the Agent'
+    agentSectionNav: 'Configuration sections', agentSaveReview: 'Review the configuration, then create the Agent',
+    agentBuilderProgress: 'Build progress', agentBuilderYou: 'Your brief', agentBuilderAssistant: 'AI design assistant', agentBuilderActivity: 'Execution step',
+    agentBuilderStarting: 'Starting the execution environment…', agentBuilderWaiting: 'Runtime started; waiting for the model…', agentBuilderApplying: 'Draft received; applying it to the configuration…',
+    agentBuilderToolStarted: 'Running', agentBuilderToolCompleted: 'Completed', agentBuilderRunFailed: 'Generation failed',
+    repositoryFolderOpening: 'Opening the directory picker…', repositoryFolderChooseFailed: 'Could not open the directory picker. Enter an absolute path directly.', repositoryExpandFailed: 'Could not expand this directory'
   });
   Object.assign(translations.en, {
     requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
@@ -245,7 +253,7 @@
     chatCreateSubtitle: '先选一个项目和执行 Agent，再开始一段持久化讨论。',
     chatTitlePlaceholder: '例如：支付发布讨论',
     repositoryLocalPath: '本地目录路径', repositoryOwner: '负责人',
-    repositorySourceHelp: '项目必须使用绝对路径。原生桌面选择器会自动填入；普通浏览器出于安全限制只返回目录名，请手动粘贴完整路径。',
+    repositorySourceHelp: '项目必须使用绝对路径。点击“选择本地目录”后，本地服务会把所选目录的完整路径自动填入输入框。',
     repositoryOwnerPlaceholder: '成员 ID（可选）', repositorySource: '项目来源',
     localProject: '本地项目', remoteProject: '远程仓库', createProject: '新建项目', newRequirement: '创建交付项', submitResource: '保存', repositoryChooseFolder: '选择本地目录', repositoryFolderChosen: '已选择目录', repositoryPathAbsoluteRequired: '请输入绝对路径，例如 /Users/me/project；仅有目录名称无法浏览。', repositoryPathPickerUnavailable: '浏览器只返回目录名称，未写入路径；请在输入框粘贴绝对路径。', repositorySourceAuto: '项目类型会根据来源自动判断', repositoryOwnerChoose: '选择负责人', repositoryOwnerEmpty: '暂无可选负责人', repositoryEdit: '编辑', repositoryDelete: '删除', repositoryBrowse: '浏览', repositoryDeleteConfirm: '确定删除这个项目吗？删除后项目绑定关系也会移除。', repositoryIndexHelp: '索引中：正在记录项目文件的可检索快照状态，不会下载远程仓库。', repositoryReadyHelp: '已就绪：项目快照状态已记录。', repositoryRemoteUnavailable: '这是远程地址元数据，当前未下载到本机，暂时无法浏览。', repositoryBrowseTitle: '浏览项目', repositoryBrowseEmpty: '目录为空', repositoryBinary: '二进制文件，无法在线预览', repositoryTruncated: '文件过大，仅显示前 1 MiB', repositoryLoadFailed: '项目内容加载失败', repositoryPathFallback: '也可以直接粘贴完整本地路径'
   });
@@ -266,7 +274,7 @@
     chatCreateSubtitle: 'Choose a project and execution agent before starting a durable discussion.',
     chatTitlePlaceholder: 'For example: Payment release discussion',
     repositoryLocalPath: 'Local directory path', repositoryOwner: 'Owner',
-    repositorySourceHelp: 'Projects require an absolute path. Native desktop pickers fill it automatically; regular browsers expose only the folder name, so paste the full path manually.',
+    repositorySourceHelp: 'Projects require an absolute path. Choose a local folder and the local service fills its complete path into the field.',
     repositoryOwnerPlaceholder: 'Member ID (optional)', repositorySource: 'Project source',
     localProject: 'Local project', remoteProject: 'Remote repository', createProject: 'New project', newRequirement: 'Create delivery item', submitResource: 'Save', repositoryChooseFolder: 'Choose local folder', repositoryFolderChosen: 'Folder selected', repositoryPathAbsoluteRequired: 'Enter an absolute path, such as /Users/me/project; a folder name alone cannot be browsed.', repositoryPathPickerUnavailable: 'The browser returned only the folder name, so it was not used as a path. Paste the absolute path into the field.', repositorySourceAuto: 'Project type is detected from the selected source', repositoryOwnerChoose: 'Choose an owner', repositoryOwnerEmpty: 'No owners available', repositoryEdit: 'Edit', repositoryDelete: 'Delete', repositoryBrowse: 'Browse', repositoryDeleteConfirm: 'Delete this project? Its project bindings will also be removed.', repositoryIndexHelp: 'Indexing: recording a searchable snapshot state for the project files. It does not download a remote repository.', repositoryReadyHelp: 'Ready: the project snapshot state has been recorded.', repositoryRemoteUnavailable: 'This is remote URL metadata. It has not been downloaded locally, so it cannot be browsed yet.', repositoryBrowseTitle: 'Browse project', repositoryBrowseEmpty: 'Directory is empty', repositoryBinary: 'Binary file cannot be previewed online', repositoryTruncated: 'File is large; showing the first 1 MiB only', repositoryLoadFailed: 'Could not load project contents', repositoryPathFallback: 'You can also paste the full local path manually'
   });
@@ -1132,13 +1140,6 @@
         choose.innerHTML = `<span aria-hidden="true">⌂</span><span>${escapeHTML(t('repositoryChooseFolder'))}</span>`;
         const selected = document.createElement('small');
         selected.className = 'resource-path-selected';
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.setAttribute('webkitdirectory', '');
-        input.setAttribute('directory', '');
-        input.className = 'sr-only';
-        input.setAttribute('aria-label', t('repositoryChooseFolder'));
         setPathDisplay = path => {
           const value = String(path || '').trim();
           selected.textContent = value ? `${t('repositoryFolderChosen')}: ${value.split(/[\\/]/).filter(Boolean).pop() || value}` : '';
@@ -1157,44 +1158,36 @@
           setPathDisplay(path);
           return true;
         };
-        const updateFilesPath = files => {
-          const first = files?.[0];
-          if (!first) return;
-          const nativePath = first.path || first.filePath;
-          if (nativePath && updatePath(nativePath)) return;
-          selected.textContent = t('repositoryPathPickerUnavailable');
-          selected.hidden = false;
-          localPath.setCustomValidity(t('repositoryPathAbsoluteRequired'));
-        };
         choose.onclick = async () => {
-          if (window.adroNative?.chooseDirectory) {
-            try {
-              const selected = await window.adroNative.chooseDirectory();
-              const path = typeof selected === 'string' ? selected : selected?.path;
-              if (path) {
-                updatePath(path);
-                return;
-              }
-            } catch (_) {}
-          }
+          const originalHTML = choose.innerHTML;
+          choose.disabled = true;
+          choose.classList.add('busy');
+          choose.innerHTML = `<span class="resource-path-spinner" aria-hidden="true"></span><span>${escapeHTML(t('repositoryFolderOpening'))}</span>`;
+          await new Promise(resolve => requestAnimationFrame(resolve));
           try {
-            const response = await fetch('/_adro/directory-picker', {method: 'POST', headers: {'Accept': 'application/json'}});
-            if (response.ok) {
-              const result = await response.json();
-              if (updatePath(result?.path)) return;
-            }
-          } catch (_) {}
-          if (window.showDirectoryPicker) {
-            try {
-              const handle = await window.showDirectoryPicker();
-              updatePath(handle.path || handle.filePath || '');
+            const nativePicker = window.adroNative?.pickDirectory || window.adroNative?.chooseDirectory;
+            if (nativePicker) {
+              const picked = await nativePicker();
+              const path = typeof picked === 'string' ? picked : picked?.path;
+              if (path) updatePath(path);
               return;
-            } catch (_) {}
+            }
+            const response = await fetch('/_adro/directory-picker', {method: 'POST', headers: {'Accept': 'application/json'}});
+            if (response.status === 204) return;
+            if (!response.ok) throw new Error(`directory picker returned ${response.status}`);
+            const result = await response.json();
+            if (!updatePath(result?.path)) throw new Error('directory picker returned no absolute path');
+          } catch (_) {
+            selected.textContent = t('repositoryFolderChooseFailed');
+            selected.hidden = false;
+            localPath.setCustomValidity('');
+          } finally {
+            choose.disabled = false;
+            choose.classList.remove('busy');
+            choose.innerHTML = originalHTML;
           }
-          input.click();
         };
-        input.onchange = () => updateFilesPath(input.files);
-        picker.append(choose, input);
+        picker.append(choose);
         pathLabel.append(picker, selected, Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathAbsoluteRequired')}), Object.assign(document.createElement('small'), {className: 'form-help', textContent: t('repositoryPathFallback')}));
       }
     }
@@ -1368,24 +1361,20 @@
     const fileName = dialog.querySelector('[data-browser-file-name]');
     const fileMeta = dialog.querySelector('[data-browser-file-meta]');
     const code = dialog.querySelector('[data-browser-code]');
-    const loadPath = async path => {
+    const selectTreeButton = button => {
+      tree.querySelectorAll('.selected').forEach(item => item.classList.remove('selected'));
+      button?.classList.add('selected');
+    };
+    const loadFile = async (path, button) => {
       try {
-        const result = await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}/files${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+        const result = await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}/files?path=${encodeURIComponent(path)}`);
         if (result.available === false) {
           status.textContent = result.reason || t('repositoryRemoteUnavailable');
-          tree.innerHTML = '';
           code.textContent = t('repositoryRemoteUnavailable');
           return;
         }
-        status.textContent = result.kind === 'directory' ? result.path === '.' ? repository.metadata?.local_path || '' : result.path : '';
-        if (result.kind === 'directory') {
-          tree.innerHTML = `<button type="button" class="repository-tree-root" data-tree-path="">${escapeHTML(repository.canonical_name || '.')}</button>${result.items?.length ? result.items.map(item => `<button type="button" class="repository-tree-item ${item.kind}" data-tree-path="${escapeHTML(item.path)}"><span aria-hidden="true">${item.kind === 'directory' ? '▸' : '·'}</span>${escapeHTML(item.name)}</button>`).join('') : `<p class="repository-tree-empty">${escapeHTML(t('repositoryBrowseEmpty'))}</p>`}`;
-          tree.querySelectorAll('[data-tree-path]').forEach(button => { button.onclick = () => loadPath(button.dataset.treePath); });
-          fileName.textContent = path || repository.canonical_name || '-';
-          fileMeta.textContent = '';
-          code.textContent = t('repositoryBrowseTitle');
-          return;
-        }
+        selectTreeButton(button);
+        status.textContent = result.path || path;
         fileName.textContent = result.name || path;
         fileMeta.textContent = `${result.path} · ${result.language} · ${result.size} B`;
         if (result.binary) code.textContent = t('repositoryBinary');
@@ -1393,13 +1382,71 @@
         if (result.truncated) status.textContent = t('repositoryTruncated');
       } catch (error) {
         status.textContent = error.detail || t('repositoryLoadFailed');
-        tree.innerHTML = '';
+        code.textContent = status.textContent;
+      }
+    };
+    const renderTreeItems = (items, depth) => (items || []).map(item => {
+      const directory = item.kind === 'directory';
+      return `<div class="repository-tree-node ${directory ? 'directory' : 'file'}" data-tree-node="${escapeHTML(item.path)}" style="--tree-depth:${depth}"><button type="button" class="repository-tree-item ${item.kind}" data-tree-path="${escapeHTML(item.path)}" aria-expanded="${directory ? 'false' : ''}"><span class="repository-tree-toggle" aria-hidden="true">${directory ? '▸' : '·'}</span><span class="repository-tree-name">${escapeHTML(item.name)}</span></button>${directory ? '<div class="repository-tree-children" hidden></div>' : ''}</div>`;
+    }).join('');
+    const bindTreeItems = container => {
+      container.querySelectorAll(':scope > [data-tree-node] > [data-tree-path]').forEach(button => {
+        button.onclick = async () => {
+          const node = button.closest('[data-tree-node]');
+          if (!node.classList.contains('directory')) {
+            await loadFile(button.dataset.treePath, button);
+            return;
+          }
+          const children = node.querySelector(':scope > .repository-tree-children');
+          const expanded = button.getAttribute('aria-expanded') === 'true';
+          if (expanded) {
+            button.setAttribute('aria-expanded', 'false');
+            button.querySelector('.repository-tree-toggle').textContent = '▸';
+            children.hidden = true;
+            return;
+          }
+          button.setAttribute('aria-expanded', 'true');
+          button.querySelector('.repository-tree-toggle').textContent = '▾';
+          children.hidden = false;
+          selectTreeButton(button);
+          status.textContent = button.dataset.treePath;
+          fileName.textContent = button.dataset.treePath;
+          fileMeta.textContent = '';
+          code.textContent = t('repositoryBrowseTitle');
+          if (children.dataset.loaded === 'true') return;
+          children.innerHTML = `<p class="repository-tree-empty">${escapeHTML(t('loading'))}</p>`;
+          try {
+            const result = await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}/files?path=${encodeURIComponent(button.dataset.treePath)}`);
+            if (result.available === false || result.kind !== 'directory') throw new Error(result.reason || t('repositoryExpandFailed'));
+            const depth = Number(node.style.getPropertyValue('--tree-depth') || 0) + 1;
+            children.innerHTML = result.items?.length ? renderTreeItems(result.items, depth) : `<p class="repository-tree-empty">${escapeHTML(t('repositoryBrowseEmpty'))}</p>`;
+            children.dataset.loaded = 'true';
+            bindTreeItems(children);
+          } catch (error) {
+            children.innerHTML = `<p class="repository-tree-empty error">${escapeHTML(error.detail || error.message || t('repositoryExpandFailed'))}</p>`;
+          }
+        };
+      });
+    };
+    const loadRoot = async () => {
+      try {
+        const result = await api(`/api/v1/repositories/${encodeURIComponent(repository.id)}/files`);
+        if (result.available === false || result.kind !== 'directory') throw new Error(result.reason || t('repositoryRemoteUnavailable'));
+        status.textContent = repository.metadata?.local_path || result.path || '';
+        tree.innerHTML = `<div class="repository-tree-node directory root" data-tree-node=""><button type="button" class="repository-tree-root selected" data-tree-path="" aria-expanded="true"><span class="repository-tree-toggle" aria-hidden="true">▾</span><span class="repository-tree-name">${escapeHTML(repository.canonical_name || '.')}</span></button><div class="repository-tree-children" data-loaded="true">${result.items?.length ? renderTreeItems(result.items, 1) : `<p class="repository-tree-empty">${escapeHTML(t('repositoryBrowseEmpty'))}</p>`}</div></div>`;
+        bindTreeItems(tree.querySelector('.repository-tree-children'));
+        fileName.textContent = repository.canonical_name || '-';
+        fileMeta.textContent = '';
+        code.textContent = t('repositoryBrowseTitle');
+      } catch (error) {
+        status.textContent = error.detail || error.message || t('repositoryLoadFailed');
+        tree.innerHTML = `<p class="repository-tree-empty error">${escapeHTML(status.textContent)}</p>`;
         code.textContent = status.textContent;
       }
     };
     dialog.querySelector('[data-close-browser]').onclick = () => { dialog.close(); dialog.remove(); };
     dialog.showModal();
-    await loadPath('');
+    await loadRoot();
   }
 
   renderRepositories = function enhancedRepositories() {
@@ -2932,7 +2979,7 @@
         <div class="agent-studio-layout">
           <section class="agent-builder-pane" aria-labelledby="agentBriefTitle">
             <div class="agent-pane-heading"><span class="agent-pane-index">AI</span><div><p class="agent-pane-kicker" data-i18n="agentAIWorkspace"></p><h3 id="agentBriefTitle" data-i18n="agentBriefTitle"></h3><p data-i18n="agentBriefHelp"></p></div></div>
-            <div class="agent-builder-canvas"><label class="agent-brief-field"><span data-i18n="agentBuilderPromptLabel"></span><textarea name="builder_prompt" id="agentBuilderPrompt" data-i18n-placeholder="agentBuilderPromptPlaceholder"></textarea></label><div class="agent-prompt-suggestions"><span data-i18n="agentPromptSuggestions"></span><div><button type="button" data-agent-suggestion="agentPromptSuggestionReview" data-i18n="agentPromptSuggestionReview"></button><button type="button" data-agent-suggestion="agentPromptSuggestionResearch" data-i18n="agentPromptSuggestionResearch"></button><button type="button" data-agent-suggestion="agentPromptSuggestionDelivery" data-i18n="agentPromptSuggestionDelivery"></button></div></div></div>
+            <div class="agent-builder-canvas"><section id="agentBuilderTranscript" class="agent-builder-transcript" aria-label="${escapeHTML(t('agentBuilderProgress'))}" aria-live="polite" hidden></section><label class="agent-brief-field"><span data-i18n="agentBuilderPromptLabel"></span><textarea name="builder_prompt" id="agentBuilderPrompt" data-i18n-placeholder="agentBuilderPromptPlaceholder"></textarea></label><div class="agent-prompt-suggestions"><span data-i18n="agentPromptSuggestions"></span><div><button type="button" data-agent-suggestion="agentPromptSuggestionReview" data-i18n="agentPromptSuggestionReview"></button><button type="button" data-agent-suggestion="agentPromptSuggestionResearch" data-i18n="agentPromptSuggestionResearch"></button><button type="button" data-agent-suggestion="agentPromptSuggestionDelivery" data-i18n="agentPromptSuggestionDelivery"></button></div></div></div>
             <div class="agent-builder-actions"><button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">✦</span><span data-i18n="agentGenerateDraft"></span></button><span id="agentBuilderStatus" class="form-help" role="status"></span></div>
           </section>
           <section class="agent-config-shell" aria-labelledby="agentConfigurationTitle">
@@ -3089,6 +3136,11 @@
     $('#cancelAgentDialog').hidden = onboarding;
     $('#agentFormError').textContent = '';
     $('#agentBuilderStatus').textContent = '';
+    const builderTranscript = $('#agentBuilderTranscript');
+    if (builderTranscript) {
+      builderTranscript.hidden = true;
+      builderTranscript.innerHTML = '';
+    }
     const avatarPreview = $('#agentAvatarPreview');
     const priorAvatar = avatarPreview?.querySelector('img')?.src || '';
     if (priorAvatar.startsWith('blob:')) URL.revokeObjectURL(priorAvatar);
@@ -3233,6 +3285,48 @@
     if (field) field.hidden = $('#agentAccessMode').value !== 'members';
   }
 
+  const agentBuilderDelay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+  function renderAgentBuilderProgress(prompt, state) {
+    const transcript = $('#agentBuilderTranscript');
+    if (!transcript) return;
+    transcript.hidden = false;
+    const items = Array.isArray(state?.items) ? state.items : [];
+    const terminalError = state?.error?.detail || '';
+    const running = !['completed', 'failed', 'cancelled', 'timed_out'].includes(state?.status);
+    const stageText = terminalError
+      ? `${t('agentBuilderRunFailed')}: ${terminalError}`
+      : state?.status === 'completed'
+        ? t('agentBuilderApplying')
+        : items.length ? t('agentBuilderRunning') : state?.run_id ? t('agentBuilderWaiting') : t('agentBuilderStarting');
+    transcript.innerHTML = `<header><span>${escapeHTML(t('agentBuilderProgress'))}</span><small>${escapeHTML(state?.run_id || '')}</small></header><div class="agent-builder-message user"><strong>${escapeHTML(t('agentBuilderYou'))}</strong><p>${escapeHTML(prompt)}</p></div><div class="agent-builder-stream">${items.map(item => {
+      if (item.kind === 'tool') {
+        const label = item.phase === 'completed' ? t('agentBuilderToolCompleted') : t('agentBuilderToolStarted');
+        return `<article class="agent-builder-event tool"><span class="agent-builder-event-dot" aria-hidden="true"></span><div><small>${escapeHTML(label)}</small><strong>${escapeHTML(item.command || t('agentBuilderActivity'))}</strong>${item.text ? `<pre>${escapeHTML(item.text)}</pre>` : ''}</div></article>`;
+      }
+      return `<article class="agent-builder-message assistant"><strong>${escapeHTML(t('agentBuilderAssistant'))}</strong><p>${escapeHTML(item.text || '').replace(/\n/g, '<br>')}</p></article>`;
+    }).join('') || `<article class="agent-builder-event waiting"><span class="agent-builder-event-dot" aria-hidden="true"></span><div><small>${escapeHTML(t('agentBuilderActivity'))}</small><strong>${escapeHTML(stageText)}</strong></div></article>`}</div><footer class="${terminalError ? 'error' : running ? 'running' : 'done'}"><span class="agent-builder-event-dot" aria-hidden="true"></span><strong>${escapeHTML(stageText)}</strong></footer>`;
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+
+  async function waitForAgentDraft(run, prompt, dialogSession) {
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let state = run;
+    while (Date.now() < deadline) {
+      if ($('#agentForm')?.dataset.dialogSession !== dialogSession) throw new Error(t('agentBuilderRunFailed'));
+      state = await api(`/api/v1/workspaces/local/agents/compose/${encodeURIComponent(run.run_id)}`);
+      renderAgentBuilderProgress(prompt, state);
+      if (state.status === 'completed' && state.draft) return state;
+      if (['failed', 'cancelled', 'timed_out'].includes(state.status)) {
+        const error = new Error(state.error?.detail || t('agentCreateError'));
+        error.detail = state.error?.detail || error.message;
+        throw error;
+      }
+      await agentBuilderDelay(180);
+    }
+    throw new Error(t('agentBuilderRunFailed'));
+  }
+
   async function composeAgentDraft() {
     const form = $('#agentForm');
     const buttons = [$('#composeAndCreateAgent')].filter(Boolean);
@@ -3244,6 +3338,10 @@
     }
     buttons.forEach(button => { button.disabled = true; });
     status.textContent = t('agentBuilderRunning');
+    const dialogSession = form.dataset.dialogSession;
+    const builderPane = form.querySelector('.agent-builder-pane');
+    builderPane?.classList.add('generating');
+    renderAgentBuilderProgress(prompt, {status: 'starting'});
     const dialogState = $('#agentDialogState');
     if (dialogState) dialogState.textContent = t('agentCreatingState');
     $('#agentFormError').textContent = '';
@@ -3256,7 +3354,8 @@
         service_tier: String(form.elements.service_tier.value || '').trim(),
         current_draft: currentAgentDraft(form)
       };
-      const response = await api('/api/v1/workspaces/local/agents/compose', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      const started = await api('/api/v1/workspaces/local/agents/compose?async=true', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
+      const response = started?.run_id ? await waitForAgentDraft(started, prompt, dialogSession) : started;
       applyAgentDraft(form, response.draft || {});
       status.textContent = t('agentBuilderDone');
       const label = $('#composeAndCreateAgent span[data-i18n]');
@@ -3266,9 +3365,11 @@
     } catch (error) {
       status.textContent = t('agentBuilderFailed');
       $('#agentFormError').textContent = error.detail || error.message || t('agentCreateError');
+      renderAgentBuilderProgress(prompt, {status: 'failed', error: {detail: error.detail || error.message || t('agentCreateError')}});
       if (dialogState) dialogState.textContent = t('agentNeedsAttentionState');
       return false;
     } finally {
+      builderPane?.classList.remove('generating');
       buttons.forEach(button => { button.disabled = false; });
     }
   }

@@ -105,6 +105,10 @@ func (s *Server) orchestrationWorkspaceRoute(w http.ResponseWriter, r *http.Requ
 				s.composeAgentDraft(w, r, workspaceID)
 				return
 			}
+			if strings.HasPrefix(tail, "compose/") {
+				s.agentDraftRunStatus(w, r, workspaceID, strings.TrimPrefix(tail, "compose/"))
+				return
+			}
 			s.orchestrationAgentResource(w, r, tail, workspaceID)
 			return
 		}

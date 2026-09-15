@@ -36,7 +36,7 @@ func (e *codexRPCError) Error() string {
 // executeCodexAppServer puts the thread proof obtained from thread/start or
 // thread/resume into the provider's existing JSONL evidence stream. It is
 // derived from the RPC result, never from model text or a fixture.
-func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool, model, thinkingLevel, serviceTier string, environment map[string]string) (int, []byte, error) {
+func executeCodexAppServer(ctx context.Context, path string, args []string, input, workDir, priorSession string, resumed bool, model, thinkingLevel, serviceTier string, environment map[string]string, outputCallbacks ...func([]byte)) (int, []byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	configureLocalCommand(cmd)
 	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
@@ -63,6 +63,15 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 	pid := cmd.Process.Pid
 	reader := bufio.NewReaderSize(stdout, 256*1024)
 	var evidence bytes.Buffer
+	var publishOutput func([]byte)
+	if len(outputCallbacks) > 0 {
+		publishOutput = outputCallbacks[0]
+	}
+	publishEvidence := func() {
+		if publishOutput != nil {
+			publishOutput(append([]byte(nil), evidence.Bytes()...))
+		}
+	}
 	nextID := 1
 
 	send := func(method string, params any) (int, error) {
@@ -102,6 +111,7 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 				var raw map[string]json.RawMessage
 				if json.Unmarshal(line, &raw) == nil {
 					appendCodexEvidence(&evidence, raw)
+					publishEvidence()
 					return raw, nil
 				}
 			}
@@ -246,6 +256,7 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 	}
 
 	evidence.WriteString(fmt.Sprintf("{\"type\":\"thread.started\",\"thread_id\":%q}\n", threadID))
+	publishEvidence()
 	startTurn := func() error {
 		turnID, err := send("turn/start", map[string]any{
 			"threadId": threadID,
@@ -304,6 +315,7 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 			})
 			evidence.Write(retryEvent)
 			evidence.WriteByte('\n')
+			publishEvidence()
 			if err := waitForCodexRetry(ctx, retryDelay); err != nil {
 				return finish(err)
 			}
