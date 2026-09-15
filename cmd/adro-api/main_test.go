@@ -17,14 +17,14 @@ func TestRequestLoggingRecordsRejectedResponses(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	handler := withRequestLogging(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-Request-ID", "generated-id")
+		w.Header().Set("X-Request-ID", "generated\r\nforged")
 		http.Error(w, "invalid", http.StatusUnprocessableEntity)
 	}))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/invalid", nil))
 
 	output := logs.String()
-	for _, expected := range []string{`"level":"WARN"`, `"msg":"http request rejected"`, `"status":422`, `"request_id":"generated-id"`} {
+	for _, expected := range []string{`"level":"WARN"`, `"msg":"http request rejected"`, `"status":422`, `"request_id":"generatedforged"`} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("request log missing %s: %s", expected, output)
 		}

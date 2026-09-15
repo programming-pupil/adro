@@ -4090,16 +4090,31 @@ func (s *Server) problem(w http.ResponseWriter, r *http.Request, status int, cod
 		body[k] = v
 	}
 	if s.Logger != nil {
-		method := strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(r.Method)
-		path := strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(r.URL.Path)
-		code = strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(code)
-		detail = strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(detail)
-		args := []any{"method", method, "path", path, "status", status, "error_code", code, "detail", detail, "request_id", requestID, "trace_id", traceID}
+		method := strings.ReplaceAll(r.Method, "\n", "")
+		method = strings.ReplaceAll(method, "\r", "")
+		path := strings.ReplaceAll(r.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
+		logCode := strings.ReplaceAll(code, "\n", "")
+		logCode = strings.ReplaceAll(logCode, "\r", "")
+		logDetail := strings.ReplaceAll(detail, "\n", "")
+		logDetail = strings.ReplaceAll(logDetail, "\r", "")
+		logRequestID := strings.ReplaceAll(requestID, "\n", "")
+		logRequestID = strings.ReplaceAll(logRequestID, "\r", "")
+		logTraceID := strings.ReplaceAll(traceID, "\n", "")
+		logTraceID = strings.ReplaceAll(logTraceID, "\r", "")
+		level, message := slog.LevelWarn, "api request rejected"
 		if status >= http.StatusInternalServerError {
-			s.Logger.Error("api request failed", args...)
-		} else {
-			s.Logger.Warn("api request rejected", args...)
+			level, message = slog.LevelError, "api request failed"
 		}
+		s.Logger.LogAttrs(r.Context(), level, message,
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Int("status", status),
+			slog.String("error_code", logCode),
+			slog.String("detail", logDetail),
+			slog.String("request_id", logRequestID),
+			slog.String("trace_id", logTraceID),
+		)
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)

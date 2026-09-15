@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -207,12 +208,26 @@ func setDefaultEnv(name, value string) {
 func withRequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		method := strings.ReplaceAll(strings.ReplaceAll(r.Method, "\n", "\\n"), "\r", "\\r")
-		path := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", "\\n"), "\r", "\\r")
+		method := strings.ReplaceAll(r.Method, "\n", "")
+		method = strings.ReplaceAll(method, "\r", "")
+		path := strings.ReplaceAll(r.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
 		writer := &requestLogWriter{ResponseWriter: w}
 		defer func() {
+			requestID := requestLogRequestID(r, writer)
+			requestID = strings.ReplaceAll(requestID, "\n", "")
+			requestID = strings.ReplaceAll(requestID, "\r", "")
 			if recovered := recover(); recovered != nil {
-				slog.Error("http panic recovered", "method", method, "path", path, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestLogRequestID(r, writer), "panic", recovered, "stack", string(debug.Stack()))
+				panicText := strings.ReplaceAll(fmt.Sprint(recovered), "\n", "")
+				panicText = strings.ReplaceAll(panicText, "\r", "")
+				slog.LogAttrs(r.Context(), slog.LevelError, "http panic recovered",
+					slog.String("method", method),
+					slog.String("path", path),
+					slog.Int64("duration_ms", time.Since(started).Milliseconds()),
+					slog.String("request_id", requestID),
+					slog.String("panic", panicText),
+					slog.String("stack", string(debug.Stack())),
+				)
 				if !writer.started {
 					writer.Header().Set("Content-Type", "application/problem+json")
 					writer.WriteHeader(http.StatusInternalServerError)
@@ -223,15 +238,21 @@ func withRequestLogging(next http.Handler) http.Handler {
 			if status == 0 {
 				status = http.StatusOK
 			}
-			args := []any{"method", method, "path", path, "status", status, "bytes", writer.bytes, "duration_ms", time.Since(started).Milliseconds(), "request_id", requestLogRequestID(r, writer)}
+			level, message := slog.LevelInfo, "http request"
 			switch {
 			case status >= http.StatusInternalServerError:
-				slog.Error("http request failed", args...)
+				level, message = slog.LevelError, "http request failed"
 			case status >= http.StatusBadRequest:
-				slog.Warn("http request rejected", args...)
-			default:
-				slog.Info("http request", args...)
+				level, message = slog.LevelWarn, "http request rejected"
 			}
+			slog.LogAttrs(r.Context(), level, message,
+				slog.String("method", method),
+				slog.String("path", path),
+				slog.Int("status", status),
+				slog.Int64("bytes", writer.bytes),
+				slog.Int64("duration_ms", time.Since(started).Milliseconds()),
+				slog.String("request_id", requestID),
+			)
 		}()
 		next.ServeHTTP(writer, r)
 	})
@@ -242,7 +263,7 @@ func requestLogRequestID(r *http.Request, writer *requestLogWriter) string {
 	if requestID == "" {
 		requestID = r.Header.Get("X-Request-ID")
 	}
-	return strings.ReplaceAll(strings.ReplaceAll(requestID, "\n", "\\n"), "\r", "\\r")
+	return requestID
 }
 
 type requestLogWriter struct {

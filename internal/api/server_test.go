@@ -79,14 +79,14 @@ func TestProblemLogsEveryRejectedRequestWithDetail(t *testing.T) {
 			server := testServer(t)
 			server.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/test", nil)
-			request.Header.Set("X-Trace-ID", "trace-1")
+			request.Header.Set("X-Trace-ID", "trace-1\r\nforged")
 			response := httptest.NewRecorder()
-			response.Header().Set("X-Request-ID", "request-1")
+			response.Header().Set("X-Request-ID", "request-1\nforged")
 
 			server.problem(response, request, test.status, "test_failure", "first line\nsecond line", nil)
 
 			output := logs.String()
-			for _, expected := range []string{`"level":"` + test.level + `"`, `"msg":"api request `, `"status":` + fmt.Sprint(test.status), `"error_code":"test_failure"`, `"detail":"first line\\nsecond line"`, `"request_id":"request-1"`, `"trace_id":"trace-1"`} {
+			for _, expected := range []string{`"level":"` + test.level + `"`, `"msg":"api request `, `"status":` + fmt.Sprint(test.status), `"error_code":"test_failure"`, `"detail":"first linesecond line"`, `"request_id":"request-1forged"`, `"trace_id":"trace-1forged"`} {
 				if !strings.Contains(output, expected) {
 					t.Fatalf("problem log missing %s: %s", expected, output)
 				}
