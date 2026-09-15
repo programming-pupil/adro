@@ -115,6 +115,7 @@ test('captures the ADRO technical console on desktop and mobile', async ({ page 
   await page.locator('#agentForm input[name="name"]').fill('Design Review Agent');
   await page.locator('#agentForm textarea[name="instructions"]').fill('Review architecture, risk, and evidence before engineering.');
   await page.locator('#agentForm input[name="role"]').fill('reviewer');
+  await page.screenshot({ path: 'var/adro-agent-studio-cyber.png', fullPage: true });
   await page.locator('#agentForm button[type="submit"]').click();
   await expect(page.locator('#appView')).toContainText(ownerID);
   await page.screenshot({ path: 'var/adro-agents-cyber.png', fullPage: true });

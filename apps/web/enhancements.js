@@ -1,4 +1,11 @@
 (() => {
+  document.addEventListener('click', event => {
+    if (event.target?.tagName === 'DIALOG') event.stopPropagation();
+  }, true);
+  document.addEventListener('cancel', event => {
+    if (event.target?.tagName === 'DIALOG') event.preventDefault();
+  }, true);
+
   const menuIDs = [
     'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats',
     'repositories', 'agents', 'mcp', 'skills', 'automations',
@@ -173,6 +180,28 @@
     agentExistingOwner: 'Existing owner',
     agentNoMembers: 'No members are available'
   });
+  Object.assign(translations.zh, {
+    agentBriefTitle: '对话简报', agentBriefHelp: '描述结果，AI 会生成第一版配置；右侧所有字段始终可以单独修改。',
+    agentPromptSuggestions: '快速开始', agentPromptSuggestionReview: '审查代码并输出可执行结论', agentPromptSuggestionResearch: '研究竞品并整理产品洞察', agentPromptSuggestionDelivery: '规划研发任务并持续交付',
+    agentConfigurationTitle: 'Agent 配置', agentConfigurationHelp: '创建前实时检查，也可以在创建后从 Agent 列表再次编辑。',
+    agentIdentitySection: '身份', agentIdentityHelp: '设置清晰、容易识别的名称与职责。',
+    agentBehaviorSection: '行为与能力', agentBehaviorHelp: '定义工作方式，并按需绑定工作区资源。',
+    agentExecutionSection: '执行配置', agentExecutionHelp: '运行时立即可选；模型目录会在后台加载，不阻塞弹窗。',
+    agentAccessSection: '访问权限', agentAccessHelp: '控制谁可以运行这个 Agent，创建后仍可修改。',
+    agentAdvancedSection: '高级执行限制', agentRuntimeLoading: '正在连接本地运行时…', agentModelLoading: '正在后台读取模型…',
+    agentRuntimeReady: '运行时已就绪', agentDraftInspect: '查看配置'
+  });
+  Object.assign(translations.en, {
+    agentBriefTitle: 'Conversation brief', agentBriefHelp: 'Describe the outcome and AI will prepare a first draft. Every field on the right remains independently editable.',
+    agentPromptSuggestions: 'Quick starts', agentPromptSuggestionReview: 'Review code and return actionable findings', agentPromptSuggestionResearch: 'Research competitors and synthesize product insight', agentPromptSuggestionDelivery: 'Plan engineering work and drive delivery',
+    agentConfigurationTitle: 'Agent configuration', agentConfigurationHelp: 'Review everything before creation, then edit the Agent again from the list at any time.',
+    agentIdentitySection: 'Identity', agentIdentityHelp: 'Give the Agent a clear, recognizable name and responsibility.',
+    agentBehaviorSection: 'Behavior & capabilities', agentBehaviorHelp: 'Define how it works and connect only the workspace resources it needs.',
+    agentExecutionSection: 'Execution configuration', agentExecutionHelp: 'Runtimes are immediately selectable while model catalogs hydrate in the background.',
+    agentAccessSection: 'Access', agentAccessHelp: 'Control who can run this Agent. You can change this after creation.',
+    agentAdvancedSection: 'Advanced execution limits', agentRuntimeLoading: 'Connecting to local runtimes…', agentModelLoading: 'Loading models in the background…',
+    agentRuntimeReady: 'Runtime ready', agentDraftInspect: 'View configuration'
+  });
   Object.assign(translations.en, {
     requirementOrchestration: 'Orchestration', requirementTarget: 'Execution target', noExecutionPlan: 'Create without an execution plan', temporarySquad: 'Temporary squad', temporaryMembers: 'Temporary squad members', temporaryMembersHelp: 'Choose active revisioned Agents; the graph can be edited after creation.', openGraphStudio: 'Open Graph Studio after creation', requirementOrchestrationHelp: 'An Agent or published Squad creates a frozen plan. A temporary squad persists an editable draft and uses its graph for the initial plan.'
   });
@@ -291,20 +320,31 @@
   let agentRuntimeConfigs = new Map();
   let agentRuntimeEnvironments = new Map();
   let agentPreservedCustomArgs = [];
+  let agentRuntimeCatalog = [];
+  let agentRuntimeCatalogPromise = null;
+  let agentRuntimeCatalogRequest = 0;
+  const agentModelCatalogCache = new Map();
+  const agentModelCatalogPromises = new Map();
+  const agentRuntimeSkillsCache = new Map();
+  const agentRuntimeSkillsPromises = new Map();
+  let agentModelRequest = 0;
   let deliveryComposerKind = 'requirement';
   let deliveryComposerParentID = '';
   const deliveryExpandedRequirements = new Set();
   let deliveryFilterKind = 'all';
   let deliveryFilterStatus = '';
   let deliverySearchTerm = '';
-  let orchestrationStatusState = {message: '', bad: false};
+  let orchestrationStatusState = {message: '', messageKey: '', bad: false};
 
   const baseOrchestrationLoadCore = loadCore;
   loadCore = async function loadCoreWithOrchestration(force = false) {
     await baseOrchestrationLoadCore(force);
     await loadAllRequirementPages();
     await loadAllBugPages();
-    if (window.adroCanAccessMenu?.('agents')) await loadOrchestrationData();
+    if (window.adroCanAccessMenu?.('agents')) {
+      void warmAgentConfiguration();
+      await loadOrchestrationData();
+    }
   };
 
   async function loadAllRequirementPages() {
@@ -386,7 +426,15 @@
   function loadAgentCreationJobs() {
     try {
       const items = JSON.parse(localStorage.getItem('adro.agentCreationJobs') || '[]');
-      return Array.isArray(items) ? items.slice(0, 8) : [];
+      if (!Array.isArray(items)) return [];
+      const generatedNames = new Set([translations.zh.agentCreateTitle, translations.en.agentCreateTitle].filter(Boolean));
+      const generatedErrors = new Set([translations.zh.agentCreateError, translations.en.agentCreateError].filter(Boolean));
+      return items.slice(0, 8).map(item => ({
+        ...item,
+        name: generatedNames.has(item?.name) ? '' : item?.name,
+        error: generatedErrors.has(item?.error) ? '' : item?.error,
+        error_key: generatedErrors.has(item?.error) ? 'agentCreateError' : item?.error_key
+      }));
     } catch (_) { return []; }
   }
 
@@ -395,14 +443,20 @@
   }
 
   function upsertAgentCreationJob(job) {
-    agentCreationJobs = [job, ...agentCreationJobs.filter(item => item.id !== job.id)].slice(0, 8);
+    const previous = agentCreationJobs.find(item => item.id === job.id) || {};
+    const next = {...previous, ...job};
+    agentCreationJobs = [next, ...agentCreationJobs.filter(item => item.id !== job.id)].slice(0, 8);
     saveAgentCreationJobs();
+    if (currentView === 'agents') {
+      document.querySelector('.agent-job-panel')?.remove();
+      renderAgentCreationJobs();
+    }
   }
 
   function agentCreationState(job) {
-    if (job.status === 'done') return {className: 'good', label: t('agentCreatedState')};
-    if (job.status === 'failed') return {className: 'bad', label: t('agentNeedsAttentionState')};
-    return {className: 'warn', label: t('agentCreatingState')};
+    if (job.status === 'done') return {className: 'good', key: 'agentCreatedState'};
+    if (job.status === 'failed') return {className: 'bad', key: 'agentNeedsAttentionState'};
+    return {className: 'warn', key: 'agentCreatingState'};
   }
 
   function renderAgentCreationJobs() {
@@ -412,11 +466,41 @@
     if (!host || host.querySelector('.agent-job-panel')) return;
     const panel = document.createElement('section');
     panel.className = 'agent-job-panel';
-    panel.innerHTML = `<div class="agent-job-panel-head"><div><strong>${escapeHTML(t('agentCreateJobs'))}</strong><small>${escapeHTML(t('agentCreateJobsHelp'))}</small></div></div>${jobs.map(job => { const state = agentCreationState(job); const action = job.status === 'failed' ? `<button class="secondary" data-agent-job-retry="${escapeHTML(job.id)}" type="button">${escapeHTML(t('agentRetry'))}</button>` : job.agent_id ? `<button class="secondary" data-agent-job-view="${escapeHTML(job.agent_id)}" type="button">${escapeHTML(t('agentView'))}</button>` : ''; return `<div class="agent-job ${state.className}"><div><strong>${escapeHTML(job.name || t('agentCreateTitle'))}</strong><small>${escapeHTML(job.error || (job.status === 'running' ? t('agentCreateRunning') : t('agentCreateDone')))}</small></div><span class="status ${state.className}">${escapeHTML(state.label)}</span>${action}</div>`; }).join('')}`;
+    panel.innerHTML = `<div class="agent-job-panel-head"><div><strong data-i18n="agentCreateJobs">${escapeHTML(t('agentCreateJobs'))}</strong><small data-i18n="agentCreateJobsHelp">${escapeHTML(t('agentCreateJobsHelp'))}</small></div></div>${jobs.map(job => {
+      const state = agentCreationState(job);
+      const messageKey = job.error_key || (job.status === 'running' ? 'agentCreateRunning' : job.status === 'failed' ? 'agentCreateError' : 'agentCreateDone');
+      const message = job.error || t(messageKey);
+      return `<div class="agent-job ${state.className}"><div><strong ${job.name ? '' : 'data-i18n="agentCreateTitle"'}>${escapeHTML(job.name || t('agentCreateTitle'))}</strong><small ${job.error ? '' : `data-i18n="${escapeHTML(messageKey)}"`}>${escapeHTML(message)}</small></div><span class="status ${state.className}" data-i18n="${escapeHTML(state.key)}">${escapeHTML(t(state.key))}</span><button class="secondary" data-agent-job-view="${escapeHTML(job.id)}" data-i18n="agentView" type="button">${escapeHTML(t('agentView'))}</button></div>`;
+    }).join('')}`;
     const anchor = host.querySelector('#orchestrationStatus');
     anchor?.after(panel);
-    panel.querySelectorAll('[data-agent-job-view]').forEach(button => { button.onclick = () => { const agent = nativeAgents.find(item => item.id === button.dataset.agentJobView); if (agent) showAgentDialog(false, agent); }; });
-    panel.querySelectorAll('[data-agent-job-retry]').forEach(button => { button.onclick = async () => { const job = agentCreationJobs.find(item => item.id === button.dataset.agentJobRetry); if (!job) return; await showAgentDialog(false); $('#agentBuilderPrompt').value = job.prompt || ''; }; });
+    panel.querySelectorAll('[data-agent-job-view]').forEach(button => { button.onclick = () => openAgentCreationJob(button.dataset.agentJobView); });
+  }
+
+  async function openAgentCreationJob(jobID) {
+    const job = agentCreationJobs.find(item => item.id === jobID);
+    if (!job) return;
+    if (job.agent_id) {
+      let agent = nativeAgents.find(item => item.id === job.agent_id);
+      if (!agent) {
+        await loadOrchestrationData();
+        agent = nativeAgents.find(item => item.id === job.agent_id);
+      }
+      if (agent) {
+        await showAgentDialog(false, agent);
+        return;
+      }
+    }
+    const opening = showAgentDialog(false);
+    $('#agentBuilderPrompt').value = job.prompt || '';
+    if (job.draft) applyAgentDraft($('#agentForm'), job.draft);
+    await opening;
+    const form = $('#agentForm');
+    if (job.runtime_id && Array.from(form.elements.runtime.options).some(option => option.value === job.runtime_id && !option.disabled)) {
+      form.elements.runtime.value = job.runtime_id;
+      await changeAgentRuntime();
+      if (job.model && Array.from(form.elements.model.options).some(option => option.value === job.model)) form.elements.model.value = job.model;
+    }
   }
 
   function entityFileInput(kind) {
@@ -1088,10 +1172,17 @@
               }
             } catch (_) {}
           }
+          try {
+            const response = await fetch('/_adro/directory-picker', {method: 'POST', headers: {'Accept': 'application/json'}});
+            if (response.ok) {
+              const result = await response.json();
+              if (updatePath(result?.path)) return;
+            }
+          } catch (_) {}
           if (window.showDirectoryPicker) {
             try {
               const handle = await window.showDirectoryPicker();
-              updatePath(handle.path || handle.filePath || handle.name);
+              updatePath(handle.path || handle.filePath || '');
               return;
             } catch (_) {}
           }
@@ -1302,7 +1393,6 @@
       }
     };
     dialog.querySelector('[data-close-browser]').onclick = () => { dialog.close(); dialog.remove(); };
-    dialog.addEventListener('click', event => { if (event.target === dialog) { dialog.close(); dialog.remove(); } });
     dialog.showModal();
     await loadPath('');
   }
@@ -1915,7 +2005,7 @@
       await api(`/api/v1/workspaces/local/${collection}/${encodeURIComponent(activeGraphEditor.id)}/graph`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({expected_revision: activeGraphEditor.revision, graph})});
       $('#graphEditorDialog').close();
       await loadOrchestrationData();
-      setOrchestrationStatus(t('graphSaved'));
+      setOrchestrationStatus('graphSaved');
     } catch (_) {
       setGraphEditorStatus(t('graphValidationFailed'), true);
     }
@@ -2044,8 +2134,9 @@
     });
     const planRows = nativePlans.slice().reverse().map(plan => `<tr><td><strong>${escapeHTML(plan.requirement_id || '-')}</strong><div class="mono orchestration-id">${escapeHTML(plan.id)}</div></td><td><span class="status ${plan.status === 'ready' ? 'good' : 'active'}">${escapeHTML(plan.status || '-')}</span></td><td class="mono">${escapeHTML(plan.selected_ref?.id || '-')}@${escapeHTML(String(plan.selected_ref?.version || plan.selected_ref?.revision || '-'))}</td><td>${escapeHTML(String((plan.graph_snapshot?.nodes || []).length))}</td><td class="mono digest-cell" title="${escapeHTML(plan.plan_hash || '')}">${escapeHTML((plan.plan_hash || '-').slice(0, 16))}</td><td><div class="row-actions">${orchestrationAction(plan.id, 'plan', 'timeline', 'timeline', 'accent')}${orchestrationAction(plan.id, 'plan', 'replay', 'replay')}</div></td></tr>`);
     const legacyRows = agentProfiles.map(profile => `<tr><td class="mono">${escapeHTML(profile.member_id || '-')}</td><td class="mono">${escapeHTML(profile.default_agent_binding_id || '-')}</td><td>${escapeHTML(profile.default_role || '-')}</td><td><span class="status warn">compat</span></td></tr>`);
-    const statusClass = orchestrationStatusState.message ? (orchestrationStatusState.bad ? 'bad' : 'good') : '';
-    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status ${statusClass}" role="status">${escapeHTML(orchestrationStatusState.message)}</div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
+    const statusMessage = orchestrationStatusState.messageKey ? t(orchestrationStatusState.messageKey) : orchestrationStatusState.message;
+    const statusClass = statusMessage ? (orchestrationStatusState.bad ? 'bad' : 'good') : '';
+    return `<div class="view-stack orchestration-studio"><section class="orchestration-hero"><div><span class="orchestration-kicker">GRAPH-NATIVE / REVISION-LOCKED</span><h2>${escapeHTML(t('orchestrationReady'))}</h2><p>${escapeHTML(t('orchestrationHelp'))}</p></div><div class="orchestration-hero-actions"><button class="secondary" id="newSquad" type="button"><span aria-hidden="true">◇</span>${escapeHTML(t('newSquad'))}</button><button class="primary" id="newPlan" type="button"><span aria-hidden="true">▶</span>${escapeHTML(t('newPlan'))}</button></div></section><div id="orchestrationStatus" class="orchestration-status ${statusClass}" role="status">${escapeHTML(statusMessage)}</div><div class="view-grid orchestration-metrics">${summaryCard(t('nativeAgents'), nativeAgents.length, t('nativeAgentHelp'))}${summaryCard(t('nativeSquads'), nativeSquads.length, t('graphNodes'))}${summaryCard(t('executionPlans'), nativePlans.length, t('planHash'))}</div>${genericTable(t('nativeAgents'), [t('name'), t('assignees'), t('status'), t('runtime'), t('capabilities'), t('actions')], agentRows, t('noItems'))}${genericTable(t('nativeSquads'), [t('name'), t('status'), t('revision'), t('agents'), t('graphNodes'), t('actions')], squadRows, t('noItems'))}${genericTable(t('executionPlans'), [t('planRequirement'), t('status'), t('selectedTarget'), t('graphNodes'), t('planHash'), t('actions')], planRows, t('noItems'))}${legacyRows.length ? genericTable(t('legacyBindings'), [t('assignees'), t('agentBinding'), t('role'), t('status')], legacyRows, t('noItems')) : ''}</div>`;
   };
 
   function ensureOrchestrationDialogs() {
@@ -2068,11 +2159,11 @@
     ensureNativePlanGraphControls();
   }
 
-  function setOrchestrationStatus(message, bad = false) {
-    orchestrationStatusState = {message, bad};
+  function setOrchestrationStatus(message, bad = false, localized = false) {
+    orchestrationStatusState = localized ? {message, messageKey: '', bad} : {message: '', messageKey: message, bad};
     const target = $('#orchestrationStatus');
     if (!target) return;
-    target.textContent = message;
+    target.textContent = localized ? message : t(message);
     target.className = `orchestration-status ${bad ? 'bad' : 'good'}`;
   }
 
@@ -2083,7 +2174,7 @@
     $('#squadLeader').innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · r${escapeHTML(String(agent.revision))}</option>`).join('');
     $('#squadMembers').innerHTML = activeAgents.map(agent => `<option value="${escapeHTML(agent.id)}">${escapeHTML(agent.name)} · ${escapeHTML(agent.role || 'agent')} · r${escapeHTML(String(agent.revision))}</option>`).join('');
     if (!$('#squadLeader').options.length) {
-      setOrchestrationStatus(t('noPublishedTarget'), true);
+      setOrchestrationStatus('noPublishedTarget', true);
       return;
     }
     $('#squadDialog').showModal();
@@ -2100,7 +2191,7 @@
     ];
     $('#nativePlanTarget').innerHTML = targets.join('');
     if (!requirements.length || !targets.length) {
-      setOrchestrationStatus(t('noPublishedTarget'), true);
+      setOrchestrationStatus('noPublishedTarget', true);
       return;
     }
     loadNativePlanGraph();
@@ -2125,7 +2216,7 @@
     };
     try {
       await api('/api/v1/workspaces/local/squads', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
-      form.reset(); $('#squadDialog').close(); await loadOrchestrationData(); setOrchestrationStatus(t('newSquad'));
+      form.reset(); $('#squadDialog').close(); await loadOrchestrationData(); setOrchestrationStatus('newSquad');
     } catch (_) { $('#squadFormError').textContent = t('squadCreateFailed'); }
   }
 
@@ -2141,7 +2232,7 @@
       if (!graph) return;
       body.graph = graph;
       await api(`/api/v1/requirements/${encodeURIComponent(requirementID)}/execution-plan`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': body.idempotency_key}, body: JSON.stringify(body)});
-      form.reset(); $('#nativePlanDialog').close(); await loadOrchestrationData(); setOrchestrationStatus(t('newPlan'));
+      form.reset(); $('#nativePlanDialog').close(); await loadOrchestrationData(); setOrchestrationStatus('newPlan');
     } catch (_) { $('#nativePlanFormError').textContent = t('planCreateFailed'); }
   }
 
@@ -2174,8 +2265,8 @@
       const result = await api(`/api/v1/${kind === 'agent' ? 'agents' : 'squads'}/${encodeURIComponent(id)}/${encodeURIComponent(action)}?workspace_id=local`, {method: action === 'capabilities' ? 'GET' : 'POST'});
       const message = result.valid === false ? `${action}: ${result.error || 'invalid'}` : `${action}: ${id}`;
       await loadOrchestrationData();
-      setOrchestrationStatus(message, result.valid === false);
-    } catch (_) { setOrchestrationStatus(t('lifecycleActionFailed'), true); }
+      setOrchestrationStatus(message, result.valid === false, true);
+    } catch (_) { setOrchestrationStatus('lifecycleActionFailed', true); }
   }
 
   function renderPermissionGrid(selected, role) {
@@ -2560,6 +2651,81 @@
     });
   }
 
+  async function getAgentRuntimeCatalog(force = false) {
+    if (!force && agentRuntimeCatalog.length) return agentRuntimeCatalog;
+    if (!force && agentRuntimeCatalogPromise) return agentRuntimeCatalogPromise;
+    if (force) {
+      agentModelCatalogCache.clear();
+      agentModelCatalogPromises.clear();
+      agentRuntimeSkillsCache.clear();
+      agentRuntimeSkillsPromises.clear();
+    }
+    const requestID = ++agentRuntimeCatalogRequest;
+    const request = api('/api/v1/runtimes/discovered').then(result => {
+      const items = result.items || [];
+      if (requestID === agentRuntimeCatalogRequest) agentRuntimeCatalog = items;
+      return items;
+    }).finally(() => {
+      if (agentRuntimeCatalogPromise === request) agentRuntimeCatalogPromise = null;
+    });
+    agentRuntimeCatalogPromise = request;
+    return request;
+  }
+
+  async function getAgentModelCatalog(runtimeID) {
+    if (agentModelCatalogCache.has(runtimeID)) return agentModelCatalogCache.get(runtimeID);
+    if (agentModelCatalogPromises.has(runtimeID)) return agentModelCatalogPromises.get(runtimeID);
+    const request = api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/models`).then(result => {
+      const models = result.models || [];
+      if (agentModelCatalogPromises.get(runtimeID) === request) agentModelCatalogCache.set(runtimeID, models);
+      return models;
+    }).finally(() => {
+      if (agentModelCatalogPromises.get(runtimeID) === request) agentModelCatalogPromises.delete(runtimeID);
+    });
+    agentModelCatalogPromises.set(runtimeID, request);
+    return request;
+  }
+
+  async function getAgentRuntimeSkills(runtimeID) {
+    if (agentRuntimeSkillsCache.has(runtimeID)) return agentRuntimeSkillsCache.get(runtimeID);
+    if (agentRuntimeSkillsPromises.has(runtimeID)) return agentRuntimeSkillsPromises.get(runtimeID);
+    const request = api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/skills`).then(response => {
+      const items = response.items || [];
+      if (agentRuntimeSkillsPromises.get(runtimeID) === request) agentRuntimeSkillsCache.set(runtimeID, items);
+      return items;
+    }).finally(() => {
+      if (agentRuntimeSkillsPromises.get(runtimeID) === request) agentRuntimeSkillsPromises.delete(runtimeID);
+    });
+    agentRuntimeSkillsPromises.set(runtimeID, request);
+    return request;
+  }
+
+  function populateAgentRuntimeSelect(select, runtimes, preferred = '') {
+    select.innerHTML = '';
+    for (const runtime of runtimes) {
+      const option = document.createElement('option');
+      option.value = runtime.id;
+      option.dataset.modelUnsupported = runtime.model_selection_unsupported ? 'true' : 'false';
+      option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
+      option.disabled = !runtime.installed || !runtime.adapter_available;
+      select.append(option);
+    }
+    const available = Array.from(select.options).filter(option => !option.disabled);
+    const selected = available.find(option => option.value === preferred) || available.find(option => option.value === 'codex') || available[0];
+    if (selected) select.value = selected.value;
+  }
+
+  async function warmAgentConfiguration() {
+    const user = currentUser;
+    if (!user || !window.adroCanAccessMenu?.('agents')) return;
+    try {
+      const runtimes = await getAgentRuntimeCatalog();
+      if (currentUser !== user || !window.adroCanAccessMenu?.('agents')) return;
+      const runtime = runtimes.find(item => item.id === 'codex' && item.installed && item.adapter_available) || runtimes.find(item => item.installed && item.adapter_available);
+      if (runtime) await Promise.allSettled([getAgentModelCatalog(runtime.id), getAgentRuntimeSkills(runtime.id)]);
+    } catch (_) {}
+  }
+
   async function loadAgentRuntimeSkills(runtimeID) {
     const target = $('#agentRuntimeSkillOptions');
     const requestID = ++agentRuntimeSkillRequest;
@@ -2570,9 +2736,9 @@
       return;
     }
     try {
-      const response = await api(`/api/v1/runtimes/${encodeURIComponent(runtimeID)}/skills`);
+      const items = await getAgentRuntimeSkills(runtimeID);
       if (requestID !== agentRuntimeSkillRequest) return;
-      agentRuntimeSkillItems = (response.items || []).map(item => ({...item, runtime_id: runtimeID}));
+      agentRuntimeSkillItems = items.map(item => ({...item, runtime_id: runtimeID}));
       const disabled = new Set(agentDisabledRuntimeSkills.map(runtimeSkillIdentity));
       target.innerHTML = agentRuntimeSkillItems.length ? agentRuntimeSkillItems.map((item, index) => {
         const identity = runtimeSkillIdentity(item);
@@ -2670,15 +2836,84 @@
     await Promise.all([loadAgentModelCatalog(), loadAgentRuntimeSkills(runtimeID)]);
   }
 
-  ensureAgentConfigurationFields();
-  renderAgentModelOptions = function renderAgentModelSelectOptions() {
+  function rebuildAgentConfigurationStudio() {
+    const dialog = $('#agentDialog');
+    const form = $('#agentForm');
+    if (!dialog || !form || form.dataset.studioReady === 'true') return;
+    form.dataset.studioReady = 'true';
+    const head = dialog.querySelector('.dialog-head');
+    head?.classList.add('agent-dialog-head');
+    if (head && !$('#agentDialogState')) head.querySelector('.dialog-close')?.insertAdjacentHTML('beforebegin', `<span id="agentDialogState" class="agent-dialog-state" data-i18n="agentReadyState"></span>`);
+    form.innerHTML = `
+      <div class="agent-studio-layout">
+        <section class="agent-builder-pane" aria-labelledby="agentBriefTitle">
+          <div class="agent-pane-heading"><span class="agent-pane-index">01</span><div><p class="agent-pane-kicker" data-i18n="agentCreateKicker"></p><h3 id="agentBriefTitle" data-i18n="agentBriefTitle"></h3><p data-i18n="agentBriefHelp"></p></div></div>
+          <div class="agent-builder-canvas">
+            <div class="agent-builder-orbit" aria-hidden="true"><span>✦</span><i></i><i></i><i></i></div>
+            <label class="agent-brief-field"><span data-i18n="agentBuilderPromptLabel"></span><textarea name="builder_prompt" id="agentBuilderPrompt" data-i18n-placeholder="agentBuilderPromptPlaceholder"></textarea></label>
+            <div class="agent-prompt-suggestions"><span data-i18n="agentPromptSuggestions"></span><div><button type="button" data-agent-suggestion="agentPromptSuggestionReview" data-i18n="agentPromptSuggestionReview"></button><button type="button" data-agent-suggestion="agentPromptSuggestionResearch" data-i18n="agentPromptSuggestionResearch"></button><button type="button" data-agent-suggestion="agentPromptSuggestionDelivery" data-i18n="agentPromptSuggestionDelivery"></button></div></div>
+          </div>
+          <div class="agent-builder-actions"><button class="primary" id="composeAndCreateAgent" type="button"><span aria-hidden="true">✦</span><span data-i18n="agentBuilderCreate"></span></button><span id="agentBuilderStatus" class="form-help" role="status"></span></div>
+        </section>
+        <section class="agent-config-pane" aria-labelledby="agentConfigurationTitle">
+          <div class="agent-pane-heading agent-config-heading"><span class="agent-pane-index">02</span><div><h3 id="agentConfigurationTitle" data-i18n="agentConfigurationTitle"></h3><p data-i18n="agentConfigurationHelp"></p></div></div>
+          <section class="agent-config-section agent-identity-card"><header><div><h4 data-i18n="agentIdentitySection"></h4><p data-i18n="agentIdentityHelp"></p></div><span class="agent-section-mark" aria-hidden="true">ID</span></header>
+            <label class="agent-avatar-field"><span data-i18n="agentAvatarLabel"></span><div class="agent-avatar-picker"><input name="avatar_url" type="hidden"><input name="avatar_file" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="secondary" id="agentAvatarButton" type="button"><span aria-hidden="true">⌁</span><span data-i18n="agentUploadAvatar"></span></button><div id="agentAvatarPreview" class="agent-avatar-preview"><span data-i18n="agentAvatarHelp"></span></div></div></label>
+            <div class="two-fields"><label><span data-i18n="agentNameLabel"></span><input name="name" type="text" required></label><label><span data-i18n="agentMemberLabel"></span><select name="member" required></select></label></div>
+            <label><span data-i18n="agentDescriptionLabel"></span><textarea name="description" maxlength="255"></textarea></label>
+          </section>
+          <section class="agent-config-section"><header><div><h4 data-i18n="agentBehaviorSection"></h4><p data-i18n="agentBehaviorHelp"></p></div><span class="agent-section-mark" aria-hidden="true">AI</span></header>
+            <div class="two-fields"><label><span data-i18n="agentRoleLabel"></span><input name="role" type="text" data-i18n-placeholder="agentRolePlaceholder"></label><label><span data-i18n="agentAccessLabel"></span><select name="access_mode" id="agentAccessMode"><option value="private" data-i18n="agentAccessPrivate"></option><option value="workspace" data-i18n="agentAccessWorkspace"></option><option value="members" data-i18n="agentAccessMembers"></option></select></label></div>
+            <fieldset id="agentAccessMembersField" class="agent-access-members" hidden><legend data-i18n="agentAccessMembersLabel"></legend><div id="agentAccessMemberOptions" class="agent-resource-options"></div></fieldset>
+            <label><span data-i18n="agentInstructionsLabel"></span><textarea name="instructions"></textarea></label>
+            <div class="two-fields agent-resource-fields"><fieldset><legend data-i18n="agentSkillsLabel"></legend><div id="agentSkillOptions" class="agent-resource-options"></div></fieldset><fieldset><legend data-i18n="agentMCPServersLabel"></legend><div id="agentMCPServerOptions" class="agent-resource-options"></div></fieldset></div>
+            <p class="form-help agent-resource-help" data-i18n="agentResourceCatalogHelp"></p>
+          </section>
+          <section class="agent-config-section agent-execution-card"><header><div><h4 data-i18n="agentExecutionSection"></h4><p data-i18n="agentExecutionHelp"></p></div><span class="agent-section-mark" aria-hidden="true">RUN</span></header>
+            <div class="two-fields agent-runtime-primary"><label><span data-i18n="agentRuntimeLabel"></span><select name="runtime" id="agentRuntime" required><option value="" data-i18n="agentRuntimeLoading"></option></select></label><label><span data-i18n="agentModelLabel"></span><select name="model" id="agentModel"><option value="" data-i18n="agentModelLoading"></option></select></label></div>
+            <div class="two-fields"><label><span data-i18n="agentThinkingLabel"></span><select name="thinking" id="agentThinking"><option value="" data-i18n="runtimeDefault"></option></select></label><label><span data-i18n="agentServiceTierLabel"></span><select name="service_tier" id="agentServiceTier"><option value="" data-i18n="runtimeDefault"></option></select></label></div>
+            <section id="agentRuntimeControls" class="agent-runtime-controls" aria-labelledby="agentRuntimeControlsTitle"><h3 id="agentRuntimeControlsTitle" data-i18n="agentRuntimeControls"></h3>
+              <div class="two-fields agent-runtime-policy" data-runtime-policy="codex" hidden><label><span data-i18n="agentCodexSandbox"></span><select name="codex_sandbox"><option value="" data-i18n="runtimeDefault"></option><option value="read-only" data-i18n="agentSandboxReadOnly"></option><option value="workspace-write" data-i18n="agentSandboxWorkspace"></option><option value="danger-full-access" data-i18n="agentSandboxUnrestricted"></option></select></label><label><span data-i18n="agentCodexApproval"></span><select name="codex_approval"><option value="" data-i18n="runtimeDefault"></option><option value="untrusted" data-i18n="agentApprovalUntrusted"></option><option value="on-request" data-i18n="agentApprovalOnRequest"></option><option value="on-failure" data-i18n="agentApprovalOnFailure"></option><option value="never" data-i18n="agentApprovalNever"></option></select></label></div>
+              <div class="agent-runtime-policy" data-runtime-policy="openclaw" hidden><div class="two-fields"><label><span data-i18n="agentOpenClawMode"></span><select name="openclaw_mode"><option value="local" data-i18n="agentOpenClawLocal"></option><option value="gateway" data-i18n="agentOpenClawGateway"></option></select></label><label class="toggle-line"><input name="openclaw_tls" type="checkbox"><span data-i18n="agentGatewayTLS"></span></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayHost"></span><input name="openclaw_host" type="text" autocomplete="off"></label><label><span data-i18n="agentGatewayPort"></span><input name="openclaw_port" type="number" min="1" max="65535" inputmode="numeric"></label></div><div class="two-fields" data-openclaw-gateway><label><span data-i18n="agentGatewayAuthEnv"></span><input name="openclaw_auth_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label><label><span data-i18n="agentGatewaySecretEnv"></span><input name="openclaw_secret_env" type="text" pattern="[A-Za-z_][A-Za-z0-9_]*" autocomplete="off"></label></div></div>
+              <fieldset class="agent-runtime-skills"><legend data-i18n="agentRuntimeSkills"></legend><p class="form-help agent-runtime-skills-help" data-i18n="agentRuntimeSkillsHelp"></p><div id="agentRuntimeSkillOptions" class="agent-resource-options" aria-live="polite"></div></fieldset>
+            </section>
+          </section>
+          <details class="agent-advanced agent-config-section"><summary data-i18n="agentAdvancedSection"></summary><div class="two-fields"><label><span data-i18n="agentConcurrencyLabel"></span><input name="concurrent" type="number" min="1" max="16" value="1" required></label><label><span data-i18n="agentTokenBudgetLabel"></span><input name="tokens" type="number" min="1" max="10000000" value="120000" required></label></div><div class="two-fields"><label><span data-i18n="agentToolBudgetLabel"></span><input name="tool_calls" type="number" min="1" max="10000" value="200" required></label><label class="toggle-line"><input name="network" type="checkbox"><span data-i18n="agentNetworkLabel"></span></label></div><label hidden aria-hidden="true"><textarea name="custom_args"></textarea></label><label hidden aria-hidden="true"><textarea name="runtime_config"></textarea></label><label hidden aria-hidden="true"><textarea name="environment"></textarea></label></details>
+          <div class="agent-form-footer"><div><p class="form-error" id="agentFormError" role="alert"></p><span class="agent-footer-hint" data-i18n="agentAccessHelp"></span></div><div class="form-actions"><button class="secondary" id="cancelAgentDialog" type="button" data-i18n="cancel"></button><button class="primary" type="submit"><span aria-hidden="true">＋</span><span data-i18n="agentCreate"></span></button></div></div>
+        </section>
+      </div>`;
+    $('#agentAvatarButton').onclick = () => form.elements.avatar_file.click();
+    form.elements.avatar_file.onchange = () => {
+      const file = form.elements.avatar_file.files?.[0];
+      const preview = $('#agentAvatarPreview');
+      if (!file || !preview) return;
+      if (file.size > 5 * 1024 * 1024 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+        form.elements.avatar_file.value = '';
+        preview.textContent = t('agentAvatarHelp');
+        $('#agentFormError').textContent = t('agentSaveFailed');
+        return;
+      }
+      preview.innerHTML = `<img src="${escapeHTML(URL.createObjectURL(file))}" alt="${escapeHTML(file.name)}"><span>${escapeHTML(file.name)}</span>`;
+    };
+    form.querySelectorAll('[data-agent-suggestion]').forEach(button => {
+      button.onclick = () => {
+        form.elements.builder_prompt.value = t(button.dataset.agentSuggestion);
+        form.elements.builder_prompt.focus();
+      };
+    });
+    $('#cancelAgentDialog').onclick = closeAgentDialog;
+    applyTranslations();
+  }
+
+  rebuildAgentConfigurationStudio();
+  renderAgentModelOptions = function renderAgentModelSelectOptions(preferred = '') {
     const model = $('#agentModel');
     const thinking = $('#agentThinking');
     const tier = $('#agentServiceTier');
-    const previous = model.value;
+    const previous = preferred || model.value;
     model.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + agentModelCatalog.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.label || item.id)}</option>`).join('');
     if (agentModelCatalog.some(item => item.id === previous)) model.value = previous;
-    else model.value = agentModelCatalog.find(item => item.default)?.id || '';
+    else model.value = '';
     const refresh = () => {
       const selected = agentModelCatalog.find(item => item.id === model.value);
       thinking.innerHTML = `<option value="">${escapeHTML(t('runtimeDefault'))}</option>` + ((selected?.thinking?.supported_levels) || []).map(item => `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label || item.value)}</option>`).join('');
@@ -2688,6 +2923,51 @@
     model.onchange = refresh;
     refresh();
   };
+  loadAgentModelCatalog = async function loadCachedAgentModelCatalog(preferred = '') {
+    const runtimeSelect = $('#agentRuntime');
+    const runtimeID = runtimeSelect.value;
+    const option = runtimeSelect.selectedOptions[0];
+    const model = $('#agentModel');
+    const thinking = $('#agentThinking');
+    const tier = $('#agentServiceTier');
+    const requestID = ++agentModelRequest;
+    const modelUnsupported = option?.dataset.modelUnsupported === 'true';
+    model.disabled = modelUnsupported || !runtimeID;
+    thinking.disabled = modelUnsupported || !runtimeID;
+    tier.disabled = modelUnsupported || !runtimeID;
+    if (!runtimeID || modelUnsupported) {
+      agentModelCatalog = [];
+      renderAgentModelOptions();
+      return;
+    }
+    const previous = preferred || model.value;
+    if (agentModelCatalogCache.has(runtimeID)) {
+      agentModelCatalog = agentModelCatalogCache.get(runtimeID);
+      renderAgentModelOptions(previous);
+      return;
+    }
+    model.innerHTML = `<option value="">${escapeHTML(t('agentModelLoading'))}</option>`;
+    model.disabled = true;
+    thinking.disabled = true;
+    tier.disabled = true;
+    try {
+      const models = await getAgentModelCatalog(runtimeID);
+      if (requestID !== agentModelRequest || runtimeSelect.value !== runtimeID) return;
+      agentModelCatalog = models;
+      model.disabled = false;
+      thinking.disabled = false;
+      tier.disabled = false;
+      renderAgentModelOptions(previous);
+    } catch (_) {
+      if (requestID !== agentModelRequest) return;
+      model.disabled = false;
+      thinking.disabled = false;
+      tier.disabled = false;
+      agentModelCatalog = [];
+      renderAgentModelOptions(previous);
+      $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
+    }
+  };
   showAgentDialog = async function showAgentDialogWithMigration(onboarding = false, agent = null) {
     onboarding = onboarding === true;
     const form = $('#agentForm');
@@ -2695,30 +2975,27 @@
     delete form.dataset.agentId;
     delete form.dataset.agentRevision;
     delete form.dataset.loadedRuntime;
+    delete form.dataset.creationJobID;
     agentRuntimeConfigs = new Map();
     agentRuntimeEnvironments = new Map();
     agentPreservedCustomArgs = (agent?.executor_binding?.custom_args || []).slice();
     agentDisabledRuntimeSkills = (agent?.disabled_runtime_skills || []).map(item => ({...item}));
     agentRuntimeSkillItems = [];
     form.dataset.onboarding = onboarding ? 'true' : '';
+    form.dataset.agentId = agent?.id || '';
+    form.dataset.agentRevision = agent?.revision ? String(agent.revision) : '';
     document.body.classList.toggle('onboarding-active', onboarding);
     $('#closeAgentDialog').hidden = onboarding;
     $('#cancelAgentDialog').hidden = onboarding;
     $('#agentFormError').textContent = '';
+    $('#agentBuilderStatus').textContent = '';
+    const avatarPreview = $('#agentAvatarPreview');
+    const priorAvatar = avatarPreview?.querySelector('img')?.src || '';
+    if (priorAvatar.startsWith('blob:')) URL.revokeObjectURL(priorAvatar);
+    if (avatarPreview) avatarPreview.innerHTML = `<span data-i18n="agentAvatarHelp">${escapeHTML(t('agentAvatarHelp'))}</span>`;
     renderAgentOwnerOptions(agent);
     renderAgentAccessMemberOptions(agent?.access_policy?.member_ids || []);
-    if (onboarding) {
-      form.elements.name.value = t('defaultAgentName');
-      form.elements.role.value = 'generalist';
-      form.elements.instructions.value = t('defaultAgentInstructions');
-    }
-    const runtimeSelect = form.elements.runtime;
-    runtimeSelect.innerHTML = '';
-    const submitButton = form.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
-    form.dataset.agentId = agent?.id || '';
-    form.dataset.agentRevision = agent?.revision ? String(agent.revision) : '';
-    $('#agentBuilderStatus').textContent = '';
+    renderAgentResourceOptions(agent);
     const title = $('#agentDialog h2');
     title.dataset.i18n = agent ? 'agentEditTitle' : 'agentCreateTitle';
     title.textContent = t(title.dataset.i18n);
@@ -2734,57 +3011,55 @@
     }
     if (panel) panel.hidden = !onboarding;
     bindWorkspaceMigration(form);
-    renderAgentResourceOptions(agent);
+    if (onboarding) {
+      form.elements.name.value = t('defaultAgentName');
+      form.elements.role.value = 'generalist';
+      form.elements.instructions.value = t('defaultAgentInstructions');
+    }
+    const preferredRuntime = agent?.executor_binding?.runtime_id || '';
+    const preferredModel = agent?.executor_binding?.model || '';
+    if (agent) {
+      form.elements.avatar_url.value = agent.avatar_url || '';
+      form.elements.custom_args.value = agentPreservedCustomArgs.join('\n');
+      agentRuntimeConfigs.set(preferredRuntime, {...(agent.executor_binding?.runtime_config || {})});
+      agentRuntimeEnvironments.set(preferredRuntime, (agent.executor_binding?.environment || []).map(item => ({...item})));
+      applyAgentDraft(form, {...agent, network_access: agent.tool_policy?.network, max_concurrent_tasks: agent.concurrency_budget?.concurrent, token_budget: agent.concurrency_budget?.tokens, tool_call_budget: agent.concurrency_budget?.tool_calls});
+      if (agent.avatar_url) $('#agentAvatarPreview').innerHTML = `<img src="${escapeHTML(agent.avatar_url)}" alt=""><span>${escapeHTML(t('agentAvatarLabel'))}</span>`;
+    }
+    const runtimeSelect = form.elements.runtime;
+    if (agentRuntimeCatalog.length) populateAgentRuntimeSelect(runtimeSelect, agentRuntimeCatalog, preferredRuntime);
+    else runtimeSelect.innerHTML = `<option value="">${escapeHTML(t('agentRuntimeLoading'))}</option>`;
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled && option.value);
+    const initialRuntime = runtimeSelect.value;
+    form.dataset.loadedRuntime = initialRuntime;
+    renderAgentRuntimeConfiguration(form, initialRuntime, agentRuntimeConfigs.get(initialRuntime) || {}, agentRuntimeEnvironments.get(initialRuntime) || []);
+    let runtimeSelectionChanged = false;
+    form.elements.runtime.onchange = async () => {
+      runtimeSelectionChanged = true;
+      await changeAgentRuntime();
+    };
+    form.elements.openclaw_mode.onchange = updateOpenClawGatewayFields;
     if (!$('#agentDialog').open) $('#agentDialog').showModal();
+    setTimeout(() => form.elements.builder_prompt.focus(), 0);
     try {
-      const result = await api('/api/v1/runtimes/discovered');
-      for (const runtime of result.items || []) {
-        const option = document.createElement('option');
-        option.value = runtime.id;
-        option.dataset.modelUnsupported = runtime.model_selection_unsupported ? 'true' : 'false';
-        option.textContent = `${runtime.name}${runtime.installed ? '' : ' — ' + t('notInstalled')}${runtime.adapter_available ? '' : ' — ' + t('adapterUnavailable')}`;
-        option.disabled = !runtime.installed || !runtime.adapter_available;
-        runtimeSelect.append(option);
+      const runtimes = await getAgentRuntimeCatalog(true);
+      const selectedRuntime = runtimeSelectionChanged ? runtimeSelect.value : preferredRuntime;
+      populateAgentRuntimeSelect(runtimeSelect, runtimes, selectedRuntime);
+      const runtimeID = runtimeSelect.value;
+      form.dataset.loadedRuntime = runtimeID;
+      renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
+      submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled && option.value);
+      await Promise.all([loadAgentModelCatalog(preferredModel), loadAgentRuntimeSkills(runtimeID)]);
+      if (agent) {
+        form.elements.thinking.value = agent.executor_binding?.thinking_level || '';
+        form.elements.service_tier.value = agent.executor_binding?.service_tier || '';
       }
-      if (!agent) {
-        const localRuntime = Array.from(runtimeSelect.options).find(option => option.value === 'codex' && !option.disabled) || Array.from(runtimeSelect.options).find(option => !option.disabled);
-        if (localRuntime) runtimeSelect.value = localRuntime.value;
-      }
-      await loadAgentModelCatalog();
-      submitButton.disabled = !Array.from(runtimeSelect.options).some(option => !option.disabled);
+      if (dialogState) dialogState.textContent = t('agentRuntimeReady');
     } catch (_) {
       $('#agentFormError').textContent = t('runtimeDiscoveryFailed');
       submitButton.disabled = true;
     }
-    if (agent) {
-      form.elements.name.value = agent.name || '';
-      form.elements.description.value = agent.description || '';
-      form.elements.avatar_url.value = agent.avatar_url || '';
-      form.elements.role.value = agent.role || '';
-      form.elements.instructions.value = agent.instructions || '';
-      form.elements.runtime.value = agent.executor_binding?.runtime_id || '';
-      await loadAgentModelCatalog();
-      form.elements.model.value = agent.executor_binding?.model || '';
-      renderAgentModelOptions();
-      form.elements.thinking.value = agent.executor_binding?.thinking_level || '';
-      form.elements.service_tier.value = agent.executor_binding?.service_tier || '';
-      form.elements.custom_args.value = agentPreservedCustomArgs.join('\n');
-      form.elements.access_mode.value = agent.access_policy?.mode || 'private';
-      form.elements.concurrent.value = String(agent.concurrency_budget?.concurrent || 1);
-      form.elements.tokens.value = String(agent.concurrency_budget?.tokens || 120000);
-      form.elements.tool_calls.value = String(agent.concurrency_budget?.tool_calls || 200);
-      form.elements.network.checked = agent.tool_policy?.network === true;
-      agentRuntimeConfigs.set(form.elements.runtime.value, {...(agent.executor_binding?.runtime_config || {})});
-      agentRuntimeEnvironments.set(form.elements.runtime.value, (agent.executor_binding?.environment || []).map(item => ({...item})));
-      applyAgentDraft(form, {...agent, network_access: agent.tool_policy?.network, max_concurrent_tasks: agent.concurrency_budget?.concurrent, token_budget: agent.concurrency_budget?.tokens, tool_call_budget: agent.concurrency_budget?.tool_calls});
-    }
-    const runtimeID = form.elements.runtime.value;
-    form.dataset.loadedRuntime = runtimeID;
-    renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
-    form.elements.runtime.onchange = changeAgentRuntime;
-    form.elements.openclaw_mode.onchange = updateOpenClawGatewayFields;
-    await loadAgentRuntimeSkills(runtimeID);
-    setTimeout(() => form.elements.builder_prompt.focus(), 0);
   };
 
   function agentFormStarters(form) {
@@ -2859,7 +3134,7 @@
     const jobID = createAfter ? idempotencyKey() : '';
     if (jobID) {
       form.dataset.creationJobID = jobID;
-      upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim() || t('agentCreateTitle'), prompt, status: 'running', started_at: new Date().toISOString()});
+      upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim(), prompt, draft: currentAgentDraft(form), runtime_id: String(form.elements.runtime.value || ''), model: String(form.elements.model.value || ''), status: 'running', started_at: new Date().toISOString()});
     }
     buttons.forEach(button => { button.disabled = true; });
     status.textContent = t('agentBuilderRunning');
@@ -2877,6 +3152,7 @@
       };
       const response = await api('/api/v1/workspaces/local/agents/compose', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey()}, body: JSON.stringify(body)});
       applyAgentDraft(form, response.draft || {});
+      if (jobID) upsertAgentCreationJob({id: jobID, name: response.draft?.name || '', draft: response.draft || currentAgentDraft(form)});
       status.textContent = t('agentBuilderDone');
       if (createAfter) form.requestSubmit();
       return true;
@@ -2884,7 +3160,7 @@
       status.textContent = t('agentBuilderFailed');
       $('#agentFormError').textContent = error.detail || error.message || t('agentCreateError');
       if (dialogState) dialogState.textContent = t('agentNeedsAttentionState');
-      if (jobID) upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim() || t('agentCreateTitle'), prompt, status: 'failed', error: error.detail || error.message || t('agentCreateError')});
+      if (jobID) upsertAgentCreationJob({id: jobID, name: String(form.elements.name.value || '').trim(), prompt, draft: currentAgentDraft(form), runtime_id: String(form.elements.runtime.value || ''), model: String(form.elements.model.value || ''), status: 'failed', error: error.detail || error.message || '', error_key: 'agentCreateError'});
       return false;
     } finally {
       buttons.forEach(button => { button.disabled = false; });
@@ -2952,7 +3228,7 @@
       delete form.dataset.onboarding; delete form.dataset.agentId; delete form.dataset.agentRevision; delete form.dataset.loadedRuntime; document.body.classList.remove('onboarding-active'); closeAgentDialog(); form.reset(); await loadCore(true);
     } catch (error) {
       const jobID = form.dataset.creationJobID;
-      if (jobID) upsertAgentCreationJob({id: jobID, name, status: 'failed', error: error.detail || error.message || t('agentCreateError')});
+      if (jobID) upsertAgentCreationJob({id: jobID, name, status: 'failed', error: error.detail || error.message || '', error_key: 'agentCreateError'});
       if ($('#agentDialogState')) $('#agentDialogState').textContent = t('agentNeedsAttentionState');
       $('#agentFormError').textContent = error.detail || error.message || t('agentSaveFailed');
     }

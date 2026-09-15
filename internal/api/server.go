@@ -2890,7 +2890,11 @@ const repositoryFileReadLimit = 1024 * 1024
 func repositoryLocalRoot(repository domain.Repository) (string, error) {
 	if repository.Metadata != nil {
 		if localPath, ok := repository.Metadata["local_path"].(string); ok && strings.TrimSpace(localPath) != "" {
-			return filepath.Abs(filepath.Clean(localPath))
+			clean := filepath.Clean(strings.TrimSpace(localPath))
+			if !filepath.IsAbs(clean) {
+				return "", errors.New("local repository path is not absolute; edit the project and select its directory again")
+			}
+			return clean, nil
 		}
 	}
 	if strings.HasPrefix(repository.CloneURL, "file://") {
@@ -3036,13 +3040,13 @@ func (s *Server) repositoryFiles(w http.ResponseWriter, r *http.Request, reposit
 	}
 	directory, openErr := rootHandle.Open(rootRelative)
 	if openErr != nil {
-		s.problem(w, r, http.StatusUnprocessableEntity, "repository_directory_unreadable", "repository directory could not be read", nil)
+		s.writeJSON(w, http.StatusOK, map[string]any{"available": false, "repository_id": repository.ID, "reason": "repository directory could not be read"})
 		return
 	}
 	defer directory.Close()
 	entries, err := directory.ReadDir(-1)
 	if err != nil {
-		s.problem(w, r, http.StatusUnprocessableEntity, "repository_directory_unreadable", "repository directory could not be read", nil)
+		s.writeJSON(w, http.StatusOK, map[string]any{"available": false, "repository_id": repository.ID, "reason": "repository directory could not be read"})
 		return
 	}
 	items := make([]map[string]any, 0, len(entries))
@@ -4080,9 +4084,37 @@ func (s *Server) problem(w http.ResponseWriter, r *http.Request, status int, cod
 	if traceID == "" {
 		traceID = r.Header.Get("X-Trace-ID")
 	}
-	body := map[string]any{"type": "https://adro.dev/problems/" + code, "title": http.StatusText(status), "status": status, "detail": detail, "error_code": code, "request_id": w.Header().Get("X-Request-ID"), "trace_id": traceID}
+	requestID := w.Header().Get("X-Request-ID")
+	body := map[string]any{"type": "https://adro.dev/problems/" + code, "title": http.StatusText(status), "status": status, "detail": detail, "error_code": code, "request_id": requestID, "trace_id": traceID}
 	for k, v := range extra {
 		body[k] = v
+	}
+	if s.Logger != nil {
+		method := strings.ReplaceAll(r.Method, "\n", "")
+		method = strings.ReplaceAll(method, "\r", "")
+		path := strings.ReplaceAll(r.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
+		logCode := strings.ReplaceAll(code, "\n", "")
+		logCode = strings.ReplaceAll(logCode, "\r", "")
+		logDetail := strings.ReplaceAll(detail, "\n", "")
+		logDetail = strings.ReplaceAll(logDetail, "\r", "")
+		logRequestID := strings.ReplaceAll(requestID, "\n", "")
+		logRequestID = strings.ReplaceAll(logRequestID, "\r", "")
+		logTraceID := strings.ReplaceAll(traceID, "\n", "")
+		logTraceID = strings.ReplaceAll(logTraceID, "\r", "")
+		level, message := slog.LevelWarn, "api request rejected"
+		if status >= http.StatusInternalServerError {
+			level, message = slog.LevelError, "api request failed"
+		}
+		s.Logger.LogAttrs(r.Context(), level, message,
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Int("status", status),
+			slog.String("error_code", logCode),
+			slog.String("detail", logDetail),
+			slog.String("request_id", logRequestID),
+			slog.String("trace_id", logTraceID),
+		)
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)

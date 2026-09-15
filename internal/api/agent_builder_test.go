@@ -32,6 +32,11 @@ func TestParseAgentDraftValidatesStructuredConfiguration(t *testing.T) {
 	if _, err := parseAgentDraft(unknown); err == nil {
 		t.Fatal("unknown draft field accepted")
 	}
+
+	untagged := "Here is the configuration:\n```json\n" + strings.TrimSuffix(strings.TrimPrefix(output[strings.Index(output, "<agent_draft>"):], "<agent_draft>"), "</agent_draft>") + "\n```"
+	if draft, err := parseAgentDraft(untagged); err != nil || draft.Name != "Release reviewer" {
+		t.Fatalf("untagged draft=%+v err=%v", draft, err)
+	}
 }
 
 func TestComposeAgentDraftUsesSelectedRuntimeAndReturnsEvidence(t *testing.T) {

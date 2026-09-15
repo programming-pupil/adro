@@ -659,6 +659,109 @@ dialog.user-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100
 @media (max-width: 640px) { .runner-env-row { grid-template-columns: 1fr 1fr 30px; } }
 @media (max-width: 640px) { .agent-builder-actions { align-items: flex-start; flex-direction: column; } .agent-runtime-controls { padding: 10px; } }
 
+/* Agent studio: a focused brief-to-configuration workspace. */
+#agentDialog {
+  width: min(1480px, calc(100vw - 32px));
+  max-width: none;
+  height: min(920px, calc(100vh - 32px));
+  max-height: none;
+  overflow: hidden;
+  border: 1px solid #315f73;
+  border-radius: 18px;
+  background: #07121d;
+  box-shadow: 0 36px 120px rgba(0, 0, 0, .7), 0 0 0 1px rgba(83, 222, 248, .06) inset;
+}
+#agentDialog .agent-dialog-head {
+  min-height: 82px;
+  padding: 18px 24px;
+  border-bottom: 1px solid #24475d;
+  background: radial-gradient(circle at 14% 0%, rgba(45, 166, 199, .18), transparent 34%), linear-gradient(110deg, #0d2433, #08131f 64%);
+}
+#agentDialog .agent-dialog-head h2 { margin: 2px 0 4px; font-size: 25px; }
+#agentDialog .agent-dialog-head p { margin: 0; }
+#agentDialog form { display: block; height: calc(100% - 82px); max-height: none; padding: 0; overflow: hidden; }
+.agent-studio-layout { display: grid; grid-template-columns: minmax(420px, .9fr) minmax(560px, 1.1fr); height: 100%; min-height: 0; }
+.agent-builder-pane, .agent-config-pane { min-width: 0; min-height: 0; }
+.agent-builder-pane {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 24px;
+  padding: 30px;
+  overflow: hidden;
+  border-right: 1px solid #24475d;
+  background: radial-gradient(circle at 50% 42%, rgba(35, 169, 204, .13), transparent 35%), linear-gradient(155deg, #0a1b28, #07111c 70%);
+}
+.agent-config-pane { overflow-y: auto; padding: 30px 30px 0; background: #091520; scrollbar-color: #37647a transparent; }
+.agent-pane-heading { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 14px; align-items: start; }
+.agent-pane-index { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #3d849d; border-radius: 10px; color: #6cecff; background: #0b2a39; font: 700 11px "SFMono-Regular", Consolas, monospace; }
+.agent-pane-heading h3 { margin: 0 0 7px; color: #effdff; font-size: 22px; letter-spacing: -.015em; }
+.agent-pane-heading p { max-width: 620px; margin: 0; color: #91adba; line-height: 1.65; }
+.agent-pane-kicker { margin: 0 0 5px !important; color: #57e6ff !important; font: 700 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .15em; }
+.agent-builder-canvas { position: relative; display: flex; min-height: 0; flex-direction: column; justify-content: center; gap: 20px; }
+.agent-builder-orbit { position: absolute; inset: 48% auto auto 50%; width: clamp(250px, 27vw, 340px); height: clamp(250px, 27vw, 340px); transform: translate(-50%, -55%); opacity: .42; pointer-events: none; }
+.agent-builder-orbit::before, .agent-builder-orbit::after { content: ""; position: absolute; inset: 10%; border: 1px solid rgba(78, 223, 248, .18); border-radius: 50%; }
+.agent-builder-orbit::after { inset: 25%; border-style: dashed; animation: agent-orbit 24s linear infinite; }
+.agent-builder-orbit > span { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); color: #57e6ff; font-size: 58px; filter: drop-shadow(0 0 24px rgba(57, 222, 250, .72)); }
+.agent-builder-orbit i { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #55e8ff; box-shadow: 0 0 14px #55e8ff; }
+.agent-builder-orbit i:nth-child(2) { top: 10%; left: 48%; }
+.agent-builder-orbit i:nth-child(3) { right: 15%; bottom: 28%; }
+.agent-builder-orbit i:nth-child(4) { left: 13%; bottom: 34%; }
+@keyframes agent-orbit { to { transform: rotate(360deg); } }
+.agent-brief-field { position: relative; z-index: 1; margin-top: auto; padding-top: clamp(120px, 20vh, 210px); }
+.agent-brief-field > span { color: #dffaff !important; font-size: 13px !important; }
+.agent-brief-field textarea { min-height: 150px; resize: vertical; border: 1px solid #3a7189; border-radius: 16px; background: rgba(5, 16, 25, .9); box-shadow: 0 18px 45px rgba(0, 0, 0, .28); font-size: 15px; line-height: 1.65; }
+.agent-brief-field textarea:focus { border-color: #61e8fb; box-shadow: 0 0 0 4px rgba(72, 224, 248, .11), 0 20px 52px rgba(0, 0, 0, .3); }
+.agent-prompt-suggestions { position: relative; z-index: 1; }
+.agent-prompt-suggestions > span { display: block; margin-bottom: 8px; color: #7797a6; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+.agent-prompt-suggestions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-prompt-suggestions button { padding: 8px 11px; border: 1px solid #2c566a; border-radius: 999px; color: #a9c8d2; background: rgba(13, 38, 51, .78); font-size: 11px; cursor: pointer; }
+.agent-prompt-suggestions button:hover { border-color: #55dff4; color: #e9fdff; transform: translateY(-1px); }
+.agent-builder-pane > .agent-builder-actions { position: relative; z-index: 1; align-items: center; justify-content: space-between; margin: 0; padding-top: 18px; border-top: 1px solid #213c4e; }
+.agent-builder-pane > .agent-builder-actions .primary { min-height: 48px; padding-inline: 22px; border-radius: 12px; }
+.agent-config-heading { margin-bottom: 24px; }
+.agent-config-section { display: grid; gap: 16px; margin-bottom: 22px; padding: 20px; border: 1px solid #294c60; border-radius: 15px; background: linear-gradient(145deg, rgba(15, 38, 51, .92), rgba(9, 24, 36, .96)); box-shadow: 0 12px 28px rgba(0, 0, 0, .14); }
+.agent-config-section > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #244657; }
+.agent-config-section > header h4 { margin: 0 0 5px; color: #effdff; font-size: 16px; }
+.agent-config-section > header p { margin: 0; color: #89a5b2; font-size: 12px; line-height: 1.55; }
+.agent-section-mark { color: #4fcfe5; font: 700 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+#agentDialog label { margin: 0; }
+#agentDialog label > span, #agentDialog legend { color: #c9e8ef; }
+#agentDialog input, #agentDialog textarea, #agentDialog select { border-radius: 10px; border-color: #315c71 !important; background-color: #0a1c29 !important; }
+#agentDialog textarea[name="description"] { min-height: 82px; }
+#agentDialog textarea[name="instructions"] { min-height: 150px; }
+.agent-runtime-primary select { min-height: 56px !important; font-size: 14px; font-weight: 700; }
+.agent-execution-card { border-color: #39748b; }
+.agent-runtime-controls { margin: 0; border-radius: 12px; border-color: #294e62; background: #071a27; }
+.agent-avatar-picker { display: flex; align-items: center; gap: 12px; }
+.agent-avatar-preview { display: flex; min-width: 0; align-items: center; gap: 9px; color: #7f9ca9; font-size: 11px; }
+.agent-avatar-preview img { width: 42px; height: 42px; border-radius: 12px; object-fit: cover; }
+.agent-resource-fields fieldset, .agent-runtime-skills { border-radius: 10px; border-color: #294e62; background: #081925; }
+.agent-resource-option { border-radius: 8px; }
+.agent-advanced.agent-config-section { display: block; }
+.agent-advanced.agent-config-section[open] { display: grid; }
+.agent-advanced.agent-config-section summary { padding: 3px 0; font-size: 13px; }
+.agent-form-footer { position: sticky; bottom: 0; z-index: 4; display: flex; min-height: 86px; align-items: center; justify-content: space-between; gap: 18px; margin: 0 -30px; padding: 15px 30px; border-top: 1px solid #315a6d; background: rgba(7, 19, 29, .96); backdrop-filter: blur(16px); }
+.agent-form-footer .form-error { margin: 0; }
+.agent-footer-hint { display: block; margin-top: 4px; color: #7895a2; font-size: 11px; }
+.agent-form-footer .form-actions { margin: 0; padding: 0; }
+.agent-form-footer .primary { min-height: 46px; padding-inline: 20px; border-radius: 11px; }
+@media (max-width: 980px) {
+  #agentDialog { width: calc(100vw - 20px); height: calc(100vh - 20px); }
+  .agent-studio-layout { grid-template-columns: 1fr; overflow-y: auto; }
+  .agent-builder-pane { min-height: 660px; border-right: 0; border-bottom: 1px solid #24475d; overflow: visible; }
+  .agent-config-pane { overflow: visible; }
+}
+@media (max-width: 640px) {
+  #agentDialog { border-radius: 12px; }
+  #agentDialog .agent-dialog-head { padding: 14px 16px; }
+  .agent-builder-pane, .agent-config-pane { padding: 20px 16px; }
+  .agent-builder-pane { min-height: 600px; }
+  .agent-brief-field { padding-top: 220px; }
+  .agent-config-section { padding: 16px; }
+  .agent-form-footer { margin: 0 -16px; padding: 12px 16px; align-items: stretch; flex-direction: column; }
+}
+
 /* Scheme 1: dense AI operations console. Keep the existing DOM contracts and
    give every view the same visual language instead of styling one page in isolation. */
 :root {

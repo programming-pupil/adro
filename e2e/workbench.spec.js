@@ -9,6 +9,7 @@ const menuViews = [
 test.beforeEach(async ({ page }, testInfo) => {
   const errors = [];
   const requestHosts = new Set();
+  let runtimeManagedWarmup = null;
   if (testInfo.title.includes('first-run workspace import')) {
     await page.route('**/api/v1/workspaces/local/agents', route => route.fulfill({
       status: 200,
@@ -84,6 +85,19 @@ test.beforeEach(async ({ page }, testInfo) => {
       body: JSON.stringify({ runtime_id: 'openclaw', items: [{ key: 'planning', name: 'Planning', source_path: '~/.openclaw/skills/planning', provider: 'openclaw', root: 'provider', can_disable: false }] })
     }));
   }
+  if (testInfo.title.includes('runtime-managed profiles')) {
+    await page.route('**/api/v1/runtimes/discovered', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [{ id: 'local', name: 'Initial local runtime', installed: true, adapter_available: true }] })
+    }));
+    await page.route('**/api/v1/runtimes/local/models', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: [{ id: 'stale-model', label: 'Stale model' }] })
+    }));
+    runtimeManagedWarmup = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/runtimes/local/models');
+  }
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
@@ -98,6 +112,11 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.locator('#loginForm input[name="password"]').fill('AdminPass123!');
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator('#appShell')).toBeVisible();
+  if (runtimeManagedWarmup) {
+    const response = await runtimeManagedWarmup;
+    await response.finished();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  }
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   await expect(page.locator('#connectionText')).toHaveText('控制面已连接');
   page.__adroErrors = errors;
@@ -114,6 +133,12 @@ test('uses the delivery label and polished project source controls', async ({ pa
   await expect(page.locator('#resourceFields input[name="provider"]')).toHaveCount(0);
   await expect(page.locator('.resource-owner-picker')).toBeVisible();
   await expect(page.locator('.resource-owner-trigger')).toContainText('选择负责人');
+
+  await page.route('**/_adro/directory-picker', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({})
+  }));
 
   await page.evaluate(() => {
     window.showDirectoryPicker = async () => ({name: 'selected-project'});
@@ -251,6 +276,10 @@ test('AI-assisted Agent creation fills human controls and persists execution set
 	});
   await page.locator('.nav-item[data-view="agents"]').click();
   await page.locator('#newAgent').click();
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await expect(page.locator('.agent-studio-layout')).toBeVisible();
+  await expect(page.locator('.agent-builder-pane')).toBeVisible();
+  await expect(page.locator('.agent-config-pane')).toBeVisible();
   await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -329,6 +358,59 @@ test('AI-assisted Agent creation supports one-click generation and creation', as
   expect(body.name).toBe('Incident coordinator');
   expect(body.owner_id).toBe('agent-owner');
   expect(body.executor_binding.runtime_id).toBe('codex');
+  await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('AI-assisted Agent creation keeps dialogs deliberate and every task editable', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem('adro.locale', 'zh');
+    localStorage.setItem('adro.agentCreationJobs', JSON.stringify([
+      {
+        id: 'running-job',
+        name: '在 ADRO 创建 Agent',
+        prompt: 'Create a release readiness agent',
+        draft: {
+          name: 'Release readiness agent',
+          description: 'Checks release readiness.',
+          role: 'reviewer',
+          instructions: 'Review release evidence.',
+          access_policy: {mode: 'workspace'},
+          conversation_starters: [],
+          skill_ids: [],
+          mcp_server_ids: []
+        },
+        runtime_id: 'codex',
+        status: 'running'
+      },
+      {id: 'failed-job', name: '在 ADRO 创建 Agent', error: '创建没有完成', prompt: 'Create a failed agent', status: 'failed'},
+      {id: 'done-job', name: 'Completed agent', prompt: 'Create a completed agent', status: 'done'}
+    ]));
+  });
+  await page.reload();
+  await expect(page.locator('#appShell')).toBeVisible();
+  await page.locator('.nav-item[data-view="agents"]').click();
+
+  const jobs = page.locator('.agent-job-panel');
+  await expect(jobs.locator('[data-agent-job-view]')).toHaveCount(3);
+  await expect(jobs.getByText('重试', {exact: true})).toHaveCount(0);
+  await page.locator('#localeToggle').click();
+  await expect(jobs).toContainText('Creation tasks');
+  await expect(jobs).toContainText('Creating');
+  await expect(jobs).toContainText('Needs attention');
+  await expect(jobs).not.toContainText(/创建|需要处理|已创建|查看|重试/);
+  await expect(jobs.getByText('View', {exact: true})).toHaveCount(3);
+
+  await jobs.locator('[data-agent-job-view="running-job"]').click();
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await expect(page.locator('#agentBuilderPrompt')).toHaveValue('Create a release readiness agent');
+  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Release readiness agent');
+
+  await page.locator('#agentDialog').click({position: {x: 2, y: 2}});
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#agentDialog')).toBeVisible();
+  await page.locator('#closeAgentDialog').click();
   await expect(page.locator('#agentDialog')).not.toBeVisible();
   expect(page.__adroErrors).toEqual([]);
 });

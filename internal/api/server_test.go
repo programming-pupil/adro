@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -63,6 +64,35 @@ func request(t *testing.T, h http.Handler, method, path, body string, headers ma
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	return rr
+}
+
+func TestProblemLogsEveryRejectedRequestWithDetail(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		level  string
+	}{
+		{status: http.StatusUnprocessableEntity, level: "WARN"},
+		{status: http.StatusBadGateway, level: "ERROR"},
+	} {
+		t.Run(http.StatusText(test.status), func(t *testing.T) {
+			var logs bytes.Buffer
+			server := testServer(t)
+			server.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/test", nil)
+			request.Header.Set("X-Trace-ID", "trace-1\r\nforged")
+			response := httptest.NewRecorder()
+			response.Header().Set("X-Request-ID", "request-1\nforged")
+
+			server.problem(response, request, test.status, "test_failure", "first line\nsecond line", nil)
+
+			output := logs.String()
+			for _, expected := range []string{`"level":"` + test.level + `"`, `"msg":"api request `, `"status":` + fmt.Sprint(test.status), `"error_code":"test_failure"`, `"detail":"first linesecond line"`, `"request_id":"request-1forged"`, `"trace_id":"trace-1forged"`} {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("problem log missing %s: %s", expected, output)
+				}
+			}
+		})
+	}
 }
 
 func createBugParent(t *testing.T, s *Server, workspaceID, repositoryID, assigneeID string) domain.Requirement {
@@ -519,6 +549,12 @@ func TestRepositoryFilesBrowsesLocalProjectsAndRejectsUnsafeSources(t *testing.T
 	remoteResponse := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+remote.ID+"/files", "", map[string]string{"X-Workspace-ID": "w1"})
 	if remoteResponse.Code != http.StatusOK || !strings.Contains(remoteResponse.Body.String(), `"available":false`) {
 		t.Fatalf("remote response status=%d body=%s", remoteResponse.Code, remoteResponse.Body.String())
+	}
+
+	legacyResponse := httptest.NewRecorder()
+	s.repositoryFiles(legacyResponse, httptest.NewRequest(http.MethodGet, "/api/v1/repositories/legacy/files", nil), domain.Repository{ID: "legacy", Metadata: map[string]any{"local_path": "im"}})
+	if legacyResponse.Code != http.StatusOK || !strings.Contains(legacyResponse.Body.String(), `"available":false`) {
+		t.Fatalf("legacy response status=%d body=%s", legacyResponse.Code, legacyResponse.Body.String())
 	}
 
 	foreign := request(t, s.Routes(), http.MethodGet, "/api/v1/repositories/"+created.ID+"/files", "", map[string]string{"X-Workspace-ID": "w2"})
