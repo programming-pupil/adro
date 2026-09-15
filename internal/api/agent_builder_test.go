@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
@@ -36,6 +37,20 @@ func TestParseAgentDraftValidatesStructuredConfiguration(t *testing.T) {
 	untagged := "Here is the configuration:\n```json\n" + strings.TrimSuffix(strings.TrimPrefix(output[strings.Index(output, "<agent_draft>"):], "<agent_draft>"), "</agent_draft>") + "\n```"
 	if draft, err := parseAgentDraft(untagged); err != nil || draft.Name != "Release reviewer" {
 		t.Fatalf("untagged draft=%+v err=%v", draft, err)
+	}
+
+	appServerEvent, err := json.Marshal(map[string]any{
+		"method": "item/completed",
+		"params": map[string]any{"item": map[string]any{
+			"type": "agentMessage",
+			"text": "Draft ready.\n" + output[strings.Index(output, "<agent_draft>"):],
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft, err := parseAgentDraft(string(appServerEvent)); err != nil || draft.Name != "Release reviewer" {
+		t.Fatalf("app-server draft=%+v err=%v event=%s", draft, err, appServerEvent)
 	}
 }
 
@@ -71,6 +86,106 @@ func TestComposeAgentDraftUsesSelectedRuntimeAndReturnsEvidence(t *testing.T) {
 	foreign := request(t, s.Routes(), http.MethodGet, "/api/v1/runs/"+composed.Evidence.RunID, "", map[string]string{"X-Workspace-ID": "other"})
 	if foreign.Code != http.StatusNotFound {
 		t.Fatalf("foreign compose run=%d %s", foreign.Code, foreign.Body.String())
+	}
+}
+
+func TestComposeAgentDraftAsyncPublishesProgressAndFinalDraft(t *testing.T) {
+	bus := events.NewBus()
+	fs, err := artifact.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := `<agent_draft>{"name":"Streaming designer","description":"Designs observable agents.","role":"designer","instructions":"Design and verify agent configurations.","conversation_starters":[],"access_policy":{"mode":"private"},"network_access":false,"max_concurrent_tasks":1,"token_budget":120000,"tool_call_budget":200}</agent_draft>`
+	progress := `{"method":"item/completed","params":{"item":{"id":"message-1","type":"agentMessage","text":"Preparing the first configuration draft."}}}`
+	finalEvent, err := json.Marshal(map[string]any{
+		"method": "item/completed",
+		"params": map[string]any{"item": map[string]any{
+			"id": "message-2", "type": "agentMessage", "text": "Draft complete.\n" + payload,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "printf '%s\\n' '" + progress + "'; sleep 0.6; printf '%s\\n' '" + string(finalEvent) + "'"
+	executor := provider.NewLocalProvider("/bin/sh", []string{"-c", script}, t.TempDir(), bus)
+	s := New(store.NewMemory(), executor, fs, bus, nil)
+
+	started := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/local/agents/compose?async=true", `{"prompt":"Create an observable designer","runtime_id":"local"}`, map[string]string{"X-Workspace-ID": "local", "Idempotency-Key": "compose-async"})
+	if started.Code != http.StatusAccepted {
+		t.Fatalf("async compose status=%d body=%s", started.Code, started.Body.String())
+	}
+	var startBody struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(started.Body.Bytes(), &startBody); err != nil || startBody.RunID == "" {
+		t.Fatalf("async compose response=%s err=%v", started.Body.String(), err)
+	}
+
+	var progressBody string
+	progressDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(progressDeadline) {
+		response := request(t, s.Routes(), http.MethodGet, "/api/v1/workspaces/local/agents/compose/"+startBody.RunID, "", map[string]string{"X-Workspace-ID": "local"})
+		progressBody = response.Body.String()
+		if response.Code == http.StatusOK && strings.Contains(progressBody, "Preparing the first configuration draft") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(progressBody, "Preparing the first configuration draft") {
+		t.Fatalf("async compose exposed no live progress: %s", progressBody)
+	}
+
+	var finalBody string
+	finalDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(finalDeadline) {
+		response := request(t, s.Routes(), http.MethodGet, "/api/v1/workspaces/local/agents/compose/"+startBody.RunID+"?runtime_id=forged&model=forged", "", map[string]string{"X-Workspace-ID": "local"})
+		finalBody = response.Body.String()
+		if strings.Contains(finalBody, `"status":"completed"`) && strings.Contains(finalBody, `"Streaming designer"`) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(finalBody, `"Streaming designer"`) {
+		t.Fatalf("async compose did not return final draft: %s", finalBody)
+	}
+	if strings.Contains(finalBody, "forged") {
+		t.Fatalf("async compose trusted client-supplied evidence metadata: %s", finalBody)
+	}
+	if audits := s.Audit.List(); len(audits) == 0 || audits[len(audits)-1].Action != "agent.draft.compose.started" {
+		t.Fatalf("async compose start was not audited: %+v", audits)
+	}
+}
+
+func TestAgentDraftProgressItemsHideProtocolPayloads(t *testing.T) {
+	output := strings.Join([]string{
+		`{"method":"item/started","params":{"item":{"id":"tool-1","type":"commandExecution","command":"pwd"}}}`,
+		`{"method":"item/completed","params":{"item":{"id":"tool-1","type":"commandExecution","command":"pwd","aggregatedOutput":"/workspace"}}}`,
+		`{"method":"item/completed","params":{"item":{"id":"message-1","type":"agentMessage","text":"Draft ready.\n<agent_draft>{\"name\":\"Hidden\"}</agent_draft>\nADRO_RESULT_JSON={\"outcome\":\"pass\"}"}}}`,
+	}, "\n")
+	items := agentDraftProgressItems(output)
+	if len(items) != 3 {
+		t.Fatalf("progress items=%+v", items)
+	}
+	if items[2].Text != "Draft ready." || strings.Contains(items[2].Text, "agent_draft") || strings.Contains(items[2].Text, "ADRO_RESULT_JSON") {
+		t.Fatalf("assistant progress leaked protocol payload: %+v", items[2])
+	}
+}
+
+func TestAgentDraftProgressRequiresManagementPermission(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_USERNAME", "admin")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
+	t.Setenv("ADRO_AUTH_STATE_FILE", "")
+	s := testServer(t)
+	adminToken := loginToken(t, s, "admin", "AdminPass123!")
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/users", `{"username":"delivery.viewer","display_name":"Delivery Viewer","password":"ViewerPass123!","role":"member","status":"active","menu_ids":["delivery"]}`, bearer(adminToken))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create viewer status=%d body=%s", created.Code, created.Body.String())
+	}
+	viewerToken := loginToken(t, s, "delivery.viewer", "ViewerPass123!")
+	response := request(t, s.Routes(), http.MethodGet, "/api/v1/workspaces/local/agents/compose/private-run", "", bearer(viewerToken))
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "orchestration_manage_permission_denied") {
+		t.Fatalf("progress permission status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

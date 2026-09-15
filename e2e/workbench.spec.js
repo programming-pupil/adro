@@ -174,22 +174,19 @@ test('uses the delivery label and polished project source controls', async ({ pa
   await expect(page.locator('.resource-owner-picker')).toBeVisible();
   await expect(page.locator('.resource-owner-trigger')).toContainText('选择负责人');
 
-  await page.route('**/_adro/directory-picker', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({})
-  }));
+  await page.route('**/_adro/directory-picker', async route => {
+    await new Promise(resolve => setTimeout(resolve, 180));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({path: '/tmp/selected-project'})
+    });
+  });
 
-  await page.evaluate(() => {
-    window.showDirectoryPicker = async () => ({name: 'selected-project'});
-  });
-  await page.locator('.resource-path-button').click();
-  await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('');
-  await expect(page.locator('#resourceFields')).toContainText('请输入绝对路径');
-  await page.evaluate(() => {
-    window.adroNative = { chooseDirectory: async () => ({path: '/tmp/selected-project'}) };
-  });
-  await page.locator('.resource-path-button').click();
+  const pickerButton = page.locator('.resource-path-button');
+  const pickerClick = pickerButton.click();
+  await expect(pickerButton).toBeDisabled();
+  await pickerClick;
   await expect(page.locator('#resourceFields input[name="local_path"]')).toHaveValue('/tmp/selected-project');
   await expect(page.locator('.resource-path-selected')).toHaveText('已选择目录: selected-project');
 
@@ -212,9 +209,25 @@ test('uses the delivery label and polished project source controls', async ({ pa
   await expect(page.locator('#resourceDialog')).not.toBeVisible();
   const projectRow = page.locator('tr[data-repository-id]').filter({ hasText: /folder-picker-/ }).first();
   await expect(projectRow).toBeVisible();
+  await page.route('**/api/v1/repositories/**/files**', route => {
+    const path = new URL(route.request().url()).searchParams.get('path') || '';
+    const body = path === 'src/main.go'
+      ? {kind: 'file', path, name: 'main.go', language: 'go', size: 28, content: 'package main\n\nfunc main() {}'}
+      : path === 'src'
+        ? {kind: 'directory', path, items: [{kind: 'file', path: 'src/main.go', name: 'main.go'}]}
+        : {kind: 'directory', path: '.', items: [{kind: 'directory', path: 'src', name: 'src'}, {kind: 'file', path: 'README.md', name: 'README.md'}]};
+    return route.fulfill({status: 200, contentType: 'application/json', body: JSON.stringify(body)});
+  });
   await projectRow.locator('[data-repository-action="browse"]').click();
   await expect(page.locator('.repository-browser-dialog')).toBeVisible();
   await expect(page.locator('.repository-browser-status')).not.toContainText('项目内容加载失败');
+  const rootNode = page.locator('.repository-tree-root');
+  await expect(rootNode).toBeVisible();
+  await page.locator('.repository-tree-item.directory', {hasText: 'src'}).click();
+  await expect(rootNode).toBeVisible();
+  await expect(page.locator('.repository-tree-item.file', {hasText: 'main.go'})).toBeVisible();
+  await page.locator('.repository-tree-item.file', {hasText: 'main.go'}).click();
+  await expect(page.locator('[data-browser-code]')).toContainText('package main');
   await page.locator('[data-close-browser]').click();
   await page.once('dialog', dialog => dialog.dismiss());
   await projectRow.locator('[data-repository-action="delete"]').click();
@@ -322,7 +335,7 @@ test('AI-assisted Agent creation fills human controls and persists execution set
   await expect(page.locator('.agent-studio-layout')).toBeVisible();
   await expect(page.locator('.agent-builder-pane')).toBeVisible();
   await expect(page.locator('.agent-config-pane')).toBeVisible();
-  await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
+  await page.route('**/api/v1/workspaces/local/agents/compose**', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -372,7 +385,7 @@ test('AI-assisted Agent creation keeps generation separate from final creation',
     createCalls += 1;
     return route.fulfill({ status: 201, contentType: 'application/json', body: route.request().postData() || '{}' });
   });
-  await page.route('**/api/v1/workspaces/local/agents/compose', route => route.fulfill({
+  await page.route('**/api/v1/workspaces/local/agents/compose**', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -412,6 +425,79 @@ test('AI-assisted Agent creation keeps generation separate from final creation',
   expect(body.executor_binding.runtime_id).toBe('codex');
   expect(createCalls).toBe(1);
   await expect(page.locator('#agentDialog')).not.toBeVisible();
+  expect(page.__adroErrors).toEqual([]);
+});
+
+test('AI-assisted Agent creation streams progress without overlapping the brief', async ({ page }) => {
+  await page.setViewportSize({width: 2048, height: 833});
+  let progressReads = 0;
+  await page.route('**/api/v1/workspaces/local/agents/compose**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST') {
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({run_id: 'streaming-builder-run', status: 'running', runtime_id: 'codex', model: 'gpt-5'})
+      });
+    }
+    if (path.endsWith('/compose/streaming-builder-run')) {
+      progressReads += 1;
+      if (progressReads < 4) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            run_id: 'streaming-builder-run',
+            status: 'running',
+            items: [{id: 'assistant-1', kind: 'assistant', phase: 'completed', text: '正在分析职责、工作流和交付约束。'}]
+          })
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          run_id: 'streaming-builder-run',
+          status: 'completed',
+          items: [{id: 'assistant-1', kind: 'assistant', phase: 'completed', text: '正在分析职责、工作流和交付约束。'}],
+          draft: {
+            name: 'Streaming reviewer',
+            description: 'Reviews evidence with visible progress.',
+            role: 'reviewer',
+            instructions: 'Review evidence and explain every decision.',
+            conversation_starters: [],
+            access_policy: {mode: 'private'},
+            skill_ids: [],
+            mcp_server_ids: [],
+            network_access: false,
+            max_concurrent_tasks: 1,
+            token_budget: 120000,
+            tool_call_budget: 200
+          },
+          evidence: {run_id: 'streaming-builder-run', runtime_id: 'codex', model: 'gpt-5', output_sha256: 'streamed'}
+        })
+      });
+    }
+    return route.continue();
+  });
+
+  await page.locator('.nav-item[data-view="agents"]').click();
+  await openAIAgent(page);
+  const boxes = await page.evaluate(() => {
+    const heading = document.querySelector('.agent-builder-pane > .agent-pane-heading').getBoundingClientRect();
+    const textarea = document.querySelector('#agentBuilderPrompt').getBoundingClientRect();
+    return {headingBottom: heading.bottom, textareaTop: textarea.top};
+  });
+  expect(boxes.headingBottom).toBeLessThanOrEqual(boxes.textareaTop);
+
+  await page.locator('#agentBuilderPrompt').fill('Create a reviewer with visible progress');
+  await page.locator('#composeAndCreateAgent').click();
+  await expect(page.locator('#agentBuilderTranscript')).toBeVisible();
+  await expect(page.locator('#agentBuilderTranscript')).toContainText('正在分析职责、工作流和交付约束。');
+  await expect(page.locator('#agentForm input[name="name"]')).toHaveValue('Streaming reviewer');
+  await expect(page.locator('#agentBuilderTranscript')).toContainText('配置草稿已生成');
+  expect(progressReads).toBeGreaterThanOrEqual(4);
   expect(page.__adroErrors).toEqual([]);
 });
 

@@ -702,6 +702,13 @@ paths:
         required: true
         schema:
           type: string
+      - name: async
+        in: query
+        required: false
+        description: Return a run immediately so clients can render live progress.
+        schema:
+          type: boolean
+          default: false
       - "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -719,6 +726,40 @@ paths:
           headers:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
+        '202':
+          description: Agent draft run started; read its progress from the run resource below.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/workspaces/{workspace_id}/agents/compose/{run_id}":
+    get:
+      operationId: get_api_v1_workspaces_by_workspace_id_agents_compose_by_run_id
+      summary: Read live Agent draft progress and the validated draft when complete
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Current runtime status, visible progress items, and final draft when available
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
         default:
           description: Problem Details response
           content:
