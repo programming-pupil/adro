@@ -3024,13 +3024,18 @@
     const initialRuntime = runtimeSelect.value;
     form.dataset.loadedRuntime = initialRuntime;
     renderAgentRuntimeConfiguration(form, initialRuntime, agentRuntimeConfigs.get(initialRuntime) || {}, agentRuntimeEnvironments.get(initialRuntime) || []);
-    form.elements.runtime.onchange = changeAgentRuntime;
+    let runtimeSelectionChanged = false;
+    form.elements.runtime.onchange = async () => {
+      runtimeSelectionChanged = true;
+      await changeAgentRuntime();
+    };
     form.elements.openclaw_mode.onchange = updateOpenClawGatewayFields;
     if (!$('#agentDialog').open) $('#agentDialog').showModal();
     setTimeout(() => form.elements.builder_prompt.focus(), 0);
     try {
       const runtimes = await getAgentRuntimeCatalog(true);
-      populateAgentRuntimeSelect(runtimeSelect, runtimes, preferredRuntime || initialRuntime);
+      const selectedRuntime = runtimeSelectionChanged ? runtimeSelect.value : preferredRuntime;
+      populateAgentRuntimeSelect(runtimeSelect, runtimes, selectedRuntime);
       const runtimeID = runtimeSelect.value;
       form.dataset.loadedRuntime = runtimeID;
       renderAgentRuntimeConfiguration(form, runtimeID, agentRuntimeConfigs.get(runtimeID) || {}, agentRuntimeEnvironments.get(runtimeID) || []);
