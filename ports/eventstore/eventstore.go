@@ -9,8 +9,11 @@ import (
 )
 
 var (
-	ErrConflict  = errors.New("event stream expected sequence conflict")
-	ErrLeaseLost = errors.New("event stream lease assertion failed")
+	ErrConflict            = errors.New("event stream expected sequence conflict")
+	ErrIdempotencyConflict = errors.New("event stream idempotency conflict")
+	ErrLeaseLost           = errors.New("event stream lease assertion failed")
+	ErrCorrupt             = errors.New("event stream is corrupt")
+	ErrClosed              = errors.New("event store is closed")
 )
 
 type OutboxMessage struct {

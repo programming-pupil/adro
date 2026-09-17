@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build architecture fuzz-smoke coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e dsh-real real-evidence test-expert test-all verify run local
+.PHONY: test test-race vet build architecture fuzz-smoke store-conformance coverage-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e dsh-real real-evidence test-expert test-all verify run local
 
 GO ?= ./scripts/e2e-go.sh
 
@@ -19,6 +19,9 @@ architecture:
 
 fuzz-smoke:
 	$(GO) test ./core/encoding -run '^$$' -fuzz FuzzCanonicalizeIsIdempotent -fuzztime=5s
+
+store-conformance:
+	$(GO) test ./adapters/eventstore/sqlite -count=1
 
 coverage-ledger:
 	ruby scripts/coverage-ledger.rb --check
@@ -96,7 +99,7 @@ test-expert:
 test-all:
 	ADRO_TEST_EXPERT_REAL=1 ADRO_REQUIRE_CODEX=1 bash scripts/test-expert.sh
 
-verify: test test-race vet build architecture fuzz-smoke contracts supply-chain browser
+verify: test test-race vet build architecture fuzz-smoke store-conformance contracts supply-chain browser
 
 run:
 	$(GO) run ./cmd/adro-api -addr $${ADRO_ADDR:-:8080} -artifact-root $${ADRO_ARTIFACT_ROOT:-./var/artifacts}

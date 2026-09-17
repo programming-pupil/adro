@@ -23,3 +23,11 @@ This log records migration decisions that remove, replace, or reclassify existin
 - Compatibility impact: tool contracts must declare an effect class. Automatic retries are currently limited to read-only tools until idempotent and reconcilable adapters expose explicit protocols.
 - Replacement path: durable reconciliation and human-decision transitions will build on the new unknown-outcome state.
 - Design source: `ADRO-origin`.
+
+## 2026-09-17: Make SQLite the explicit reference EventStore
+
+- Decision: implement the new EventStore contract first as a real SQLite adapter using one writer connection, `BEGIN IMMEDIATE`, expected-sequence CAS, lease fencing and an atomic event/outbox/snapshot transaction.
+- Reason: local durability and fault semantics need an executable reference before PostgreSQL or shadow cutover work can be evaluated.
+- Compatibility impact: this profile is single-node only and must not be advertised as HA or active-active.
+- Replacement path: PostgreSQL will implement the same ports and run the same public conformance suite; the legacy stores remain authoritative until shadow projection evidence permits cutover.
+- Design source: `ADRO-origin`.
