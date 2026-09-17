@@ -214,6 +214,47 @@ func Run(t *testing.T, factory Factory) {
 		}
 	})
 
+	t.Run("concurrent_idempotent_retries_replay_one_commit", func(t *testing.T) {
+		fixture := factory(t)
+		const writers = 12
+		request := appendRequest("stream-concurrent-idempotency", 0,
+			uncommitted("stream-concurrent-idempotency", "concurrent-same-key", `{"value":1}`))
+		var mutex sync.Mutex
+		var eventID string
+		var failures []error
+		var wait sync.WaitGroup
+		for range writers {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				result, err := fixture.Backend.Append(context.Background(), request)
+				mutex.Lock()
+				defer mutex.Unlock()
+				if err != nil {
+					failures = append(failures, err)
+					return
+				}
+				if len(result.Events) != 1 {
+					failures = append(failures, fmt.Errorf("unexpected replay result: %+v", result))
+					return
+				}
+				if eventID == "" {
+					eventID = result.Events[0].EventID
+				} else if result.Events[0].EventID != eventID {
+					failures = append(failures, fmt.Errorf("replay event ID %q differs from %q", result.Events[0].EventID, eventID))
+				}
+			}()
+		}
+		wait.Wait()
+		if len(failures) != 0 {
+			t.Fatalf("concurrent idempotent retries failed: %v", failures)
+		}
+		sequence, _, err := fixture.Backend.Head(context.Background(), "stream-concurrent-idempotency")
+		if err != nil || sequence != 1 {
+			t.Fatalf("idempotent retry head=%d err=%v", sequence, err)
+		}
+	})
+
 	t.Run("restart_and_subscription", func(t *testing.T) {
 		fixture := factory(t)
 		if _, err := fixture.Backend.Append(context.Background(), appendRequest("stream-restart", 0, uncommitted("stream-restart", "restart-1", `{"value":1}`))); err != nil {

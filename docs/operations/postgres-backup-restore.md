@@ -1,10 +1,11 @@
 # PostgreSQL backup and restore
 
-The production orchestration profile uses PostgreSQL transaction boundaries,
-row-level tenant/workspace policies, advisory locking, compare-and-swap state
-revisions, and a durable outbox. Backup acceptance is intentionally performed
-with PostgreSQL's operational tools rather than the in-process repository
-export API.
+The production orchestration profile and the new authoritative EventStore use
+PostgreSQL transaction boundaries. The orchestration repository adds row-level
+tenant/workspace policies and advisory locking; the EventStore adds row-lock
+sequence CAS, database-time lease fencing, hash-chain verification, snapshots,
+and a durable outbox. Backup acceptance is intentionally performed with
+PostgreSQL's operational tools rather than an in-process export API.
 
 Run the complete local rehearsal with:
 
@@ -12,11 +13,17 @@ Run the complete local rehearsal with:
 make postgres-conformance
 ```
 
-The script creates an isolated PostgreSQL cluster, runs the repository/RLS and
-two-replica conformance test, takes a custom-format `pg_dump`, restores it into
-a newly created database with `pg_restore`, and compares the exact durable
-snapshot revision and content fingerprint. It emits JSON and Markdown evidence
-under `var/test-report/postgres/` with measured RTO and record-level RPO.
+The script creates an isolated PostgreSQL cluster, applies the complete ordered
+migration set, and then runs shared EventStore conformance plus the
+repository/RLS and two-replica tests. Migration 015 uses
+`runtime_event_outbox`, leaving the legacy `event_outbox` intact during shadow
+operation. The gate also verifies tenant/stream foreign keys and database-time
+lease behavior after a blocked row lock. It seeds a valid
+event/outbox/snapshot/lease bundle, takes a custom-format `pg_dump`, restores it
+into a newly created database with `pg_restore`, and compares a fingerprint of
+the orchestration snapshot and EventStore tables. It emits JSON and Markdown
+evidence under `var/test-report/postgres/` with measured RTO and record-level
+RPO.
 
 For an existing test server, provide all four values so the restore cannot
 silently target the source database:

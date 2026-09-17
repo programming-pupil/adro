@@ -31,3 +31,11 @@ This log records migration decisions that remove, replace, or reclassify existin
 - Compatibility impact: this profile is single-node only and must not be advertised as HA or active-active.
 - Replacement path: PostgreSQL will implement the same ports and run the same public conformance suite; the legacy stores remain authoritative until shadow projection evidence permits cutover.
 - Design source: `ADRO-origin`.
+
+## 2026-09-17: Deliver PostgreSQL behind the same EventStore contract
+
+- Decision: implement PostgreSQL EventStore/LeaseStore with row-lock CAS, database-time fencing, repeatable-read verification and the same conformance suite as SQLite.
+- Reason: a production backend must be executable code with concurrency and restore evidence, not only a schema or test driver.
+- Compatibility impact: migration 015 uses `runtime_event_outbox` because the legacy schema already owns `event_outbox`; both can coexist while the legacy application path remains authoritative, and no startup flag silently cuts traffic over.
+- Replacement path: add shadow writes and projection digest comparison, then switch reads and writes only after a divergence-free test window and rollback rehearsal.
+- Design source: `ADRO-origin`.

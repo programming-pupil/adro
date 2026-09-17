@@ -22,7 +22,7 @@ the single-node profile.
 | State | Shipped owner | Production/HA requirement | Failure rule |
 | --- | --- | --- | --- |
 | Requirements, Work Items, provenance, context, repair, idempotency | atomic JSON snapshot | PostgreSQL transactions and RLS | block production while `file` is selected |
-| Events | process memory plus optional JSON snapshot | NATS JetStream or equivalent durable ordered bus | block production while `memory` is selected |
+| Events | process memory plus optional JSON snapshot | PostgreSQL authoritative EventStore plus NATS JetStream or equivalent delivery bus | block production while `memory` is selected or before shadow cutover completes |
 | Workflow timers/retries | in-process calls | Temporal or equivalent durable workflow engine | block production while `in-process` is selected |
 | Audit | atomic JSON hash chain | append-only shared store with retention/verification | included in the persistence adapter gate |
 | Users | atomic JSON; sessions remain process-local | OIDC/mTLS identity and shared revocation/session policy | block production while `local` is selected |
@@ -36,8 +36,10 @@ the single-node profile.
 The production target names are `postgres`, `nats`, `temporal`, `s3`,
 `oidc`/`mtls`, `external`, `rootless`/`container`/`vm`, `git`, and `external`.
 Those values describe required adapter classes; they do not activate an
-implementation in this repository. Even when every value is set, 0.1.0 stays
-blocked because the adapters are not shipped or dynamically loaded.
+implementation by themselves. The PostgreSQL EventStore is shipped and tested,
+but it is not yet wired as the application source of truth. Even when every
+value is set, 0.1.0 stays blocked because the complete adapter set and cutover
+evidence are not shipped.
 
 ## Adapter acceptance
 

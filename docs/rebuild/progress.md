@@ -33,7 +33,9 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-EFFECT-007 | partial | Effect receipt and tool terminal event commit atomically; final checkpoint integration pending |
 | P0-STORE-001 | partial | EventStore and LeaseStore ports exist; Snapshot/Blob/Secret/Projection ports remain pending |
 | P0-STORE-002 | complete for EventStore | `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA |
-| P0-STORE-004 | partial | Public store conformance runs against SQLite; PostgreSQL remains pending |
-| P0-STORE-005 | complete for SQLite | Expected-sequence CAS and concurrent single-winner evidence |
-| P0-STORE-006 | complete for SQLite EventStore | Event, outbox and terminal snapshot share one rollback-tested transaction |
-| P0-EVAL-004 | partial | Store suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration/tail repair/PostgreSQL pending |
+| P0-STORE-003 | complete for EventStore | `adapters/eventstore/postgres`; migrations 001-015 apply together; real PostgreSQL 17 lock-wait, conformance and restore evidence |
+| P0-STORE-004 | complete for EventStore/LeaseStore | SQLite and PostgreSQL run `conformance/eventstore` |
+| P0-STORE-005 | complete for both backends | Expected-sequence CAS, concurrent single-winner and concurrent same-key replay evidence |
+| P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
+| P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
+| P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |

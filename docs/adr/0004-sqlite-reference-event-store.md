@@ -12,7 +12,7 @@ Each append executes under `BEGIN IMMEDIATE` and atomically applies expected-seq
 
 SQLite uses foreign keys, WAL mode, full synchronous commits, and one owned writer connection. It is not a high-availability, active-active, or multi-region backend.
 
-The public conformance suite in `conformance/eventstore` is backend-neutral. PostgreSQL must pass the same behavioral suite before it can become a supported production EventStore.
+The public conformance suite in `conformance/eventstore` is backend-neutral. PostgreSQL implements the same contract under ADR-0005.
 
 ## Consequences
 
@@ -21,4 +21,4 @@ The public conformance suite in `conformance/eventstore` is backend-neutral. Pos
 - A stale fencing token cannot append events, outbox messages, or snapshots.
 - Event, outbox, and snapshot writes roll back together on any failure.
 - Snapshot rows remain disposable caches; events and their hash chain remain authoritative.
-- Tail repair, schema migration crash recovery, archival, and PostgreSQL conformance remain separate work.
+- Tail repair, schema migration crash recovery, archival, and shadow cutover remain separate work.

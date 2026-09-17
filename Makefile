@@ -18,10 +18,10 @@ architecture:
 	$(GO) test ./internal/architecture -count=1
 
 fuzz-smoke:
-	$(GO) test ./core/encoding -run '^$$' -fuzz FuzzCanonicalizeIsIdempotent -fuzztime=5s
+	$(GO) test ./core/encoding -run '^$$' -fuzz FuzzCanonicalizeIsIdempotent -fuzztime=5s -parallel=1
 
 store-conformance:
-	$(GO) test ./adapters/eventstore/sqlite -count=1
+	$(GO) test ./adapters/eventstore/... -count=1
 
 coverage-ledger:
 	ruby scripts/coverage-ledger.rb --check

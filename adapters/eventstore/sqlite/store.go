@@ -127,7 +127,7 @@ func createSchema(db *sql.DB) error {
 			envelope_json BLOB NOT NULL,
 			committed_at_us INTEGER NOT NULL,
 			PRIMARY KEY (tenant_id, stream_id, sequence),
-			FOREIGN KEY (stream_id) REFERENCES event_streams(stream_id),
+			FOREIGN KEY (tenant_id, stream_id) REFERENCES event_streams(tenant_id, stream_id),
 			UNIQUE (tenant_id, stream_id, idempotency_key)
 		)`,
 		`CREATE INDEX IF NOT EXISTS event_records_stream_sequence_idx
@@ -142,7 +142,7 @@ func createSchema(db *sql.DB) error {
 			message_key TEXT NOT NULL,
 			payload BLOB NOT NULL,
 			created_at_us INTEGER NOT NULL,
-			FOREIGN KEY (stream_id) REFERENCES event_streams(stream_id),
+			FOREIGN KEY (tenant_id, stream_id) REFERENCES event_streams(tenant_id, stream_id),
 			UNIQUE (tenant_id, topic, message_key),
 			UNIQUE (tenant_id, stream_id, sequence, ordinal)
 		)`,
@@ -154,7 +154,7 @@ func createSchema(db *sql.DB) error {
 			payload BLOB NOT NULL,
 			updated_at_us INTEGER NOT NULL,
 			PRIMARY KEY (tenant_id, stream_id),
-			FOREIGN KEY (stream_id) REFERENCES event_streams(stream_id)
+			FOREIGN KEY (tenant_id, stream_id) REFERENCES event_streams(tenant_id, stream_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS event_leases (
 			tenant_id TEXT NOT NULL,

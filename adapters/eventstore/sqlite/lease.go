@@ -137,8 +137,8 @@ func validateLeaseInput(tenantID, streamID, owner string, ttl time.Duration) err
 	if err := ids.Validate("lease owner", owner); err != nil {
 		return err
 	}
-	if ttl <= 0 {
-		return errors.New("positive lease TTL is required")
+	if ttl.Microseconds() <= 0 {
+		return errors.New("lease TTL must be at least one microsecond")
 	}
 	return nil
 }
