@@ -12,9 +12,11 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-BASE-004 | complete | `docs/rebuild/decision-log.md` |
 | P0-CORE-001 | complete | `core/ids` typed IDs and validation |
 | P0-CORE-002 | partial | Generic reducer/replay contract exists; legacy handlers are not migrated |
-| P0-CORE-003 | partial | Canonical envelope v1 exists; legacy event producers are not mapped yet |
+| P0-CORE-003 | partial | Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode, while other producers remain pending |
+| P0-CORE-004 | partial | Runtime journal mapping and restart backfill exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending |
 | P0-CORE-006 | partial | Canonical JSON v1, golden digest and fuzz smoke |
-| P0-CORE-009 | inventory complete | `docs/rebuild/event-source-inventory.md`; source cutover remains pending |
+| P0-CORE-009 | partial | `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending |
+| P0-CORE-010 | partial | Runtime shadow projections rebuild and compare canonical digests from sequence zero; all other projections remain pending |
 | P0-CORE-013 | partial | Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources |
 | P0-CORE-014 | partial | Manual clock, sequence IDs/random and recording sleeper tests |
 | P0-CORE-015 | partial | Canonical map/number/Unicode encoding tests; cross-process fixtures pending |

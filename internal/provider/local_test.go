@@ -12,8 +12,11 @@ import (
 	"testing"
 	"time"
 
+	storesqlite "github.com/adro-project/adro/adapters/eventstore/sqlite"
+	"github.com/adro-project/adro/core/testkit"
 	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
+	runtimekernel "github.com/adro-project/adro/internal/runtime"
 )
 
 func TestLocalProviderRunsRealProcessAndCapturesSnapshot(t *testing.T) {
@@ -225,6 +228,42 @@ func TestLocalProviderPersistsRunSnapshotAndMarksInterruptedRun(t *testing.T) {
 	interrupted, err := restarted.GetRun(context.Background(), second.ID)
 	if err != nil || interrupted.Status != "failed" || !strings.Contains(interrupted.Error, "API restart") {
 		t.Fatalf("interrupted snapshot=%+v err=%v", interrupted, err)
+	}
+}
+
+func TestLocalProviderConfiguresAndExposesRuntimeEventShadow(t *testing.T) {
+	t.Setenv("ADRO_RUNTIME_JOURNAL", "true")
+	root, statePath := t.TempDir(), filepath.Join(t.TempDir(), "runs.json")
+	p, err := NewPersistentLocalProvider("/usr/bin/printf", []string{"{input}"}, root, statePath, newTestBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := storesqlite.Open(filepath.Join(t.TempDir(), "shadow.db"), storesqlite.Options{
+		Clock: testkit.NewManualClock(time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)),
+		IDs:   &testkit.SequenceIDs{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := p.ConfigureRuntimeEventShadow(store, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	scope := runtimekernel.Scope{TenantID: "local", WorkspaceID: "local", SessionID: "session-1", RunID: "run-1"}
+	if _, err := p.runtime.Append(runtimekernel.Input{
+		EventType: runtimekernel.EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID,
+		Scope: scope, IdempotencyKey: "turn-1", Payload: map[string]any{"input": "shadow"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reports := p.RuntimeEventShadowReports()
+	if len(reports) != 1 || !reports[0].Matched() {
+		t.Fatalf("shadow reports=%+v", reports)
+	}
+
+	withoutJournal := NewLocalProvider("/usr/bin/printf", nil, t.TempDir(), newTestBus())
+	if err := withoutJournal.ConfigureRuntimeEventShadow(store, time.Second); err == nil || !strings.Contains(err.Error(), "ADRO_RUNTIME_JOURNAL") {
+		t.Fatalf("missing journal error=%v", err)
 	}
 }
 

@@ -2,13 +2,54 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/adro-project/adro/ports/eventstore"
 )
+
+func TestOpenRuntimeEventShadowIsExplicitAndSupportsSQLite(t *testing.T) {
+	store, err := openRuntimeEventShadow("", "")
+	if err != nil || store != nil {
+		t.Fatalf("disabled store=%v err=%v", store, err)
+	}
+	for _, input := range [][2]string{{"sqlite", ""}, {"", "shadow.db"}, {"unknown", "shadow.db"}} {
+		if store, err := openRuntimeEventShadow(input[0], input[1]); err == nil || store != nil {
+			t.Fatalf("driver=%q dsn=%q store=%v err=%v", input[0], input[1], store, err)
+		}
+	}
+	store, err = openRuntimeEventShadow("sqlite", filepath.Join(t.TempDir(), "shadow.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Head(t.Context(), "closed-shadow"); !errors.Is(err, eventstore.ErrClosed) {
+		t.Fatalf("closed store error=%v", err)
+	}
+}
+
+func TestParseRuntimeEventShadowTimeout(t *testing.T) {
+	if timeout, err := parseRuntimeEventShadowTimeout(""); err != nil || timeout != 2*time.Second {
+		t.Fatalf("default timeout=%s err=%v", timeout, err)
+	}
+	if timeout, err := parseRuntimeEventShadowTimeout("750ms"); err != nil || timeout != 750*time.Millisecond {
+		t.Fatalf("configured timeout=%s err=%v", timeout, err)
+	}
+	for _, raw := range []string{"0s", "-1s", "invalid"} {
+		if _, err := parseRuntimeEventShadowTimeout(raw); err == nil {
+			t.Fatalf("timeout %q unexpectedly accepted", raw)
+		}
+	}
+}
 
 func TestRequestLoggingRecordsRejectedResponses(t *testing.T) {
 	var logs bytes.Buffer

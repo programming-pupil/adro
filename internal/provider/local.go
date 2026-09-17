@@ -30,6 +30,7 @@ import (
 	"github.com/adro-project/adro/internal/events"
 	runtimekernel "github.com/adro-project/adro/internal/runtime"
 	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/ports/eventstore"
 )
 
 type localRun struct {
@@ -189,6 +190,42 @@ func NewLocalProvider(executable string, args []string, workRoot string, bus *ev
 		Executable: strings.TrimSpace(executable), Args: append([]string(nil), args...),
 		WorkRoot: workRoot, Bus: bus, runs: map[string]*localRun{}, workdirs: map[string]string{}, issues: map[string]string{}, items: map[string]localWorkItem{}, runKeys: map[string]string{},
 	}
+}
+
+// ConfigureRuntimeEventShadow enables migration-only dual writes from the
+// legacy runtime journal. The journal remains authoritative, and shadow
+// failures are retained as diagnostics instead of failing legacy commits.
+func (p *LocalProvider) ConfigureRuntimeEventShadow(store eventstore.Store, timeout time.Duration) error {
+	if p == nil {
+		return errors.New("local provider is required")
+	}
+	p.mu.RLock()
+	journal := p.runtime
+	p.mu.RUnlock()
+	if journal == nil {
+		return errors.New("runtime EventStore shadow requires ADRO_RUNTIME_JOURNAL")
+	}
+	shadow, err := runtimekernel.NewEventStoreShadow(store)
+	if err != nil {
+		return err
+	}
+	journal.SetShadow(shadow, timeout)
+	return nil
+}
+
+// RuntimeEventShadowReports returns a stable snapshot of per-run projection
+// comparisons. Reports are diagnostic only and cannot drive execution.
+func (p *LocalProvider) RuntimeEventShadowReports() []runtimekernel.ShadowReport {
+	if p == nil {
+		return nil
+	}
+	p.mu.RLock()
+	journal := p.runtime
+	p.mu.RUnlock()
+	if journal == nil {
+		return nil
+	}
+	return journal.ShadowReports()
 }
 
 // NewPersistentLocalProvider restores run/workspace provenance from an

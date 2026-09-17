@@ -17,6 +17,7 @@ An append atomically enforces expected sequence and lease fencing, appends event
 ## Consequences
 
 - Existing stores migrate through shadow writes and projection digest comparison.
+- The legacy runtime journal shadow compares from sequence zero, refuses to extend a divergent prefix, and emits no outbox messages.
 - The event delivery bus cannot originate business facts.
 - Unknown schema versions fail closed unless an explicit upcaster exists.
 - A rollback cannot use a binary that ignores events already committed under a newer schema.

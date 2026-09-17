@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -195,16 +197,22 @@ type journalState struct {
 }
 
 type Journal struct {
-	mu       sync.RWMutex
-	path     string
-	revision int64
-	events   []Event
-	leases   map[string]Lease
-	effects  map[string]string
+	mu            sync.RWMutex
+	path          string
+	revision      int64
+	events        []Event
+	leases        map[string]Lease
+	effects       map[string]string
+	shadow        EventShadow
+	shadowTimeout time.Duration
+	shadowReports map[string]ShadowReport
 }
 
 func NewJournal(path string) (*Journal, error) {
-	j := &Journal{path: strings.TrimSpace(path), leases: map[string]Lease{}, effects: map[string]string{}}
+	j := &Journal{
+		path: strings.TrimSpace(path), leases: map[string]Lease{}, effects: map[string]string{},
+		shadowTimeout: defaultShadowTimeout, shadowReports: map[string]ShadowReport{},
+	}
 	if j.path == "" {
 		return j, nil
 	}
@@ -230,6 +238,43 @@ func NewJournal(path string) (*Journal, error) {
 		j.effects = state.Effects
 	}
 	return j, nil
+}
+
+// SetShadow enables migration-only dual writes. Existing legacy events are
+// synchronized immediately, while future shadow failures remain diagnostic and
+// never change the result of an authoritative legacy journal commit.
+func (j *Journal) SetShadow(shadow EventShadow, timeout time.Duration) []ShadowReport {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.shadow = shadow
+	if timeout <= 0 {
+		timeout = defaultShadowTimeout
+	}
+	j.shadowTimeout = timeout
+	if j.shadowReports == nil {
+		j.shadowReports = map[string]ShadowReport{}
+	}
+	j.syncShadowScopesLocked(sortedScopes(j.events))
+	return j.shadowReportsLocked()
+}
+
+func (j *Journal) ShadowReports() []ShadowReport {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.shadowReportsLocked()
+}
+
+func (j *Journal) shadowReportsLocked() []ShadowReport {
+	keys := make([]string, 0, len(j.shadowReports))
+	for key := range j.shadowReports {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	reports := make([]ShadowReport, 0, len(keys))
+	for _, key := range keys {
+		reports = append(reports, j.shadowReports[key])
+	}
+	return reports
 }
 
 func (j *Journal) List(scope Scope) []Event {
@@ -298,10 +343,39 @@ func (j *Journal) appendBatchLocked(inputs []Input) (Event, error) {
 	} else {
 		j.events = candidate
 	}
+	scopes := make([]Scope, 0, len(inputs))
+	seenScopes := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		key := shadowScopeKey(input.Scope)
+		if _, seen := seenScopes[key]; seen {
+			continue
+		}
+		seenScopes[key] = struct{}{}
+		scopes = append(scopes, input.Scope)
+	}
+	j.syncShadowScopesLocked(scopes)
 	if last.EventID == "" {
 		return Event{}, ErrConflict
 	}
 	return cloneEvent(last), nil
+}
+
+func (j *Journal) syncShadowScopesLocked(scopes []Scope) {
+	if j.shadow == nil {
+		return
+	}
+	for _, scope := range scopes {
+		events := make([]Event, 0)
+		for _, item := range j.events {
+			if item.Scope == scope {
+				events = append(events, cloneEvent(item))
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), j.shadowTimeout)
+		report := j.shadow.Mirror(ctx, scope, events)
+		cancel()
+		j.shadowReports[shadowScopeKey(scope)] = report
+	}
 }
 
 func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
