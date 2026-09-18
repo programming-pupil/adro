@@ -19,7 +19,8 @@ func TestJournalToolLoopIsAuthorizedAndAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-1", "search", "worker-1", lease.FencingToken, []string{"search"}); err != nil {
+	search := ToolContract{Name: "search", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}
+	if _, err := j.AuthorizeToolContract(scope, "call-1", "worker-1", lease.FencingToken, search, []string{"knowledge.read"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-1", "search", "worker-1", lease.FencingToken, map[string]any{"q": "durability"}); err != nil {
@@ -32,7 +33,8 @@ func TestJournalToolLoopIsAuthorizedAndAtomic(t *testing.T) {
 	if err := j.Verify(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-2", "shell", "worker-1", lease.FencingToken, []string{"search"}); !errors.Is(err, ErrUnauthorized) {
+	shell := ToolContract{Name: "shell", Capabilities: []string{"process.execute"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}
+	if _, err := j.AuthorizeToolContract(scope, "call-2", "worker-1", lease.FencingToken, shell, []string{"knowledge.read"}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expected deny-by-default authorization, got %v", err)
 	}
 }
@@ -122,7 +124,8 @@ func TestStaleWorkerCannotCommitEffectReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, []string{"write"}); err != nil {
+	write := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}
+	if _, err := j.AuthorizeToolContract(scope, "call-stale", "worker-1", lease.FencingToken, write, []string{"record.write"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, map[string]any{"value": 1}); err != nil {
@@ -156,7 +159,8 @@ func TestEffectReceiptAndUnknownOutcomeCannotBothCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-race", "write", "worker", lease.FencingToken, []string{"write"}); err != nil {
+	write := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
+	if _, err := j.AuthorizeToolContract(scope, "call-race", "worker", lease.FencingToken, write, []string{"record.write"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-race", "write", "worker", lease.FencingToken, map[string]any{"value": 1}); err != nil {

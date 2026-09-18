@@ -16,8 +16,8 @@ func TestToolLoopRequiresApprovalAndFailsClosedOnDenial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"deploy"}}
-	_, err = loop.Run(context.Background(), "call-approval", ToolContract{Name: "deploy", SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman, RequiresApproval: true}, nil, func(context.Context) (any, error) {
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"deployment.write"}}
+	_, err = loop.Run(context.Background(), "call-approval", ToolContract{Name: "deploy", Capabilities: []string{"deployment.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman, RequiresApproval: true}, nil, func(context.Context) (any, error) {
 		t.Fatal("tool executed before approval")
 		return nil, nil
 	})
@@ -27,7 +27,7 @@ func TestToolLoopRequiresApprovalAndFailsClosedOnDenial(t *testing.T) {
 	if _, err := j.ApproveTool(scope, "call-approval", "worker", lease.FencingToken, "denied"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = loop.Run(context.Background(), "call-approval", ToolContract{Name: "deploy", SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman, RequiresApproval: true}, nil, func(context.Context) (any, error) {
+	_, err = loop.Run(context.Background(), "call-approval", ToolContract{Name: "deploy", Capabilities: []string{"deployment.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman, RequiresApproval: true}, nil, func(context.Context) (any, error) {
 		t.Fatal("denied tool executed")
 		return nil, nil
 	})
@@ -43,17 +43,17 @@ func TestToolLoopReceiptPreventsDuplicateCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"search"}}
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"knowledge.read"}}
 	var calls atomic.Int32
 	execute := func(context.Context) (any, error) {
 		calls.Add(1)
 		return map[string]any{"ok": true}, nil
 	}
-	first, err := loop.Run(context.Background(), "call-fence", ToolContract{Name: "search", SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}, map[string]any{"q": "x"}, execute)
+	first, err := loop.Run(context.Background(), "call-fence", ToolContract{Name: "search", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}, map[string]any{"q": "x"}, execute)
 	if err != nil || first.Status != "finished" {
 		t.Fatalf("first execution=%+v err=%v", first, err)
 	}
-	second, err := loop.Run(context.Background(), "call-fence", ToolContract{Name: "search", SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}, map[string]any{"q": "x"}, execute)
+	second, err := loop.Run(context.Background(), "call-fence", ToolContract{Name: "search", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}, map[string]any{"q": "x"}, execute)
 	if err != nil || !second.Replayed || second.Status != "replayed" {
 		t.Fatalf("replayed execution=%+v err=%v", second, err)
 	}
@@ -69,9 +69,9 @@ func TestToolLoopRetriesAndPreservesLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"flaky"}}
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"knowledge.read"}}
 	var calls atomic.Int32
-	result, err := loop.Run(context.Background(), "call-retry", ToolContract{Name: "flaky", SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone, MaxRetries: 1}, nil, func(context.Context) (any, error) {
+	result, err := loop.Run(context.Background(), "call-retry", ToolContract{Name: "flaky", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone, MaxRetries: 1}, nil, func(context.Context) (any, error) {
 		if calls.Add(1) == 1 {
 			return nil, errors.New("transient")
 		}
@@ -99,8 +99,8 @@ func TestToolLoopAppliesTimeoutAndCancelsTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"slow"}}
-	result, err := loop.Run(context.Background(), "call-timeout", ToolContract{Name: "slow", SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone, Timeout: 5 * time.Millisecond}, nil, func(ctx context.Context) (any, error) {
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"knowledge.read"}}
+	result, err := loop.Run(context.Background(), "call-timeout", ToolContract{Name: "slow", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone, Timeout: 5 * time.Millisecond}, nil, func(ctx context.Context) (any, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
@@ -120,16 +120,16 @@ func TestToolLoopDoesNotReplayWriteAfterUnknownOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"write"}}
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"record.write"}}
 	var calls atomic.Int32
-	result, err := loop.Run(context.Background(), "call-write", ToolContract{Name: "write", SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}, map[string]any{"value": 1}, func(context.Context) (any, error) {
+	result, err := loop.Run(context.Background(), "call-write", ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}, map[string]any{"value": 1}, func(context.Context) (any, error) {
 		calls.Add(1)
 		return nil, errors.New("connection lost after dispatch")
 	})
 	if !errors.Is(err, ErrEffectOutcomeUnknown) || result.Status != "outcome_unknown" {
 		t.Fatalf("first result=%+v err=%v", result, err)
 	}
-	result, err = loop.Run(context.Background(), "call-write", ToolContract{Name: "write", SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}, map[string]any{"value": 1}, func(context.Context) (any, error) {
+	result, err = loop.Run(context.Background(), "call-write", ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}, map[string]any{"value": 1}, func(context.Context) (any, error) {
 		calls.Add(1)
 		return "unexpected", nil
 	})
@@ -148,8 +148,8 @@ func TestToolLoopReconcilesUnknownOutcomeWithoutReDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"write"}}
-	contract := ToolContract{Name: "write", SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"record.write"}}
+	contract := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
 	var calls atomic.Int32
 	first, err := loop.Run(context.Background(), "call-reconcile", contract, map[string]any{"value": 1}, func(context.Context) (any, error) {
 		calls.Add(1)
@@ -184,8 +184,8 @@ func TestToolLoopRequiresExplicitWriteReconcilePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedTools: []string{"write"}}
-	_, err = loop.Run(context.Background(), "call-policy", ToolContract{Name: "write", SideEffectClass: EffectNonRetriableWrite}, nil, func(context.Context) (any, error) {
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"record.write"}}
+	_, err = loop.Run(context.Background(), "call-policy", ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectNonRetriableWrite}, nil, func(context.Context) (any, error) {
 		t.Fatal("tool executed without a reconciliation policy")
 		return nil, nil
 	})
