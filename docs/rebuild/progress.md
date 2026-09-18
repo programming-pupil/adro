@@ -1,6 +1,6 @@
 # Rebuild Progress
 
-Updated: 2026-09-17.
+Updated: 2026-09-18.
 
 The authoritative issue TodoList remains the complete scope. This file records evidence for landed increments; absence from this table means not completed.
 
@@ -42,3 +42,9 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
+| P0-TIMER-001 | partial | Durable reference `internal/runtime/TimerStore` persists timer records and survives restart; timeout/retry/approval/sleep call sites are not all migrated |
+| P0-TIMER-002 | complete locally | `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go` |
+| P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |
+| P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
+| P0-TIMER-005 | complete locally for reference backend | Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending |
+| P0-TIMER-006 | partial | `TimerExplanation` is available as a read model; Runtime Inspector/API/CLI listing and cancellation endpoints remain pending |
