@@ -6,8 +6,17 @@ GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
 REPORT_DIR="${ADRO_POSTGRES_EVIDENCE_DIR:-$ROOT_DIR/var/test-report/postgres}"
 
 run_conformance() {
+  (cd "$ROOT_DIR" && ADRO_POSTGRES_TEST_DSN="$1" "$GO_BIN" test ./adapters/eventstore/postgres -run TestPostgresEventStoreConformance -count=1 -v)
   (cd "$ROOT_DIR" && ADRO_POSTGRES_TEST_DSN="$1" "$GO_BIN" test ./internal/orchestration -run TestPostgresDriverConformance -count=1 -v)
   (cd "$ROOT_DIR" && ADRO_POSTGRES_MIGRATION_TEST_DSN="$1" "$GO_BIN" test ./internal/workspacebundle -run TestPostgresWorkspaceMigrationConformance -count=1 -v)
+}
+
+apply_migrations() {
+  local dsn="$1"
+  local migration
+  for migration in "$ROOT_DIR"/migrations/*.sql; do
+    psql "$dsn" -X -v ON_ERROR_STOP=1 --file "$migration" >/dev/null
+  done
 }
 
 millis() {
@@ -15,7 +24,25 @@ millis() {
 }
 
 snapshot_fingerprint() {
-  psql "$1" -X -v ON_ERROR_STOP=1 -Atqc "SELECT revision::text || ':' || md5(encode(state_json, 'hex')) FROM adro_orchestration_state WHERE id = 1"
+  psql "$1" -X -v ON_ERROR_STOP=1 -Atqc "
+    WITH orchestration AS (
+      SELECT revision::text || ':' || md5(encode(state_json, 'hex')) AS digest
+      FROM adro_orchestration_state WHERE id = 1
+    ), event_store AS (
+      SELECT md5(concat_ws('|',
+        (SELECT count(*)::text FROM event_streams),
+        (SELECT coalesce(string_agg(stream_id || ':' || current_sequence::text || ':' || head_digest, ',' ORDER BY stream_id), '') FROM event_streams),
+        (SELECT count(*)::text FROM event_records),
+        (SELECT coalesce(string_agg(event_id || ':' || envelope_digest, ',' ORDER BY event_id), '') FROM event_records),
+        (SELECT count(*)::text FROM runtime_event_outbox),
+        (SELECT coalesce(string_agg(topic || ':' || message_key || ':' || md5(encode(payload, 'hex')), ',' ORDER BY topic, message_key), '') FROM runtime_event_outbox),
+        (SELECT count(*)::text FROM event_snapshots),
+        (SELECT coalesce(string_agg(stream_id || ':' || sequence::text || ':' || digest, ',' ORDER BY stream_id), '') FROM event_snapshots),
+        (SELECT count(*)::text FROM event_leases),
+        (SELECT coalesce(string_agg(stream_id || ':' || owner || ':' || fencing_token::text, ',' ORDER BY stream_id), '') FROM event_leases)
+      )) AS digest
+    )
+    SELECT orchestration.digest || ':' || event_store.digest FROM orchestration CROSS JOIN event_store"
 }
 
 require_matching_postgres_major() {
@@ -145,5 +172,6 @@ source_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_test user=adro_app sslmode
 admin_dsn="host=$PG_SOCKET port=$PG_PORT dbname=postgres user=adro_admin sslmode=disable"
 restore_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_restore user=adro_app sslmode=disable"
 backup_dsn="host=$PG_SOCKET port=$PG_PORT dbname=adro_test user=adro_backup sslmode=disable"
+apply_migrations "$source_dsn"
 run_conformance "$source_dsn"
 run_rehearsal "$source_dsn" "$backup_dsn" "$admin_dsn" "$restore_dsn" adro_restore "$PG_TEST_ROOT/adro.dump"

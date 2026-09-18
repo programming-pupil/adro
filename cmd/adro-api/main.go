@@ -19,6 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	eventstorepostgres "github.com/adro-project/adro/adapters/eventstore/postgres"
+	eventstoresqlite "github.com/adro-project/adro/adapters/eventstore/sqlite"
+	"github.com/adro-project/adro/core"
 	"github.com/adro-project/adro/internal/api"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
@@ -30,6 +33,7 @@ import (
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/ports/eventstore"
 	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 )
@@ -166,6 +170,39 @@ func main() {
 		}
 		srv.Audit = ledger
 	}
+	shadowStore, shadowErr := openRuntimeEventShadow(
+		os.Getenv("ADRO_EVENTSTORE_SHADOW_DRIVER"),
+		os.Getenv("ADRO_EVENTSTORE_SHADOW_DSN"),
+	)
+	if shadowErr != nil {
+		slog.Error("open runtime EventStore shadow", "error", shadowErr)
+		os.Exit(1)
+	}
+	if shadowStore != nil {
+		shadowTimeout, timeoutErr := parseRuntimeEventShadowTimeout(os.Getenv("ADRO_EVENTSTORE_SHADOW_TIMEOUT"))
+		if timeoutErr != nil {
+			_ = shadowStore.Close()
+			slog.Error("configure runtime EventStore shadow", "error", timeoutErr)
+			os.Exit(1)
+		}
+		if configureErr := localExecutor.ConfigureRuntimeEventShadow(shadowStore, shadowTimeout); configureErr != nil {
+			_ = shadowStore.Close()
+			slog.Error("configure runtime EventStore shadow", "error", configureErr)
+			os.Exit(1)
+		}
+		defer func() {
+			if closeErr := shadowStore.Close(); closeErr != nil {
+				slog.Error("close runtime EventStore shadow", "error", closeErr)
+			}
+		}()
+		for _, report := range localExecutor.RuntimeEventShadowReports() {
+			if !report.Matched() {
+				slog.Warn("runtime EventStore shadow divergence", "stream_id", report.StreamID,
+					"legacy_count", report.LegacyCount, "shadow_count", report.ShadowCount,
+					"divergence_at", report.DivergenceAt, "error", report.Error)
+			}
+		}
+	}
 	writeTimeout := 10 * time.Minute
 	if raw := strings.TrimSpace(os.Getenv("ADRO_HTTP_WRITE_TIMEOUT")); raw != "" {
 		if configured, parseErr := time.ParseDuration(raw); parseErr == nil && configured >= time.Second {
@@ -197,6 +234,43 @@ func main() {
 			slog.Error("provider shutdown", "error", err)
 		}
 	}
+}
+
+type runtimeEventShadowStore interface {
+	eventstore.Store
+	Close() error
+}
+
+func openRuntimeEventShadow(driver, dsn string) (runtimeEventShadowStore, error) {
+	driver = strings.ToLower(strings.TrimSpace(driver))
+	dsn = strings.TrimSpace(dsn)
+	if driver == "" && dsn == "" {
+		return nil, nil
+	}
+	if driver == "" || dsn == "" {
+		return nil, errors.New("ADRO_EVENTSTORE_SHADOW_DRIVER and ADRO_EVENTSTORE_SHADOW_DSN are required together")
+	}
+	clock, ids := core.SystemClock{}, &core.CryptoIDs{}
+	switch driver {
+	case "sqlite":
+		return eventstoresqlite.Open(dsn, eventstoresqlite.Options{Clock: clock, IDs: ids})
+	case "postgres", "postgresql":
+		return eventstorepostgres.Open(dsn, eventstorepostgres.Options{Clock: clock, IDs: ids})
+	default:
+		return nil, fmt.Errorf("unsupported runtime EventStore shadow driver %q", driver)
+	}
+}
+
+func parseRuntimeEventShadowTimeout(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 2 * time.Second, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, errors.New("ADRO_EVENTSTORE_SHADOW_TIMEOUT must be a positive duration")
+	}
+	return timeout, nil
 }
 
 func setDefaultEnv(name, value string) {

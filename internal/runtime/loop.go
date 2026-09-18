@@ -24,8 +24,8 @@ type ToolExecution struct {
 	EventIDs []string `json:"event_ids,omitempty"`
 }
 
-// ToolLoop is the provider-neutral authorize -> approve -> start -> fence ->
-// execute -> finish loop. A caller supplies a leased Journal and an explicit
+// ToolLoop is the provider-neutral authorize -> approve -> intent -> dispatch
+// -> receipt loop. A caller supplies a leased Journal and an explicit
 // allow-list; an empty allow-list remains deny-by-default.
 type ToolLoop struct {
 	Journal      *Journal
@@ -36,9 +36,8 @@ type ToolLoop struct {
 }
 
 // Run executes a tool with bounded retries. Every retry gets a new immutable
-// call ID linked by RetryTool. A duplicate effect fence is returned as a
-// replay without invoking the callback again, which closes the lost-response
-// window around external side effects.
+// call ID linked by RetryTool. Once dispatch is durable, a missing receipt is
+// treated as an unknown outcome; write effects are never replayed blindly.
 func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract, input any, execute ToolExecuteFunc) (ToolExecution, error) {
 	if l.Journal == nil {
 		return ToolExecution{}, errors.New("journal is required")
@@ -58,6 +57,18 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 	if contract.MaxRetries < 0 {
 		return ToolExecution{}, errors.New("tool max_retries cannot be negative")
 	}
+	if !contract.SideEffectClass.valid() {
+		return ToolExecution{}, errors.New("valid tool side_effect_class is required")
+	}
+	if contract.SideEffectClass != EffectReadOnly && contract.MaxRetries > 0 {
+		return ToolExecution{}, errors.New("automatic retries are only supported for read_only tools")
+	}
+	if err := validateReconcilePolicy(contract.SideEffectClass, contract.ReconcilePolicy); err != nil {
+		return ToolExecution{}, err
+	}
+	if contract.ReconcilePolicy == "" && contract.SideEffectClass == EffectReadOnly {
+		contract.ReconcilePolicy = ReconcileNone
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -69,6 +80,7 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 			currentID = fmt.Sprintf("%s:retry:%d", callID, attempt-1)
 		}
 		result.CallID, result.Attempt = currentID, attempt
+		effectID := "tool-effect:" + currentID
 
 		authorized, err := l.Journal.AuthorizeTool(l.Scope, currentID, contract.Name, l.Owner, l.FencingToken, l.AllowedTools)
 		if err != nil {
@@ -77,17 +89,43 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 			return result, err
 		}
 		result.EventIDs = append(result.EventIDs, authorized.EventID)
+		effectState, stateErr := l.Journal.EffectState(l.Scope, effectID)
+		if stateErr != nil {
+			return result, stateErr
+		}
 		state, stateErr := l.Journal.ToolState(l.Scope, currentID)
 		if stateErr != nil {
 			return result, stateErr
 		}
+		if effectState.Receipted {
+			if state.Finished {
+				result.Status = "replayed"
+				result.Replayed = true
+				result.Reason = "tool_already_finished"
+				return result, nil
+			}
+			return result, ErrCorrupt
+		}
+		if effectState.Reconciled {
+			if !state.Finished {
+				return result, ErrCorrupt
+			}
+			result.Status = "reconciled"
+			result.Replayed = true
+			result.Reason = "effect_reconciled"
+			result.Output = effectState.ReconcileOutput
+			return result, nil
+		}
 		if state.Finished {
-			// A caller retrying after a lost response must not attempt to start a
-			// completed call again. The effect receipt is the durable result.
 			result.Status = "replayed"
 			result.Replayed = true
 			result.Reason = "tool_already_finished"
 			return result, nil
+		}
+		if effectState.Dispatched || effectState.OutcomeUnknown {
+			result.Status = "outcome_unknown"
+			result.Reason = "effect_outcome_unknown"
+			return result, ErrEffectOutcomeUnknown
 		}
 		if contract.RequiresApproval && state.Approved == nil {
 			result.Status = "waiting"
@@ -106,19 +144,27 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 			}
 		}
 
-		fence, created, err := l.Journal.FenceEffect(l.Scope, "tool-effect:"+currentID, l.Owner, l.FencingToken, map[string]any{"call_id": currentID, "tool": contract.Name})
+		intent, _, err := l.Journal.CommitEffectIntentWithPolicy(l.Scope, effectID, currentID, contract.Name, contract.SideEffectClass, contract.ReconcilePolicy, input, l.Owner, l.FencingToken)
 		if err != nil {
 			result.Status = "blocked"
-			result.Reason = "effect_fence_failed"
+			result.Reason = "effect_intent_failed"
 			return result, err
 		}
-		result.EventIDs = append(result.EventIDs, fence.EventID)
-		if !created {
-			result.Status = "replayed"
-			result.Replayed = true
-			result.Reason = "effect_already_committed"
-			return result, nil
+		result.EventIDs = append(result.EventIDs, intent.EventID)
+		prepared, err := l.Journal.PrepareEffectDispatch(l.Scope, effectID, l.Owner, l.FencingToken)
+		if err != nil {
+			result.Status = "blocked"
+			result.Reason = "effect_prepare_failed"
+			return result, err
 		}
+		result.EventIDs = append(result.EventIDs, prepared.EventID)
+		dispatched, err := l.Journal.MarkEffectDispatched(l.Scope, effectID, l.Owner, l.FencingToken)
+		if err != nil {
+			result.Status = "blocked"
+			result.Reason = "effect_dispatch_commit_failed"
+			return result, err
+		}
+		result.EventIDs = append(result.EventIDs, dispatched.EventID)
 
 		execCtx := ctx
 		cancel := func() {}
@@ -129,37 +175,28 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 		timedOut := errors.Is(execErr, context.DeadlineExceeded) || errors.Is(execCtx.Err(), context.DeadlineExceeded)
 		cancel()
 		if execErr == nil {
-			finished, finishErr := l.Journal.FinishTool(l.Scope, currentID, l.Owner, l.FencingToken, output)
+			finished, finishErr := l.Journal.CompleteToolEffect(l.Scope, effectID, currentID, l.Owner, l.FencingToken, output)
 			if finishErr != nil {
 				result.Status = "blocked"
-				result.Reason = "finish_commit_failed"
+				result.Reason = "receipt_commit_failed"
 				return result, finishErr
 			}
 			result.Status, result.Output = "finished", output
 			result.EventIDs = append(result.EventIDs, finished.EventID)
 			return result, nil
 		}
-		if timedOut {
-			_, _ = l.Journal.CancelTool(l.Scope, currentID, l.Owner, l.FencingToken, "tool_timeout")
-			result.Status, result.Reason = "timed_out", "tool_timeout"
-			return result, execErr
-		}
-
-		// Persist a generic failure fact without copying provider error text into
-		// the journal. The caller still receives the original error for handling.
-		failed, failErr := l.Journal.Append(Input{EventType: EventToolFailed, AggregateType: "tool", AggregateID: currentID, Scope: l.Scope, IdempotencyKey: "tool:" + currentID + ":failure", WriterID: l.Owner, FencingToken: l.FencingToken, Status: StatusRejected, Payload: map[string]any{"reason_code": "tool_execution_failed"}})
-		if failErr != nil {
+		unknown, unknownErr := l.Journal.MarkEffectOutcomeUnknown(l.Scope, effectID, map[bool]string{true: "tool_timeout", false: "tool_execution_failed"}[timedOut], l.Owner, l.FencingToken)
+		if unknownErr != nil {
 			result.Status = "blocked"
-			result.Reason = "failure_commit_failed"
-			return result, failErr
+			result.Reason = "unknown_outcome_commit_failed"
+			return result, unknownErr
 		}
-		result.EventIDs = append(result.EventIDs, failed.EventID)
+		result.EventIDs = append(result.EventIDs, unknown.EventID)
 		if ctx.Err() != nil {
-			_, _ = l.Journal.CancelTool(l.Scope, currentID, l.Owner, l.FencingToken, "context_cancelled")
-			result.Status, result.Reason = "cancelled", "context_cancelled"
-			return result, ctx.Err()
+			result.Status, result.Reason = "outcome_unknown", "context_cancelled_after_dispatch"
+			return result, fmt.Errorf("%w: %v", ErrEffectOutcomeUnknown, ctx.Err())
 		}
-		if attempt <= contract.MaxRetries {
+		if contract.SideEffectClass == EffectReadOnly && attempt <= contract.MaxRetries {
 			if _, retryEvent, retryErr := l.Journal.RetryTool(l.Scope, currentID, l.Owner, l.FencingToken, attempt, "tool_execution_failed"); retryErr != nil {
 				result.Status, result.Reason = "blocked", "retry_commit_failed"
 				return result, retryErr
@@ -167,6 +204,14 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 				result.EventIDs = append(result.EventIDs, retryEvent.EventID)
 			}
 			continue
+		}
+		if contract.SideEffectClass != EffectReadOnly {
+			result.Status, result.Reason = "outcome_unknown", "effect_outcome_unknown"
+			return result, fmt.Errorf("%w: %v", ErrEffectOutcomeUnknown, execErr)
+		}
+		if timedOut {
+			result.Status, result.Reason = "timed_out", "tool_timeout"
+			return result, execErr
 		}
 		result.Status, result.Reason = "failed", "tool_execution_failed"
 		return result, fmt.Errorf("%w: %v", ErrToolExecution, execErr)

@@ -37,7 +37,7 @@ func TestJournalToolLoopIsAuthorizedAndAtomic(t *testing.T) {
 	}
 }
 
-func TestJournalRejectsStaleFenceAndEffectRetries(t *testing.T) {
+func TestJournalRejectsStaleFenceAndEffectIntentConflicts(t *testing.T) {
 	j := mustJournal(t, "")
 	scope := testScope()
 	lease, err := j.AcquireLease(scope, "worker-1", time.Minute, time.Now())
@@ -53,13 +53,16 @@ func TestJournalRejectsStaleFenceAndEffectRetries(t *testing.T) {
 	if _, err := j.Append(Input{EventType: EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID, Scope: scope, WriterID: "worker-1", FencingToken: lease.FencingToken, Payload: map[string]any{"input": "stale"}}); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("expected stale fence rejection, got %v", err)
 	}
-	first, created, err := j.FenceEffect(scope, "effect-1", "worker-2", 2, map[string]any{"value": 1})
+	first, created, err := j.CommitEffectIntent(scope, "effect-1", "call-1", "write", EffectNonRetriableWrite, map[string]any{"value": 1}, "worker-2", 2)
 	if err != nil || !created {
 		t.Fatalf("first effect=%+v created=%v err=%v", first, created, err)
 	}
-	second, created, err := j.FenceEffect(scope, "effect-1", "worker-2", 2, map[string]any{"value": 1})
+	second, created, err := j.CommitEffectIntent(scope, "effect-1", "call-1", "write", EffectNonRetriableWrite, map[string]any{"value": 1}, "worker-2", 2)
 	if err != nil || created || second.EventID != first.EventID {
 		t.Fatalf("retry did not converge first=%+v second=%+v created=%v err=%v", first, second, created, err)
+	}
+	if _, _, err := j.CommitEffectIntent(scope, "effect-1", "call-1", "write", EffectNonRetriableWrite, map[string]any{"value": 2}, "worker-2", 2); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("expected changed intent to conflict, got %v", err)
 	}
 }
 
@@ -82,7 +85,7 @@ func TestJournalIdempotencyConflictAndRestart(t *testing.T) {
 	}
 }
 
-func TestJournalConcurrentEffectFencingIsExactlyOnce(t *testing.T) {
+func TestJournalConcurrentEffectIntentIsIdempotent(t *testing.T) {
 	j := mustJournal(t, "")
 	scope := testScope()
 	lease, err := j.AcquireLease(scope, "worker-1", time.Minute, time.Now())
@@ -95,7 +98,7 @@ func TestJournalConcurrentEffectFencingIsExactlyOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			event, _, err := j.FenceEffect(scope, "effect-concurrent", "worker-1", lease.FencingToken, map[string]any{"ok": true})
+			event, _, err := j.CommitEffectIntent(scope, "effect-concurrent", "call-concurrent", "write", EffectIdempotentWrite, map[string]any{"ok": true}, "worker-1", lease.FencingToken)
 			if err == nil {
 				results <- event.EventID
 			}
@@ -109,6 +112,95 @@ func TestJournalConcurrentEffectFencingIsExactlyOnce(t *testing.T) {
 	}
 	if len(ids) != 1 || len(j.List(scope)) != 1 {
 		t.Fatalf("expected one fenced effect, ids=%v events=%+v", ids, j.List(scope))
+	}
+}
+
+func TestStaleWorkerCannotCommitEffectReceipt(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker-1", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.AuthorizeTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, []string{"write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, map[string]any{"value": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := j.CommitEffectIntent(scope, "effect-stale", "call-stale", "write", EffectNonRetriableWrite, map[string]any{"value": 1}, "worker-1", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-stale", "worker-1", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkEffectDispatched(scope, "effect-stale", "worker-1", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.AcquireLease(scope, "worker-2", time.Minute, time.Now().Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.CompleteToolEffect(scope, "effect-stale", "call-stale", "worker-1", lease.FencingToken, map[string]any{"ok": true}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expected stale receipt rejection, got %v", err)
+	}
+	state, err := j.EffectState(scope, "effect-stale")
+	if err != nil || state.Receipted {
+		t.Fatalf("effect state=%+v err=%v", state, err)
+	}
+}
+
+func TestEffectReceiptAndUnknownOutcomeCannotBothCommit(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.AuthorizeTool(scope, "call-race", "write", "worker", lease.FencingToken, []string{"write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "call-race", "write", "worker", lease.FencingToken, map[string]any{"value": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := j.CommitEffectIntent(scope, "effect-race", "call-race", "write", EffectReconcilableWrite, map[string]any{"value": 1}, "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-race", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkEffectDispatched(scope, "effect-race", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, err := j.CompleteToolEffect(scope, "effect-race", "call-race", "worker", lease.FencingToken, map[string]any{"ok": true})
+		results <- err
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := j.MarkEffectOutcomeUnknown(scope, "effect-race", "lost_response", "worker", lease.FencingToken)
+		results <- err
+	}()
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for err := range results {
+		if err == nil {
+			succeeded++
+		} else if !errors.Is(err, ErrConflict) {
+			t.Fatalf("unexpected transition error: %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("terminal transitions succeeded=%d", succeeded)
+	}
+	state, err := j.EffectState(scope, "effect-race")
+	if err != nil || state.Receipted == state.OutcomeUnknown {
+		t.Fatalf("effect state=%+v err=%v", state, err)
 	}
 }
 

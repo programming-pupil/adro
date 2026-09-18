@@ -22,6 +22,7 @@ contract is present but a production adapter is intentionally external;
 | MCP, Skill, Automation and signed plugin governance | implemented for control plane | manifests, digest/signature verification, activation, health and quarantine are durable; plugin binaries remain external |
 | GitHub/Git/CI/deploy integrations | reference-only | SPI and evidence model exist; credentials and adapters are deployment inputs |
 | Durable single-node state | implemented | atomic mode-0600 JSON snapshots and restart tests |
+| Authoritative EventStore | implemented, not cut over | SQLite and PostgreSQL adapters share CAS/idempotency/atomicity/fencing/corruption conformance; PostgreSQL 17 backup/restore fingerprint passes; legacy sources remain active pending shadow comparison |
 | PostgreSQL persistence and RLS | implemented for orchestration profile | SQL repository, tenant/workspace scope, backup/restore and PostgreSQL 17 conformance gate |
 | Portable and compatible workspace migration | implemented | signed ZIP manifest, read-only PostgreSQL conversion, reference remap, attachment verification and atomic rollback tests |
 | NATS, Temporal and cloud artifacts | blocked | production adapters are not shipped in this profile; the harness SDK and migration boundary are ready |
