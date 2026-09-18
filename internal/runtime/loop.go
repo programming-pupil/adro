@@ -63,6 +63,12 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 	if contract.SideEffectClass != EffectReadOnly && contract.MaxRetries > 0 {
 		return ToolExecution{}, errors.New("automatic retries are only supported for read_only tools")
 	}
+	if err := validateReconcilePolicy(contract.SideEffectClass, contract.ReconcilePolicy); err != nil {
+		return ToolExecution{}, err
+	}
+	if contract.ReconcilePolicy == "" && contract.SideEffectClass == EffectReadOnly {
+		contract.ReconcilePolicy = ReconcileNone
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -83,22 +89,38 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 			return result, err
 		}
 		result.EventIDs = append(result.EventIDs, authorized.EventID)
+		effectState, stateErr := l.Journal.EffectState(l.Scope, effectID)
+		if stateErr != nil {
+			return result, stateErr
+		}
 		state, stateErr := l.Journal.ToolState(l.Scope, currentID)
 		if stateErr != nil {
 			return result, stateErr
+		}
+		if effectState.Receipted {
+			if state.Finished {
+				result.Status = "replayed"
+				result.Replayed = true
+				result.Reason = "tool_already_finished"
+				return result, nil
+			}
+			return result, ErrCorrupt
+		}
+		if effectState.Reconciled {
+			if !state.Finished {
+				return result, ErrCorrupt
+			}
+			result.Status = "reconciled"
+			result.Replayed = true
+			result.Reason = "effect_reconciled"
+			result.Output = effectState.ReconcileOutput
+			return result, nil
 		}
 		if state.Finished {
 			result.Status = "replayed"
 			result.Replayed = true
 			result.Reason = "tool_already_finished"
 			return result, nil
-		}
-		effectState, stateErr := l.Journal.EffectState(l.Scope, effectID)
-		if stateErr != nil {
-			return result, stateErr
-		}
-		if effectState.Receipted {
-			return result, ErrCorrupt
 		}
 		if effectState.Dispatched || effectState.OutcomeUnknown {
 			result.Status = "outcome_unknown"
@@ -122,7 +144,7 @@ func (l ToolLoop) Run(ctx context.Context, callID string, contract ToolContract,
 			}
 		}
 
-		intent, _, err := l.Journal.CommitEffectIntent(l.Scope, effectID, currentID, contract.Name, contract.SideEffectClass, input, l.Owner, l.FencingToken)
+		intent, _, err := l.Journal.CommitEffectIntentWithPolicy(l.Scope, effectID, currentID, contract.Name, contract.SideEffectClass, contract.ReconcilePolicy, input, l.Owner, l.FencingToken)
 		if err != nil {
 			result.Status = "blocked"
 			result.Reason = "effect_intent_failed"

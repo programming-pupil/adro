@@ -28,9 +28,10 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-LIFE-005 | partial | Root cancellation propagation is implemented; model/tool/sub-agent integration pending |
 | P0-LIFE-006 | partial | Health contract and aggregation exist; readiness endpoints pending |
 | P0-LIFE-009 | partial | Core lifecycle conformance tests exist; leak and file-descriptor checks pending |
-| P0-EFFECT-001 | partial | Intent, prepare, dispatch, receipt and unknown-outcome facts; reconcile states pending |
+| P0-EFFECT-001 | partial | Intent, prepare, dispatch, receipt, unknown-outcome and policy-valid reconciled facts in `internal/runtime/kernel.go`; external adapter reconcile implementations remain pending |
 | P0-EFFECT-002 | complete for legacy ToolLoop | Intent commits before callback dispatch |
-| P0-EFFECT-003 | partial | Effect ID, input digest, class and fence are durable; adapter idempotency key contract pending |
+| P0-EFFECT-003 | partial | Effect ID, input digest, class, explicit reconcile policy and fence are durable; adapter idempotency key contract pending |
+| P0-EFFECT-006 | partial | Journal enforces query/compensate/human/unrecoverable decisions and idempotent resolution; concrete external reconcile adapters remain pending |
 | P0-EFFECT-005 | complete for legacy ToolLoop | Dispatched writes without receipts return `ErrEffectOutcomeUnknown` and are not replayed |
 | P0-EFFECT-007 | partial | Effect receipt and tool terminal event commit atomically; final checkpoint integration pending |
 | P0-STORE-001 | partial | EventStore and LeaseStore ports exist; Snapshot/Blob/Secret/Projection ports remain pending |
