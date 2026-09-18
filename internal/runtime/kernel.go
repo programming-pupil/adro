@@ -47,6 +47,13 @@ const (
 	EventEffectReceipted  = "effect.receipted"
 	EventEffectUnknown    = "effect.outcome_unknown"
 	EventEffectReconciled = "effect.reconciled"
+	EventModelRequested   = "model.requested"
+	EventModelPrepared    = "model.dispatch_prepared"
+	EventModelDispatched  = "model.dispatched"
+	EventModelStreamed    = "model.stream_event"
+	EventModelCompleted   = "model.completed"
+	EventModelUnknown     = "model.outcome_unknown"
+	EventModelCancelled   = "model.cancelled"
 )
 
 var (
@@ -229,6 +236,20 @@ type ToolState struct {
 	Attempts    int    `json:"attempts"`
 	LastEventID string `json:"last_event_id,omitempty"`
 	ReasonCode  string `json:"reason_code,omitempty"`
+}
+
+type ModelState struct {
+	Scope            Scope  `json:"scope"`
+	RequestID        string `json:"request_id"`
+	Requested        bool   `json:"requested"`
+	DispatchPrepared bool   `json:"dispatch_prepared"`
+	Dispatched       bool   `json:"dispatched"`
+	StreamSequence   int64  `json:"stream_sequence"`
+	Completed        bool   `json:"completed"`
+	OutcomeUnknown   bool   `json:"outcome_unknown"`
+	Cancelled        bool   `json:"cancelled"`
+	FinishReason     string `json:"finish_reason,omitempty"`
+	LastEventID      string `json:"last_event_id,omitempty"`
 }
 
 type EffectState struct {
@@ -684,6 +705,177 @@ func (j *Journal) EffectState(scope Scope, effectID string) (EffectState, error)
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	return j.effectStateLocked(scope, strings.TrimSpace(effectID)), nil
+}
+
+func (j *Journal) modelStateLocked(scope Scope, requestID string) ModelState {
+	state := ModelState{Scope: scope, RequestID: requestID}
+	for _, event := range j.events {
+		if event.Scope != scope || event.AggregateType != "model" || event.AggregateID != requestID {
+			continue
+		}
+		state.LastEventID = event.EventID
+		switch event.EventType {
+		case EventModelRequested:
+			state.Requested = true
+		case EventModelPrepared:
+			state.DispatchPrepared = true
+		case EventModelDispatched:
+			state.Dispatched = true
+		case EventModelStreamed:
+			var payload struct {
+				Event struct {
+					Sequence int64 `json:"sequence"`
+				} `json:"event"`
+			}
+			if json.Unmarshal(event.Payload, &payload) == nil && payload.Event.Sequence > state.StreamSequence {
+				state.StreamSequence = payload.Event.Sequence
+			}
+		case EventModelCompleted:
+			state.Completed = true
+			var payload struct {
+				Reason string `json:"finish_reason"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			state.FinishReason = payload.Reason
+		case EventModelUnknown:
+			state.OutcomeUnknown = true
+		case EventModelCancelled:
+			state.Cancelled = true
+		}
+	}
+	return state
+}
+
+func (j *Journal) ModelState(scope Scope, requestID string) (ModelState, error) {
+	if !scope.valid() || strings.TrimSpace(requestID) == "" {
+		return ModelState{}, errors.New("scope and request_id are required")
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.modelStateLocked(scope, strings.TrimSpace(requestID)), nil
+}
+
+// CommitModelRequest freezes the exact model request before any adapter
+// dispatch. The request idempotency key is the durable duplicate fence.
+func (j *Journal) CommitModelRequest(scope Scope, request ModelRequest, owner string, fencingToken int64) (Event, bool, error) {
+	if request.Scope != scope {
+		return Event{}, false, ErrModelRequestInvalid
+	}
+	if err := request.Validate(); err != nil {
+		return Event{}, false, err
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, false, ErrLeaseLost
+	}
+	payload := map[string]any{"request": request, "request_digest": request.RequestDigest}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, false, err
+	}
+	state := j.modelStateLocked(scope, request.RequestID)
+	if state.Requested {
+		for _, item := range j.events {
+			if item.Scope == scope && item.AggregateType == "model" && item.AggregateID == request.RequestID && item.EventType == EventModelRequested {
+				var prior struct {
+					RequestDigest string `json:"request_digest"`
+				}
+				if json.Unmarshal(item.Payload, &prior) == nil && prior.RequestDigest == request.RequestDigest {
+					return cloneEvent(item), false, nil
+				}
+				return Event{}, false, ErrModelIdempotencyConflict
+			}
+		}
+		return Event{}, false, ErrCorrupt
+	}
+	event, err := j.appendBatchLocked([]Input{{EventType: EventModelRequested, AggregateType: "model", AggregateID: request.RequestID, Scope: scope, IdempotencyKey: "model:" + request.IdempotencyKey + ":requested", WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}})
+	return event, err == nil, err
+}
+
+func (j *Journal) PrepareModelDispatch(scope Scope, requestID, owner string, fencingToken int64) (Event, error) {
+	return j.modelTransition(scope, requestID, owner, fencingToken, EventModelPrepared, func(state ModelState) bool {
+		return state.Requested && !state.DispatchPrepared && !state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) MarkModelDispatched(scope Scope, requestID, owner string, fencingToken int64) (Event, error) {
+	return j.modelTransition(scope, requestID, owner, fencingToken, EventModelDispatched, func(state ModelState) bool {
+		return state.DispatchPrepared && !state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) AppendModelEvent(scope Scope, event ModelEvent, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, event.RequestID)
+	if !state.Dispatched || state.Completed || state.OutcomeUnknown || state.Cancelled {
+		return Event{}, ErrModelTransition
+	}
+	if err := event.Validate(state.StreamSequence, event.RequestID); err != nil {
+		return Event{}, err
+	}
+	payload := map[string]any{"event": event}
+	return j.appendBatchLocked([]Input{{EventType: EventModelStreamed, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:stream:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}})
+}
+
+func (j *Journal) CompleteModelCall(scope Scope, event ModelEvent, owner string, fencingToken int64) (Event, error) {
+	if event.Type != ModelEventFinish {
+		return Event{}, ErrModelTransition
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, event.RequestID)
+	if !state.Dispatched || state.Completed || state.OutcomeUnknown || state.Cancelled {
+		return Event{}, ErrModelTransition
+	}
+	if err := event.Validate(state.StreamSequence, event.RequestID); err != nil {
+		return Event{}, err
+	}
+	return j.appendBatchLocked([]Input{
+		{EventType: EventModelStreamed, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:stream:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: map[string]any{"event": event}},
+		{EventType: EventModelCompleted, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:completed:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"event": event, "finish_reason": event.FinishReason}},
+	})
+}
+
+func (j *Journal) MarkModelOutcomeUnknown(scope Scope, requestID, reason, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(reason) == "" {
+		reason = "dispatch_outcome_unknown"
+	}
+	return j.modelTransitionWithPayload(scope, requestID, owner, fencingToken, EventModelUnknown, StatusRecoveryNeeded, map[string]any{"request_id": requestID, "reason_code": reason}, func(state ModelState) bool {
+		return state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) modelTransition(scope Scope, requestID, owner string, fencingToken int64, eventType string, allowed func(ModelState) bool) (Event, error) {
+	return j.modelTransitionWithPayload(scope, requestID, owner, fencingToken, eventType, StatusPending, map[string]any{"request_id": requestID}, allowed)
+}
+
+func (j *Journal) modelTransitionWithPayload(scope Scope, requestID, owner string, fencingToken int64, eventType, status string, payload map[string]any, allowed func(ModelState) bool) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, requestID)
+	if !allowed(state) {
+		return Event{}, ErrModelTransition
+	}
+	return j.appendBatchLocked([]Input{{EventType: eventType, AggregateType: "model", AggregateID: requestID, Scope: scope, IdempotencyKey: "model:" + requestID + ":" + strings.TrimPrefix(eventType, "model."), WriterID: owner, FencingToken: fencingToken, Status: status, Payload: payload}})
 }
 
 func (j *Journal) PrepareEffectDispatch(scope Scope, effectID, owner string, fencingToken int64) (Event, error) {

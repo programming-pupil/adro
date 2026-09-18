@@ -48,3 +48,20 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
 | P0-TIMER-005 | complete locally for reference backend | Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending |
 | P0-TIMER-006 | partial | `TimerExplanation` is available as a read model; Runtime Inspector/API/CLI listing and cancellation endpoints remain pending |
+| P0-LOOP-001 | partial | `internal/runtime/kernel.go` now has a durable model lifecycle projection; Session/Turn/Step and checkpoint integration remain pending |
+| P0-LOOP-003 | partial | `ModelRequest` canonical prompt/config/context/policy digest and Journal replay tests exist; all provider adapters are not migrated |
+| P0-LOOP-009 | partial | `ModelRequest` freezes request digest, adapter identity, attempt and idempotency key before dispatch; config snapshot persistence is still a contract-level digest |
+| P0-LOOP-010 | partial | `model.outcome_unknown` blocks late stream frames and redispatch; provider query/human recovery implementation remains pending |
+| P0-LOOP-011 | partial | Model event validation distinguishes stream frames, finish and provider error; full step reducer and cancellation taxonomy remain pending |
+| P0-MODEL-001 | partial | Versioned `ModelEvent` types and cursor validation in `internal/runtime/model.go`; adapter migration and API wire compatibility remain pending |
+| P0-MODEL-003 | complete locally for reference contract | `ProviderCapabilities` validates protocol/model/features fail-closed with tests |
+| P0-MODEL-010 | complete locally for reference contract | `ModelRequest`, `ModelEvent`, `ProviderCapabilities`, `ContinuationToken` and `Usage` are defined and tested |
+| P0-MODEL-011 | complete locally for reference contract | Canonical request digest and idempotency conflict tests |
+| P0-MODEL-015 | complete locally for reference contract | Incompatible protocol/model/capability negotiation is rejected without adapter-name inference |
+| P0-STREAM-001 | partial | Monotonic event sequence and cursor with replay/gap tests; persistent stream adapter and all transport mappings remain pending |
+| P0-STREAM-002 | complete locally for reference stream | Bounded capacity and explicit block/drop/disconnect policies are implemented and tested |
+| P0-STREAM-003 | complete locally for reference stream | Retention and dropped-optional-delta conditions return structured gap errors |
+| P0-STREAM-004 | partial | UTF-8 and complete canonical tool argument validation exists; provider chunk assembler integration remains pending |
+| P0-STREAM-005 | complete locally for reference contract | Distinct text/reasoning/tool/usage/finish/error frame types and terminal validation |
+| P0-STREAM-007 | partial | Context cancellation is available at gateway boundary; adapter socket/goroutine cleanup evidence remains pending |
+| P0-STREAM-009 | partial | Reference tests cover retention gap, optional drop, overflow disconnect, duplicate/out-of-order rejection; provider matrix remains pending |
