@@ -52,6 +52,11 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-TOOL-005 | complete locally for reference executor | `ToolLoop.RunBatch` uses a positive fixed worker bound with `parallel_safe` groups and exclusive barriers |
 | P0-TOOL-006 | complete locally for reference executor | Batch results are returned by model request index regardless of callback completion order |
 | P0-TOOL-007 | complete locally for reference executor | Cancellation persists `tool.not_started` for calls that never dispatch; dispatched calls retain receipt/unknown semantics |
+| P0-MCP-001 | partial | `internal/mcp` performs explicit `initialize` capability negotiation and rejects omitted/unknown protocol versions; provider-wide negotiation persistence remains pending |
+| P0-MCP-002 | partial | Shared transport contract supports streamable HTTP/SSE and explicitly enabled bounded stdio; production remote connection/session lifecycle remains pending |
+| P0-MCP-003 | partial | `internal/runtime/MCPToolExecutor` routes MCP through the durable ToolLoop for approval, timeout, effect intent/dispatch/receipt and unknown-outcome semantics; shared policy/sandbox and Inspector integration remain pending |
+| P0-MCP-004 | partial | `SecretResolver` and `BrokerSecretResolver` keep references out of JSON-RPC and bind short-lived broker leases to an explicit scope; production broker wiring remains pending |
+| P1-MCP-005 | partial | Canonical tool schema digest, duplicate/deleted tool rejection, required-argument checks and protocol-version fail-closed tests exist; live catalog persistence and Inspector evidence remain pending |
 | P0-STORE-001 | partial | EventStore and LeaseStore ports exist; Snapshot/Blob/Secret/Projection ports remain pending |
 | P0-STORE-002 | complete for EventStore | `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA |
 | P0-STORE-003 | complete for EventStore | `adapters/eventstore/postgres`; migrations 001-015 apply together; real PostgreSQL 17 lock-wait, conformance and restore evidence |

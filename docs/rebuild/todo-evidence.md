@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **43 evidenced**, **80 partial**, **328 unverified**
+- Evidence tracking: **43 evidenced**, **85 partial**, **323 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则

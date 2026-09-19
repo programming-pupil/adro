@@ -63,9 +63,13 @@ type Server struct {
 	Timers             *runtimepkg.TimerStore
 	Memory             *memory.Repository
 	Tracer             telemetry.Tracer
-	uploadMu           sync.Mutex
-	materializeMu      sync.Mutex
-	idempotencyMu      sync.Mutex
+	// MCPClient is the injected protocol boundary. A zero value is fail-closed:
+	// stdio and secret references stay disabled until the caller supplies an
+	// explicit transport policy and SecretResolver.
+	MCPClient     mcpclient.Client
+	uploadMu      sync.Mutex
+	materializeMu sync.Mutex
+	idempotencyMu sync.Mutex
 	// legacyGraphMu serializes the compatibility adapter's read/reduce/commit
 	// sequence. The pipeline store has compare-and-swap versions, while the
 	// graph projection is loaded and committed through separate repository
@@ -3268,7 +3272,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 			case len(parts) == 2 && r.Method == http.MethodPost && (parts[1] == "discover" || parts[1] == "health-check" || parts[1] == "approve"):
 				updated := item
 				if parts[1] == "discover" {
-					_, digest, discoverErr := (mcpclient.Client{}).Discover(r.Context(), item)
+					_, digest, discoverErr := s.MCPClient.Discover(r.Context(), item)
 					if discoverErr != nil {
 						// Discovery is an operator probe. Keep the resource addressable
 						// when a remote server is offline, but never fabricate a schema
@@ -3286,7 +3290,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 					updated.SchemaDigest = digest
 				}
 				if parts[1] == "health-check" {
-					if healthErr := (mcpclient.Client{}).Health(r.Context(), item); healthErr != nil {
+					if healthErr := s.MCPClient.Health(r.Context(), item); healthErr != nil {
 						updated.Status = "unreachable"
 						saved, saveErr := s.Store.UpsertMCPServer(updated)
 						if saveErr != nil {
@@ -3333,7 +3337,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 					return
 				}
 				started := time.Now()
-				response, invokeErr := (mcpclient.Client{}).Invoke(r.Context(), item, input.Tool, input.Request)
+				response, invokeErr := s.MCPClient.Invoke(r.Context(), item, input.Tool, input.Request)
 				invocationStatus := "completed"
 				if invokeErr != nil {
 					invocationStatus = "failed"
