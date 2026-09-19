@@ -6,6 +6,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 
 | Todo ID | State | Evidence |
 |---|---|---|
+| P0-ARCH-013 | partial | `docs/rebuild/capability-evidence.md` records capability maturity and missing gates; `docs/rebuild/todo-evidence.md` mirrors all 451 authoritative checklist items with deletion-resistant source identity verification |
 | P0-BASE-001 | complete locally | Annotated tag `legacy-delivery-control-plane-20260917` at `2d480a87f0ecdf974ab09cdece2729f209a8e813` |
 | P0-BASE-002 | partial | Git tag freezes database migrations, workspace fixtures, OpenAPI and tracked browser assets; generated screenshot fixture still pending |
 | P0-BASE-003 | complete | `docs/rebuild/baseline-report.md` records exact-tag serial test, race, fault, benchmark discovery and isolated browser reruns |
@@ -15,6 +16,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-CORE-003 | partial | Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode, while other producers remain pending |
 | P0-CORE-004 | partial | Runtime journal mapping and restart backfill exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending |
 | P0-CORE-006 | partial | Canonical JSON v1, golden digest and fuzz smoke |
+| P0-CORE-008 | partial | Session/Turn/Step transition tables and illegal-transition tests exist in `internal/runtime/lifecycle_state.go`; ModelCall, Approval, Timer and Delegation transition tables remain pending |
 | P0-CORE-009 | partial | `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending |
 | P0-CORE-010 | partial | Runtime shadow projections rebuild and compare canonical digests from sequence zero; all other projections remain pending |
 | P0-CORE-013 | partial | Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources |
@@ -22,12 +24,14 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-CORE-015 | partial | Canonical map/number/Unicode encoding tests; cross-process fixtures pending |
 | P0-CORE-016 | partial | Event envelope carries encoding and hash identities; snapshot/blob/manifest migration pending |
 | P0-CORE-017 | partial | Reducer byte-determinism test exists; runtime state machines pending |
+| P0-CORE-018 | partial | Turn and Step reference lifecycle freeze canonical config, adapter/protocol, policy, tokenizer, context/tool/policy digests with tamper tests; ExecutionPlan and production engine binding remain pending |
+| P0-CORE-019 | partial | Restart replay retains historical Turn/Step snapshot digests; hot-update boundary integration and authoritative EventStore cutover remain pending |
 | P0-LIFE-001 | complete | Lifecycle component contract |
 | P0-LIFE-002 | complete | Missing dependency, duplicate and cycle validation with stable order |
 | P0-LIFE-003 | complete | Topological start, reverse stop and partial-start rollback |
 | P0-LIFE-005 | partial | Root cancellation propagation is implemented; model/tool/sub-agent integration pending |
-| P0-LIFE-006 | partial | Health contract and aggregation exist; readiness endpoints pending |
-| P0-LIFE-009 | partial | Core lifecycle conformance tests exist; leak and file-descriptor checks pending |
+| P0-LIFE-006 | complete locally for reference manager | `Snapshot`, `Readiness` and `Liveness` derive independent probe state, reason and change time from component health in `runtime/lifecycle/manager.go`; production API wiring remains pending |
+| P0-LIFE-009 | partial | Core lifecycle conformance covers startup/shutdown timeout, rollback, repeated stop, aggregated errors and owned-worker cancellation; socket/file-descriptor leak tests and production integration remain pending |
 | P0-EFFECT-001 | partial | Intent, prepare, dispatch, receipt, unknown-outcome and policy-valid reconciled facts in `internal/runtime/kernel.go`; external adapter reconcile implementations remain pending |
 | P0-EFFECT-002 | complete for legacy ToolLoop | Intent commits before `tool.started` and callback dispatch; transition APIs require positive lease fencing |
 | P0-EFFECT-003 | partial | Effect ID, input digest, class, explicit reconcile policy and fence are durable; adapter idempotency key contract pending |
@@ -55,11 +59,15 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
 | P0-TIMER-005 | complete locally for reference backend | Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending |
 | P0-TIMER-006 | partial | `TimerExplanation` is available as a read model; Runtime Inspector/API/CLI listing and cancellation endpoints remain pending |
-| P0-LOOP-001 | partial | `internal/runtime/kernel.go` now has a durable model lifecycle projection; Session/Turn/Step and checkpoint integration remain pending |
+| P0-LOOP-001 | partial | Reference Session/Turn/Step hierarchy, snapshots, checkpoint boundaries, parent/child settlement and restart replay exist in `internal/runtime/lifecycle_state.go`; pure reducer/EventStore/RuntimeEngine integration remains pending |
+| P0-LOOP-002 | partial | Reference Step rejects model request commit before durable `step.context_frozen` and replay verifies the frozen digest; production model dispatch path is not yet cut over |
 | P0-LOOP-003 | partial | `ModelRequest` canonical prompt/config/context/policy digest and Journal replay tests exist; all provider adapters are not migrated |
+| P0-LOOP-004 | partial | Closed `StopReason` vocabulary and terminal-category validation cover reference Session/Turn/Step transitions; full engine error taxonomy and UI/API mapping remain pending |
 | P0-LOOP-009 | partial | `ModelRequest` freezes request digest, adapter identity, attempt and idempotency key before dispatch; config snapshot persistence is still a contract-level digest |
 | P0-LOOP-010 | partial | `model.outcome_unknown` blocks late stream frames and redispatch; provider query/human recovery implementation remains pending |
 | P0-LOOP-011 | partial | Model event validation distinguishes stream frames, finish and provider error; full step reducer and cancellation taxonomy remain pending |
+| P0-LOOP-012 | partial | Reference lifecycle persists stable stop reason codes and rejects unknown/category-invalid values; remaining runtime call sites still need migration from error-string branching |
+| P0-LOOP-013 | partial | Turn freezes config and Step freezes config/context/tool/policy identities with canonical digests; hot-update and production adapter integration remain pending |
 | P0-MODEL-001 | partial | Versioned `ModelEvent` types and cursor validation in `internal/runtime/model.go`; adapter migration and API wire compatibility remain pending |
 | P0-MODEL-003 | complete locally for reference contract | `ProviderCapabilities` validates protocol/model/features fail-closed with tests |
 | P0-MODEL-010 | complete locally for reference contract | `ModelRequest`, `ModelEvent`, `ProviderCapabilities`, `ContinuationToken` and `Usage` are defined and tested |

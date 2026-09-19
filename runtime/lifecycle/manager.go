@@ -27,6 +27,41 @@ type Health struct {
 	Status    Status    `json:"status"`
 	Reason    string    `json:"reason,omitempty"`
 	ChangedAt time.Time `json:"changed_at"`
+	Ready     bool      `json:"ready"`
+	Live      bool      `json:"live"`
+}
+
+// IsReady and IsLive preserve the original status-only component contract
+// while allowing components to report readiness and liveness independently.
+func (h Health) IsReady() bool {
+	switch h.Status {
+	case StatusReady:
+		return true
+	case StatusDegraded:
+		return h.Ready
+	default:
+		return false
+	}
+}
+
+func (h Health) IsLive() bool {
+	switch h.Status {
+	case StatusStarting, StatusReady, StatusStopping:
+		return true
+	case StatusDegraded:
+		return h.Live
+	default:
+		return false
+	}
+}
+
+type Snapshot struct {
+	Status     Status            `json:"status"`
+	Reason     string            `json:"reason,omitempty"`
+	ChangedAt  time.Time         `json:"changed_at"`
+	Ready      bool              `json:"ready"`
+	Live       bool              `json:"live"`
+	Components map[string]Health `json:"components"`
 }
 
 type Component interface {
@@ -38,19 +73,32 @@ type Component interface {
 }
 
 type Manager struct {
-	mu          sync.Mutex
-	components  map[string]Component
-	order       []string
-	started     []string
-	cancel      context.CancelFunc
-	stopTimeout time.Duration
+	mu           sync.Mutex
+	healthMu     sync.Mutex
+	components   map[string]Component
+	order        []string
+	started      []string
+	running      bool
+	cancel       context.CancelFunc
+	startTimeout time.Duration
+	stopTimeout  time.Duration
 }
 
 func NewManager(components []Component, stopTimeout time.Duration) (*Manager, error) {
+	return NewManagerWithTimeouts(components, 5*time.Second, stopTimeout)
+}
+
+// NewManagerWithTimeouts constructs a lifecycle manager with independent
+// startup and shutdown bounds. NewManager preserves its original shutdown-only
+// argument and applies the default startup bound.
+func NewManagerWithTimeouts(components []Component, startTimeout, stopTimeout time.Duration) (*Manager, error) {
+	if startTimeout <= 0 {
+		startTimeout = 5 * time.Second
+	}
 	if stopTimeout <= 0 {
 		stopTimeout = 5 * time.Second
 	}
-	manager := &Manager{components: make(map[string]Component, len(components)), stopTimeout: stopTimeout}
+	manager := &Manager{components: make(map[string]Component, len(components)), startTimeout: startTimeout, stopTimeout: stopTimeout}
 	for _, component := range components {
 		if component == nil {
 			return nil, errors.New("lifecycle component is nil")
@@ -84,19 +132,26 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.started) > 0 {
+	if m.running {
 		return nil
+	}
+	if len(m.started) > 0 {
+		return errors.New("lifecycle manager has components pending cleanup")
 	}
 	root, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	for _, name := range m.order {
-		if err := m.components[name].Start(root); err != nil {
+		startCtx, startCancel := context.WithTimeout(root, m.startTimeout)
+		err := m.components[name].Start(startCtx)
+		startCancel()
+		if err != nil {
 			cancel()
 			rollbackErr := m.stopStartedLocked(context.Background())
 			return errors.Join(fmt.Errorf("start lifecycle component %s: %w", name, err), rollbackErr)
 		}
 		m.started = append(m.started, name)
 	}
+	m.running = true
 	return nil
 }
 
@@ -110,11 +165,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.cancel()
 		m.cancel = nil
 	}
+	m.running = false
 	return m.stopStartedLocked(ctx)
 }
 
 func (m *Manager) stopStartedLocked(parent context.Context) error {
 	var result error
+	failed := make([]string, 0)
 	for index := len(m.started) - 1; index >= 0; index-- {
 		name := m.started[index]
 		stopCtx, cancel := context.WithTimeout(parent, m.stopTimeout)
@@ -122,23 +179,119 @@ func (m *Manager) stopStartedLocked(parent context.Context) error {
 		cancel()
 		if err != nil {
 			result = errors.Join(result, fmt.Errorf("stop lifecycle component %s: %w", name, err))
+			failed = append(failed, name)
 		}
 	}
-	m.started = nil
+	for left, right := 0, len(failed)-1; left < right; left, right = left+1, right-1 {
+		failed[left], failed[right] = failed[right], failed[left]
+	}
+	m.started = failed
 	return result
 }
 
 func (m *Manager) Health(ctx context.Context) map[string]Health {
+	return m.Snapshot(ctx).Components
+}
+
+// Snapshot aggregates component health without becoming a second business
+// state source. Component Health remains authoritative; the manager only
+// derives process-level readiness/liveness for probes and operators.
+func (m *Manager) Snapshot(ctx context.Context) Snapshot {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	m.healthMu.Lock()
+	defer m.healthMu.Unlock()
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make(map[string]Health, len(m.components))
-	for _, name := range m.order {
-		result[name] = m.components[name].Health(ctx)
+	order := append([]string(nil), m.order...)
+	registered := make(map[string]Component, len(m.components))
+	for name, component := range m.components {
+		registered[name] = component
 	}
-	return result
+	m.mu.Unlock()
+
+	components := make(map[string]Health, len(registered))
+	var changedAt time.Time
+	status := StatusStopped
+	ready, live := true, true
+	var reason string
+	for _, name := range order {
+		health := registered[name].Health(ctx)
+		components[name] = health
+		if health.ChangedAt.After(changedAt) {
+			changedAt = health.ChangedAt
+		}
+		ready = ready && health.IsReady()
+		live = live && health.IsLive()
+		if reason == "" && health.Reason != "" {
+			reason = name + ": " + health.Reason
+		}
+		if !validStatus(health.Status) && reason == "" {
+			reason = name + ": invalid lifecycle status"
+		}
+		status = aggregateStatus(status, health.Status, len(components) == 1)
+	}
+	if len(components) == 0 {
+		status = StatusReady
+		ready, live = true, true
+	}
+	if !live && reason == "" {
+		reason = "one or more lifecycle components are not live"
+	}
+	if !ready && reason == "" {
+		reason = "one or more lifecycle components are not ready"
+	}
+	return Snapshot{Status: status, Reason: reason, ChangedAt: changedAt, Ready: ready, Live: live, Components: components}
+}
+
+func (m *Manager) Readiness(ctx context.Context) Health {
+	snapshot := m.Snapshot(ctx)
+	return Health{Status: snapshot.Status, Reason: snapshot.Reason, ChangedAt: snapshot.ChangedAt, Ready: snapshot.Ready, Live: snapshot.Live}
+}
+
+func (m *Manager) Liveness(ctx context.Context) Health {
+	snapshot := m.Snapshot(ctx)
+	return Health{Status: snapshot.Status, Reason: snapshot.Reason, ChangedAt: snapshot.ChangedAt, Ready: snapshot.Ready, Live: snapshot.Live}
+}
+
+func aggregateStatus(current, next Status, first bool) Status {
+	if !validStatus(next) || (!first && !validStatus(current)) {
+		return StatusFailed
+	}
+	if first {
+		return next
+	}
+	if next == StatusFailed {
+		return StatusFailed
+	}
+	if current == StatusFailed {
+		return current
+	}
+	if next == StatusNew || current == StatusNew {
+		return StatusNew
+	}
+	if next == StatusDegraded || current == StatusDegraded {
+		return StatusDegraded
+	}
+	if next == StatusStopping || current == StatusStopping {
+		return StatusStopping
+	}
+	if next == StatusStarting || current == StatusStarting {
+		return StatusStarting
+	}
+	if next == StatusStopped || current == StatusStopped {
+		return StatusStopped
+	}
+	return StatusReady
+}
+
+func validStatus(status Status) bool {
+	switch status {
+	case StatusNew, StatusStarting, StatusReady, StatusDegraded, StatusStopping, StatusStopped, StatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func stableTopologicalOrder(components map[string]Component) ([]string, error) {
