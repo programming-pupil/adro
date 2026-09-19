@@ -682,17 +682,21 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STORE-006` [source:446] [state:evidenced] event、outbox、terminal checkpoint 需要的原子边界必须在一个事务实现。
   - Recorded evidence state: `complete for both EventStores`. Event, outbox and terminal snapshot share one rollback-tested transaction
 
-- [ ] `P0-STORE-007` [source:447] [state:unverified] blob 使用 content-addressed identity、encryption metadata 和 retention policy。
+- [ ] `P0-STORE-007` [source:447] [state:partial] blob 使用 content-addressed identity、encryption metadata 和 retention policy。
+  - Recorded evidence state: `partial`. `ports/blobstore` and the filesystem adapter persist tenant-scoped SHA-256 identity, encryption-key reference, classification and retention metadata; envelope encryption and production object storage remain pending
 
-- [ ] `P0-STORE-008` [source:448] [state:unverified] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
+- [ ] `P0-STORE-008` [source:448] [state:partial] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
+  - Recorded evidence state: `partial`. Filesystem BlobStore streams bounded writes, verifies content on read/stat, deduplicates equal digests and isolates tenant paths; cross-process object-store conformance remains pending
 
 - [ ] `P0-STORE-009` [source:449] [state:unverified] blob 引用由 retained event、snapshot、artifact 和 legal hold 形成 GC root；GC 必须 mark-and-sweep 且可恢复。
 
 - [ ] `P0-STORE-010` [source:450] [state:unverified] event 在线保留期与 authoritative archive 分离；删除 read model 不得破坏完整 replay。
 
-- [ ] `P0-STORE-011` [source:451] [state:unverified] 敏感大内容使用 envelope encryption；事件保存 blob digest、key reference 和 classification，不保存明文。
+- [ ] `P0-STORE-011` [source:451] [state:partial] 敏感大内容使用 envelope encryption；事件保存 blob digest、key reference 和 classification，不保存明文。
+  - Recorded evidence state: `partial`. Blob references carry digest, encryption-key reference and classification without embedding content; a production envelope-encryption adapter remains pending
 
-- [ ] `P0-STORE-012` [source:452] [state:unverified] 隐私删除使用 tombstone、访问撤销和密钥销毁，不篡改 append-only event history。
+- [ ] `P0-STORE-012` [source:452] [state:partial] 隐私删除使用 tombstone、访问撤销和密钥销毁，不篡改 append-only event history。
+  - Recorded evidence state: `partial`. BlobStore tombstones metadata and denies subsequent reads while preserving immutable bytes; access revocation, key destruction and authoritative deletion events remain pending
 
 - [ ] `P0-STORE-013` [source:453] [state:unverified] legal hold 优先于普通 retention；所有保留与删除决策写审计事件。
 
