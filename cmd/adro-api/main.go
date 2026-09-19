@@ -234,6 +234,9 @@ func main() {
 			slog.Error("provider shutdown", "error", err)
 		}
 	}
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("telemetry shutdown", "error", err)
+	}
 }
 
 type runtimeEventShadowStore interface {

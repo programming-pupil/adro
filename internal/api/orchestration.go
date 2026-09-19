@@ -23,7 +23,7 @@ func (s *Server) graphExecutor(owner string) orchestration.Executor {
 }
 
 func (s *Server) graphExecutorFor(owner, invokerID string) orchestration.Executor {
-	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner, InvokerID: invokerID}
+	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner, InvokerID: invokerID, Tracer: s.Tracer}
 	executor.InstructionsResolver = func(_ context.Context, agent orchestration.AgentDefinition) (string, error) {
 		return s.agentExecutionInstructions(agent)
 	}

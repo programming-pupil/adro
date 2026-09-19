@@ -1320,3 +1320,40 @@ func TestRequiredLocalAuthReadinessNeedsIdentitySource(t *testing.T) {
 		t.Fatalf("readiness status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+type shutdownRecordingExporter struct {
+	shutdowns int
+}
+
+func (*shutdownRecordingExporter) Export(context.Context, []telemetry.Span) error { return nil }
+func (e *shutdownRecordingExporter) Shutdown(context.Context) error {
+	e.shutdowns++
+	return nil
+}
+
+func TestInvalidTelemetryConfigurationFailsClosed(t *testing.T) {
+	t.Setenv("ADRO_OTEL_EXPORTER_OTLP_ENDPOINT", "collector.invalid/no-scheme?secret=value")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "state_load_failed") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestServerSharesTracerWithGraphExecutorsAndShutsItDown(t *testing.T) {
+	s := testServer(t)
+	exporter := &shutdownRecordingExporter{}
+	s.Tracer = telemetry.Tracer{Exporter: exporter}
+	executor := s.graphExecutor("worker")
+	if executor.Tracer.Exporter != exporter {
+		t.Fatal("graph executor did not receive the process tracer")
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if exporter.shutdowns != 1 {
+		t.Fatalf("shutdowns=%d", exporter.shutdowns)
+	}
+}

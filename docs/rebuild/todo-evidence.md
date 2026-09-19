@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **32 evidenced**, **42 partial**, **377 unverified**
+- Evidence tracking: **35 evidenced**, **42 partial**, **374 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -676,7 +676,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 ## 10. Phase 8：标准可观测性与 Runtime Debugger
 
-- [ ] `P0-OBS-001` [source:486] [state:unverified] 删除当前自定义“OTLP HTTP JSON envelope”，接入正式 OpenTelemetry SDK/OTLP exporter。
+- [ ] `P0-OBS-001` [source:486] [state:evidenced] 删除当前自定义“OTLP HTTP JSON envelope”，接入正式 OpenTelemetry SDK/OTLP exporter。
+  - Recorded evidence state: `complete locally`. `internal/telemetry` uses the official OpenTelemetry Go SDK and OTLP/HTTP protobuf exporter; the API owns one provider, injects it into orchestration, fails closed on invalid compatibility configuration and flushes on shutdown; see `docs/operations/opentelemetry.md`
 
 - [ ] `P0-OBS-002` [source:487] [state:unverified] trace 层级：Task -> Session -> Turn -> Step -> ModelCall/ToolEffect/SubAgent。
 
@@ -925,7 +926,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `SOURCE-L0651` [source:651] [state:unverified] 五套互相重叠的 authoritative event/state persistence。
 
-- [ ] `SOURCE-L0652` [source:652] [state:unverified] 自定义伪 OTLP exporter。
+- [ ] `SOURCE-L0652` [source:652] [state:evidenced] 自定义伪 OTLP exporter。
+  - Recorded evidence state: `complete locally`. The private JSON envelope exporter was removed; no custom OTLP wire implementation remains in the runtime
 
 - [ ] `SOURCE-L0653` [source:653] [state:unverified] 未交付却可配置的 production/HA backend 开关。
 
@@ -979,7 +981,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `SOURCE-L0702` [source:702] [state:unverified] 18. 拆 `provider/local.go` 第一部分：process/protocol。
 
-- [ ] `SOURCE-L0703` [source:703] [state:unverified] 19. 引入正式 OpenTelemetry SDK。
+- [ ] `SOURCE-L0703` [source:703] [state:evidenced] 19. 引入正式 OpenTelemetry SDK。
+  - Recorded evidence state: `complete locally`. Official OpenTelemetry Go SDK dependencies, provider lifecycle and standard OTLP/HTTP protobuf export are implemented and tested
 
 - [ ] `SOURCE-L0704` [source:704] [state:unverified] 20. 定义 Sandbox Broker 与 enforcement level。
 

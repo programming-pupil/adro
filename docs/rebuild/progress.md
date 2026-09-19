@@ -73,6 +73,9 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-MODEL-010 | complete locally for reference contract | `ModelRequest`, `ModelEvent`, `ProviderCapabilities`, `ContinuationToken` and `Usage` are defined and tested |
 | P0-MODEL-011 | complete locally for reference contract | Canonical request digest and idempotency conflict tests |
 | P0-MODEL-015 | complete locally for reference contract | Incompatible protocol/model/capability negotiation is rejected without adapter-name inference |
+| P0-OBS-001 | complete locally | `internal/telemetry` uses the official OpenTelemetry Go SDK and OTLP/HTTP protobuf exporter; the API owns one provider, injects it into orchestration, fails closed on invalid compatibility configuration and flushes on shutdown; see `docs/operations/opentelemetry.md` |
+| SOURCE-L0652 | complete locally | The private JSON envelope exporter was removed; no custom OTLP wire implementation remains in the runtime |
+| SOURCE-L0703 | complete locally | Official OpenTelemetry Go SDK dependencies, provider lifecycle and standard OTLP/HTTP protobuf export are implemented and tested |
 | P0-STREAM-001 | partial | Monotonic event sequence and cursor with replay/gap tests; persistent stream adapter and all transport mappings remain pending |
 | P0-STREAM-002 | complete locally for reference stream | Bounded capacity and explicit block/drop/disconnect policies are implemented and tested |
 | P0-STREAM-003 | complete locally for reference stream | Retention and dropped-optional-delta conditions return structured gap errors |

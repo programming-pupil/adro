@@ -55,10 +55,10 @@ func (e Executor) leaseTTL(node WorkflowNode) time.Duration {
 }
 
 func (e Executor) tracer() telemetry.Tracer {
-	if e.Tracer.Exporter != nil {
+	if e.Tracer.Enabled() || e.Tracer.Now != nil {
 		return e.Tracer
 	}
-	return telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}
+	return telemetry.LocalTracer()
 }
 
 type eventAppender interface {

@@ -169,6 +169,12 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		router = provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
 	}
 	var startupErr error
+	tracer, tracerErr := telemetry.NewTracerFromEnvironment(context.Background())
+	if tracerErr != nil {
+		logger.Error("initialize telemetry", "error", tracerErr)
+		startupErr = fmt.Errorf("initialize telemetry: %w", tracerErr)
+		tracer = telemetry.LocalTracer()
+	}
 	authService, err := adroauth.NewService(os.Getenv("ADRO_AUTH_STATE_FILE"), os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	if err != nil {
 		logger.Error("load authentication state", "error", err)
@@ -222,7 +228,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		}
 	}
 	workRoot := os.Getenv("ADRO_WORK_ROOT")
-	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
+	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: tracer, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
@@ -237,6 +243,17 @@ func NewWithRoutingAndOrchestration(s *store.Memory, p provider.ExecutionProvide
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
+
+// Shutdown flushes the process-level telemetry provider after HTTP traffic has
+// stopped. The caller owns the timeout and can combine this with other
+// component shutdowns in reverse startup order.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	return s.Tracer.Shutdown(ctx)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	traceCtx, serverSpan, traceErr := telemetry.StartRemoteSpan(r.Context(), r.Header.Get(telemetry.TraceParentHeader), r.Header.Get(telemetry.TraceStateHeader))
 	r = r.WithContext(traceCtx)

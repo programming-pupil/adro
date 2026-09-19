@@ -10,7 +10,7 @@ import re
 
 EXPECTED_COUNT = 451
 EXPECTED_SOURCE_DIGEST = "c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6"
-TODO_ID = re.compile(r"(?:P[01]|UI)-[A-Z0-9-]+")
+TODO_ID = re.compile(r"(?:(?:P[01]|UI)-[A-Z0-9-]+|SOURCE-L[0-9]{4})")
 
 
 def progress_rows(path: Path) -> dict[str, tuple[str, str]]:
