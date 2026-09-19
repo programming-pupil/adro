@@ -481,6 +481,7 @@ func (m Manifest) Rehash() (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
+	sort.SliceStable(normalized, func(i, j int) bool { return normalized[i].ID < normalized[j].ID })
 	m.Blocks = normalized
 	m.CompilerVersion = CompilerVersion
 	prompt, err := BuildPromptManifest(m.SessionID, m.Blocks)
@@ -716,6 +717,9 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("prompt manifest: %w", err)
 	}
 	if err := validatePromptManifestBindings(m); err != nil {
+		return err
+	}
+	if err := validateCompressionRecords(m); err != nil {
 		return err
 	}
 	if len(m.OmittedRequiredIDs) > 0 {

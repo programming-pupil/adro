@@ -1614,13 +1614,28 @@ func compactLocked(state *sessionState, request CompactRequest) (ArchiveWindow, 
 	replacementHash := digest([]byte(strings.TrimSpace(request.Summary)))
 	compression := request.compression
 	if compression.Algorithm == "" {
-		compression = contextcontract.CompressionRecord{Algorithm: "operator-summary", Version: "v1", SourceHash: sourceHash, SummaryHash: replacementHash, QualityScore: summaryCoverage(state.Turns, request), ReplayKey: sourceHash + ":" + replacementHash}
+		compression = contextcontract.CompressionRecord{Algorithm: "operator-summary", Version: "v1", SourceHash: sourceHash, SummaryHash: replacementHash, QualityScore: summaryCoverage(state.Turns, request)}
 	}
 	if compression.SourceHash == "" {
 		compression.SourceHash = sourceHash
 	}
 	if compression.SummaryHash == "" {
 		compression.SummaryHash = replacementHash
+	}
+	// Complete the durable lineage at the archive boundary. Older callers only
+	// supplied a summary and therefore left the source window and target cost
+	// implicit; carrying that shape into the canonical context manifest would
+	// make replay validation fail after the archive was committed.
+	if len(compression.SourceBlockIDs) == 0 {
+		compression.SourceBlockIDs = make([]string, 0, request.EndSequence-request.StartSequence+1)
+		for _, turn := range state.Turns {
+			if turn.Sequence >= request.StartSequence && turn.Sequence <= request.EndSequence {
+				compression.SourceBlockIDs = append(compression.SourceBlockIDs, turn.ID)
+			}
+		}
+	}
+	if compression.TargetTokens <= 0 {
+		compression.TargetTokens = contextcontract.EstimateTokens(strings.TrimSpace(request.Summary))
 	}
 	if compression.ReplayKey == "" {
 		compression.ReplayKey = compression.SourceHash + ":" + compression.SummaryHash

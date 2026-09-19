@@ -52,6 +52,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-TOOL-005 | complete locally for reference executor | `ToolLoop.RunBatch` uses a positive fixed worker bound with `parallel_safe` groups and exclusive barriers |
 | P0-TOOL-006 | complete locally for reference executor | Batch results are returned by model request index regardless of callback completion order |
 | P0-TOOL-007 | complete locally for reference executor | Cancellation persists `tool.not_started` for calls that never dispatch; dispatched calls retain receipt/unknown semantics |
+| P0-CTX-001 | partial | `internal/context/manifest.go` is the immutable model-visible manifest and provider boundary; API/provider-wide cutover remains pending |
 | P0-MCP-001 | partial | `internal/mcp` performs explicit `initialize` capability negotiation and rejects omitted/unknown protocol versions; provider-wide negotiation persistence remains pending |
 | P0-MCP-002 | partial | Shared transport contract supports streamable HTTP/SSE and explicitly enabled bounded stdio; production remote connection/session lifecycle remains pending |
 | P0-MCP-003 | partial | `internal/runtime/MCPToolExecutor` routes MCP through the durable ToolLoop for approval, timeout, effect intent/dispatch/receipt and unknown-outcome semantics; shared policy/sandbox and Inspector integration remain pending |
@@ -63,9 +64,11 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STORE-004 | complete for EventStore/LeaseStore | SQLite and PostgreSQL run `conformance/eventstore` |
 | P0-STORE-005 | complete for both backends | Expected-sequence CAS, concurrent single-winner and concurrent same-key replay evidence |
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
+| P0-STORE-009 | partial | `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; event/snapshot/blob projection roots remain to be wired |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
+| P0-EVAL-023 | partial | `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
-| P0-TIMER-001 | partial | Durable `TimerStore` persists records and survives restart; human/approval deadlines have idempotent at-least-once scheduling/handling, while model/effect retry, sleep and scheduled-resume call sites remain pending |
+| P0-TIMER-001 | partial | Durable command contracts now cover effect timeout, sleep and scheduled resume in addition to approval/model retry; production call-site scheduling remains pending |
 | P0-TIMER-002 | complete locally | `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go` |
 | P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
@@ -158,3 +161,26 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-HUMAN-003 | complete locally for reference state machine | Responses bind a verified actor, request version, idempotency key, canonical payload digest and bounded schema validation |
 | P0-HUMAN-004 | complete locally for reference state machine | Deterministic tests cover timeout, withdrawal, duplicate/conflicting answers, concurrent claim, approved takeover and displaced claimants |
 | P0-HUMAN-005 | complete locally for reference state machine | A response can be applied only to a pending step while its turn waits for the matching input class; active model/effect steps fail closed |
+| P0-CTX-002 | partial | Prompt manifest ranks system/policy/agent/task/memory/history/tool layers; steering and production assembly integration remain pending |
+| P0-CTX-003 | partial | Context blocks carry source, hash, token estimate, mandatory, provenance, sensitivity, atomic metadata and selection reason |
+| P0-CTX-004 | partial | Tokenizer identity is frozen and validated at provider boundary; every adapter migration remains pending |
+| P0-CTX-005 | partial | Compiler promotes paired tool transaction blocks into an atomic mandatory group; all harness producers remain pending |
+| P0-CTX-006 | partial | Compiler rejects overflow instead of truncating mandatory/atomic/Unicode blocks; provider stream integration remains pending |
+| P0-COMP-001 | partial | `internal/context/compaction.go` records source window, summary, archive, quality and replay lineage; production archive wiring remains pending |
+| P0-CTX-007 | partial | `internal/context/diff.go` emits deterministic digest-only added/removed/changed block projections with token and reason accounting |
+| P0-COMP-002 | partial | Compaction lineage rejects non-reducing summaries and unverified mandatory recall; provider-specific summarizer gates remain pending |
+| P0-COMP-003 | partial | Compaction requires an immutable archive reference and never embeds source bytes in lineage; object lifecycle integration remains pending |
+| P0-COMP-004 | partial | Deterministic recall probe checks required facts and mandatory block identity with an evidence digest |
+| P0-SKILL-001 | partial | `internal/skills` defines canonical versioned SkillBundle with instructions, resources, schemas, tools, examples, capabilities, source and digest |
+| P1-COMP-005 | partial | Manifest digest and tokenizer identity provide a stable cache key contract; provider-native cache adapters remain pending |
+| P0-SKILL-002 | partial | Registry persists install/activate/disable/quarantine/revoke events and freezes active revisions; authoritative EventStore integration remains pending |
+| P0-SKILL-003 | partial | `SkillBundle.ContextBlock` preserves source, trust, sensitivity, license, selection reason, revision and digest in context provenance |
+| P0-SKILL-004 | partial | Activation checks explicit capability grants and bundles carry no secret/tool handles; all dispatch policy composition remains pending |
+| P0-SKILL-005 | partial | Registry rejects duplicate schemas/capabilities, invalid dependencies and cycles, and enforces token ceilings |
+| P0-SKILL-006 | partial | Ed25519 signatures, key revocation, quarantine, durable reload and lifecycle evidence are covered; distribution compatibility scan remains pending |
+| P0-STORE-013 | partial | Lifecycle roots distinguish retain-until and legal hold and preserve protected objects in every proof |
+| P0-STORE-014 | partial | GC reports are content-addressed, durable and revalidated after restart; backup/object-store proof adapters remain pending |
+| P0-EVAL-024 | partial | Evaluators receive cloned bundles and results bind bundle/evaluator digests; external fixture catalog remains pending |
+| P0-EVAL-025 | partial | Rule evaluator is separate from model/human evaluators at the interface boundary; model/human adapter implementations remain pending |
+| P0-EVAL-026 | partial | SessionBundle records schema/source digest, tenant scope and redaction state; dataset version/license/split registry remains pending |
+| P0-EVAL-027 | partial | EvalRun supports revision CAS, cancellation pause/resume, unit budget and minimal failing bundle evidence |

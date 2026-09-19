@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **43 evidenced**, **85 partial**, **323 unverified**
+- Evidence tracking: **59 evidenced**, **118 partial**, **274 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -126,10 +126,10 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. Canonical JSON v1, golden digest and fuzz smoke
 
 - [ ] `P0-CORE-007` [source:154] [state:partial] 定义 schema upcaster、unknown-field、downgrade 和 migration policy。
-  - Recorded evidence state: `partial`. `core/event/registry.go` enforces adjacent explicit upcasters, rejects future versions and downgrade registration, and exposes reject/preserve unknown-field decoding; N-2 fixtures and every producer migration remain pending
+  - Recorded evidence state: `partial`. `core/event/registry.go` provides adjacent explicit upcasters, reject/preserve unknown-field policy, future-version rejection and downgrade blocking; N-2 fixtures and producer migrations remain pending
 
 - [ ] `P0-CORE-008` [source:155] [state:partial] 为所有状态机生成状态转移表和非法转换测试。
-  - Recorded evidence state: `partial`. Session/Turn/Step and HumanInteraction/Approval transition tables and illegal-transition tests exist; ModelCall, Timer and Delegation tables remain pending
+  - Recorded evidence state: `partial`. Session/Turn/Step transition tables and illegal-transition tests exist in `internal/runtime/lifecycle_state.go`; ModelCall, Approval, Timer and Delegation transition tables remain pending
 
 ## 3.2 消除多套事实来源
 
@@ -137,7 +137,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending
 
 - [ ] `P0-CORE-010` [source:166] [state:partial] 所有 projection 支持从 sequence 0 重建并比较 digest。
-  - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` provide verified sequence/hash replay and deterministic state digest evidence; runtime shadow projections rebuild from sequence zero, while projection workers and other views remain pending
+  - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; runtime shadow projections rebuild from sequence zero, while projection workers and other views remain pending
 
 - [ ] `P0-CORE-011` [source:167] [state:unverified] 删除无法重建或与 authoritative stream 冲突的 snapshot 字段。
 
@@ -146,7 +146,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 3.3 确定性基础设施与配置快照
 
 - [ ] `P0-CORE-013` [source:172] [state:partial] 在 core/runtime 注入 `Clock`、`IDGenerator`、`Random`、`Sleeper` 和 `BackoffPolicy`，reducer 内禁止直接调用系统时钟或随机源。
-  - Recorded evidence state: `partial`. `JournalWithOptions` now injects clock and ID generation across lease and event boundaries with deterministic tests; legacy reducers and Random/Sleeper/Backoff call sites remain
+  - Recorded evidence state: `partial`. Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources
 
 - [ ] `P0-CORE-014` [source:173] [state:partial] 测试使用虚拟时钟、序列 ID 和固定随机 seed，可无真实等待地验证 lease、retry、deadline 和 jitter。
   - Recorded evidence state: `partial`. Manual clock, sequence IDs/random and recording sleeper tests
@@ -230,13 +230,13 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `complete locally for reference contract`. `ProviderCapabilities` validates protocol/model/features fail-closed with tests
 
 - [ ] `P0-MODEL-004` [source:215] [state:partial] 实现 provider retry 分类：transport、rate limit、server、invalid request、context overflow、auth。
-  - Recorded evidence state: `partial`. `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch/acceptance classification; provider adapters still need to emit the facts consistently
+  - Recorded evidence state: `partial`. `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch acceptance rules; provider adapter emission remains pending
 
 - [ ] `P0-MODEL-005` [source:216] [state:partial] 支持指数退避、jitter、`Retry-After`、最大累计等待和持久 retry event。
-  - Recorded evidence state: `partial`. `ModelRetryPolicy` provides bounded deterministic backoff, `ModelRetryScheduler` persists idempotent retry timers, and `NewModelRetryCommandHandler` rejects stale digests/attempts before dispatch; authoritative retry events and provider integration remain pending
+  - Recorded evidence state: `partial`. Bounded deterministic backoff, Retry-After handling and durable `model.retry` TimerSpec exist; authoritative retry event/provider wiring remains pending
 
 - [ ] `P0-MODEL-006` [source:217] [state:partial] 支持路由、fallback 和 circuit breaker，但禁止在有未知副作用后切换并重放。
-  - Recorded evidence state: `partial`. Deterministic route evidence, historical decision reuse, circuit states and unknown-dispatch guard exist in `internal/runtime/model_retry.go`; live adapter pool/fallback wiring remains pending
+  - Recorded evidence state: `partial`. Deterministic route evidence, historical route reuse, circuit breaker and unknown-dispatch fallback guard exist; live adapter pool integration remains pending
 
 - [ ] `P1-MODEL-007` [source:218] [state:unverified] 建立 prompt cache identity 与 context hash，统计 cache hit/miss。
 
@@ -251,13 +251,13 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `complete locally for reference contract`. Canonical request digest and idempotency conflict tests
 
 - [ ] `P0-MODEL-012` [source:223] [state:partial] 路由决策记录候选集、健康、限流、成本、能力和最终原因；replay 不重新计算历史路由。
-  - Recorded evidence state: `partial`. `ModelRouteDecision` persists candidate evidence and reuses a matching historical selection; API/event persistence remains pending
+  - Recorded evidence state: `partial`. `ModelRouteDecision` records candidate health, rate limit, capabilities, score and reason; API/event persistence remains pending
 
 - [ ] `P0-MODEL-013` [source:224] [state:partial] provider health、限流和 circuit breaker 有独立状态机，half-open probe 不占用正常 session 配额。
-  - Recorded evidence state: `partial`. `ModelCircuitBreaker` implements closed/open/half-open and a single probe gate; provider health and admission composition remain pending
+  - Recorded evidence state: `partial`. `ModelCircuitBreaker` implements closed/open/half-open with one probe; provider health/admission composition remains pending
 
 - [ ] `P0-MODEL-014` [source:225] [state:partial] fallback 只能发生在未 dispatch 或已证明无远端效果的失败后；未知结果禁止跨 provider 重放。
-  - Recorded evidence state: `partial`. `DecideModelRetry` and historical route replay reject fallback after an unproven dispatch; real provider query/reconcile paths remain pending
+  - Recorded evidence state: `partial`. Retry and route replay refuse fallback after an unproven dispatch; provider query/reconcile wiring remains pending
 
 - [ ] `P0-MODEL-015` [source:226] [state:evidenced] capability negotiation 与 API 版本协商失败时 fail-closed，不按 adapter 名称猜能力。
   - Recorded evidence state: `complete locally for reference contract`. Incompatible protocol/model/capability negotiation is rejected without adapter-name inference
@@ -291,8 +291,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STREAM-009` [source:239] [state:partial] 建立 slow consumer、断线重连、重复 chunk、乱序、截断 JSON、超大输出和取消风暴测试。
   - Recorded evidence state: `partial`. Reference tests cover retention gap, optional drop, overflow disconnect, duplicate/out-of-order rejection; provider matrix remains pending
 
-- [ ] `P0-STREAM-010` [source:240] [state:partial] 暴露 buffer occupancy、dropped optional deltas、resume count、gap count 和 consumer lag 指标。
-  - Recorded evidence state: `partial`. `BoundedModelStream.Metrics` exposes occupancy, drops, resume/gap/backpressure/disconnect/read counters and consumer lag with tests; production metric collector/API wiring remains pending
+- [ ] `P0-STREAM-010` [source:240] [state:unverified] 暴露 buffer occupancy、dropped optional deltas、resume count、gap count 和 consumer lag 指标。
 
 ## 5.1 Tool Contract
 
@@ -347,10 +346,10 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `core/policy` evaluates declared capabilities rather than adapter/tool names; migration of every dispatch path remains pending
 
 - [ ] `P0-POLICY-002` [source:270] [state:partial] `approval/asked` 与 `approval/decided` 必须成对持久化。
-  - Recorded evidence state: `partial`. New runtime approvals persist paired `approval.asked` and `approval.decided` events with immutable request versions; legacy approval and tool paths remain pending
+  - Recorded evidence state: `partial`. New runtime approvals persist paired `approval.asked` and `approval.decided` events; legacy approval APIs and tool authorization paths still need migration
 
 - [ ] `P0-POLICY-003` [source:271] [state:partial] 无 answerer、answerer 崩溃或返回未知值时 fail-closed。
-  - Recorded evidence state: `partial`. Unknown decisions and invalid actors/schema fail closed; missing responders converge on a durable timeout transition, while production deadline-worker wiring remains pending
+  - Recorded evidence state: `partial`. Missing responders converge on durable timeout, actor/schema/version errors fail closed, and restart preserves pending requests; production deadline worker composition remains pending
 
 - [ ] `P0-POLICY-004` [source:272] [state:partial] 子 Agent 权限只能继承或收缩，不能扩张。
   - Recorded evidence state: `partial`. `core/policy.ValidateChild` rejects tenant/workspace changes, added capabilities/destinations and higher sensitivity; orchestration delegation wiring remains pending
@@ -377,73 +376,96 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 5.3.1 Human Interaction
 
 - [ ] `P0-HUMAN-001` [source:283] [state:evidenced] 将通用人在回路输入与高风险 Approval 分离，定义 question、choice、freeform、artifact review、takeover。
-  - Recorded evidence state: Complete locally for the reference state machine. Ordinary human interaction is structurally separate from privileged Approval and supports question, choice, freeform, artifact review and takeover
+  - Recorded evidence state: `complete locally for reference state machine`. `HumanInteractionRequest` is separate from `ApprovalRequest` and supports question, choice, freeform, artifact review and takeover kinds
 
 - [ ] `P0-HUMAN-002` [source:284] [state:evidenced] 每个请求持久化 schema、deadline、eligible actors、claim policy、context digest 和 sensitivity。
-  - Recorded evidence state: Complete locally for the reference state machine. Requests freeze schema, deadline, eligible actors, claim policy, context digest, sensitivity, version and canonical definition digest
+  - Recorded evidence state: `complete locally for reference state machine`. Request events freeze schema, deadline, eligible actors, claim policy, context digest, sensitivity, version and definition digest
 
 - [ ] `P0-HUMAN-003` [source:285] [state:evidenced] response 需要 actor identity、request version、idempotency key 和 schema validation。
-  - Recorded evidence state: Complete locally for the reference state machine. Responses require verified actor identity, exact request version, idempotency key and bounded canonical schema validation
+  - Recorded evidence state: `complete locally for reference state machine`. Responses bind a verified actor, request version, idempotency key, canonical payload digest and bounded schema validation
 
 - [ ] `P0-HUMAN-004` [source:286] [state:evidenced] 超时、撤回、重复回答、过期回答、并发 claim 和 takeover 都有确定状态机。
-  - Recorded evidence state: Complete locally for the reference state machine. Tests cover timeout, withdrawal, duplicate/conflicting answers, concurrent claim, approved takeover and displaced claimants
+  - Recorded evidence state: `complete locally for reference state machine`. Deterministic tests cover timeout, withdrawal, duplicate/conflicting answers, concurrent claim, approved takeover and displaced claimants
 
 - [ ] `P0-HUMAN-005` [source:287] [state:evidenced] 人工输入进入下一安全 step boundary，不得在模型流或 effect dispatch 中途隐式改变冻结上下文。
-  - Recorded evidence state: Complete locally for the reference state machine. Responses apply only to a pending step while its turn waits for matching human input, preventing mid-stream or mid-effect mutation
+  - Recorded evidence state: `complete locally for reference state machine`. A response can be applied only to a pending step while its turn waits for the matching input class; active model/effect steps fail closed
 
 ## 5.4 MCP
 
-- [ ] `P0-MCP-001` [source:291] [state:unverified] 将当前 HTTP JSON-RPC client 扩展为标准 MCP capability negotiation。
+- [ ] `P0-MCP-001` [source:291] [state:partial] 将当前 HTTP JSON-RPC client 扩展为标准 MCP capability negotiation。
+  - Recorded evidence state: `partial`. `internal/mcp` performs explicit `initialize` capability negotiation and rejects omitted/unknown protocol versions; provider-wide negotiation persistence remains pending
 
-- [ ] `P0-MCP-002` [source:292] [state:unverified] 支持 stdio、streamable HTTP 和远程连接，但连接层与 tool contract 分离。
+- [ ] `P0-MCP-002` [source:292] [state:partial] 支持 stdio、streamable HTTP 和远程连接，但连接层与 tool contract 分离。
+  - Recorded evidence state: `partial`. Shared transport contract supports streamable HTTP/SSE and explicitly enabled bounded stdio; production remote connection/session lifecycle remains pending
 
-- [ ] `P0-MCP-003` [source:293] [state:unverified] MCP tool 统一进入 approval、effect、timeout、sandbox 和 audit 链路。
+- [ ] `P0-MCP-003` [source:293] [state:partial] MCP tool 统一进入 approval、effect、timeout、sandbox 和 audit 链路。
+  - Recorded evidence state: `partial`. `internal/runtime/MCPToolExecutor` routes MCP through the durable ToolLoop for approval, timeout, effect intent/dispatch/receipt and unknown-outcome semantics; shared policy/sandbox and Inspector integration remain pending
 
-- [ ] `P0-MCP-004` [source:294] [state:unverified] secret 只用 reference，经 secret broker 注入，禁止写入 event payload。
+- [ ] `P0-MCP-004` [source:294] [state:partial] secret 只用 reference，经 secret broker 注入，禁止写入 event payload。
+  - Recorded evidence state: `partial`. `SecretResolver` and `BrokerSecretResolver` keep references out of JSON-RPC and bind short-lived broker leases to an explicit scope; production broker wiring remains pending
 
-- [ ] `P1-MCP-005` [source:295] [state:unverified] 对 server schema 漂移、工具删除和版本不兼容 fail-closed。
+- [ ] `P1-MCP-005` [source:295] [state:partial] 对 server schema 漂移、工具删除和版本不兼容 fail-closed。
+  - Recorded evidence state: `partial`. Canonical tool schema digest, duplicate/deleted tool rejection, required-argument checks and protocol-version fail-closed tests exist; live catalog persistence and Inspector evidence remain pending
 
 ## 6.1 Context Assembly
 
-- [ ] `P0-CTX-001` [source:303] [state:unverified] 保留并重构当前 Context Manifest，作为 model-visible world 的唯一描述。
+- [ ] `P0-CTX-001` [source:303] [state:partial] 保留并重构当前 Context Manifest，作为 model-visible world 的唯一描述。
+  - Recorded evidence state: `partial`. `internal/context/manifest.go` is the immutable model-visible manifest and provider boundary; API/provider-wide cutover remains pending
 
-- [ ] `P0-CTX-002` [source:304] [state:unverified] 明确层级：system、policy、agent、task、memory、history、tool transaction、steering。
+- [ ] `P0-CTX-002` [source:304] [state:partial] 明确层级：system、policy、agent、task、memory、history、tool transaction、steering。
+  - Recorded evidence state: `partial`. Prompt manifest ranks system/policy/agent/task/memory/history/tool layers; steering and production assembly integration remain pending
 
-- [ ] `P0-CTX-003` [source:305] [state:unverified] 每个 block 带 source、digest、token count、mandatory、atomic group、sensitivity。
+- [ ] `P0-CTX-003` [source:305] [state:partial] 每个 block 带 source、digest、token count、mandatory、atomic group、sensitivity。
+  - Recorded evidence state: `partial`. Context blocks carry source, hash, token estimate, mandatory, provenance, sensitivity, atomic metadata and selection reason
 
-- [ ] `P0-CTX-004` [source:306] [state:unverified] tokenizer ID 与模型路由绑定；provider boundary 检查 tokenizer drift。
+- [ ] `P0-CTX-004` [source:306] [state:partial] tokenizer ID 与模型路由绑定；provider boundary 检查 tokenizer drift。
+  - Recorded evidence state: `partial`. Tokenizer identity is frozen and validated at provider boundary; every adapter migration remains pending
 
-- [ ] `P0-CTX-005` [source:307] [state:unverified] 未完成 tool transaction 永远作为 mandatory atomic group。
+- [ ] `P0-CTX-005` [source:307] [state:partial] 未完成 tool transaction 永远作为 mandatory atomic group。
+  - Recorded evidence state: `partial`. Compiler promotes paired tool transaction blocks into an atomic mandatory group; all harness producers remain pending
 
-- [ ] `P0-CTX-006` [source:308] [state:unverified] context overflow 不能截断原子事务或 Unicode 内容。
+- [ ] `P0-CTX-006` [source:308] [state:partial] context overflow 不能截断原子事务或 Unicode 内容。
+  - Recorded evidence state: `partial`. Compiler rejects overflow instead of truncating mandatory/atomic/Unicode blocks; provider stream integration remains pending
 
-- [ ] `P0-CTX-007` [source:309] [state:unverified] 输出 Context Diff：本 step 相比上 step 增删了什么、为什么。
+- [ ] `P0-CTX-007` [source:309] [state:partial] 输出 Context Diff：本 step 相比上 step 增删了什么、为什么。
+  - Recorded evidence state: `partial`. `internal/context/diff.go` emits deterministic digest-only added/removed/changed block projections with token and reason accounting
 
 ## 6.2 Compaction
 
-- [ ] `P0-COMP-001` [source:313] [state:unverified] compaction 必须记录 source window、summary digest、coverage、quality 和 lineage。
+- [ ] `P0-COMP-001` [source:313] [state:partial] compaction 必须记录 source window、summary digest、coverage、quality 和 lineage。
+  - Recorded evidence state: `partial`. `internal/context/compaction.go` records source window, summary, archive, quality and replay lineage; production archive wiring remains pending
 
-- [ ] `P0-COMP-002` [source:314] [state:unverified] summary 未减少 token 或丢失 mandatory facts 时拒绝提交。
+- [ ] `P0-COMP-002` [source:314] [state:partial] summary 未减少 token 或丢失 mandatory facts 时拒绝提交。
+  - Recorded evidence state: `partial`. Compaction lineage rejects non-reducing summaries and unverified mandatory recall; provider-specific summarizer gates remain pending
 
-- [ ] `P0-COMP-003` [source:315] [state:unverified] 原始内容进入 immutable archive，summary 不能覆盖证据。
+- [ ] `P0-COMP-003` [source:315] [state:partial] 原始内容进入 immutable archive，summary 不能覆盖证据。
+  - Recorded evidence state: `partial`. Compaction requires an immutable archive reference and never embeds source bytes in lineage; object lifecycle integration remains pending
 
-- [ ] `P0-COMP-004` [source:316] [state:unverified] 建立 recall probe：压缩前后关键事实、约束、决策和未完成事务一致。
+- [ ] `P0-COMP-004` [source:316] [state:partial] 建立 recall probe：压缩前后关键事实、约束、决策和未完成事务一致。
+  - Recorded evidence state: `partial`. Deterministic recall probe checks required facts and mandatory block identity with an evidence digest
 
-- [ ] `P1-COMP-005` [source:317] [state:unverified] 支持 provider-native caching，但缓存身份由 manifest hash 决定。
+- [ ] `P1-COMP-005` [source:317] [state:partial] 支持 provider-native caching，但缓存身份由 manifest hash 决定。
+  - Recorded evidence state: `partial`. Manifest digest and tokenizer identity provide a stable cache key contract; provider-native cache adapters remain pending
 
 ## 6.2.1 Skill 与 Prompt Bundle
 
-- [ ] `P0-SKILL-001` [source:321] [state:unverified] 定义版本化 `SkillBundle`：instructions、resources、tools、schemas、examples、capabilities、来源与 digest。
+- [ ] `P0-SKILL-001` [source:321] [state:partial] 定义版本化 `SkillBundle`：instructions、resources、tools、schemas、examples、capabilities、来源与 digest。
+  - Recorded evidence state: `partial`. `internal/skills` defines canonical versioned SkillBundle with instructions, resources, schemas, tools, examples, capabilities, source and digest
 
-- [ ] `P0-SKILL-002` [source:322] [state:unverified] Skill 安装、启用、禁用和升级生成事件；运行中的 Step 使用冻结 revision。
+- [ ] `P0-SKILL-002` [source:322] [state:partial] Skill 安装、启用、禁用和升级生成事件；运行中的 Step 使用冻结 revision。
+  - Recorded evidence state: `partial`. Registry persists install/activate/disable/quarantine/revoke events and freezes active revisions; authoritative EventStore integration remains pending
 
-- [ ] `P0-SKILL-003` [source:323] [state:unverified] Skill 内容进入 ContextManifest 时保留 source、trust、sensitivity、license 和 selection reason。
+- [ ] `P0-SKILL-003` [source:323] [state:partial] Skill 内容进入 ContextManifest 时保留 source、trust、sensitivity、license 和 selection reason。
+  - Recorded evidence state: `partial`. `SkillBundle.ContextBlock` preserves source, trust, sensitivity, license, selection reason, revision and digest in context provenance
 
-- [ ] `P0-SKILL-004` [source:324] [state:unverified] Skill 不能直接获得工具或 secret；只能声明 capability，由 policy 决定 grant。
+- [ ] `P0-SKILL-004` [source:324] [state:partial] Skill 不能直接获得工具或 secret；只能声明 capability，由 policy 决定 grant。
+  - Recorded evidence state: `partial`. Activation checks explicit capability grants and bundles carry no secret/tool handles; all dispatch policy composition remains pending
 
-- [ ] `P0-SKILL-005` [source:325] [state:unverified] 冲突 instruction、重复 tool schema、循环依赖和超预算 bundle 必须在激活前拒绝。
+- [ ] `P0-SKILL-005` [source:325] [state:partial] 冲突 instruction、重复 tool schema、循环依赖和超预算 bundle 必须在激活前拒绝。
+  - Recorded evidence state: `partial`. Registry rejects duplicate schemas/capabilities, invalid dependencies and cycles, and enforces token ceilings
 
-- [ ] `P0-SKILL-006` [source:326] [state:unverified] 建立签名、来源、撤销、quarantine、兼容性和 clean-room 扫描。
+- [ ] `P0-SKILL-006` [source:326] [state:partial] 建立签名、来源、撤销、quarantine、兼容性和 clean-room 扫描。
+  - Recorded evidence state: `partial`. Ed25519 signatures, key revocation, quarantine, durable reload and lifecycle evidence are covered; distribution compatibility scan remains pending
 
 ## 6.3 Memory
 
@@ -592,31 +614,31 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P1-GRAPH-008` [source:405] [state:unverified] 提供 distributed worker claim：`SKIP LOCKED` 或等价 CAS、heartbeat、generation-aware requeue。
 
-- [ ] `P1-GRAPH-009` [source:406] [state:unverified] 添加背压、公平性、优先级反转和 workspace quota 测试。
-  - Recorded evidence state: `complete locally`. Backpressure, weighted fairness, priority aging/inversion, workspace quota and protected recovery tests are in `internal/orchestration/resource_accounting_test.go`
+- [ ] `P1-GRAPH-009` [source:406] [state:evidenced] 添加背压、公平性、优先级反转和 workspace quota 测试。
+  - Recorded evidence state: `complete locally`. Backpressure, weighted fairness, priority aging/inversion, workspace quota and non-sheddable recovery tests in `internal/orchestration/resource_accounting_test.go`
 
-- [ ] `P0-GRAPH-010` [source:407] [state:unverified] scheduler 建立 tenant/workspace/agent 多级 admission control，超额任务进入明确等待或拒绝状态。
-  - Recorded evidence state: `complete locally for local scheduler`. `Scheduler.Tick` reserves tenant/workspace/agent capacity before provider dispatch and records admitted/waiting/rejected decisions; distributed SQL quota composition remains pending
+- [ ] `P0-GRAPH-010` [source:407] [state:evidenced] scheduler 建立 tenant/workspace/agent 多级 admission control，超额任务进入明确等待或拒绝状态。
+  - Recorded evidence state: `complete locally for local scheduler`. `Scheduler.Tick` reserves tenant/workspace/agent capacity before provider dispatch and reports explicit admitted/waiting/rejected states; distributed SQL quota adapter remains pending
 
-- [ ] `P0-GRAPH-011` [source:408] [state:unverified] 使用 weighted fair queuing 或等价算法，定义可验证的 starvation bound。
-  - Recorded evidence state: `complete locally for reference queue`. Integer weighted fair queuing exposes virtual finish and a conservative starvation deadline with deterministic noisy-neighbor ordering tests
+- [ ] `P0-GRAPH-011` [source:408] [state:evidenced] 使用 weighted fair queuing 或等价算法，定义可验证的 starvation bound。
+  - Recorded evidence state: `complete locally for reference queue`. Integer weighted fair queuing exposes virtual finish and a conservative starvation deadline with deterministic tests
 
-- [ ] `P0-GRAPH-012` [source:409] [state:unverified] priority aging 防止低优先级永久饥饿；紧急优先级必须受 tenant ceiling 限制。
-  - Recorded evidence state: `complete locally for reference queue`. Virtual-clock priority aging reaches the configured maximum and emergency priority is capped per tenant
+- [ ] `P0-GRAPH-012` [source:409] [state:evidenced] priority aging 防止低优先级永久饥饿；紧急优先级必须受 tenant ceiling 限制。
+  - Recorded evidence state: `complete locally for reference queue`. Priority aging raises waiting work to a configured maximum; tenant emergency ceilings cap priority with an auditable decision
 
-- [ ] `P0-GRAPH-013` [source:410] [state:unverified] 过载时优先 load shed 未持久化、低优先级工作，不能丢弃已 dispatch effect 的恢复任务。
-  - Recorded evidence state: `complete locally for reference queue`. Overload shedding removes only low-priority unpersisted work and protects persisted/dispatched recovery work
+- [ ] `P0-GRAPH-013` [source:410] [state:evidenced] 过载时优先 load shed 未持久化、低优先级工作，不能丢弃已 dispatch effect 的恢复任务。
+  - Recorded evidence state: `complete locally for reference queue`. Overload shedding only removes low-priority unpersisted work; persisted and recovery requests are protected
 
-- [ ] `P0-GRAPH-014` [source:411] [state:unverified] claim 排序键稳定且可解释；相同输入和时钟下调度结果可复现。
-  - Recorded evidence state: `complete locally for reference queue`. Stable claim order uses effective priority, integer virtual finish and an explainable tenant/workspace/agent/time/ID key
+- [ ] `P0-GRAPH-014` [source:411] [state:evidenced] claim 排序键稳定且可解释；相同输入和时钟下调度结果可复现。
+  - Recorded evidence state: `complete locally for reference queue`. Claim order uses effective priority, integer virtual finish and a stable tenant/workspace/agent/time/ID key
 
-- [ ] `P0-GRAPH-015` [source:412] [state:unverified] 建立 noisy-neighbor、突发流量、配额耗尽、worker 抖动和优先级反转基准。
-  - Recorded evidence state: `complete locally`. `internal/orchestration/resource_accounting_benchmark_test.go` and `scripts/run-resource-scheduler-benchmarks.sh` cover noisy-neighbor fairness, burst load, quota exhaustion, worker jitter/recovery and priority inversion; sustained multi-process soak remains a release gate
+- [ ] `P0-GRAPH-015` [source:412] [state:evidenced] 建立 noisy-neighbor、突发流量、配额耗尽、worker 抖动和优先级反转基准。
+  - Recorded evidence state: `complete locally`. `internal/orchestration/resource_accounting_benchmark_test.go` and `scripts/run-resource-scheduler-benchmarks.sh` benchmark noisy-neighbor fairness, bursts, quota exhaustion, worker jitter/recovery and priority inversion; sustained multi-process soak remains a release gate
 
 ## 8.2.1 Durable Timer
 
 - [ ] `P0-TIMER-001` [source:416] [state:partial] timeout、retry、approval deadline、sleep、scheduled resume 使用持久 TimerStore，不能只依赖进程内 goroutine/timer。
-  - Recorded evidence state: `partial`. Durable `TimerStore` persists records and survives restart; human/approval deadlines have idempotent at-least-once scheduling/handling, while model/effect retry, sleep and scheduled-resume call sites remain pending
+  - Recorded evidence state: `partial`. Durable command contracts now cover effect timeout, sleep and scheduled resume in addition to approval/model retry; production call-site scheduling remains pending
 
 - [ ] `P0-TIMER-002` [source:417] [state:evidenced] timer 记录 due time、command、stream expected sequence、generation、owner 和 state。
   - Recorded evidence state: `complete locally`. `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go`
@@ -631,36 +653,36 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `complete locally for reference backend`. Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending
 
 - [ ] `P0-TIMER-006` [source:421] [state:partial] WebUI/CLI 可查看、取消和解释 timer，但不能直接修改数据库行。
-  - Recorded evidence state: `partial`. Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancellation, `adroctl timer list|get|explain|cancel`, and the WebUI Timer Inspector are implemented. Real TimerStore API isolation/cancellation tests live in `internal/api/timers_test.go`; browser contract coverage is `e2e/timer-inspector.spec.js`; operational contract is `docs/operations/durable-timers.md`. Full production retry/deadline/scheduled-resume integration and independent final acceptance remain open.
+  - Recorded evidence state: `partial`. Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancel, `adroctl timer` commands, and WebUI Timer Inspector now use the durable TimerStore; API scope/idempotency tests and Playwright Inspector coverage exist, while real timer seeding through every production retry/deadline call site remains pending
 
 ## 8.3 Resource Accounting
 
-- [ ] `P0-RES-001` [source:425] [state:unverified] 统一计量 CPU time、memory peak、disk bytes、output bytes、network bytes、tokens、tool calls、wall clock 和并发槽位。
+- [ ] `P0-RES-001` [source:425] [state:evidenced] 统一计量 CPU time、memory peak、disk bytes、output bytes、network bytes、tokens、tool calls、wall clock 和并发槽位。
   - Recorded evidence state: `complete locally`. `ResourceVector` unifies CPU time, memory peak, disk/output/network bytes, tokens, tool calls, wall time and concurrency slots
 
-- [ ] `P0-RES-002` [source:426] [state:unverified] 每项资源同时支持 request、reserved、consumed、released 和 overage 状态。
-  - Recorded evidence state: `complete locally`. `ResourceState` retains requested, reserved, consumed, released and overage vectors without overwriting earlier phases
+- [ ] `P0-RES-002` [source:426] [state:evidenced] 每项资源同时支持 request、reserved、consumed、released 和 overage 状态。
+  - Recorded evidence state: `complete locally`. Every reservation preserves requested, reserved, consumed, released and overage vectors
 
-- [ ] `P0-RES-003` [source:427] [state:unverified] 父任务预算等于自身消耗加全部子任务保留额度，防止递归 delegation 超卖。
-  - Recorded evidence state: `complete locally`. Child reservations carve capacity from their parent and child consumption rolls up recursively, rejecting oversell
+- [ ] `P0-RES-003` [source:427] [state:evidenced] 父任务预算等于自身消耗加全部子任务保留额度，防止递归 delegation 超卖。
+  - Recorded evidence state: `complete locally`. Child reservations are carved from the parent and child consumption rolls up, preventing recursive delegation oversell
 
-- [ ] `P0-RES-004` [source:428] [state:unverified] 执行前 reserve，结束后 settle；崩溃恢复必须回收孤儿 reservation。
-  - Recorded evidence state: `complete locally for reference backend`. Reserve-before-dispatch, settlement, failed-dispatch release, atomic persistence rollback and deepest-first orphan recovery are tested
+- [ ] `P0-RES-004` [source:428] [state:evidenced] 执行前 reserve，结束后 settle；崩溃恢复必须回收孤儿 reservation。
+  - Recorded evidence state: `complete locally for reference backend`. Scheduler reserve-before-dispatch, worker settlement, failed-dispatch release, atomic persistence rollback and deepest-first orphan recovery are tested
 
-- [ ] `P0-RES-005` [source:429] [state:unverified] usage 记录关联 tenant、session、step、model call、tool effect 和 cost center。
-  - Recorded evidence state: `complete locally`. Usage records bind tenant, workspace, agent, session, step, model call/tool effect and cost center
+- [ ] `P0-RES-005` [source:429] [state:evidenced] usage 记录关联 tenant、session、step、model call、tool effect 和 cost center。
+  - Recorded evidence state: `complete locally`. Usage attribution binds tenant, workspace, agent, session, step, model/tool effect and cost center
 
-- [ ] `P0-RES-006` [source:430] [state:unverified] 达到 soft limit 触发 warning/compaction/降级，达到 hard limit 进入可解释终止状态。
-  - Recorded evidence state: `complete locally`. Soft limits emit warning/compaction/degradation actions; hard limits produce explicit waiting/rejected decisions and terminal overage reason
+- [ ] `P0-RES-006` [source:430] [state:evidenced] 达到 soft limit 触发 warning/compaction/降级，达到 hard limit 进入可解释终止状态。
+  - Recorded evidence state: `complete locally`. Soft limits return warning/compaction/degradation actions; hard limits produce explicit waiting/rejected decisions and terminal overage reason
 
-- [ ] `P0-RES-007` [source:431] [state:unverified] 不信任 provider 自报 usage；保存原始 usage、标准化 usage 和估算差异。
-  - Recorded evidence state: `complete locally`. Records preserve raw provider JSON, normalized usage, independent estimate, signed discrepancy and explicit missing-provider fallback
+- [ ] `P0-RES-007` [source:431] [state:evidenced] 不信任 provider 自报 usage；保存原始 usage、标准化 usage 和估算差异。
+  - Recorded evidence state: `complete locally`. Usage retains raw provider JSON, normalized usage, independent estimate, signed discrepancy and explicit missing-provider fallback
 
-- [ ] `P0-RES-008` [source:432] [state:unverified] WebUI 展示预算燃尽、reservation、异常峰值和子 Agent 归因。
-  - Recorded evidence state: `complete locally`. `/api/v1/resources` drives the Cost Center burn, reservation, anomaly and child-Agent attribution panels; `e2e/resource-accounting.spec.js` verifies API use, refresh and narrow-screen layout
+- [ ] `P0-RES-008` [source:432] [state:evidenced] WebUI 展示预算燃尽、reservation、异常峰值和子 Agent 归因。
+  - Recorded evidence state: `complete locally`. `/api/v1/resources` drives the Cost Center burn bars, reservation table, anomaly evidence and child-Agent attribution; `e2e/resource-accounting.spec.js` covers desktop refresh and narrow-screen overflow
 
-- [ ] `P0-RES-009` [source:433] [state:unverified] conformance 覆盖重复 usage event、延迟账单、缺失 usage、负数与溢出。
-  - Recorded evidence state: `complete locally for reference backend`. Tests cover duplicate/conflicting usage, delayed billing, missing provider usage, negative values and integer overflow rollback
+- [ ] `P0-RES-009` [source:433] [state:evidenced] conformance 覆盖重复 usage event、延迟账单、缺失 usage、负数与溢出。
+  - Recorded evidence state: `complete locally for reference backend`. Conformance covers duplicate/conflicting usage, delayed billing, missing usage, negative values and integer overflow rollback
 
 ## 9.1 Store Ports
 
@@ -682,25 +704,24 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STORE-006` [source:446] [state:evidenced] event、outbox、terminal checkpoint 需要的原子边界必须在一个事务实现。
   - Recorded evidence state: `complete for both EventStores`. Event, outbox and terminal snapshot share one rollback-tested transaction
 
-- [ ] `P0-STORE-007` [source:447] [state:partial] blob 使用 content-addressed identity、encryption metadata 和 retention policy。
-  - Recorded evidence state: `partial`. `ports/blobstore` and the filesystem adapter persist tenant-scoped SHA-256 identity, encryption-key reference, classification and retention metadata; envelope encryption and production object storage remain pending
+- [ ] `P0-STORE-007` [source:447] [state:unverified] blob 使用 content-addressed identity、encryption metadata 和 retention policy。
 
-- [ ] `P0-STORE-008` [source:448] [state:partial] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
-  - Recorded evidence state: `partial`. Filesystem BlobStore streams bounded writes, verifies content on read/stat, deduplicates equal digests and isolates tenant paths; cross-process object-store conformance remains pending
+- [ ] `P0-STORE-008` [source:448] [state:unverified] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
 
-- [ ] `P0-STORE-009` [source:449] [state:unverified] blob 引用由 retained event、snapshot、artifact 和 legal hold 形成 GC root；GC 必须 mark-and-sweep 且可恢复。
+- [ ] `P0-STORE-009` [source:449] [state:partial] blob 引用由 retained event、snapshot、artifact 和 legal hold 形成 GC root；GC 必须 mark-and-sweep 且可恢复。
+  - Recorded evidence state: `partial`. `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; event/snapshot/blob projection roots remain to be wired
 
 - [ ] `P0-STORE-010` [source:450] [state:unverified] event 在线保留期与 authoritative archive 分离；删除 read model 不得破坏完整 replay。
 
-- [ ] `P0-STORE-011` [source:451] [state:partial] 敏感大内容使用 envelope encryption；事件保存 blob digest、key reference 和 classification，不保存明文。
-  - Recorded evidence state: `partial`. Blob references carry digest, encryption-key reference and classification without embedding content; a production envelope-encryption adapter remains pending
+- [ ] `P0-STORE-011` [source:451] [state:unverified] 敏感大内容使用 envelope encryption；事件保存 blob digest、key reference 和 classification，不保存明文。
 
-- [ ] `P0-STORE-012` [source:452] [state:partial] 隐私删除使用 tombstone、访问撤销和密钥销毁，不篡改 append-only event history。
-  - Recorded evidence state: `partial`. BlobStore tombstones metadata and denies subsequent reads while preserving immutable bytes; access revocation, key destruction and authoritative deletion events remain pending
+- [ ] `P0-STORE-012` [source:452] [state:unverified] 隐私删除使用 tombstone、访问撤销和密钥销毁，不篡改 append-only event history。
 
-- [ ] `P0-STORE-013` [source:453] [state:unverified] legal hold 优先于普通 retention；所有保留与删除决策写审计事件。
+- [ ] `P0-STORE-013` [source:453] [state:partial] legal hold 优先于普通 retention；所有保留与删除决策写审计事件。
+  - Recorded evidence state: `partial`. Lifecycle roots distinguish retain-until and legal hold and preserve protected objects in every proof
 
-- [ ] `P0-STORE-014` [source:454] [state:unverified] 生成 proof-of-deletion 报告，覆盖在线库、对象存储、缓存、索引和备份到期状态。
+- [ ] `P0-STORE-014` [source:454] [state:partial] 生成 proof-of-deletion 报告，覆盖在线库、对象存储、缓存、索引和备份到期状态。
+  - Recorded evidence state: `partial`. GC reports are content-addressed, durable and revalidated after restart; backup/object-store proof adapters remain pending
 
 - [ ] `P0-STORE-015` [source:455] [state:partial] 所有表、索引、blob key 和归档分区显式包含 tenant boundary。
   - Recorded evidence state: `partial`. Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending
@@ -723,15 +744,13 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-REC-001` [source:468] [state:unverified] 恢复前先取得 write ownership/lease，再做 tail repair。
 
-- [ ] `P0-REC-002` [source:469] [state:partial] 只容忍 torn tail；middle corruption、hash mismatch、sequence gap 一律 fail-closed。
-  - Recorded evidence state: `partial`. `event.ValidateChain`/`ValidateChainFrom` reject scope mismatch, sequence gaps, digest mismatch and corrupted payloads; durable tail repair and kill-point recovery remain pending
+- [ ] `P0-REC-002` [source:469] [state:unverified] 只容忍 torn tail；middle corruption、hash mismatch、sequence gap 一律 fail-closed。
 
 - [ ] `P0-REC-003` [source:470] [state:unverified] recovery decision 必须成为事件，不能只写日志。
 
 - [ ] `P0-REC-004` [source:471] [state:unverified] 建立进程 kill point matrix：event append、model request、tool dispatch、receipt、checkpoint 前后。
 
-- [ ] `P0-REC-005` [source:472] [state:partial] 恢复后 projection digest 与无故障执行一致。
-  - Recorded evidence state: `partial`. `reducer.ReplayVerified` emits deterministic state digests and immutable event/upcaster evidence; end-to-end recovery comparison and projection worker integration remain pending
+- [ ] `P0-REC-005` [source:472] [state:unverified] 恢复后 projection digest 与无故障执行一致。
 
 - [ ] `P0-REC-006` [source:473] [state:unverified] schema migration 支持 crash resume、重复执行和 rollback policy。
 
@@ -819,15 +838,20 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-EVAL-022` [source:526] [state:unverified] 发布报告同时列出失败场景、置信区间和未验证项，不发布无法复核的“全面领先”结论。
 
-- [ ] `P0-EVAL-023` [source:527] [state:unverified] 定义版本化 `Evaluator` 接口与 `EvalRun` 状态机，输入为 session bundle/trajectory，输出为结构化 score、findings 和 evidence。
+- [ ] `P0-EVAL-023` [source:527] [state:partial] 定义版本化 `Evaluator` 接口与 `EvalRun` 状态机，输入为 session bundle/trajectory，输出为结构化 score、findings 和 evidence。
+  - Recorded evidence state: `partial`. `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine
 
-- [ ] `P0-EVAL-024` [source:528] [state:unverified] evaluator 不能直接修改被评 Session；复评使用相同 fixture、seed、rubric digest 和 evaluator identity。
+- [ ] `P0-EVAL-024` [source:528] [state:partial] evaluator 不能直接修改被评 Session；复评使用相同 fixture、seed、rubric digest 和 evaluator identity。
+  - Recorded evidence state: `partial`. Evaluators receive cloned bundles and results bind bundle/evaluator digests; external fixture catalog remains pending
 
-- [ ] `P0-EVAL-025` [source:529] [state:unverified] 区分规则 evaluator、模型 evaluator、人工 evaluator；模型裁判结果不得当作唯一发布门禁。
+- [ ] `P0-EVAL-025` [source:529] [state:partial] 区分规则 evaluator、模型 evaluator、人工 evaluator；模型裁判结果不得当作唯一发布门禁。
+  - Recorded evidence state: `partial`. Rule evaluator is separate from model/human evaluators at the interface boundary; model/human adapter implementations remain pending
 
-- [ ] `P0-EVAL-026` [source:530] [state:unverified] 评测数据集具备版本、license、sensitivity、split、防污染和泄漏检查。
+- [ ] `P0-EVAL-026` [source:530] [state:partial] 评测数据集具备版本、license、sensitivity、split、防污染和泄漏检查。
+  - Recorded evidence state: `partial`. SessionBundle records schema/source digest, tenant scope and redaction state; dataset version/license/split registry remains pending
 
-- [ ] `P0-EVAL-027` [source:531] [state:unverified] EvalRun 自身可取消、恢复、限预算、追踪成本，并保存未通过 invariant 的最小复现 bundle。
+- [ ] `P0-EVAL-027` [source:531] [state:partial] EvalRun 自身可取消、恢复、限预算、追踪成本，并保存未通过 invariant 的最小复现 bundle。
+  - Recorded evidence state: `partial`. EvalRun supports revision CAS, cancellation pause/resume, unit budget and minimal failing bundle evidence
 
 ## 12. Phase 10：API、协议与 SDK
 

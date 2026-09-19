@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestFileStoreRoundTripAndRange(t *testing.T) {
@@ -137,5 +138,68 @@ func TestFileStoreFailsClosedOnContentAndMetadataTampering(t *testing.T) {
 	}
 	if _, err := s.Stat(context.Background(), key); err == nil {
 		t.Fatal("Stat accepted tampered metadata")
+	}
+}
+
+func TestArtifactLifecycleMarksRootsAndProducesDeletionProof(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Now().UTC()
+	lifecycle, err := NewLifecycle(store, LifecycleOptions{Path: filepath.Join(root, "lifecycle.json"), Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey := Key{TenantID: "tenant", ArtifactID: "old", Version: 1}
+	protectedKey := Key{TenantID: "tenant", ArtifactID: "protected", Version: 1}
+	if _, err := store.Put(context.Background(), oldKey, strings.NewReader("old"), PutOptions{Immutable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Put(context.Background(), protectedKey, strings.NewReader("protected"), PutOptions{Immutable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.AddRoot(LifecycleRoot{URI: protectedKey.URI(), Reason: "retained event", LegalHold: true}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := lifecycle.Collect(context.Background(), clock.Add(24*time.Hour), "tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Deleted) != 1 || report.Deleted[0] != oldKey.URI() || len(report.Protected) != 1 || len(report.KeyDestructionPending) != 1 {
+		t.Fatalf("unexpected lifecycle report: %+v", report)
+	}
+	if _, err := store.Stat(context.Background(), oldKey); err == nil {
+		t.Fatal("garbage artifact still exists")
+	}
+	if _, err := store.Stat(context.Background(), protectedKey); err != nil {
+		t.Fatal("legal-hold artifact was deleted")
+	}
+	reloaded, err := NewLifecycle(store, LifecycleOptions{Path: filepath.Join(root, "lifecycle.json"), Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Proofs()) != 1 || reloaded.Proofs()[0].ProofDigest != report.ProofDigest {
+		t.Fatalf("proof was not durable: %+v", reloaded.Proofs())
+	}
+}
+
+func TestArtifactListVerifiesTenantBoundary(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{"a", "b"} {
+		if _, err := store.Put(context.Background(), Key{TenantID: tenant, ArtifactID: "x", Version: 1}, strings.NewReader(tenant), PutOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := store.List(context.Background(), "a")
+	if err != nil || len(items) != 1 || items[0].Key.TenantID != "a" {
+		t.Fatalf("tenant list=%+v err=%v", items, err)
 	}
 }

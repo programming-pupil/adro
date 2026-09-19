@@ -278,3 +278,45 @@ func TestTimerStoreUsesStableOrderingAndUTCForClockJumpsAndDST(t *testing.T) {
 		t.Fatalf("leap-second normalized timer=%+v err=%v", leapLoaded, err)
 	}
 }
+
+func TestDurableTimerCommandSpecsFreezeGenerationAndIdentity(t *testing.T) {
+	clock := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	scope := Scope{TenantID: "tenant", WorkspaceID: "workspace", SessionID: "session", RunID: "run"}
+	effect, err := EffectTimeoutTimerSpec(scope, "effect-1", "sha256:input", 3, clock.Add(time.Minute), ReconcileQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Command.Name != EffectTimeoutCommandName || effect.Generation != 3 || effect.ScheduleKey == "" {
+		t.Fatalf("effect timer=%+v", effect)
+	}
+	store, err := NewTimerStore(filepath.Join(t.TempDir(), "timers.json"), TimerStoreOptions{Clock: testkit.NewManualClock(clock), IDs: &testkit.SequenceIDs{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timer, _, err := store.Schedule(effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := store.ClaimDue(clock.Add(time.Minute), "worker", time.Minute, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("claims=%+v err=%v", claims, err)
+	}
+	payload, err := decodeEffectTimeoutClaim(claims[0])
+	if err != nil || payload.EffectID != "effect-1" || payload.Generation != 3 {
+		t.Fatalf("payload=%+v err=%v", payload, err)
+	}
+	if _, err := store.Acknowledge(timer.ID, "worker", claims[0].Timer.FencingToken, claims[0].OccurrenceKey, clock.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	sleep, err := SleepTimerSpec(scope, "continuation-1", "operator_pause", 4, clock.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sleep.Command.Name != SleepCommandName || sleep.Generation != 4 {
+		t.Fatalf("sleep timer=%+v", sleep)
+	}
+	resume, err := ScheduledResumeTimerSpec(scope, "continuation-1", "scheduled_resume", 5, clock.Add(2*time.Hour))
+	if err != nil || resume.Command.Name != ScheduledResumeCommandName || resume.Generation != 5 {
+		t.Fatalf("resume timer=%+v err=%v", resume, err)
+	}
+}

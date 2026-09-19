@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,6 +307,55 @@ func (s *FileStore) readMeta(path string, key Key) (ObjectMeta, error) {
 	if err := json.NewDecoder(f).Decode(&meta); err != nil {
 		return ObjectMeta{}, err
 	}
-	meta.Key = key
+	if key.TenantID != "" || key.ArtifactID != "" || key.Version != 0 {
+		meta.Key = key
+	}
 	return meta, nil
+}
+
+// List returns verified object metadata. A tenant filter may be empty to scan
+// all tenants. The filesystem layout is hash-addressed, so callers cannot
+// influence traversal with tenant or artifact identifiers.
+func (s *FileStore) List(ctx context.Context, tenantID string) ([]ObjectMeta, error) {
+	if s == nil {
+		return nil, errors.New("artifact store is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]ObjectMeta, 0)
+	err := filepath.WalkDir(s.root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
+			return nil
+		}
+		contentPath := strings.TrimSuffix(path, ".meta.json")
+		meta, err := s.readMeta(contentPath, Key{})
+		if err != nil {
+			return fmt.Errorf("read artifact metadata %s: %w", entry.Name(), err)
+		}
+		if tenantID != "" && meta.Key.TenantID != tenantID {
+			return nil
+		}
+		if err := verifyObject(contentPath, meta); err != nil {
+			return fmt.Errorf("verify artifact %s: %w", meta.Key.URI(), err)
+		}
+		result = append(result, meta)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Key.URI() < result[j].Key.URI()
+	})
+	return result, nil
 }
