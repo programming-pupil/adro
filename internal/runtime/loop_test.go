@@ -193,3 +193,29 @@ func TestToolLoopRequiresExplicitWriteReconcilePolicy(t *testing.T) {
 		t.Fatalf("missing policy error=%v", err)
 	}
 }
+
+func TestToolLoopCommitsEffectIntentBeforeToolStart(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop := ToolLoop{Journal: j, Scope: scope, Owner: "worker", FencingToken: lease.FencingToken, AllowedCapabilities: []string{"knowledge.read"}}
+	contract := ToolContract{Name: "search", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}
+	if _, err := loop.Run(context.Background(), "call-order", contract, map[string]any{"q": "durability"}, func(context.Context) (any, error) {
+		return map[string]any{"ok": true}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events := j.List(scope)
+	positions := map[string]int{}
+	for index, event := range events {
+		if event.AggregateID == "call-order" || event.AggregateID == "tool-effect:call-order" {
+			positions[event.EventType] = index
+		}
+	}
+	if positions[EventEffectIntent] >= positions[EventToolStarted] {
+		t.Fatalf("tool start was durable before effect intent: %+v", positions)
+	}
+}

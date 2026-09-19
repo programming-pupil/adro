@@ -233,21 +233,22 @@ type ToolContract struct {
 }
 
 type ToolState struct {
-	Scope          Scope    `json:"scope"`
-	CallID         string   `json:"call_id"`
-	Name           string   `json:"name"`
-	Capabilities   []string `json:"capabilities,omitempty"`
-	Authorized     bool     `json:"authorized"`
-	Started        bool     `json:"started"`
-	Approved       *bool    `json:"approved,omitempty"`
-	Finished       bool     `json:"finished"`
-	Failed         bool     `json:"failed"`
-	Cancelled      bool     `json:"cancelled"`
-	NotStarted     bool     `json:"not_started"`
-	Attempts       int      `json:"attempts"`
-	ContractDigest string   `json:"contract_digest,omitempty"`
-	LastEventID    string   `json:"last_event_id,omitempty"`
-	ReasonCode     string   `json:"reason_code,omitempty"`
+	Scope            Scope    `json:"scope"`
+	CallID           string   `json:"call_id"`
+	Name             string   `json:"name"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	Authorized       bool     `json:"authorized"`
+	RequiresApproval bool     `json:"requires_approval"`
+	Started          bool     `json:"started"`
+	Approved         *bool    `json:"approved,omitempty"`
+	Finished         bool     `json:"finished"`
+	Failed           bool     `json:"failed"`
+	Cancelled        bool     `json:"cancelled"`
+	NotStarted       bool     `json:"not_started"`
+	Attempts         int      `json:"attempts"`
+	ContractDigest   string   `json:"contract_digest,omitempty"`
+	LastEventID      string   `json:"last_event_id,omitempty"`
+	ReasonCode       string   `json:"reason_code,omitempty"`
 }
 
 type ModelState struct {
@@ -891,6 +892,9 @@ func (j *Journal) modelTransitionWithPayload(scope Scope, requestID, owner strin
 }
 
 func (j *Journal) PrepareEffectDispatch(scope Scope, effectID, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -904,6 +908,9 @@ func (j *Journal) PrepareEffectDispatch(scope Scope, effectID, owner string, fen
 }
 
 func (j *Journal) MarkEffectDispatched(scope Scope, effectID, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -924,6 +931,9 @@ func (j *Journal) MarkEffectDispatched(scope Scope, effectID, owner string, fenc
 }
 
 func (j *Journal) MarkEffectOutcomeUnknown(scope Scope, effectID, reason, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -972,7 +982,7 @@ func (j *Journal) ReconcileEffect(scope Scope, effectID, callID, owner string, f
 		}
 		return Event{}, ErrCorrupt
 	}
-	if !state.IntentCommitted || !state.Dispatched || state.Receipted || !toolState.Started || toolState.Finished || toolState.Cancelled {
+	if !state.IntentCommitted || state.ToolCallID != callID || !state.Dispatched || state.Receipted || !toolState.Started || toolState.Finished || toolState.Cancelled {
 		return Event{}, ErrConflict
 	}
 	if !state.OutcomeUnknown {
@@ -991,6 +1001,9 @@ func (j *Journal) ReconcileEffect(scope Scope, effectID, callID, owner string, f
 // CompleteToolEffect atomically records the external receipt and the
 // model-visible tool completion. A stale worker cannot commit either record.
 func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string, fencingToken int64, output any) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -998,7 +1011,7 @@ func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string
 	}
 	effectState := j.effectStateLocked(scope, effectID)
 	toolState := j.toolStateLocked(scope, callID)
-	if !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished {
+	if effectState.ToolCallID != callID || !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished {
 		return Event{}, ErrConflict
 	}
 	return j.appendBatchLocked([]Input{
@@ -1011,6 +1024,9 @@ func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string
 // its output violated the frozen contract. The receipt and terminal failure
 // are atomic, preventing a retry from executing the external effect again.
 func (j *Journal) FailToolEffectOutput(scope Scope, effectID, callID, owner string, fencingToken int64, outputDigest string) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -1018,7 +1034,7 @@ func (j *Journal) FailToolEffectOutput(scope Scope, effectID, callID, owner stri
 	}
 	effectState := j.effectStateLocked(scope, effectID)
 	toolState := j.toolStateLocked(scope, callID)
-	if !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished || toolState.Failed {
+	if effectState.ToolCallID != callID || !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished || toolState.Failed {
 		return Event{}, ErrConflict
 	}
 	payload := map[string]any{"reason_code": "tool_output_schema_invalid", "output_digest": outputDigest}
@@ -1031,6 +1047,9 @@ func (j *Journal) FailToolEffectOutput(scope Scope, effectID, callID, owner stri
 // AuthorizeToolContract records a capability decision and the immutable
 // contract digest before a tool can start. Tool names are never permissions.
 func (j *Journal) AuthorizeToolContract(scope Scope, callID, owner string, fencingToken int64, contract ToolContract, allowedCapabilities []string) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	frozen, err := FreezeToolContract(contract)
 	if err != nil {
 		return Event{}, err
@@ -1061,6 +1080,7 @@ func (j *Journal) AuthorizeToolContract(scope Scope, callID, owner string, fenci
 	payload := map[string]any{
 		"call_id": callID, "name": frozen.Name, "capabilities": frozen.Capabilities,
 		"allowed": true, "contract_digest": frozen.ContractDigest, "schema_version": frozen.SchemaVersion,
+		"requires_approval": frozen.RequiresApproval,
 	}
 	return j.appendBatchLocked([]Input{{EventType: EventToolAuthorized, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":authorize", WriterID: owner, FencingToken: fencingToken, Payload: payload}})
 }
@@ -1092,14 +1112,16 @@ func (j *Journal) toolStateLocked(scope Scope, callID string) ToolState {
 		case EventToolAuthorized:
 			state.Authorized = event.Status != StatusRejected
 			var payload struct {
-				Name         string   `json:"name"`
-				Capabilities []string `json:"capabilities"`
+				Name             string   `json:"name"`
+				Capabilities     []string `json:"capabilities"`
+				RequiresApproval bool     `json:"requires_approval"`
 			}
 			_ = json.Unmarshal(event.Payload, &payload)
 			if payload.Name != "" {
 				state.Name = payload.Name
 			}
 			state.Capabilities = append([]string(nil), payload.Capabilities...)
+			state.RequiresApproval = payload.RequiresApproval
 			var contractPayload struct {
 				ContractDigest string `json:"contract_digest"`
 			}
@@ -1174,6 +1196,9 @@ func (j *Journal) StartTool(scope Scope, callID, name, owner string, fencingToke
 	}
 	if state.Cancelled || state.Finished || state.Failed || state.NotStarted {
 		return Event{}, ErrConflict
+	}
+	if state.RequiresApproval && state.Approved == nil {
+		return Event{}, ErrApprovalRequired
 	}
 	if state.Approved != nil && !*state.Approved {
 		return Event{}, ErrUnauthorized

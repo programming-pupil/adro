@@ -29,8 +29,12 @@ in the caller's capability policy.
 
 ## Durable effect boundary
 
-`ToolLoop` records authorization, `tool.started`, effect intent, dispatch
-preparation and dispatch before it invokes the external callback. A valid
+`ToolLoop` records authorization, effect intent, `tool.started`, dispatch
+preparation and dispatch before it invokes the external callback. The intent
+is committed before `tool.started`, and every transition requires the active
+lease owner and positive fencing token. Approval requirements are persisted
+with authorization, so direct journal callers cannot bypass a required
+approval. A valid
 output commits the effect receipt and `tool.finished` in one journal batch. An
 invalid output commits a receipt marked `valid=false` and `tool.failed` in the
 same batch, with the output digest recorded for diagnosis. A replay returns

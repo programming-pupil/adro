@@ -176,6 +176,10 @@ func (l ToolLoop) prepareBatchCall(call ToolBatchCall) (*batchPreparedCall, Tool
 		result.Status, result.Reason = "waiting", "approval_required"
 		return nil, result, ErrApprovalRequired
 	}
+	if state.Approved != nil && !*state.Approved {
+		result.Status, result.Reason = "blocked", "approval_denied"
+		return nil, result, ErrUnauthorized
+	}
 	intent, _, err := l.Journal.CommitEffectIntentWithPolicy(l.Scope, effectID, call.CallID, call.Contract.Name, call.Contract.SideEffectClass, call.Contract.ReconcilePolicy, call.Input, l.Owner, l.FencingToken)
 	if err != nil {
 		result.Status, result.Reason = "blocked", "effect_intent_failed"

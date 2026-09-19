@@ -216,3 +216,66 @@ func mustJournal(t *testing.T, path string) *Journal {
 	}
 	return j
 }
+
+func TestToolContractApprovalCannotBeBypassedByDirectStart(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := ToolContract{
+		Name: "deploy", Capabilities: []string{"deployment.write"},
+		SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman,
+		RequiresApproval: true,
+	}
+	if _, err := j.AuthorizeToolContract(scope, "approval-direct", "worker", lease.FencingToken, contract, []string{"deployment.write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "approval-direct", "deploy", "worker", lease.FencingToken, nil); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("direct start bypassed approval: %v", err)
+	}
+	if _, err := j.ApproveTool(scope, "approval-direct", "worker", lease.FencingToken, "approved"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "approval-direct", "deploy", "worker", lease.FencingToken, nil); err != nil {
+		t.Fatalf("approved direct start failed: %v", err)
+	}
+}
+
+func TestEffectTransitionsRequirePositiveFenceAndMatchingTool(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
+	if _, err := j.AuthorizeToolContract(scope, "effect-call", "worker", lease.FencingToken, contract, []string{"record.write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "effect-call", "write", "worker", lease.FencingToken, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := j.CommitEffectIntent(scope, "effect-call-id", "effect-call", "write", EffectReconcilableWrite, nil, "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-call-id", "", 0); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("zero fence accepted by prepare: %v", err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-call-id", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkEffectDispatched(scope, "effect-call-id", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.CompleteToolEffect(scope, "effect-call-id", "different-call", "worker", lease.FencingToken, map[string]any{"ok": true}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("receipt completed mismatched tool: %v", err)
+	}
+	if _, err := j.MarkEffectOutcomeUnknown(scope, "effect-call-id", "lost", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.ReconcileEffect(scope, "effect-call-id", "different-call", "worker", lease.FencingToken, "confirmed", nil); !errors.Is(err, ErrConflict) {
+		t.Fatalf("reconciliation completed mismatched tool: %v", err)
+	}
+}

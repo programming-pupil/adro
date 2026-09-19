@@ -109,6 +109,21 @@ func (l ToolLoop) prepareAttempt(callID string, contract ToolContract, input any
 		result.Reason = "approval_required"
 		return nil, result, ErrApprovalRequired
 	}
+	if state.Approved != nil && !*state.Approved {
+		result.Status = "blocked"
+		result.Reason = "approval_denied"
+		return nil, result, ErrUnauthorized
+	}
+	// Commit the intent before the tool-start event. Once the callback boundary
+	// is reached, recovery can prove that an effect was authorized to dispatch;
+	// a crash cannot leave tool.started ahead of its durable intent.
+	intent, _, err := l.Journal.CommitEffectIntentWithPolicy(l.Scope, effectID, currentID, contract.Name, contract.SideEffectClass, contract.ReconcilePolicy, input, l.Owner, l.FencingToken)
+	if err != nil {
+		result.Status = "blocked"
+		result.Reason = "effect_intent_failed"
+		return nil, result, err
+	}
+	result.EventIDs = append(result.EventIDs, intent.EventID)
 	if _, err := l.Journal.StartTool(l.Scope, currentID, contract.Name, l.Owner, l.FencingToken, input); err != nil {
 		result.Status = "blocked"
 		if errors.Is(err, ErrUnauthorized) {
@@ -119,13 +134,6 @@ func (l ToolLoop) prepareAttempt(callID string, contract ToolContract, input any
 	if started, startedErr := l.Journal.ToolState(l.Scope, currentID); startedErr == nil && started.LastEventID != "" {
 		result.EventIDs = append(result.EventIDs, started.LastEventID)
 	}
-	intent, _, err := l.Journal.CommitEffectIntentWithPolicy(l.Scope, effectID, currentID, contract.Name, contract.SideEffectClass, contract.ReconcilePolicy, input, l.Owner, l.FencingToken)
-	if err != nil {
-		result.Status = "blocked"
-		result.Reason = "effect_intent_failed"
-		return nil, result, err
-	}
-	result.EventIDs = append(result.EventIDs, intent.EventID)
 	prepared, err := l.Journal.PrepareEffectDispatch(l.Scope, effectID, l.Owner, l.FencingToken)
 	if err != nil {
 		result.Status = "blocked"
