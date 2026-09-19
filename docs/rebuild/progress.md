@@ -53,7 +53,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
-| P0-TIMER-001 | partial | Durable reference `internal/runtime/TimerStore` persists timer records and survives restart; timeout/retry/approval/sleep call sites are not all migrated |
+| P0-TIMER-001 | partial | Durable `TimerStore` persists records and survives restart; human/approval deadlines have idempotent at-least-once scheduling/handling, while model/effect retry, sleep and scheduled-resume call sites remain pending |
 | P0-TIMER-002 | complete locally | `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go` |
 | P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
@@ -122,3 +122,11 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STREAM-005 | complete locally for reference contract | Distinct text/reasoning/tool/usage/finish/error frame types and terminal validation |
 | P0-STREAM-007 | partial | Context cancellation is available at gateway boundary; adapter socket/goroutine cleanup evidence remains pending |
 | P0-STREAM-009 | partial | Reference tests cover retention gap, optional drop, overflow disconnect, duplicate/out-of-order rejection; provider matrix remains pending |
+
+| P0-POLICY-002 | partial | New runtime approvals persist paired `approval.asked` and `approval.decided` events; legacy approval APIs and tool authorization paths still need migration |
+| P0-POLICY-003 | partial | Missing responders converge on durable timeout, actor/schema/version errors fail closed, and restart preserves pending requests; production deadline worker composition remains pending |
+| P0-HUMAN-001 | complete locally for reference state machine | `HumanInteractionRequest` is separate from `ApprovalRequest` and supports question, choice, freeform, artifact review and takeover kinds |
+| P0-HUMAN-002 | complete locally for reference state machine | Request events freeze schema, deadline, eligible actors, claim policy, context digest, sensitivity, version and definition digest |
+| P0-HUMAN-003 | complete locally for reference state machine | Responses bind a verified actor, request version, idempotency key, canonical payload digest and bounded schema validation |
+| P0-HUMAN-004 | complete locally for reference state machine | Deterministic tests cover timeout, withdrawal, duplicate/conflicting answers, concurrent claim, approved takeover and displaced claimants |
+| P0-HUMAN-005 | complete locally for reference state machine | A response can be applied only to a pending step while its turn waits for the matching input class; active model/effect steps fail closed |

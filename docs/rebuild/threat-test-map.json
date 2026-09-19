@@ -251,6 +251,30 @@
       "tests": [
         "internal/api/auth_attachment_test.go#TestAuditPreservesOriginalActorAndDelegationChain"
       ]
+    },
+    {
+      "id": "TM-HUMAN-001",
+      "description": "Two responders race to claim or decide the same human or approval request, or a displaced claimant submits a late answer.",
+      "mitigation": "Claims are lease-like durable transitions serialized under the runtime write fence; takeover increments generation and only the current eligible claimant may respond.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanApprovalConcurrentClaimTakeoverAndDuplicateDecision"
+      ]
+    },
+    {
+      "id": "TM-HUMAN-002",
+      "description": "An ineligible or expired human identity answers a request after its authorization window closes.",
+      "mitigation": "Actor credentials, tenant/workspace scope, eligibility, request version, claim ownership, schema, and deadline are checked before a response event can commit.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanRequestRejectsExpiredIneligibleAndUnsafeResponses"
+      ]
+    },
+    {
+      "id": "TM-HUMAN-003",
+      "description": "A human response changes frozen context while a model stream or tool effect is active.",
+      "mitigation": "Responses commit separately and become visible only through an apply event targeting a pending step while its parent turn is in the matching waiting state.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanInteractionResponseAppliesOnlyAtSafeBoundaryAndReplays"
+      ]
     }
   ]
 }

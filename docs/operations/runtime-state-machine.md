@@ -121,6 +121,8 @@ including terminal checkpoint/outbox writes in the same backend transaction,
 adding dedicated recovery commands for unknown outcomes, and wiring the runtime
 engine, API, projections, traces, and Runtime Inspector to the new stream.
 
+Human input and privileged approval use the separate durable state machine documented in `docs/operations/human-interaction.md`. Its response becomes visible only at a pending step boundary; it cannot mutate a frozen model or effect execution.
+
 ## Verification
 
 `internal/runtime/lifecycle_state_test.go` covers the full successful path,

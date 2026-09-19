@@ -43,8 +43,12 @@ latter to the next minute before persistence; timer storage always writes UTC.
 
 ## Current boundaries
 
-This increment supplies the durable store and recovery semantics. Timeout,
-retry, approval deadline, sleep and scheduled-resume call sites have not all
-been migrated from existing in-process paths. There is also no Runtime
-Inspector API or CLI for timer listing/cancellation yet. Those gaps keep the
-timer capability experimental/partial and block a stable claim.
+This increment supplies the durable store and recovery semantics. Human
+interaction and approval deadlines now expose an idempotent timer command and
+at-least-once handler in `internal/runtime/human_interaction.go`; its restart
+test covers a crash after timeout commit but before timer acknowledgement.
+Production composition and the remaining retry, sleep, model, effect and
+scheduled-resume call sites have not all been migrated from existing
+in-process paths. There is also no Runtime Inspector API or CLI for timer
+listing/cancellation yet. Those gaps keep the timer capability
+experimental/partial and block a stable claim.

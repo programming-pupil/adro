@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **38 evidenced**, **78 partial**, **335 unverified**
+- Evidence tracking: **43 evidenced**, **80 partial**, **328 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -128,7 +128,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-CORE-007` [source:154] [state:unverified] 定义 schema upcaster、unknown-field、downgrade 和 migration policy。
 
 - [ ] `P0-CORE-008` [source:155] [state:partial] 为所有状态机生成状态转移表和非法转换测试。
-  - Recorded evidence state: `partial`. Session/Turn/Step transition tables and illegal-transition tests exist in `internal/runtime/lifecycle_state.go`; ModelCall, Approval, Timer and Delegation transition tables remain pending
+  - Recorded evidence state: `partial`. Session/Turn/Step and HumanInteraction/Approval transition tables and illegal-transition tests exist; ModelCall, Timer and Delegation tables remain pending
 
 ## 3.2 消除多套事实来源
 
@@ -338,9 +338,11 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-POLICY-001` [source:269] [state:partial] 定义 capability-based policy，不按工具名称硬编码权限。
   - Recorded evidence state: `partial`. `core/policy` evaluates declared capabilities rather than adapter/tool names; migration of every dispatch path remains pending
 
-- [ ] `P0-POLICY-002` [source:270] [state:unverified] `approval/asked` 与 `approval/decided` 必须成对持久化。
+- [ ] `P0-POLICY-002` [source:270] [state:partial] `approval/asked` 与 `approval/decided` 必须成对持久化。
+  - Recorded evidence state: `partial`. New runtime approvals persist paired `approval.asked` and `approval.decided` events with immutable request versions; legacy approval and tool paths remain pending
 
-- [ ] `P0-POLICY-003` [source:271] [state:unverified] 无 answerer、answerer 崩溃或返回未知值时 fail-closed。
+- [ ] `P0-POLICY-003` [source:271] [state:partial] 无 answerer、answerer 崩溃或返回未知值时 fail-closed。
+  - Recorded evidence state: `partial`. Unknown decisions and invalid actors/schema fail closed; missing responders converge on a durable timeout transition, while production deadline-worker wiring remains pending
 
 - [ ] `P0-POLICY-004` [source:272] [state:partial] 子 Agent 权限只能继承或收缩，不能扩张。
   - Recorded evidence state: `partial`. `core/policy.ValidateChild` rejects tenant/workspace changes, added capabilities/destinations and higher sensitivity; orchestration delegation wiring remains pending
@@ -366,15 +368,20 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 ## 5.3.1 Human Interaction
 
-- [ ] `P0-HUMAN-001` [source:283] [state:unverified] 将通用人在回路输入与高风险 Approval 分离，定义 question、choice、freeform、artifact review、takeover。
+- [ ] `P0-HUMAN-001` [source:283] [state:evidenced] 将通用人在回路输入与高风险 Approval 分离，定义 question、choice、freeform、artifact review、takeover。
+  - Recorded evidence state: Complete locally for the reference state machine. Ordinary human interaction is structurally separate from privileged Approval and supports question, choice, freeform, artifact review and takeover
 
-- [ ] `P0-HUMAN-002` [source:284] [state:unverified] 每个请求持久化 schema、deadline、eligible actors、claim policy、context digest 和 sensitivity。
+- [ ] `P0-HUMAN-002` [source:284] [state:evidenced] 每个请求持久化 schema、deadline、eligible actors、claim policy、context digest 和 sensitivity。
+  - Recorded evidence state: Complete locally for the reference state machine. Requests freeze schema, deadline, eligible actors, claim policy, context digest, sensitivity, version and canonical definition digest
 
-- [ ] `P0-HUMAN-003` [source:285] [state:unverified] response 需要 actor identity、request version、idempotency key 和 schema validation。
+- [ ] `P0-HUMAN-003` [source:285] [state:evidenced] response 需要 actor identity、request version、idempotency key 和 schema validation。
+  - Recorded evidence state: Complete locally for the reference state machine. Responses require verified actor identity, exact request version, idempotency key and bounded canonical schema validation
 
-- [ ] `P0-HUMAN-004` [source:286] [state:unverified] 超时、撤回、重复回答、过期回答、并发 claim 和 takeover 都有确定状态机。
+- [ ] `P0-HUMAN-004` [source:286] [state:evidenced] 超时、撤回、重复回答、过期回答、并发 claim 和 takeover 都有确定状态机。
+  - Recorded evidence state: Complete locally for the reference state machine. Tests cover timeout, withdrawal, duplicate/conflicting answers, concurrent claim, approved takeover and displaced claimants
 
-- [ ] `P0-HUMAN-005` [source:287] [state:unverified] 人工输入进入下一安全 step boundary，不得在模型流或 effect dispatch 中途隐式改变冻结上下文。
+- [ ] `P0-HUMAN-005` [source:287] [state:evidenced] 人工输入进入下一安全 step boundary，不得在模型流或 effect dispatch 中途隐式改变冻结上下文。
+  - Recorded evidence state: Complete locally for the reference state machine. Responses apply only to a pending step while its turn waits for matching human input, preventing mid-stream or mid-effect mutation
 
 ## 5.4 MCP
 
@@ -594,7 +601,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 8.2.1 Durable Timer
 
 - [ ] `P0-TIMER-001` [source:416] [state:partial] timeout、retry、approval deadline、sleep、scheduled resume 使用持久 TimerStore，不能只依赖进程内 goroutine/timer。
-  - Recorded evidence state: `partial`. Durable reference `internal/runtime/TimerStore` persists timer records and survives restart; timeout/retry/approval/sleep call sites are not all migrated
+  - Recorded evidence state: `partial`. Durable `TimerStore` persists records and survives restart; human/approval deadlines have idempotent at-least-once scheduling/handling, while model/effect retry, sleep and scheduled-resume call sites remain pending
 
 - [ ] `P0-TIMER-002` [source:417] [state:evidenced] timer 记录 due time、command、stream expected sequence、generation、owner 和 state。
   - Recorded evidence state: `complete locally`. `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go`
