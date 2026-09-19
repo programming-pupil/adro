@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adro-project/adro/internal/security"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -224,6 +226,10 @@ func boundedAttributes(attributes map[string]string) map[string]string {
 	for key, value := range attributes {
 		key = strings.TrimSpace(key)
 		if key == "" || len(result) >= 32 || strings.HasSuffix(key, ".id") || strings.HasSuffix(key, "_id") || key == "session_id" || key == "comment_id" {
+			continue
+		}
+		value, ok := security.RedactAttribute(key, value)
+		if !ok {
 			continue
 		}
 		if len(value) > 256 {

@@ -883,7 +883,7 @@ func TestLocalProviderCodexExecClosesStdin(t *testing.T) {
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2m")
 	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "exec-eof", Title: "exec eof"})
 	if err != nil {
@@ -912,7 +912,7 @@ sleep 30
 	if err := os.WriteFile(executable, []byte(script), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "5s")
+	t.Setenv("ADRO_EXECUTOR_TIMEOUT", "2m")
 	p := NewLocalProvider(executable, []string{"exec"}, filepath.Join(root, "workspaces"), newTestBus())
 	item, err := p.CreateWorkItem(context.Background(), WorkItemSpec{ID: "codex-terminal", Title: "codex terminal"})
 	if err != nil {
@@ -922,11 +922,23 @@ sleep 30
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	snapshot := waitSnapshot(t, p, binding.ID)
-	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Fatalf("terminal result waited for leaked child: %s", elapsed)
+	p.mu.RLock()
+	run := p.runs[binding.ID]
+	p.mu.RUnlock()
+	if run == nil || run.terminalObserved == nil || run.processDone == nil {
+		t.Fatal("run did not expose owned terminal and process completion signals")
 	}
+	select {
+	case <-run.terminalObserved:
+	case <-time.After(90 * time.Second):
+		t.Fatal("runtime did not emit terminal protocol evidence")
+	}
+	select {
+	case <-run.processDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("terminal result did not terminate the leaked process group")
+	}
+	snapshot := waitSnapshot(t, p, binding.ID)
 	if snapshot.Status != "completed" || snapshot.Error != "" || snapshot.SessionID != nativeSession {
 		t.Fatalf("terminal result was not accepted: %+v", snapshot)
 	}
@@ -1274,22 +1286,25 @@ func TestLocalProviderRejectsCodexContinuationWithoutThreadProof(t *testing.T) {
 
 func waitSnapshot(t *testing.T, p *LocalProvider, id string) RunSnapshot {
 	t.Helper()
-	// Race/coverage builds can spend tens of seconds compiling and scheduling a
-	// short-lived child process on a loaded CI worker. Keep the assertion bounded
-	// while leaving enough room for the real-process acceptance path to finish.
-	deadline := time.Now().Add(90 * time.Second)
-	for time.Now().Before(deadline) {
-		snapshot, err := p.GetRun(context.Background(), id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if snapshot.Status != "running" {
-			return snapshot
-		}
-		time.Sleep(5 * time.Millisecond)
+	p.mu.RLock()
+	run := p.runs[id]
+	p.mu.RUnlock()
+	if run == nil || run.done == nil {
+		t.Fatalf("local run %s has no owned completion signal", id)
 	}
-	t.Fatalf("local process did not finish within 90s: %s", id)
-	return RunSnapshot{}
+	select {
+	case <-run.done:
+	case <-time.After(90 * time.Second):
+		t.Fatalf("local process did not finish within 90s: %s", id)
+	}
+	snapshot, err := p.GetRun(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Status == "running" {
+		t.Fatalf("completion closed before terminal snapshot: %+v", snapshot)
+	}
+	return snapshot
 }
 
 func newTestBus() *events.Bus {

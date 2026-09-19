@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **35 evidenced**, **42 partial**, **374 unverified**
+- Evidence tracking: **36 evidenced**, **50 partial**, **365 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -443,27 +443,36 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 ## 7.1 Sandbox Broker
 
-- [ ] `P0-SBX-001` [source:346] [state:unverified] 定义 enforcement levels：`none`、`process`、`filesystem`、`network`、`container`、`microvm`、`remote`。
+- [ ] `P0-SBX-001` [source:346] [state:evidenced] 定义 enforcement levels：`none`、`process`、`filesystem`、`network`、`container`、`microvm`、`remote`。
+  - Recorded evidence state: `complete locally for contract`. `ports/sandbox` defines and validates all seven cumulative levels, rejects unknown/inconsistent capability sets, and has ordering/fail-closed tests
 
-- [ ] `P0-SBX-002` [source:347] [state:unverified] production profile 最低要求由 policy 声明；能力不足时拒绝启动。
+- [ ] `P0-SBX-002` [source:347] [state:partial] production profile 最低要求由 policy 声明；能力不足时拒绝启动。
+  - Recorded evidence state: `partial`. `SandboxRequest.RequiredLevel` and resource requirements fail closed in `adapters/sandbox/local`; production policy-engine wiring and startup profile selection remain pending
 
-- [ ] `P0-SBX-003` [source:348] [state:unverified] local developer backend 支持 macOS Seatbelt、Linux Landlock/bwrap、Windows restricted token/ACL。
+- [ ] `P0-SBX-003` [source:348] [state:partial] local developer backend 支持 macOS Seatbelt、Linux Landlock/bwrap、Windows restricted token/ACL。
+  - Recorded evidence state: `partial`. Real macOS Seatbelt deny-default and file/network negative tests exist; Linux Landlock/bwrap and Windows restricted-token/ACL implementations are absent
 
-- [ ] `P0-SBX-004` [source:349] [state:unverified] 明确本地 OS sandbox 不是多租户隔离，UI 不得显示为“secure tenant sandbox”。
+- [ ] `P0-SBX-004` [source:349] [state:partial] 明确本地 OS sandbox 不是多租户隔离，UI 不得显示为“secure tenant sandbox”。
+  - Recorded evidence state: `partial`. Local capabilities always report `secure_tenant_isolation=false` and `docs/operations/sandbox.md` states the limitation; Runtime Inspector/API presentation remains pending
 
 - [ ] `P0-SBX-005` [source:350] [state:unverified] 交付 rootless OCI 或 remote worker backend，至少一个达到 production conformance。
 
-- [ ] `P0-SBX-006` [source:351] [state:unverified] 网络默认 deny，使用 domain/IP/port capability grant 和受控代理。
+- [ ] `P0-SBX-006` [source:351] [state:partial] 网络默认 deny，使用 domain/IP/port capability grant 和受控代理。
+  - Recorded evidence state: `partial`. Network grant validation covers domain/IP/CIDR, ports, protocol, purpose and expiry; Seatbelt denies outbound traffic and rejects grants it cannot faithfully enforce; controlled proxy and DNS-rebinding conformance are pending
 
-- [ ] `P0-SBX-007` [source:352] [state:unverified] 文件规则区分 read、write、create、delete、execute，并解析 symlink/ancestor alias。
+- [ ] `P0-SBX-007` [source:352] [state:partial] 文件规则区分 read、write、create、delete、execute，并解析 symlink/ancestor alias。
+  - Recorded evidence state: `partial`. Separate operations, workspace containment, leaf/ancestor symlink rejection and real Seatbelt allow/deny tests exist; hard-link, mount-boundary and descriptor-relative TOCTOU protection remain pending
 
-- [ ] `P0-SBX-008` [source:353] [state:unverified] 进程树、超时、取消、输出上限和孤儿进程清理纳入统一 runner contract。
+- [ ] `P0-SBX-008` [source:353] [state:partial] 进程树、超时、取消、输出上限和孤儿进程清理纳入统一 runner contract。
+  - Recorded evidence state: `partial`. Unified stream/result contract, bounded event buffer, timeout, pre-start/running cancellation, output termination and Unix process-group descendant cleanup tests exist; Windows job-object cleanup and CPU/memory/disk limits remain pending
 
 ## 7.2 Secret 与数据安全
 
-- [ ] `P0-SEC-001` [source:357] [state:unverified] 实现 Secret Broker，事件和日志只保存 secret reference。
+- [ ] `P0-SEC-001` [source:357] [state:partial] 实现 Secret Broker，事件和日志只保存 secret reference。
+  - Recorded evidence state: `partial`. `ports/secretstore` uses metadata-only scope-bound leases and `adapters/secret/memory` proves copy, expiry, revocation and canary-free serialization; production secret storage/injection and every event/log boundary remain pending
 
-- [ ] `P0-SEC-002` [source:358] [state:unverified] 对 prompt、tool input/output、trace attribute 做敏感数据分类与脱敏。
+- [ ] `P0-SEC-002` [source:358] [state:partial] 对 prompt、tool input/output、trace attribute 做敏感数据分类与脱敏。
+  - Recorded evidence state: `partial`. `internal/security` defines sensitivity/surface classes and recursive fail-closed redaction; orchestration diagnostics and trace attributes have canary tests; real prompt/tool adapter paths and log bridge integration remain pending
 
 - [ ] `P0-SEC-003` [source:359] [state:unverified] 定义 prompt injection trust zones：用户内容、retrieved content、tool output 均为 untrusted。
 

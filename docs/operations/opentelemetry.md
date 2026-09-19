@@ -26,6 +26,6 @@ On termination, `cmd/adro-api` first stops accepting HTTP work, then shuts down 
 
 ## Data handling
 
-Span attributes are bounded to 32 entries and 256 bytes per value. Keys that conventionally contain high-cardinality identifiers (`*.id`, `*_id`, `session_id`, and `comment_id`) are rejected by the tracing adapter. Prompts, tool output, file contents, secrets, and full durable identifiers must not be added as attributes.
+Span attributes are bounded to 32 entries and 256 bytes per value. Keys that conventionally contain high-cardinality identifiers (`*.id`, `*_id`, `session_id`, and `comment_id`) are rejected by the tracing adapter. Before export, `internal/security` redacts credential-bearing keys, bearer/basic values, and URLs with embedded credentials while preserving valid opaque `secret:` references. Prompts, tool output, file contents, plaintext secrets, and full durable identifiers must not be added as attributes.
 
 The current implementation covers standard trace export and W3C propagation. The complete task/session/turn/step/model/tool/delegation span hierarchy, metrics, log bridge, collector fault matrix, and Runtime Inspector trace waterfall remain separate tracked work and are not claimed stable by this document.

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/security"
 )
 
 // planTimeline returns the immutable event chain together with the current
@@ -238,7 +238,7 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 		if err := json.Unmarshal(event.Payload, &item); err != nil {
 			item = map[string]any{"redacted": true}
 		} else {
-			item = redactOrchestrationValue(item, "")
+			item = security.Redact(security.SurfaceEvent, item)
 		}
 		data := map[string]any{
 			"event_id": event.ID, "plan_id": event.PlanID, "workspace_id": event.WorkspaceID,
@@ -252,29 +252,6 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 		result = append(result, data)
 	}
 	return result
-}
-
-func redactOrchestrationValue(value any, key string) any {
-	lower := strings.ToLower(strings.TrimSpace(key))
-	if lower == "prompt" || lower == "input" || lower == "content" || lower == "secret" || strings.Contains(lower, "secret") || strings.Contains(lower, "token_value") {
-		return "[redacted]"
-	}
-	switch typed := value.(type) {
-	case map[string]any:
-		copy := make(map[string]any, len(typed))
-		for childKey, childValue := range typed {
-			copy[childKey] = redactOrchestrationValue(childValue, childKey)
-		}
-		return copy
-	case []any:
-		copy := make([]any, len(typed))
-		for i, child := range typed {
-			copy[i] = redactOrchestrationValue(child, key)
-		}
-		return copy
-	default:
-		return value
-	}
 }
 
 func lastSequence(events []orchestration.Event) int64 {

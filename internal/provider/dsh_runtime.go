@@ -107,6 +107,11 @@ func parseDSHModel(value string) (*dshModelSelection, error) {
 	return &dshModelSelection{Provider: provider, ID: model}, nil
 }
 
+type dshRuntimeHooks struct {
+	onStart func(int)
+	onWrite func([]byte)
+}
+
 func executeDSHRuntime(
 	ctx context.Context,
 	path string,
@@ -115,6 +120,18 @@ func executeDSHRuntime(
 	resumed bool,
 	environment map[string]string,
 	onStart func(int),
+) (pid int, output []byte, runErr error) {
+	return executeDSHRuntimeWithHooks(ctx, path, args, runID, input, workDir, sessionID, model, thinkingLevel, resumed, environment, dshRuntimeHooks{onStart: onStart})
+}
+
+func executeDSHRuntimeWithHooks(
+	ctx context.Context,
+	path string,
+	args []string,
+	runID, input, workDir, sessionID, model, thinkingLevel string,
+	resumed bool,
+	environment map[string]string,
+	hooks dshRuntimeHooks,
 ) (pid int, output []byte, runErr error) {
 	selection, err := parseDSHModel(model)
 	if err != nil {
@@ -148,11 +165,14 @@ func executeDSHRuntime(
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		_, err = stdin.Write(data)
+		if err == nil && hooks.onWrite != nil {
+			hooks.onWrite(append([]byte(nil), data...))
+		}
 		return err
 	}
 	cmd.Cancel = func() error {
 		_ = writeFrame(dshCancelRequest{Version: dshProtocolVersion, Type: "cancel", RequestID: runID})
-		timer := time.NewTimer(100 * time.Millisecond)
+		timer := time.NewTimer(dshStreamDrainGrace)
 		defer timer.Stop()
 		<-timer.C
 		return cancelLocalCommand(cmd)
@@ -162,8 +182,8 @@ func executeDSHRuntime(
 		return 0, nil, err
 	}
 	pid = cmd.Process.Pid
-	if onStart != nil {
-		onStart(pid)
+	if hooks.onStart != nil {
+		hooks.onStart(pid)
 	}
 	stderrDone := make(chan struct{})
 	go func() {
@@ -176,14 +196,26 @@ func executeDSHRuntime(
 		waitDone := make(chan error, 1)
 		go func() { waitDone <- cmd.Wait() }()
 		var waitErr error
-		select {
-		case waitErr = <-waitDone:
-		case <-time.After(dshProcessExitGrace):
+		if terminal {
+			// The validated result frame is the protocol commit point. Terminate
+			// immediately so leaked descendants cannot retain stdout/stderr and
+			// convert success into a later context deadline.
 			_ = terminateLocalCommand(cmd)
 			select {
 			case waitErr = <-waitDone:
 			case <-time.After(dshStreamDrainGrace):
 				waitErr = errors.New("process did not exit after terminal result")
+			}
+		} else {
+			select {
+			case waitErr = <-waitDone:
+			case <-time.After(dshProcessExitGrace):
+				_ = terminateLocalCommand(cmd)
+				select {
+				case waitErr = <-waitDone:
+				case <-time.After(dshStreamDrainGrace):
+					waitErr = errors.New("process did not exit after termination")
+				}
 			}
 		}
 		// A validated terminal frame owns the protocol outcome. Some profile

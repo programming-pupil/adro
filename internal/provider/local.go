@@ -34,15 +34,21 @@ import (
 )
 
 type localRun struct {
-	snapshot     RunSnapshot
-	cancel       context.CancelFunc
-	input        string
-	stdin        io.WriteCloser
-	oneShot      bool
-	pending      []Interaction
-	inputMu      sync.Mutex
-	started      chan struct{}
-	fencingToken int64
+	snapshot         RunSnapshot
+	cancel           context.CancelFunc
+	input            string
+	stdin            io.WriteCloser
+	oneShot          bool
+	pending          []Interaction
+	inputMu          sync.Mutex
+	started          chan struct{}
+	terminalObserved chan struct{}
+	terminalOnce     sync.Once
+	processDone      chan struct{}
+	processDoneOnce  sync.Once
+	done             chan struct{}
+	doneOnce         sync.Once
+	fencingToken     int64
 }
 
 // localOutput serializes stdout/stderr capture and recognizes the only safe
@@ -520,7 +526,12 @@ func (p *LocalProvider) start(ctx context.Context, workItemID, issueID, input, s
 		fencingToken = lease.FencingToken
 	}
 	p.mu.Lock()
-	run := &localRun{snapshot: snapshot, cancel: cancel, input: input, oneShot: oneShot, started: make(chan struct{}), fencingToken: fencingToken}
+	run := &localRun{
+		snapshot: snapshot, cancel: cancel, input: input, oneShot: oneShot,
+		started: make(chan struct{}), terminalObserved: make(chan struct{}),
+		processDone: make(chan struct{}), done: make(chan struct{}),
+		fencingToken: fencingToken,
+	}
 	p.runs[id] = run
 	appendRuntimeEventLocked(run, "run.started", map[string]any{"work_item_id": workItemID, "session_id": sessionID, "work_dir": workDir, "input_sha256": sha256Hex(input)})
 	runKey := strings.TrimSpace(idempotencyKey)
@@ -593,6 +604,7 @@ func localExecutionContext(parent context.Context) (context.Context, context.Can
 }
 
 func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sessionID string, resumed bool) {
+	defer p.markRunDone(runID)
 	started := time.Now()
 	baseline := gitRevision(workDir)
 	runtimeLogPath := ""
@@ -709,6 +721,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 				if codexOneShot {
 					outputCapture.onTerminal = func() {
 						// The structured turn result is already committed to the pipe.
+						p.markRunTerminalObserved(runID)
 						// Kill the whole process group so MCP descendants cannot keep
 						// stdout/stderr open and delay Wait indefinitely.
 						_ = terminateLocalCommand(cmd)
@@ -803,6 +816,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		}
 		p.mu.Unlock()
 	}
+	p.markRunProcessDone(runID)
 	if runErr == nil {
 		runErr = runtimeProtocolError(output, p.executorKind())
 	}
@@ -952,6 +966,36 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 		payload["error"] = "durable run snapshot unavailable"
 	}
 	_ = p.Bus.Publish(ctx, events.NewWithContext(ctx, "execution."+status+".v1", "execution_run", runID, "", "", 2, payload))
+}
+
+func (p *LocalProvider) markRunTerminalObserved(runID string) {
+	p.mu.RLock()
+	run := p.runs[runID]
+	p.mu.RUnlock()
+	if run == nil || run.terminalObserved == nil {
+		return
+	}
+	run.terminalOnce.Do(func() { close(run.terminalObserved) })
+}
+
+func (p *LocalProvider) markRunProcessDone(runID string) {
+	p.mu.RLock()
+	run := p.runs[runID]
+	p.mu.RUnlock()
+	if run == nil || run.processDone == nil {
+		return
+	}
+	run.processDoneOnce.Do(func() { close(run.processDone) })
+}
+
+func (p *LocalProvider) markRunDone(runID string) {
+	p.mu.RLock()
+	run := p.runs[runID]
+	p.mu.RUnlock()
+	if run == nil || run.done == nil {
+		return
+	}
+	run.doneOnce.Do(func() { close(run.done) })
 }
 
 func (p *LocalProvider) updateLiveRunOutput(runID string, output []byte) {
@@ -2469,7 +2513,10 @@ func (p *LocalProvider) loadState() error {
 		if err := validateRuntimeSnapshot(snapshot); err != nil {
 			return err
 		}
-		run := &localRun{snapshot: snapshot}
+		run := &localRun{
+			snapshot: snapshot, terminalObserved: make(chan struct{}),
+			processDone: make(chan struct{}), done: make(chan struct{}),
+		}
 		if snapshot.Status == "running" {
 			run.snapshot.Status = "failed"
 			run.snapshot.Error = "local executor process was interrupted by an API restart"
@@ -2483,6 +2530,8 @@ func (p *LocalProvider) loadState() error {
 				"session_id": run.snapshot.SessionID,
 			})
 		}
+		run.processDoneOnce.Do(func() { close(run.processDone) })
+		run.doneOnce.Do(func() { close(run.done) })
 		p.runs[id] = run
 	}
 	for key, id := range state.RunKeys {

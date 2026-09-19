@@ -360,7 +360,7 @@ func discoverACPRuntimeCatalog(parent context.Context, runtimeID, path string) R
 	if err != nil {
 		return fallback
 	}
-	defer process.close()
+	defer process.close(false)
 	initialize, err := process.client.request(ctx, "initialize", map[string]any{
 		"protocolVersion":    1,
 		"clientInfo":         map[string]any{"name": "adro-model-discovery", "version": "1"},

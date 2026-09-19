@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/internal/security"
+
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -68,7 +70,11 @@ func TestTracerExportsBoundedSpanWithParent(t *testing.T) {
 	recorder := &recordingExporter{}
 	tracer := Tracer{Exporter: recorder}
 	root, _ := StartSpan(context.Background())
-	ctx, finish := tracer.Start(root, "provider.run", map[string]string{"plan_id": "secret-plan", "component": "provider", "safe": "yes"})
+	ctx, finish := tracer.Start(root, "provider.run", map[string]string{
+		"plan_id": "secret-plan", "component": "provider", "safe": "yes",
+		"client.secret": "trace-canary", "authorization": "Bearer trace-canary",
+		"secret_ref": "secret:vault/trace",
+	})
 	if TraceID(ctx) == "" {
 		t.Fatal("tracer did not install a span context")
 	}
@@ -77,6 +83,10 @@ func TestTracerExportsBoundedSpanWithParent(t *testing.T) {
 	}
 	if len(recorder.spans) != 1 || recorder.spans[0].ParentSpanID == "" || recorder.spans[0].Attributes["plan_id"] != "" || recorder.spans[0].Attributes["safe"] != "yes" {
 		t.Fatalf("unexpected exported span: %+v", recorder.spans)
+	}
+	attributes := recorder.spans[0].Attributes
+	if attributes["client.secret"] != security.Redacted || attributes["authorization"] != security.Redacted || attributes["secret_ref"] != "secret:vault/trace" {
+		t.Fatalf("trace redaction was not enforced: %+v", attributes)
 	}
 }
 

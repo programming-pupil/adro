@@ -1,10 +1,62 @@
 package provider
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 )
+
+func TestBoundedDiscoveryCommandHelper(t *testing.T) {
+	if os.Getenv("ADRO_DISCOVERY_HELPER") != "1" {
+		return
+	}
+	var writers sync.WaitGroup
+	for stream, writer := range map[string]*os.File{"stdout": os.Stdout, "stderr": os.Stderr} {
+		stream, writer := stream, writer
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for index := 0; index < 128; index++ {
+				_, _ = fmt.Fprintf(writer, "%s-%03d-%s\n", stream, index, strings.Repeat("x", 32))
+			}
+		}()
+	}
+	writers.Wait()
+}
+
+func TestRunBoundedDiscoveryCommandSerializesBothStreams(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(context.Background(), executable, "-test.run=^TestBoundedDiscoveryCommandHelper$")
+	command.Env = append(os.Environ(), "ADRO_DISCOVERY_HELPER=1")
+	output, err := runBoundedDiscoveryCommand(command, 32<<10)
+	if err != nil {
+		t.Fatalf("bounded discovery command: %v", err)
+	}
+	if !bytes.Contains(output, []byte("stdout-000-")) || !bytes.Contains(output, []byte("stderr-000-")) {
+		t.Fatalf("combined output did not contain both streams: %q", output)
+	}
+}
+
+func TestRunBoundedDiscoveryCommandRejectsOverflow(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(context.Background(), executable, "-test.run=^TestBoundedDiscoveryCommandHelper$")
+	command.Env = append(os.Environ(), "ADRO_DISCOVERY_HELPER=1")
+	if _, err := runBoundedDiscoveryCommand(command, 1024); err == nil || !strings.Contains(err.Error(), "exceeded limit") {
+		t.Fatalf("overflow returned %v", err)
+	}
+}
 
 func TestDiscoverLocalRuntimesFindsEveryInstalledClient(t *testing.T) {
 	dir := t.TempDir()

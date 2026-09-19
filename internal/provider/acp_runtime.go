@@ -443,19 +443,31 @@ func startACPRuntimeProcess(ctx context.Context, path string, args []string, wor
 	return process, nil
 }
 
-func (p *acpRuntimeProcess) close() error {
+func (p *acpRuntimeProcess) close(terminal bool) error {
 	p.closeOnce.Do(func() {
 		_ = p.stdin.Close()
 		done := make(chan error, 1)
 		go func() { done <- p.cmd.Wait() }()
-		select {
-		case p.waitErr = <-done:
-		case <-time.After(time.Second):
+		if terminal {
+			// A validated terminal response is the protocol commit point. Kill the
+			// process group immediately so a runtime or descendant cannot retain a
+			// pipe and turn successful completion into a deadline failure.
 			_ = terminateLocalCommand(p.cmd)
 			select {
 			case p.waitErr = <-done:
 			case <-time.After(250 * time.Millisecond):
-				p.waitErr = errors.New("ACP process did not exit after termination")
+				p.waitErr = errors.New("ACP process did not exit after terminal response")
+			}
+		} else {
+			select {
+			case p.waitErr = <-done:
+			case <-time.After(time.Second):
+				_ = terminateLocalCommand(p.cmd)
+				select {
+				case p.waitErr = <-done:
+				case <-time.After(250 * time.Millisecond):
+					p.waitErr = errors.New("ACP process did not exit after termination")
+				}
 			}
 		}
 		select {
@@ -496,7 +508,8 @@ func executeACPRuntime(
 	}
 	defer func() {
 		protocolErr := process.client.protocolError()
-		_ = process.close()
+		terminal := runErr == nil && protocolErr == nil
+		_ = process.close(terminal)
 		output = process.transcript.Bytes()
 		if runErr == nil && ctx.Err() != nil {
 			runErr = ctx.Err()
