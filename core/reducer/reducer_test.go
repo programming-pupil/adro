@@ -83,3 +83,58 @@ func TestReplayAppliesEventsInSequence(t *testing.T) {
 		t.Fatalf("state=%d err=%v", state, err)
 	}
 }
+
+func TestReplayVerifiedUpcastsAndReportsImmutableEvidence(t *testing.T) {
+	now := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	first, err := event.Commit(event.Uncommitted{
+		StreamID: "session-1", EventType: "counter.changed", TenantID: "tenant-1", WorkspaceID: "workspace-1",
+		Actor: event.Actor{Type: "system", ID: "runtime-1"}, CorrelationID: "session-1", OccurredAt: now,
+		Classification: "internal", Payload: json.RawMessage(`{"delta":2}`),
+	}, event.CommitMetadata{Sequence: 1, EventID: "event-1", CommittedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := event.NewRegistry(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register("counter.changed", 1, 2, func(raw json.RawMessage) (json.RawMessage, error) {
+		var old struct {
+			Delta int `json:"delta"`
+		}
+		if err := json.Unmarshal(raw, &old); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"delta": old.Delta})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The reducer intentionally accepts the normalized field after migration.
+	reducer := normalizedCounterReducer{}
+	state, evidence, err := ReplayVerified[int, struct{}](reducer, 3, []event.Envelope{first}, registry)
+	if err != nil || state != 5 {
+		t.Fatalf("state=%d evidence=%+v err=%v", state, evidence, err)
+	}
+	if evidence.LastSequence != 1 || evidence.StateDigest == "" || len(evidence.OriginalEventDigests) != 1 || len(evidence.UpcastPath["event-1"]) != 1 {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+	if err := first.Verify(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type normalizedCounterReducer struct{}
+
+func (normalizedCounterReducer) Decide(context.Context, int, struct{}, core.Dependencies) ([]event.Uncommitted, error) {
+	return nil, nil
+}
+
+func (normalizedCounterReducer) Apply(state int, envelope event.Envelope) (int, error) {
+	var payload struct {
+		Delta int `json:"delta"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		return state, err
+	}
+	return state + payload.Delta, nil
+}

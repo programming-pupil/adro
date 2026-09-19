@@ -113,7 +113,84 @@ func (e Envelope) Verify() error {
 	return nil
 }
 
-func (e Envelope) validateRequired() error {
+// VerifyStored validates an immutable envelope independent of the reader's
+// current schema target. It is the only verification path allowed before an
+// explicit upcaster is applied during replay.
+func (e Envelope) VerifyStored() error {
+	if err := e.validateStored(); err != nil {
+		return err
+	}
+	payloadDigest, err := coreencoding.DigestRaw(e.Payload)
+	if err != nil {
+		return err
+	}
+	if payloadDigest != e.PayloadDigest {
+		return errors.New("event payload digest mismatch")
+	}
+	digest, err := e.digest()
+	if err != nil {
+		return err
+	}
+	if digest != e.EnvelopeDigest {
+		return errors.New("event envelope digest mismatch")
+	}
+	return nil
+}
+
+// ValidateChain verifies a complete stream from sequence one. A paginated
+// reader should use ValidateChainFrom with the preceding sequence and digest.
+func ValidateChain(events []Envelope) error {
+	return ValidateChainFrom(events, 0, "")
+}
+
+// ValidateChainFrom verifies a contiguous event page without changing any
+// stored bytes. previousDigest must be the digest at afterSequence, or empty
+// when afterSequence is zero.
+func ValidateChainFrom(events []Envelope, afterSequence int64, previousDigest string) error {
+	if afterSequence < 0 {
+		return errors.New("event chain after sequence cannot be negative")
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	expectedSequence := afterSequence + 1
+	streamID, tenantID, workspaceID := events[0].StreamID, events[0].TenantID, events[0].WorkspaceID
+	for _, envelope := range events {
+		if envelope.StreamID != streamID || envelope.TenantID != tenantID || envelope.WorkspaceID != workspaceID {
+			return errors.New("event chain scope mismatch")
+		}
+		if envelope.Sequence != expectedSequence {
+			return fmt.Errorf("event chain sequence gap: expected %d got %d", expectedSequence, envelope.Sequence)
+		}
+		if envelope.PreviousDigest != previousDigest {
+			return fmt.Errorf("event chain previous digest mismatch at sequence %d", envelope.Sequence)
+		}
+		if err := envelope.VerifyStored(); err != nil {
+			return fmt.Errorf("event chain integrity failure at sequence %d: %w", envelope.Sequence, err)
+		}
+		previousDigest = envelope.EnvelopeDigest
+		expectedSequence++
+	}
+	return nil
+}
+
+func (e Envelope) validateStored() error {
+	if err := validateIdentity(e); err != nil {
+		return err
+	}
+	if e.SchemaVersion < 1 || e.EventType == "" || e.CorrelationID == "" || e.Actor.Type == "" || e.Actor.ID == "" || e.Classification == "" {
+		return errors.New("sequence, event_type, actor, correlation_id and classification are required")
+	}
+	if e.Encoding.Name != coreencoding.Current.Name || e.Encoding.HashAlgorithm != coreencoding.Current.HashAlgorithm || e.Encoding.HashVersion != coreencoding.Current.HashVersion {
+		return errors.New("unsupported event encoding identity")
+	}
+	if e.OccurredAt.IsZero() || e.CommittedAt.IsZero() {
+		return errors.New("occurred_at and committed_at are required")
+	}
+	return nil
+}
+
+func validateIdentity(e Envelope) error {
 	for _, item := range []struct {
 		namespace string
 		value     string
@@ -128,14 +205,18 @@ func (e Envelope) validateRequired() error {
 			return err
 		}
 	}
-	if e.Sequence < 1 || e.EventType == "" || e.CorrelationID == "" || e.Actor.Type == "" || e.Actor.ID == "" || e.Classification == "" {
-		return errors.New("sequence, event_type, actor, correlation_id and classification are required")
+	if e.Sequence < 1 {
+		return errors.New("event sequence must be positive")
+	}
+	return nil
+}
+
+func (e Envelope) validateRequired() error {
+	if err := e.validateStored(); err != nil {
+		return err
 	}
 	if e.SchemaVersion != SchemaVersion || e.Encoding != coreencoding.Current {
 		return errors.New("unsupported event schema or encoding identity")
-	}
-	if e.OccurredAt.IsZero() || e.CommittedAt.IsZero() {
-		return errors.New("occurred_at and committed_at are required")
 	}
 	return nil
 }

@@ -338,6 +338,20 @@ func (s *TimerStore) Acknowledge(id, owner string, fencingToken int64, occurrenc
 	return s.finish(id, owner, fencingToken, occurrenceKey, now, "completed")
 }
 
+// Fail records a terminal handler result while preserving the same claim and
+// fencing checks as a successful acknowledgement. Recurring timers advance
+// to their next generation; one-shot timers become terminal with the failure
+// reason visible in the inspector.
+func (s *TimerStore) Fail(id, owner string, fencingToken int64, occurrenceKey string, now time.Time, reason string) (TimerExecution, error) {
+	if strings.TrimSpace(occurrenceKey) == "" {
+		return TimerExecution{}, errors.New("timer occurrence_key is required")
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "handler_failed"
+	}
+	return s.finish(id, owner, fencingToken, occurrenceKey, now, "failed:"+strings.TrimSpace(reason))
+}
+
 func (s *TimerStore) ReleaseClaim(id, owner string, fencingToken int64, occurrenceKey string, now time.Time) error {
 	if strings.TrimSpace(occurrenceKey) == "" {
 		return errors.New("timer occurrence_key is required")
@@ -434,7 +448,7 @@ func (s *TimerStore) finish(id, owner string, fencingToken int64, occurrenceKey 
 		result = TimerExecution{OccurrenceKey: occurrenceKey, TimerID: timer.ID, Generation: timer.ClaimGeneration, Status: status, CompletedAt: now}
 		s.executions[occurrenceKey] = result
 		if timer.Interval <= 0 {
-			timer.State, timer.TerminalReason = TimerFired, "completed"
+			timer.State, timer.TerminalReason = TimerFired, status
 		} else {
 			next := timer.DueAt.Add(timer.Interval)
 			if !timer.ClaimAdvanceTo.IsZero() {

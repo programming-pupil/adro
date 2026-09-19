@@ -16,9 +16,10 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-CORE-003 | partial | Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode, while other producers remain pending |
 | P0-CORE-004 | partial | Runtime journal mapping and restart backfill exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending |
 | P0-CORE-006 | partial | Canonical JSON v1, golden digest and fuzz smoke |
+| P0-CORE-007 | partial | `core/event/registry.go` provides adjacent explicit upcasters, reject/preserve unknown-field policy, future-version rejection and downgrade blocking; N-2 fixtures and producer migrations remain pending |
 | P0-CORE-008 | partial | Session/Turn/Step transition tables and illegal-transition tests exist in `internal/runtime/lifecycle_state.go`; ModelCall, Approval, Timer and Delegation transition tables remain pending |
 | P0-CORE-009 | partial | `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending |
-| P0-CORE-010 | partial | Runtime shadow projections rebuild and compare canonical digests from sequence zero; all other projections remain pending |
+| P0-CORE-010 | partial | `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; runtime shadow projections rebuild from sequence zero, while projection workers and other views remain pending |
 | P0-CORE-013 | partial | Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources |
 | P0-CORE-014 | partial | Manual clock, sequence IDs/random and recording sleeper tests |
 | P0-CORE-015 | partial | Canonical map/number/Unicode encoding tests; cross-process fixtures pending |
@@ -26,6 +27,12 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-CORE-017 | partial | Reducer byte-determinism test exists; runtime state machines pending |
 | P0-CORE-018 | partial | Turn and Step reference lifecycle freeze canonical config, adapter/protocol, policy, tokenizer, context/tool/policy digests with tamper tests; ExecutionPlan and production engine binding remain pending |
 | P0-CORE-019 | partial | Restart replay retains historical Turn/Step snapshot digests; hot-update boundary integration and authoritative EventStore cutover remain pending |
+| P0-MODEL-004 | partial | `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch acceptance rules; provider adapter emission remains pending |
+| P0-MODEL-005 | partial | Bounded deterministic backoff, Retry-After handling and durable `model.retry` TimerSpec exist; authoritative retry event/provider wiring remains pending |
+| P0-MODEL-006 | partial | Deterministic route evidence, historical route reuse, circuit breaker and unknown-dispatch fallback guard exist; live adapter pool integration remains pending |
+| P0-MODEL-012 | partial | `ModelRouteDecision` records candidate health, rate limit, capabilities, score and reason; API/event persistence remains pending |
+| P0-MODEL-013 | partial | `ModelCircuitBreaker` implements closed/open/half-open with one probe; provider health/admission composition remains pending |
+| P0-MODEL-014 | partial | Retry and route replay refuse fallback after an unproven dispatch; provider query/reconcile wiring remains pending |
 | P0-LIFE-001 | complete | Lifecycle component contract |
 | P0-LIFE-002 | complete | Missing dependency, duplicate and cycle validation with stable order |
 | P0-LIFE-003 | complete | Topological start, reverse stop and partial-start rollback |

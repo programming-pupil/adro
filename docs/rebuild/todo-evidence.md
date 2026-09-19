@@ -125,7 +125,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-CORE-006` [source:153] [state:partial] 定义 canonical serialization，hash 不依赖 map 遍历顺序。
   - Recorded evidence state: `partial`. Canonical JSON v1, golden digest and fuzz smoke
 
-- [ ] `P0-CORE-007` [source:154] [state:unverified] 定义 schema upcaster、unknown-field、downgrade 和 migration policy。
+- [ ] `P0-CORE-007` [source:154] [state:partial] 定义 schema upcaster、unknown-field、downgrade 和 migration policy。
+  - Recorded evidence state: `partial`. `core/event/registry.go` enforces adjacent explicit upcasters, rejects future versions and downgrade registration, and exposes reject/preserve unknown-field decoding; N-2 fixtures and every producer migration remain pending
 
 - [ ] `P0-CORE-008` [source:155] [state:partial] 为所有状态机生成状态转移表和非法转换测试。
   - Recorded evidence state: `partial`. Session/Turn/Step and HumanInteraction/Approval transition tables and illegal-transition tests exist; ModelCall, Timer and Delegation tables remain pending
@@ -136,7 +137,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending
 
 - [ ] `P0-CORE-010` [source:166] [state:partial] 所有 projection 支持从 sequence 0 重建并比较 digest。
-  - Recorded evidence state: `partial`. Runtime shadow projections rebuild and compare canonical digests from sequence zero; all other projections remain pending
+  - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` provide verified sequence/hash replay and deterministic state digest evidence; runtime shadow projections rebuild from sequence zero, while projection workers and other views remain pending
 
 - [ ] `P0-CORE-011` [source:167] [state:unverified] 删除无法重建或与 authoritative stream 冲突的 snapshot 字段。
 
@@ -228,11 +229,14 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-MODEL-003` [source:214] [state:evidenced] 模型能力通过 negotiation 暴露：tools、images、structured output、reasoning、continuation、streaming。
   - Recorded evidence state: `complete locally for reference contract`. `ProviderCapabilities` validates protocol/model/features fail-closed with tests
 
-- [ ] `P0-MODEL-004` [source:215] [state:unverified] 实现 provider retry 分类：transport、rate limit、server、invalid request、context overflow、auth。
+- [ ] `P0-MODEL-004` [source:215] [state:partial] 实现 provider retry 分类：transport、rate limit、server、invalid request、context overflow、auth。
+  - Recorded evidence state: `partial`. `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch/acceptance classification; provider adapters still need to emit the facts consistently
 
-- [ ] `P0-MODEL-005` [source:216] [state:unverified] 支持指数退避、jitter、`Retry-After`、最大累计等待和持久 retry event。
+- [ ] `P0-MODEL-005` [source:216] [state:partial] 支持指数退避、jitter、`Retry-After`、最大累计等待和持久 retry event。
+  - Recorded evidence state: `partial`. `ModelRetryPolicy` provides bounded deterministic backoff and `ModelRetryTimerSpec` binds retries to durable timers; authoritative retry events and provider integration remain pending
 
-- [ ] `P0-MODEL-006` [source:217] [state:unverified] 支持路由、fallback 和 circuit breaker，但禁止在有未知副作用后切换并重放。
+- [ ] `P0-MODEL-006` [source:217] [state:partial] 支持路由、fallback 和 circuit breaker，但禁止在有未知副作用后切换并重放。
+  - Recorded evidence state: `partial`. Deterministic route evidence, historical decision reuse, circuit states and unknown-dispatch guard exist in `internal/runtime/model_retry.go`; live adapter pool/fallback wiring remains pending
 
 - [ ] `P1-MODEL-007` [source:218] [state:unverified] 建立 prompt cache identity 与 context hash，统计 cache hit/miss。
 
@@ -246,11 +250,14 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-MODEL-011` [source:222] [state:evidenced] request digest 与 provider idempotency key 一一绑定；相同 key 不同 payload 必须拒绝。
   - Recorded evidence state: `complete locally for reference contract`. Canonical request digest and idempotency conflict tests
 
-- [ ] `P0-MODEL-012` [source:223] [state:unverified] 路由决策记录候选集、健康、限流、成本、能力和最终原因；replay 不重新计算历史路由。
+- [ ] `P0-MODEL-012` [source:223] [state:partial] 路由决策记录候选集、健康、限流、成本、能力和最终原因；replay 不重新计算历史路由。
+  - Recorded evidence state: `partial`. `ModelRouteDecision` persists candidate evidence and reuses a matching historical selection; API/event persistence remains pending
 
-- [ ] `P0-MODEL-013` [source:224] [state:unverified] provider health、限流和 circuit breaker 有独立状态机，half-open probe 不占用正常 session 配额。
+- [ ] `P0-MODEL-013` [source:224] [state:partial] provider health、限流和 circuit breaker 有独立状态机，half-open probe 不占用正常 session 配额。
+  - Recorded evidence state: `partial`. `ModelCircuitBreaker` implements closed/open/half-open and a single probe gate; provider health and admission composition remain pending
 
-- [ ] `P0-MODEL-014` [source:225] [state:unverified] fallback 只能发生在未 dispatch 或已证明无远端效果的失败后；未知结果禁止跨 provider 重放。
+- [ ] `P0-MODEL-014` [source:225] [state:partial] fallback 只能发生在未 dispatch 或已证明无远端效果的失败后；未知结果禁止跨 provider 重放。
+  - Recorded evidence state: `partial`. `DecideModelRetry` and historical route replay reject fallback after an unproven dispatch; real provider query/reconcile paths remain pending
 
 - [ ] `P0-MODEL-015` [source:226] [state:evidenced] capability negotiation 与 API 版本协商失败时 fail-closed，不按 adapter 名称猜能力。
   - Recorded evidence state: `complete locally for reference contract`. Incompatible protocol/model/capability negotiation is rejected without adapter-name inference
@@ -711,13 +718,15 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-REC-001` [source:468] [state:unverified] 恢复前先取得 write ownership/lease，再做 tail repair。
 
-- [ ] `P0-REC-002` [source:469] [state:unverified] 只容忍 torn tail；middle corruption、hash mismatch、sequence gap 一律 fail-closed。
+- [ ] `P0-REC-002` [source:469] [state:partial] 只容忍 torn tail；middle corruption、hash mismatch、sequence gap 一律 fail-closed。
+  - Recorded evidence state: `partial`. `event.ValidateChain`/`ValidateChainFrom` reject scope mismatch, sequence gaps, digest mismatch and corrupted payloads; durable tail repair and kill-point recovery remain pending
 
 - [ ] `P0-REC-003` [source:470] [state:unverified] recovery decision 必须成为事件，不能只写日志。
 
 - [ ] `P0-REC-004` [source:471] [state:unverified] 建立进程 kill point matrix：event append、model request、tool dispatch、receipt、checkpoint 前后。
 
-- [ ] `P0-REC-005` [source:472] [state:unverified] 恢复后 projection digest 与无故障执行一致。
+- [ ] `P0-REC-005` [source:472] [state:partial] 恢复后 projection digest 与无故障执行一致。
+  - Recorded evidence state: `partial`. `reducer.ReplayVerified` emits deterministic state digests and immutable event/upcaster evidence; end-to-end recovery comparison and projection worker integration remain pending
 
 - [ ] `P0-REC-006` [source:473] [state:unverified] schema migration 支持 crash resume、重复执行和 rollback policy。
 

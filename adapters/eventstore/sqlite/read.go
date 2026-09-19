@@ -79,7 +79,7 @@ func (s *Store) Read(ctx context.Context, streamID string, after int64, limit in
 			envelope.EventID != eventID || envelope.EventType != eventType || envelope.IdempotencyKey != idempotencyKey ||
 			envelope.PayloadDigest != payloadDigest || envelope.CommittedAt.UnixMicro() != committedAtMicros ||
 			envelope.PreviousDigest != storedPrevious || envelope.EnvelopeDigest != envelopeDigest ||
-			sequence != expectedSequence || storedPrevious != previousDigest || envelope.Verify() != nil {
+			sequence != expectedSequence || storedPrevious != previousDigest || envelope.VerifyStored() != nil {
 			return nil, eventstore.ErrCorrupt
 		}
 		events = append(events, envelope)
@@ -142,7 +142,7 @@ func (s *Store) Head(ctx context.Context, streamID string) (int64, string, error
 		return 0, "", fmt.Errorf("read sqlite head event: %w", err)
 	}
 	var envelope event.Envelope
-	if json.Unmarshal(raw, &envelope) != nil || envelope.Verify() != nil || envelope.Sequence != sequence ||
+	if json.Unmarshal(raw, &envelope) != nil || envelope.VerifyStored() != nil || envelope.Sequence != sequence ||
 		envelope.StreamID != streamID || storedDigest != digest || envelope.EnvelopeDigest != digest {
 		return 0, "", eventstore.ErrCorrupt
 	}
