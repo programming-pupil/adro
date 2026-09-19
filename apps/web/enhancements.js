@@ -12,8 +12,71 @@
   const menuIDs = [
     'workbench', 'delivery', 'humanQA', 'diffs', 'testing', 'chats',
     'repositories', 'agents', 'mcp', 'skills', 'automations',
-    'integrations', 'artifacts', 'runners', 'cost', 'admin'
+    'integrations', 'artifacts', 'runners', 'cost', 'timers', 'admin'
   ];
+
+  let timerItems = [], timerLoading = false, timerLoaded = false, timerError = '', timerExplanation = null, timerIncludeTerminal = true;
+
+  function timerStatusClass(state) {
+    return ({pending: 'active', claimed: 'warn', fired: 'good', cancelled: 'good', expired: 'bad'})[String(state || '').toLowerCase()] || 'active';
+  }
+
+  function timerScopeLabel(scope) {
+    return [scope?.tenant_id, scope?.workspace_id, scope?.session_id, scope?.run_id].filter(Boolean).join(' / ') || '-';
+  }
+
+  function renderTimerInspector() {
+    if (timerError) {
+      return `<div class="view-stack timer-inspector"><div class="menu-intro"><strong>${escapeHTML(t('timersTitle'))}</strong><span>${escapeHTML(t('timerUnavailable'))}</span></div><div class="notice"><strong>${escapeHTML(t('notConfigured'))}</strong><span>${escapeHTML(t('timerUnavailableHint'))}</span></div></div>`;
+    }
+    const counts = {pending: 0, claimed: 0, terminal: 0, expired: 0};
+    for (const item of timerItems) {
+      const state = String(item.state || '').toLowerCase();
+      if (state === 'pending') counts.pending++; else if (state === 'claimed') counts.claimed++; else counts.terminal++;
+      if (state === 'expired') counts.expired++;
+    }
+    const explanation = timerExplanation ? `<section class="panel timer-explanation"><div class="panel-head"><div><h2>${escapeHTML(t('timerExplanation'))}</h2><small class="mono">${escapeHTML(timerExplanation.timer?.id || '-')}</small></div><button class="icon-button" type="button" data-timer-clear-explanation aria-label="${escapeHTML(t('close'))}">×</button></div><div class="timer-explanation-grid"><div><span>${escapeHTML(t('timerReason'))}</span><strong>${escapeHTML(timerExplanation.reason || '-')}</strong></div><div><span>${escapeHTML(t('timerNextAction'))}</span><strong>${escapeHTML(timerExplanation.next_action || '-')}</strong></div><div><span>${escapeHTML(t('timerCommand'))}</span><strong class="mono">${escapeHTML(timerExplanation.timer?.command?.name || '-')}</strong></div><div><span>${escapeHTML(t('timerScope'))}</span><strong>${escapeHTML(timerScopeLabel(timerExplanation.timer?.scope))}</strong></div></div></section>` : '';
+    const rows = timerItems.map(item => {
+      const state = String(item.state || '').toLowerCase();
+      const terminal = ['fired', 'cancelled', 'expired'].includes(state);
+      return `<tr><td class="mono">${escapeHTML(item.id || '-')}</td><td><span class="status ${timerStatusClass(state)}">${escapeHTML(state || '-')}</span></td><td class="mono">${escapeHTML(item.due_at ? new Date(item.due_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US') : '-')}</td><td class="timer-scope">${escapeHTML(timerScopeLabel(item.scope))}</td><td><strong>${escapeHTML(item.command?.name || '-')}</strong><small class="mono">${escapeHTML(item.command?.idempotency_key || '')}</small></td><td><div class="row-actions"><button class="action-button" type="button" data-timer-explain="${escapeHTML(item.id)}">${escapeHTML(t('timerExplain'))}</button>${terminal ? '' : `<button class="action-button" type="button" data-timer-cancel="${escapeHTML(item.id)}">${escapeHTML(t('timerCancel'))}</button>`}</div></td></tr>`;
+    }).join('');
+    return `<div class="view-stack timer-inspector"><section class="timer-hero"><div><span class="menu-kicker">RUNTIME INSPECTOR / DURABLE TIMER</span><h2>${escapeHTML(t('timersTitle'))}</h2><p>${escapeHTML(t('timersSubtitle'))}</p></div><div class="timer-hero-actions"><label class="toggle-line"><input id="timerIncludeTerminal" type="checkbox" ${timerIncludeTerminal ? 'checked' : ''}><span>${escapeHTML(t('timerIncludeTerminal'))}</span></label><button class="secondary" id="timerRefresh" type="button">↻ ${escapeHTML(t('timerRefresh'))}</button></div></section><div class="timer-stat-grid"><article><span>${escapeHTML(t('timerPending'))}</span><strong>${escapeHTML(String(counts.pending))}</strong></article><article><span>${escapeHTML(t('timerClaimed'))}</span><strong>${escapeHTML(String(counts.claimed))}</strong></article><article><span>${escapeHTML(t('timerTerminal'))}</span><strong>${escapeHTML(String(counts.terminal))}</strong></article><article class="${counts.expired ? 'warn' : ''}"><span>${escapeHTML(t('timerExpired'))}</span><strong>${escapeHTML(String(counts.expired))}</strong></article></div>${explanation}<section class="panel timer-table-panel"><div class="panel-head"><div><h2>${escapeHTML(t('timers'))}</h2><small>${escapeHTML(timerLoading ? t('loading') : `${timerItems.length} ${t('items')}`)}</small></div><span class="status active">${escapeHTML(timerIncludeTerminal ? t('timerIncludeTerminal') : t('timerPending'))}</span></div><div class="table-scroll"><table><thead><tr><th>${escapeHTML(t('timerID'))}</th><th>${escapeHTML(t('status'))}</th><th>${escapeHTML(t('timerDue'))}</th><th>${escapeHTML(t('timerScope'))}</th><th>${escapeHTML(t('timerCommand'))}</th><th>${escapeHTML(t('actions'))}</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">${escapeHTML(t('timerNoItems'))}</td></tr>`}</tbody></table></div></section></div>`;
+  }
+
+  async function loadTimers() {
+    if (timerLoading) return;
+    timerLoading = true; timerError = '';
+    if (currentView === 'timers') render();
+    try {
+      const response = await api(`/api/v1/timers?include_terminal=${timerIncludeTerminal ? 'true' : 'false'}`);
+      timerItems = response?.items || [];
+    } catch (_) {
+      timerError = 'unavailable'; timerItems = [];
+    } finally {
+      timerLoaded = true;
+      timerLoading = false;
+      if (currentView === 'timers') render();
+    }
+  }
+
+  function bindTimerInspector() {
+    $('#timerRefresh')?.addEventListener('click', () => { void loadTimers(); });
+    $('#timerIncludeTerminal')?.addEventListener('change', event => { timerIncludeTerminal = event.currentTarget.checked; void loadTimers(); });
+    document.querySelector('[data-timer-clear-explanation]')?.addEventListener('click', () => { timerExplanation = null; render(); });
+    document.querySelectorAll('[data-timer-explain]').forEach(button => button.addEventListener('click', async () => {
+      try { timerExplanation = await api(`/api/v1/timers/${encodeURIComponent(button.dataset.timerExplain)}/explain`); timerError = ''; render(); } catch (_) { timerError = 'unavailable'; render(); }
+    }));
+    document.querySelectorAll('[data-timer-cancel]').forEach(button => button.addEventListener('click', async () => {
+      const reason = window.prompt(t('timerCancelPrompt'), t('timerCancelReason'));
+      if (reason === null) return;
+      try {
+        await api(`/api/v1/timers/${encodeURIComponent(button.dataset.timerCancel)}/cancel`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID?.() || String(Date.now())}, body: JSON.stringify({reason: reason.trim()})});
+        timerExplanation = null;
+        await loadTimers();
+      } catch (_) { timerError = 'cancel_failed'; render(); }
+    }));
+  }
 
   Object.assign(translations.zh, {
     chats: '普通聊天', chatSubtitle: '把项目、文件与 Agent 放进同一段持续上下文', newChat: '新建会话', chatTitle: '会话标题', chatProject: '绑定项目', chatMessagePlaceholder: '描述你想解决的问题，或把上下文交给 Agent...', sendMessage: '发送', noChats: '还没有聊天会话', noMessages: '从一个问题开始', chatSendFailed: '消息发送失败', chatCreateFailed: '会话创建失败', chatAttachments: '添加附件', chatSearchPlaceholder: '搜索会话', chatContext: '上下文', chatNoProject: '未绑定项目', chatChooseProject: '选择项目', chatProjectReady: '项目上下文已接入', chatAgentReady: 'Agent 已就绪', chatNoAgent: '使用默认执行器', chatRecent: '最近会话', chatWorkspace: 'AI 项目工作区', chatWorkspaceHint: '选择项目，上传文件，然后开始一段有记忆的问答。', chatSuggested: '你可以先问', chatSuggestionOne: '总结这个项目当前的风险', chatSuggestionTwo: '根据附件给出实现建议', chatSuggestionThree: '帮我梳理下一步研发任务', chatDropHint: '拖入文件，或直接粘贴图片', chatFilesReady: '个文件已加入上下文', chatUploadHint: '图片可预览，文件会随消息发送', chatRemoveFile: '移除附件', chatPreviewFile: '预览附件', chatSending: '正在交给 Agent...', chatEmptyTitle: '让项目成为对话的一部分', chatEmptyBody: '绑定一个项目后，Agent 会在同一条上下文里理解仓库、附件和你的问题。', chatConversation: '对话', chatRuntimeState: '运行态', chatPersisted: '已持久化', chatProjectFiles: '项目与附件', chatNoFiles: '发送附件后会显示在这里', chatMessages: '条消息', chatStart: '开始对话', chatNewTitlePlaceholder: '例如：支付发布讨论', agentCreateKicker: 'CREATE / ASSISTANT', agentStepDescribe: '先说清楚它要帮你做什么', agentStepDescribeHelp: '不用写技术配置，直接描述目标、输入和你期待的结果。', agentReadyState: '可开始创建', agentCreatingState: '正在创建', agentCreatedState: '已创建', agentNeedsAttentionState: '需要处理', agentCreateRunning: '创建任务已开始，关闭窗口也会继续。', agentCreateDone: '助手已创建，可以在列表中继续启用或编辑。', agentCreateError: '创建没有完成', agentRetry: '重试', agentView: '查看', agentUploadAvatar: '上传头像', agentAvatarHelp: 'PNG、JPG 或 WebP，最大 5 MiB。', agentUseLocalExecution: '使用本地执行环境', agentNoProviderError: '当前执行环境不可用，请先确认本地执行程序已安装且可运行。',
@@ -308,6 +371,33 @@
     deliveryChooseParent: 'Choose a parent requirement', deliveryParentRequired: 'Choose a parent requirement before creating a bug',
     deliveryBugDescriptionHelp: 'Start with the failure, then add reproduction steps, expected behavior, and actual behavior.', deliveryRequirementDescriptionHelp: 'Describe the outcome, context, constraints, and acceptance focus.',
     deliverySearch: 'Search delivery items, keys, or owners', deliveryStatusFilter: 'Filter by status', deliveryStatusAll: 'All statuses', deliveryStartDevelopment: 'Start development', deliveryOpenExecution: 'Open execution cockpit', deliveryBack: 'Back to delivery', deliveryPlanNone: 'No plan yet', deliveryPlanReady: 'Plan ready', deliveryPlanRunning: 'Plan running', deliveryPlanFailed: 'Plan failed', deliveryValidationPending: 'Waiting for validation evidence', deliveryValidationFromStatus: 'Driven by delivery status', deliveryProject: 'Project', deliveryOwner: 'Owner', deliveryTeam: 'Execution team', deliveryBugSummary: '{total} bugs total · {open} unresolved', deliveryUnlinkedHint: 'These bugs do not have a parent requirement yet; keep them visible until context is restored.', deliveryContextSummary: 'All context stays on one delivery thread.', deliveryPlanSummary: 'Plan generation, review, and development runs share the same delivery item.', deliveryDevelopmentSummary: 'Development runs from a frozen Agent / Squad graph.', deliveryValidationSummary: 'Validation and bug repair status roll back into the parent requirement.', deliveryNoPlanAction: 'Generate a plan before starting development.', deliveryOpenBug: 'Open bug', deliveryNoRelatedBugs: 'No related bugs', deliveryNoUnlinkedBugs: 'No unlinked bugs'
+  });
+
+  Object.assign(translations.zh, {
+    resourceRuntimeAccounting: 'Runtime 资源账本', resourceRuntimeAccountingHelp: '从 durable reservation 与 usage 事件重建的只读运行视图，展示当前预算暴露、已结算消耗和子 Agent 归因。',
+    resourceReadOnly: '只读投影', resourceUnavailable: '资源计量 API 暂不可用', resourceUnavailableHint: '确认 ResourceLedger 已配置，并检查当前租户与工作空间权限。',
+    resourceActiveReservations: '活动 Reservation', resourceReservedBeforeDispatch: '外部 dispatch 前完成预留', resourceTokenBurn: 'Token 燃尽', resourceExposure: '预算暴露',
+    resourceAnomalies: '计量异常', resourceMissingShort: '缺失', resourceDelayedShort: '延迟账单', resourceUsageEvents: '近期 Usage',
+    resourceBudgetBurn: '预算燃尽', resourceEffectiveQuota: '当前作用域的有效硬限制与软门槛', resourceNoQuota: '未配置限制，仍记录完整使用量', resourceUnlimited: '无限制',
+    resourceTokens: 'Token', resourceToolCalls: '工具调用', resourceOutput: '输出字节', resourceNetwork: '网络字节', resourceCPU: 'CPU 时间', resourceWall: '墙钟时间', resourceMemory: '内存峰值', resourceDisk: '磁盘字节', resourceConcurrency: '并发槽位',
+    resourceConsumed: '已消耗', resourceNoBudget: '当前没有可展示的预算维度', resourceNoRequest: '未声明资源', resourceWorkspaceScope: '工作空间', resourceTenantScope: '租户',
+    resourceOverage: 'Reservation 超额', resourceHardLimitCrossed: '实际使用超过预留或硬限制', resourceMissingProvider: 'Provider usage 缺失', resourceDelayedBill: '迟到账单', resourceTokenVariance: 'Token 偏差', resourceUsage: 'Usage 事件', resourceUsageVariance: 'Provider 与本地估算存在偏差',
+    resourceNoAnomalies: '未检测到异常', resourceWithinPolicy: '计量处于策略边界内', resourceAnomalyHint: 'Provider 报告、延迟账单和超额会在此处保留证据。', resourceAnomaliesHelp: '缺失、迟到、超额与估算偏差不会被静默吞掉',
+    resourceChildAttribution: '子 Agent 归因', resourceChildAttributionHelp: '父任务预算包含所有子任务消耗，避免递归委派超卖', resourceNoChildUsage: '当前没有子 Agent 使用量',
+    resourceReservations: '活动 Reservation', resourceReservationsHelp: '等待 settle、release 或 orphan recovery 的 durable 预留', resourceAgent: 'Agent', resourceReserved: '预留资源', resourceExpiry: '到期时间', resourceNoReservations: '当前没有活动 reservation', timers: 'Timer 检查器', timersTitle: 'Durable Timer 检查器', timersSubtitle: '查看持久调度、租约、状态解释与安全取消', timerRefresh: '刷新 Timer', timerIncludeTerminal: '包含终态', timerPending: '等待触发', timerClaimed: '已领取', timerTerminal: '终态', timerExpired: '已过期', timerID: 'Timer ID', timerDue: '到期时间', timerScope: '作用域', timerCommand: '命令', timerExplain: '解释', timerCancel: '取消', timerCancelReason: '操作原因', timerCancelPrompt: '请输入取消原因', timerNoItems: '当前作用域没有 Timer', timerUnavailable: 'Durable Timer API 暂不可用', timerUnavailableHint: '确认 ADRO_TIMER_STATE_FILE 已配置并检查租户与工作空间作用域。', timerExplanation: '状态解释', timerNextAction: '下一安全动作', timerReason: '原因', timerCancelled: 'Timer 已取消', timerCancelFailed: 'Timer 取消失败'
+  });
+  Object.assign(translations.en, {
+    resourceRuntimeAccounting: 'Runtime resource ledger', resourceRuntimeAccountingHelp: 'A read-only projection rebuilt from durable reservation and usage events, exposing budget liability, settled burn, and child-Agent attribution.',
+    resourceReadOnly: 'Read-only projection', resourceUnavailable: 'Resource accounting API is unavailable', resourceUnavailableHint: 'Verify that ResourceLedger is configured and that the current tenant and workspace scope is authorized.',
+    resourceActiveReservations: 'Active reservations', resourceReservedBeforeDispatch: 'Reserved before external dispatch', resourceTokenBurn: 'Token burn', resourceExposure: 'Exposure',
+    resourceAnomalies: 'Accounting anomalies', resourceMissingShort: 'missing', resourceDelayedShort: 'delayed', resourceUsageEvents: 'Recent usage',
+    resourceBudgetBurn: 'Budget burn', resourceEffectiveQuota: 'Effective hard limits and soft thresholds for this scope', resourceNoQuota: 'No limits configured; usage is still retained', resourceUnlimited: 'Unlimited',
+    resourceTokens: 'Tokens', resourceToolCalls: 'Tool calls', resourceOutput: 'Output bytes', resourceNetwork: 'Network bytes', resourceCPU: 'CPU time', resourceWall: 'Wall time', resourceMemory: 'Memory peak', resourceDisk: 'Disk bytes', resourceConcurrency: 'Concurrency slots',
+    resourceConsumed: 'Consumed', resourceNoBudget: 'No budget dimensions are available yet', resourceNoRequest: 'No resource request', resourceWorkspaceScope: 'Workspace', resourceTenantScope: 'Tenant',
+    resourceOverage: 'Reservation overage', resourceHardLimitCrossed: 'Actual usage crossed the reservation or hard limit', resourceMissingProvider: 'Provider usage missing', resourceDelayedBill: 'Delayed bill', resourceTokenVariance: 'Token variance', resourceUsage: 'Usage event', resourceUsageVariance: 'Provider and local estimates differ',
+    resourceNoAnomalies: 'No anomalies detected', resourceWithinPolicy: 'Accounting remains within policy', resourceAnomalyHint: 'Provider reports, delayed bills, and overages retain explicit evidence here.', resourceAnomaliesHelp: 'Missing, delayed, overage, and estimate variance remain visible',
+    resourceChildAttribution: 'Child-Agent attribution', resourceChildAttributionHelp: 'Parent budgets include every child allocation to prevent recursive oversell', resourceNoChildUsage: 'No child-Agent usage is recorded',
+    resourceReservations: 'Active reservations', resourceReservationsHelp: 'Durable allocations waiting for settle, release, or orphan recovery', resourceAgent: 'Agent', resourceReserved: 'Reserved resources', resourceExpiry: 'Expires', resourceNoReservations: 'No active reservations', timers: 'Timer inspector', timersTitle: 'Durable Timer inspector', timersSubtitle: 'Inspect persisted schedules, leases, explanations, and safe cancellation', timerRefresh: 'Refresh timers', timerIncludeTerminal: 'Include terminal', timerPending: 'Pending', timerClaimed: 'Claimed', timerTerminal: 'Terminal', timerExpired: 'Expired', timerID: 'Timer ID', timerDue: 'Due', timerScope: 'Scope', timerCommand: 'Command', timerExplain: 'Explain', timerCancel: 'Cancel', timerCancelReason: 'Operator reason', timerCancelPrompt: 'Enter a cancellation reason', timerNoItems: 'No timers in the current scope', timerUnavailable: 'Durable Timer API unavailable', timerUnavailableHint: 'Verify ADRO_TIMER_STATE_FILE and the tenant/workspace scope.', timerExplanation: 'State explanation', timerNextAction: 'Next safe action', timerReason: 'Reason', timerCancelled: 'Timer cancelled', timerCancelFailed: 'Could not cancel timer'
   });
 
   let currentUser = null;
@@ -4449,6 +4539,14 @@
       $('#newRequirement').onclick = () => showDialog('requirement');
       bindDeliveryView();
     }
+    if (currentView === 'timers') {
+      $('#pageTitle').textContent = t('timersTitle');
+      $('#pageSubtitle').textContent = t('timersSubtitle');
+      $('#pageActions').innerHTML = '';
+      $('#appView').innerHTML = renderTimerInspector();
+      bindTimerInspector();
+      if (!timerLoaded && !timerLoading) void loadTimers();
+    }
     if (currentView === 'executions') {
       $('#pageTitle').textContent = t('deliveryTitle');
       $('#pageSubtitle').textContent = t('executionCockpitSubtitle');
@@ -4464,6 +4562,8 @@
   };
   const chatNav = document.querySelector('[data-view="chats"]');
   if (chatNav) chatNav.addEventListener('click', () => { setTimeout(loadChatList, 0); });
+  const timerNav = document.querySelector('[data-view="timers"]');
+  if (timerNav) timerNav.addEventListener('click', () => { setTimeout(() => { void loadTimers(); }, 0); });
 
   async function bootstrap() {
     applyTranslations();

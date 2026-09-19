@@ -18,7 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adro-project/adro/internal/domain"
+	"github.com/adro-project/adro/core"
+	coreencoding "github.com/adro-project/adro/core/encoding"
 	"github.com/adro-project/adro/internal/durable"
 )
 
@@ -39,6 +40,7 @@ const (
 	EventToolFailed       = "tool.failed"
 	EventToolCancelled    = "tool.cancelled"
 	EventToolRetried      = "tool.retried"
+	EventToolNotStarted   = "tool.not_started"
 	EventInteraction      = "interaction.accepted"
 	EventUsage            = "usage.recorded"
 	EventEffectIntent     = "effect.intent_committed"
@@ -47,6 +49,13 @@ const (
 	EventEffectReceipted  = "effect.receipted"
 	EventEffectUnknown    = "effect.outcome_unknown"
 	EventEffectReconciled = "effect.reconciled"
+	EventModelRequested   = "model.requested"
+	EventModelPrepared    = "model.dispatch_prepared"
+	EventModelDispatched  = "model.dispatched"
+	EventModelStreamed    = "model.stream_event"
+	EventModelCompleted   = "model.completed"
+	EventModelUnknown     = "model.outcome_unknown"
+	EventModelCancelled   = "model.cancelled"
 )
 
 var (
@@ -200,35 +209,60 @@ type Input struct {
 // Contracts are data, so authorization decisions and retries can be replayed
 // without executing an external tool.
 type ToolContract struct {
-	Name             string          `json:"name"`
-	InputSchema      string          `json:"input_schema,omitempty"`
-	OutputSchema     string          `json:"output_schema,omitempty"`
-	SideEffectClass  EffectClass     `json:"side_effect_class"`
-	ReconcilePolicy  ReconcilePolicy `json:"reconcile_policy,omitempty"`
-	Risk             string          `json:"risk,omitempty"`
-	Capability       string          `json:"capability,omitempty"`
-	SecretScopes     []string        `json:"secret_scopes,omitempty"`
-	Network          bool            `json:"network,omitempty"`
-	Filesystem       bool            `json:"filesystem,omitempty"`
-	Timeout          time.Duration   `json:"timeout,omitempty"`
-	MaxRetries       int             `json:"max_retries,omitempty"`
-	RequiresApproval bool            `json:"requires_approval,omitempty"`
-	Compensation     string          `json:"compensation,omitempty"`
-	EvidenceRequired bool            `json:"evidence_required,omitempty"`
+	SchemaVersion    int               `json:"schema_version,omitempty"`
+	Name             string            `json:"name"`
+	InputSchema      string            `json:"input_schema,omitempty"`
+	OutputSchema     string            `json:"output_schema,omitempty"`
+	SideEffectClass  EffectClass       `json:"side_effect_class"`
+	ReconcilePolicy  ReconcilePolicy   `json:"reconcile_policy,omitempty"`
+	ConcurrencyMode  string            `json:"concurrency_mode,omitempty"`
+	MaxInputBytes    int               `json:"max_input_bytes,omitempty"`
+	MaxOutputBytes   int               `json:"max_output_bytes,omitempty"`
+	FieldClasses     map[string]string `json:"field_classes,omitempty"`
+	ContractDigest   string            `json:"contract_digest,omitempty"`
+	Risk             string            `json:"risk,omitempty"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
+	SecretScopes     []string          `json:"secret_scopes,omitempty"`
+	Network          bool              `json:"network,omitempty"`
+	Filesystem       bool              `json:"filesystem,omitempty"`
+	Timeout          time.Duration     `json:"timeout,omitempty"`
+	MaxRetries       int               `json:"max_retries,omitempty"`
+	RequiresApproval bool              `json:"requires_approval,omitempty"`
+	Compensation     string            `json:"compensation,omitempty"`
+	EvidenceRequired bool              `json:"evidence_required,omitempty"`
 }
 
 type ToolState struct {
-	Scope       Scope  `json:"scope"`
-	CallID      string `json:"call_id"`
-	Name        string `json:"name"`
-	Authorized  bool   `json:"authorized"`
-	Started     bool   `json:"started"`
-	Approved    *bool  `json:"approved,omitempty"`
-	Finished    bool   `json:"finished"`
-	Cancelled   bool   `json:"cancelled"`
-	Attempts    int    `json:"attempts"`
-	LastEventID string `json:"last_event_id,omitempty"`
-	ReasonCode  string `json:"reason_code,omitempty"`
+	Scope            Scope    `json:"scope"`
+	CallID           string   `json:"call_id"`
+	Name             string   `json:"name"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	Authorized       bool     `json:"authorized"`
+	RequiresApproval bool     `json:"requires_approval"`
+	Started          bool     `json:"started"`
+	Approved         *bool    `json:"approved,omitempty"`
+	Finished         bool     `json:"finished"`
+	Failed           bool     `json:"failed"`
+	Cancelled        bool     `json:"cancelled"`
+	NotStarted       bool     `json:"not_started"`
+	Attempts         int      `json:"attempts"`
+	ContractDigest   string   `json:"contract_digest,omitempty"`
+	LastEventID      string   `json:"last_event_id,omitempty"`
+	ReasonCode       string   `json:"reason_code,omitempty"`
+}
+
+type ModelState struct {
+	Scope            Scope  `json:"scope"`
+	RequestID        string `json:"request_id"`
+	Requested        bool   `json:"requested"`
+	DispatchPrepared bool   `json:"dispatch_prepared"`
+	Dispatched       bool   `json:"dispatched"`
+	StreamSequence   int64  `json:"stream_sequence"`
+	Completed        bool   `json:"completed"`
+	OutcomeUnknown   bool   `json:"outcome_unknown"`
+	Cancelled        bool   `json:"cancelled"`
+	FinishReason     string `json:"finish_reason,omitempty"`
+	LastEventID      string `json:"last_event_id,omitempty"`
 }
 
 type EffectState struct {
@@ -267,6 +301,8 @@ type journalState struct {
 type Journal struct {
 	mu            sync.RWMutex
 	path          string
+	clock         core.Clock
+	ids           core.IDGenerator
 	revision      int64
 	events        []Event
 	leases        map[string]Lease
@@ -276,9 +312,28 @@ type Journal struct {
 	shadowReports map[string]ShadowReport
 }
 
+// JournalOptions makes the durable execution boundary deterministic in tests
+// and replay. Production callers may use NewJournal, which supplies explicit
+// system implementations.
+type JournalOptions struct {
+	Clock core.Clock
+	IDs   core.IDGenerator
+}
+
 func NewJournal(path string) (*Journal, error) {
+	return NewJournalWithOptions(path, JournalOptions{})
+}
+
+func NewJournalWithOptions(path string, options JournalOptions) (*Journal, error) {
+	if options.Clock == nil {
+		options.Clock = core.SystemClock{}
+	}
+	if options.IDs == nil {
+		options.IDs = &core.CryptoIDs{}
+	}
 	j := &Journal{
-		path: strings.TrimSpace(path), leases: map[string]Lease{}, effects: map[string]string{},
+		path: strings.TrimSpace(path), clock: options.Clock, ids: options.IDs,
+		leases: map[string]Lease{}, effects: map[string]string{},
 		shadowTimeout: defaultShadowTimeout, shadowReports: map[string]ShadowReport{},
 	}
 	if j.path == "" {
@@ -306,6 +361,13 @@ func NewJournal(path string) (*Journal, error) {
 		j.effects = state.Effects
 	}
 	return j, nil
+}
+
+func (j *Journal) now() time.Time {
+	if j != nil && j.clock != nil {
+		return j.clock.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // SetShadow enables migration-only dual writes. Existing legacy events are
@@ -486,7 +548,7 @@ func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
 	}
 	if input.FencingToken > 0 {
 		lease, ok := j.leases[input.Scope.TenantID+"\x00"+input.Scope.WorkspaceID+"\x00"+input.Scope.RunID]
-		if ok && (lease.Owner != input.WriterID || lease.FencingToken != input.FencingToken || !lease.ExpiresAt.After(time.Now().UTC())) {
+		if ok && (lease.Owner != input.WriterID || lease.FencingToken != input.FencingToken || !lease.ExpiresAt.After(j.now())) {
 			return Event{}, ErrLeaseLost
 		}
 		if !ok {
@@ -497,7 +559,7 @@ func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
 	if len(existing) > 0 {
 		previous = existing[len(existing)-1].EnvelopeHash
 	}
-	event := Event{EventID: domain.NewID(), SchemaVersion: SchemaVersion, Sequence: int64(len(existing) + 1), EventType: input.EventType, AggregateType: input.AggregateType, AggregateID: input.AggregateID, Scope: input.Scope, CorrelationID: input.CorrelationID, CausationID: input.CausationID, IdempotencyKey: input.IdempotencyKey, WriterID: input.WriterID, FencingToken: input.FencingToken, Status: input.Status, Payload: payload, PayloadHash: ph, PreviousHash: previous, CreatedAt: time.Now().UTC()}
+	event := Event{EventID: j.ids.NewID("event"), SchemaVersion: SchemaVersion, Sequence: int64(len(existing) + 1), EventType: input.EventType, AggregateType: input.AggregateType, AggregateID: input.AggregateID, Scope: input.Scope, CorrelationID: input.CorrelationID, CausationID: input.CausationID, IdempotencyKey: input.IdempotencyKey, WriterID: input.WriterID, FencingToken: input.FencingToken, Status: input.Status, Payload: payload, PayloadHash: ph, PreviousHash: previous, CreatedAt: j.now()}
 	event.CommittedAt = event.CreatedAt
 	event.EnvelopeHash = envelopeDigest(event)
 	return event, nil
@@ -512,7 +574,7 @@ func (j *Journal) AcquireLease(scope Scope, owner string, ttl time.Duration, now
 		return Lease{}, errors.New("scope, owner and positive ttl are required")
 	}
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = j.now()
 	}
 	key := scope.TenantID + "\x00" + scope.WorkspaceID + "\x00" + scope.RunID
 	j.mu.Lock()
@@ -549,7 +611,7 @@ func (j *Journal) ReleaseLease(scope Scope, owner string, fencingToken int64) er
 		return err
 	}
 	lease, ok := j.leases[key]
-	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(time.Now().UTC()) {
+	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(j.now()) {
 		return ErrLeaseLost
 	}
 	leases := cloneLeases(j.leases)
@@ -581,7 +643,7 @@ func (j *Journal) CommitEffectIntentWithPolicy(scope Scope, effectID, callID, to
 	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
 		return Event{}, false, ErrLeaseLost
 	}
-	inputBytes, err := json.Marshal(input)
+	inputBytes, err := coreencoding.Marshal(input)
 	if err != nil {
 		return Event{}, false, fmt.Errorf("encode effect input: %w", err)
 	}
@@ -591,7 +653,7 @@ func (j *Journal) CommitEffectIntentWithPolicy(scope Scope, effectID, callID, to
 		"tool":             tool,
 		"effect_class":     class,
 		"reconcile_policy": policy,
-		"input_digest":     payloadDigest(inputBytes),
+		"input_digest":     canonicalPayloadDigest(inputBytes),
 	}
 
 	j.mu.Lock()
@@ -686,7 +748,181 @@ func (j *Journal) EffectState(scope Scope, effectID string) (EffectState, error)
 	return j.effectStateLocked(scope, strings.TrimSpace(effectID)), nil
 }
 
+func (j *Journal) modelStateLocked(scope Scope, requestID string) ModelState {
+	state := ModelState{Scope: scope, RequestID: requestID}
+	for _, event := range j.events {
+		if event.Scope != scope || event.AggregateType != "model" || event.AggregateID != requestID {
+			continue
+		}
+		state.LastEventID = event.EventID
+		switch event.EventType {
+		case EventModelRequested:
+			state.Requested = true
+		case EventModelPrepared:
+			state.DispatchPrepared = true
+		case EventModelDispatched:
+			state.Dispatched = true
+		case EventModelStreamed:
+			var payload struct {
+				Event struct {
+					Sequence int64 `json:"sequence"`
+				} `json:"event"`
+			}
+			if json.Unmarshal(event.Payload, &payload) == nil && payload.Event.Sequence > state.StreamSequence {
+				state.StreamSequence = payload.Event.Sequence
+			}
+		case EventModelCompleted:
+			state.Completed = true
+			var payload struct {
+				Reason string `json:"finish_reason"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			state.FinishReason = payload.Reason
+		case EventModelUnknown:
+			state.OutcomeUnknown = true
+		case EventModelCancelled:
+			state.Cancelled = true
+		}
+	}
+	return state
+}
+
+func (j *Journal) ModelState(scope Scope, requestID string) (ModelState, error) {
+	if !scope.valid() || strings.TrimSpace(requestID) == "" {
+		return ModelState{}, errors.New("scope and request_id are required")
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.modelStateLocked(scope, strings.TrimSpace(requestID)), nil
+}
+
+// CommitModelRequest freezes the exact model request before any adapter
+// dispatch. The request idempotency key is the durable duplicate fence.
+func (j *Journal) CommitModelRequest(scope Scope, request ModelRequest, owner string, fencingToken int64) (Event, bool, error) {
+	if request.Scope != scope {
+		return Event{}, false, ErrModelRequestInvalid
+	}
+	if err := request.Validate(); err != nil {
+		return Event{}, false, err
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, false, ErrLeaseLost
+	}
+	payload := map[string]any{"request": request, "request_digest": request.RequestDigest}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, false, err
+	}
+	state := j.modelStateLocked(scope, request.RequestID)
+	if state.Requested {
+		for _, item := range j.events {
+			if item.Scope == scope && item.AggregateType == "model" && item.AggregateID == request.RequestID && item.EventType == EventModelRequested {
+				var prior struct {
+					RequestDigest string `json:"request_digest"`
+				}
+				if json.Unmarshal(item.Payload, &prior) == nil && prior.RequestDigest == request.RequestDigest {
+					return cloneEvent(item), false, nil
+				}
+				return Event{}, false, ErrModelIdempotencyConflict
+			}
+		}
+		return Event{}, false, ErrCorrupt
+	}
+	event, err := j.appendBatchLocked([]Input{{EventType: EventModelRequested, AggregateType: "model", AggregateID: request.RequestID, Scope: scope, IdempotencyKey: "model:" + request.IdempotencyKey + ":requested", WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}})
+	return event, err == nil, err
+}
+
+func (j *Journal) PrepareModelDispatch(scope Scope, requestID, owner string, fencingToken int64) (Event, error) {
+	return j.modelTransition(scope, requestID, owner, fencingToken, EventModelPrepared, func(state ModelState) bool {
+		return state.Requested && !state.DispatchPrepared && !state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) MarkModelDispatched(scope Scope, requestID, owner string, fencingToken int64) (Event, error) {
+	return j.modelTransition(scope, requestID, owner, fencingToken, EventModelDispatched, func(state ModelState) bool {
+		return state.DispatchPrepared && !state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) AppendModelEvent(scope Scope, event ModelEvent, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, event.RequestID)
+	if !state.Dispatched || state.Completed || state.OutcomeUnknown || state.Cancelled {
+		return Event{}, ErrModelTransition
+	}
+	if err := event.Validate(state.StreamSequence, event.RequestID); err != nil {
+		return Event{}, err
+	}
+	payload := map[string]any{"event": event}
+	return j.appendBatchLocked([]Input{{EventType: EventModelStreamed, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:stream:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}})
+}
+
+func (j *Journal) CompleteModelCall(scope Scope, event ModelEvent, owner string, fencingToken int64) (Event, error) {
+	if event.Type != ModelEventFinish {
+		return Event{}, ErrModelTransition
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, event.RequestID)
+	if !state.Dispatched || state.Completed || state.OutcomeUnknown || state.Cancelled {
+		return Event{}, ErrModelTransition
+	}
+	if err := event.Validate(state.StreamSequence, event.RequestID); err != nil {
+		return Event{}, err
+	}
+	return j.appendBatchLocked([]Input{
+		{EventType: EventModelStreamed, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:stream:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: map[string]any{"event": event}},
+		{EventType: EventModelCompleted, AggregateType: "model", AggregateID: event.RequestID, Scope: scope, IdempotencyKey: fmt.Sprintf("model:%s:completed:%d", event.RequestID, event.Sequence), WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"event": event, "finish_reason": event.FinishReason}},
+	})
+}
+
+func (j *Journal) MarkModelOutcomeUnknown(scope Scope, requestID, reason, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(reason) == "" {
+		reason = "dispatch_outcome_unknown"
+	}
+	return j.modelTransitionWithPayload(scope, requestID, owner, fencingToken, EventModelUnknown, StatusRecoveryNeeded, map[string]any{"request_id": requestID, "reason_code": reason}, func(state ModelState) bool {
+		return state.Dispatched && !state.Completed && !state.OutcomeUnknown && !state.Cancelled
+	})
+}
+
+func (j *Journal) modelTransition(scope Scope, requestID, owner string, fencingToken int64, eventType string, allowed func(ModelState) bool) (Event, error) {
+	return j.modelTransitionWithPayload(scope, requestID, owner, fencingToken, eventType, StatusPending, map[string]any{"request_id": requestID}, allowed)
+}
+
+func (j *Journal) modelTransitionWithPayload(scope Scope, requestID, owner string, fencingToken int64, eventType, status string, payload map[string]any, allowed func(ModelState) bool) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.modelStateLocked(scope, requestID)
+	if !allowed(state) {
+		return Event{}, ErrModelTransition
+	}
+	return j.appendBatchLocked([]Input{{EventType: eventType, AggregateType: "model", AggregateID: requestID, Scope: scope, IdempotencyKey: "model:" + requestID + ":" + strings.TrimPrefix(eventType, "model."), WriterID: owner, FencingToken: fencingToken, Status: status, Payload: payload}})
+}
+
 func (j *Journal) PrepareEffectDispatch(scope Scope, effectID, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -700,6 +936,9 @@ func (j *Journal) PrepareEffectDispatch(scope Scope, effectID, owner string, fen
 }
 
 func (j *Journal) MarkEffectDispatched(scope Scope, effectID, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -720,6 +959,9 @@ func (j *Journal) MarkEffectDispatched(scope Scope, effectID, owner string, fenc
 }
 
 func (j *Journal) MarkEffectOutcomeUnknown(scope Scope, effectID, reason, owner string, fencingToken int64) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -768,7 +1010,7 @@ func (j *Journal) ReconcileEffect(scope Scope, effectID, callID, owner string, f
 		}
 		return Event{}, ErrCorrupt
 	}
-	if !state.IntentCommitted || !state.Dispatched || state.Receipted || !toolState.Started || toolState.Finished || toolState.Cancelled {
+	if !state.IntentCommitted || state.ToolCallID != callID || !state.Dispatched || state.Receipted || !toolState.Started || toolState.Finished || toolState.Cancelled {
 		return Event{}, ErrConflict
 	}
 	if !state.OutcomeUnknown {
@@ -787,6 +1029,9 @@ func (j *Journal) ReconcileEffect(scope Scope, effectID, callID, owner string, f
 // CompleteToolEffect atomically records the external receipt and the
 // model-visible tool completion. A stale worker cannot commit either record.
 func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string, fencingToken int64, output any) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if err := j.reloadLocked(); err != nil {
@@ -794,7 +1039,7 @@ func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string
 	}
 	effectState := j.effectStateLocked(scope, effectID)
 	toolState := j.toolStateLocked(scope, callID)
-	if !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished {
+	if effectState.ToolCallID != callID || !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished {
 		return Event{}, ErrConflict
 	}
 	return j.appendBatchLocked([]Input{
@@ -803,28 +1048,69 @@ func (j *Journal) CompleteToolEffect(scope Scope, effectID, callID, owner string
 	})
 }
 
-// AuthorizeTool records the policy decision before a tool can start. An empty
-// allow-list is intentionally deny-by-default; callers must make the policy
-// explicit and the decision is replayable from the journal.
-func (j *Journal) AuthorizeTool(scope Scope, callID, name, owner string, fencingToken int64, allowed []string) (Event, error) {
-	callID, name = strings.TrimSpace(callID), strings.TrimSpace(name)
-	if callID == "" || name == "" {
-		return Event{}, errors.New("tool call id and name are required")
-	}
+// FailToolEffectOutput records that the external call returned a receipt but
+// its output violated the frozen contract. The receipt and terminal failure
+// are atomic, preventing a retry from executing the external effect again.
+func (j *Journal) FailToolEffectOutput(scope Scope, effectID, callID, owner string, fencingToken int64, outputDigest string) (Event, error) {
 	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
 		return Event{}, ErrLeaseLost
 	}
-	ok := false
-	for _, candidate := range allowed {
-		if strings.TrimSpace(candidate) == name {
-			ok = true
-			break
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	effectState := j.effectStateLocked(scope, effectID)
+	toolState := j.toolStateLocked(scope, callID)
+	if effectState.ToolCallID != callID || !effectState.Dispatched || effectState.OutcomeUnknown || effectState.Receipted || effectState.Reconciled || !toolState.Started || toolState.Cancelled || toolState.Finished || toolState.Failed {
+		return Event{}, ErrConflict
+	}
+	payload := map[string]any{"reason_code": "tool_output_schema_invalid", "output_digest": outputDigest}
+	return j.appendBatchLocked([]Input{
+		{EventType: EventEffectReceipted, AggregateType: "effect", AggregateID: effectID, Scope: scope, IdempotencyKey: "effect:" + effectID + ":receipt", WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"output_digest": outputDigest, "valid": false}},
+		{EventType: EventToolFailed, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":output-invalid", WriterID: owner, FencingToken: fencingToken, Status: StatusRejected, Payload: payload},
+	})
+}
+
+// AuthorizeToolContract records a capability decision and the immutable
+// contract digest before a tool can start. Tool names are never permissions.
+func (j *Journal) AuthorizeToolContract(scope Scope, callID, owner string, fencingToken int64, contract ToolContract, allowedCapabilities []string) (Event, error) {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	frozen, err := FreezeToolContract(contract)
+	if err != nil {
+		return Event{}, err
+	}
+	allowed := make(map[string]struct{}, len(allowedCapabilities))
+	for _, capability := range allowedCapabilities {
+		if capability = strings.TrimSpace(capability); capability != "" {
+			allowed[capability] = struct{}{}
 		}
 	}
-	if !ok {
-		return Event{}, ErrUnauthorized
+	for _, capability := range frozen.Capabilities {
+		if _, ok := allowed[capability]; !ok {
+			return Event{}, ErrUnauthorized
+		}
 	}
-	return j.Append(Input{EventType: EventToolAuthorized, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":authorize", WriterID: owner, FencingToken: fencingToken, Payload: map[string]any{"call_id": callID, "name": name, "allowed": true}})
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.toolStateLocked(scope, callID)
+	if state.Authorized && state.ContractDigest != frozen.ContractDigest {
+		return Event{}, ErrIdempotencyConflict
+	}
+	if state.NotStarted {
+		return Event{}, ErrConflict
+	}
+	payload := map[string]any{
+		"call_id": callID, "name": frozen.Name, "capabilities": frozen.Capabilities,
+		"allowed": true, "contract_digest": frozen.ContractDigest, "schema_version": frozen.SchemaVersion,
+		"requires_approval": frozen.RequiresApproval,
+	}
+	return j.appendBatchLocked([]Input{{EventType: EventToolAuthorized, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":authorize", WriterID: owner, FencingToken: fencingToken, Payload: payload}})
 }
 
 func (j *Journal) toolHas(scope Scope, callID, eventType string) bool {
@@ -854,12 +1140,21 @@ func (j *Journal) toolStateLocked(scope Scope, callID string) ToolState {
 		case EventToolAuthorized:
 			state.Authorized = event.Status != StatusRejected
 			var payload struct {
-				Name string `json:"name"`
+				Name             string   `json:"name"`
+				Capabilities     []string `json:"capabilities"`
+				RequiresApproval bool     `json:"requires_approval"`
 			}
 			_ = json.Unmarshal(event.Payload, &payload)
 			if payload.Name != "" {
 				state.Name = payload.Name
 			}
+			state.Capabilities = append([]string(nil), payload.Capabilities...)
+			state.RequiresApproval = payload.RequiresApproval
+			var contractPayload struct {
+				ContractDigest string `json:"contract_digest"`
+			}
+			_ = json.Unmarshal(event.Payload, &contractPayload)
+			state.ContractDigest = contractPayload.ContractDigest
 		case EventToolStarted:
 			state.Started = true
 			state.Attempts++
@@ -873,11 +1168,26 @@ func (j *Journal) toolStateLocked(scope Scope, callID string) ToolState {
 		case EventToolFinished:
 			state.Finished = true
 		case EventToolFailed:
-			state.ReasonCode = "tool_execution_failed"
+			state.Failed = true
+			var payload struct {
+				ReasonCode string `json:"reason_code"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			state.ReasonCode = payload.ReasonCode
+			if state.ReasonCode == "" {
+				state.ReasonCode = "tool_execution_failed"
+			}
 		case EventToolCancelled:
 			state.Cancelled = true
 		case EventToolRetried:
 			state.Attempts++
+		case EventToolNotStarted:
+			state.NotStarted = true
+			var payload struct {
+				ReasonCode string `json:"reason_code"`
+			}
+			_ = json.Unmarshal(event.Payload, &payload)
+			state.ReasonCode = payload.ReasonCode
 		}
 	}
 	return state
@@ -899,45 +1209,50 @@ func (j *Journal) StartTool(scope Scope, callID, name, owner string, fencingToke
 	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
 		return Event{}, ErrLeaseLost
 	}
-	j.mu.RLock()
+	name = strings.TrimSpace(name)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
 	state := j.toolStateLocked(scope, callID)
-	j.mu.RUnlock()
 	if !state.Authorized {
 		return Event{}, ErrUnauthorized
 	}
-	if state.Cancelled || state.Finished {
+	if state.Name != name {
+		return Event{}, ErrIdempotencyConflict
+	}
+	if state.Cancelled || state.Finished || state.Failed || state.NotStarted {
 		return Event{}, ErrConflict
+	}
+	if state.RequiresApproval && state.Approved == nil {
+		return Event{}, ErrApprovalRequired
 	}
 	if state.Approved != nil && !*state.Approved {
 		return Event{}, ErrUnauthorized
 	}
 	if state.Started {
-		for _, event := range j.List(scope) {
-			if event.AggregateID == callID && event.EventType == EventToolStarted {
-				return event, nil
+		for _, event := range j.events {
+			if event.Scope == scope && event.AggregateID == callID && event.EventType == EventToolStarted {
+				return cloneEvent(event), nil
 			}
 		}
 	}
-	return j.Append(Input{EventType: EventToolStarted, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":start", WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload})
+	return j.appendBatchLocked([]Input{{EventType: EventToolStarted, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":start", WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}})
 }
 
 func (j *Journal) StartToolWithContract(scope Scope, callID, owner string, fencingToken int64, contract ToolContract, payload any, allowed []string) (Event, error) {
-	if strings.TrimSpace(contract.Name) == "" {
-		return Event{}, errors.New("tool contract name is required")
-	}
-	if contract.Timeout < 0 || contract.MaxRetries < 0 {
-		return Event{}, errors.New("tool timeout and max_retries cannot be negative")
-	}
-	if err := validateReconcilePolicy(contract.SideEffectClass, contract.ReconcilePolicy); err != nil {
+	frozen, err := FreezeToolContract(contract)
+	if err != nil {
 		return Event{}, err
 	}
-	if contract.ReconcilePolicy == "" && contract.SideEffectClass == EffectReadOnly {
-		contract.ReconcilePolicy = ReconcileNone
-	}
-	if _, err := j.AuthorizeTool(scope, callID, contract.Name, owner, fencingToken, allowed); err != nil {
+	if _, err := validateToolInput(frozen, payload); err != nil {
 		return Event{}, err
 	}
-	if contract.RequiresApproval {
+	if _, err := j.AuthorizeToolContract(scope, callID, owner, fencingToken, frozen, allowed); err != nil {
+		return Event{}, err
+	}
+	if frozen.RequiresApproval {
 		j.mu.RLock()
 		state := j.toolStateLocked(scope, callID)
 		j.mu.RUnlock()
@@ -948,7 +1263,29 @@ func (j *Journal) StartToolWithContract(scope Scope, callID, owner string, fenci
 			return Event{}, ErrUnauthorized
 		}
 	}
-	return j.StartTool(scope, callID, contract.Name, owner, fencingToken, payload)
+	return j.StartTool(scope, callID, frozen.Name, owner, fencingToken, payload)
+}
+
+func (j *Journal) MarkToolNotStarted(scope Scope, callID, owner string, fencingToken int64, reason string) (Event, error) {
+	if strings.TrimSpace(callID) == "" {
+		return Event{}, errors.New("call_id is required")
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "batch_aborted"
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.toolStateLocked(scope, callID)
+	if state.Started || state.Finished || state.Failed || state.Cancelled {
+		return Event{}, ErrConflict
+	}
+	return j.appendBatchLocked([]Input{{EventType: EventToolNotStarted, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":not-started", WriterID: owner, FencingToken: fencingToken, Status: StatusRejected, Payload: map[string]any{"reason_code": reason}}})
 }
 
 func (j *Journal) ApproveTool(scope Scope, callID, owner string, fencingToken int64, decision string) (Event, error) {
@@ -959,14 +1296,45 @@ func (j *Journal) ApproveTool(scope Scope, callID, owner string, fencingToken in
 	if decision != "approved" && decision != "denied" {
 		return Event{}, errors.New("tool approval must be approved or denied")
 	}
-	return j.Append(Input{EventType: EventToolApproved, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":approval", WriterID: owner, FencingToken: fencingToken, Status: map[bool]string{true: StatusCommitted, false: StatusRejected}[decision == "approved"], Payload: map[string]any{"decision": decision}})
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
+	state := j.toolStateLocked(scope, callID)
+	if !state.Authorized {
+		return Event{}, ErrUnauthorized
+	}
+	if state.Approved != nil {
+		priorDecision := "denied"
+		if *state.Approved {
+			priorDecision = "approved"
+		}
+		for _, event := range j.events {
+			if event.Scope == scope && event.AggregateID == callID && event.EventType == EventToolApproved {
+				if priorDecision == decision {
+					return cloneEvent(event), nil
+				}
+				return Event{}, ErrIdempotencyConflict
+			}
+		}
+		return Event{}, ErrCorrupt
+	}
+	if state.Started || state.Finished || state.Failed || state.Cancelled || state.NotStarted {
+		return Event{}, ErrConflict
+	}
+	return j.appendBatchLocked([]Input{{EventType: EventToolApproved, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":approval", WriterID: owner, FencingToken: fencingToken, Status: map[bool]string{true: StatusCommitted, false: StatusRejected}[decision == "approved"], Payload: map[string]any{"decision": decision}}})
 }
 
 func (j *Journal) FinishTool(scope Scope, callID, owner string, fencingToken int64, output any) (Event, error) {
 	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
 		return Event{}, ErrLeaseLost
 	}
-	j.mu.RLock()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return Event{}, err
+	}
 	state := j.toolStateLocked(scope, callID)
 	denied := false
 	for _, event := range j.events {
@@ -974,31 +1342,35 @@ func (j *Journal) FinishTool(scope Scope, callID, owner string, fencingToken int
 			denied = true
 		}
 	}
-	j.mu.RUnlock()
 	if !state.Started {
 		return Event{}, ErrConflict
 	}
-	if denied || state.Cancelled {
+	if denied || state.Cancelled || state.Failed || state.NotStarted {
 		return Event{}, ErrUnauthorized
 	}
 	if state.Finished {
 		return Event{}, ErrConflict
 	}
-	return j.Append(Input{EventType: EventToolFinished, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":finish", WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: output})
+	return j.appendBatchLocked([]Input{{EventType: EventToolFinished, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":finish", WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: output}})
 }
 
 func (j *Journal) CancelTool(scope Scope, callID, owner string, fencingToken int64, reason string) (Event, error) {
 	if strings.TrimSpace(reason) == "" {
 		reason = "cancelled"
 	}
-	state, err := j.ToolState(scope, callID)
-	if err != nil {
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
 		return Event{}, err
 	}
+	state := j.toolStateLocked(scope, callID)
 	if !state.Started || state.Finished {
 		return Event{}, ErrConflict
 	}
-	return j.Append(Input{EventType: EventToolCancelled, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":cancel", WriterID: owner, FencingToken: fencingToken, Status: StatusRejected, Payload: map[string]any{"reason": reason}})
+	return j.appendBatchLocked([]Input{{EventType: EventToolCancelled, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":cancel", WriterID: owner, FencingToken: fencingToken, Status: StatusRejected, Payload: map[string]any{"reason": reason}}})
 }
 
 // RetryTool creates a new call lineage. The original call remains immutable;
@@ -1011,7 +1383,15 @@ func (j *Journal) RetryTool(scope Scope, callID, owner string, fencingToken int6
 		return "", Event{}, errors.New("call_id is required")
 	}
 	newID := fmt.Sprintf("%s:retry:%d", callID, attempt)
-	event, err := j.Append(Input{EventType: EventToolRetried, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":retry:" + fmt.Sprint(attempt), WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"new_call_id": newID, "reason": reason, "attempt": attempt}})
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return "", Event{}, ErrLeaseLost
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if err := j.reloadLocked(); err != nil {
+		return "", Event{}, err
+	}
+	event, err := j.appendBatchLocked([]Input{{EventType: EventToolRetried, AggregateType: "tool", AggregateID: callID, Scope: scope, IdempotencyKey: "tool:" + callID + ":retry:" + fmt.Sprint(attempt), WriterID: owner, FencingToken: fencingToken, Status: StatusCommitted, Payload: map[string]any{"new_call_id": newID, "reason": reason, "attempt": attempt}}})
 	return newID, event, err
 }
 
@@ -1258,11 +1638,19 @@ func digest(data []byte) string {
 }
 
 func payloadDigest(data []byte) string {
-	var canonical bytes.Buffer
-	if err := json.Compact(&canonical, data); err != nil {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, data); err != nil {
 		return ""
 	}
-	return digest(canonical.Bytes())
+	return digest(compact.Bytes())
+}
+
+func canonicalPayloadDigest(data []byte) string {
+	canonical, err := coreencoding.Canonicalize(data)
+	if err != nil {
+		return ""
+	}
+	return digest(canonical)
 }
 
 func envelopeDigest(event Event) string {

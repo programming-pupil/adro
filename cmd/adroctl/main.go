@@ -14,10 +14,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
+	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/store"
@@ -42,10 +45,15 @@ func main() {
 		configCheck(os.Args[2:])
 	case "graph-validate":
 		graphValidate(os.Args[2:])
-	case "agent", "squad", "plan":
+	case "agent", "squad", "plan", "timer":
 		orchestrationControl(os.Args[1], os.Args[2:])
 	case "workspace":
 		if err := workspaceCommand(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "service-credential":
+		if err := serviceCredentialCommand(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -57,12 +65,115 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|workspace|api|version>")
+	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|timer|workspace|service-credential|api|version>")
 	fmt.Println("  adroctl agent <list|get|create|validate|enable|disable|archive> [flags]")
 	fmt.Println("  adroctl squad <list|get|create|validate|dry-run|publish|disable|archive> [flags]")
 	fmt.Println("  adroctl plan <list|get|create|publish|timeline|replay|diagnostics> [flags]")
+	fmt.Println("  adroctl timer <list|get|explain|cancel> [flags]")
 	fmt.Println("  adroctl workspace <export|preflight|import|export-postgres|preflight-postgres|import-postgres> [flags]")
+	fmt.Println("  adroctl service-credential <init|issue|rotate|revoke-key|revoke-credential> [flags]")
 	fmt.Println("  adroctl api --method GET --path /api/v1/... [--file body.json]")
+}
+
+func serviceCredentialCommand(args []string, output io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("service-credential subcommand is required")
+	}
+	action := args[0]
+	fs := flag.NewFlagSet("service-credential "+action, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	defaultStatePath := filepath.Join(envDefault("ADRO_HOME", ".adro"), "service-credentials.json")
+	path := fs.String("file", envDefault("ADRO_SERVICE_CREDENTIAL_FILE", defaultStatePath), "credential authority state file")
+	keyID := fs.String("key-id", "", "signing key ID")
+	currentKeyID := fs.String("current-key", "", "current active signing key ID")
+	newKeyID := fs.String("new-key", "", "new active signing key ID")
+	actorType := fs.String("type", "service", "actor type: service, agent, worker, or extension")
+	actorID := fs.String("id", "", "actor ID")
+	tenantID := fs.String("tenant", envDefault("ADRO_TENANT_ID", "local"), "tenant ID")
+	workspaceID := fs.String("workspace", envDefault("ADRO_WORKSPACE_ID", "local"), "workspace ID")
+	audience := fs.String("audience", adroauth.ServiceTokenAudienceAPI, "credential audience")
+	ttl := fs.Duration("ttl", 5*time.Minute, "credential lifetime")
+	credentialID := fs.String("credential-id", "", "credential ID to revoke")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	*path = strings.TrimSpace(*path)
+	if *path == "" {
+		return errors.New("--file is required")
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if action == "init" {
+		if strings.TrimSpace(*keyID) == "" {
+			return errors.New("--key-id is required")
+		}
+		state, err := adroauth.GenerateServiceCredentialState(*keyID, now)
+		if err != nil {
+			return err
+		}
+		authority, err := adroauth.NewServiceCredentialAuthority(state, nil, adroauth.DefaultServiceTokenTTL)
+		if err != nil {
+			return err
+		}
+		if err := authority.SaveNew(*path); err != nil {
+			return err
+		}
+		return writeJSONOutput(output, map[string]any{"file": *path, "active_key_id": strings.TrimSpace(*keyID), "created_at": now})
+	}
+
+	authority, err := adroauth.LoadServiceCredentialAuthority(*path, nil, adroauth.DefaultServiceTokenTTL)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "issue":
+		if strings.TrimSpace(*actorID) == "" {
+			return errors.New("--id is required")
+		}
+		token, actor, issueErr := authority.Issue(adroauth.ServiceTokenIssueRequest{
+			Type: coreidentity.ActorType(strings.TrimSpace(*actorType)), ID: strings.TrimSpace(*actorID),
+			TenantID: strings.TrimSpace(*tenantID), WorkspaceID: strings.TrimSpace(*workspaceID),
+			Audience: strings.TrimSpace(*audience), TTL: *ttl,
+		})
+		if issueErr != nil {
+			return issueErr
+		}
+		return writeJSONOutput(output, map[string]any{"token": token, "actor": actor})
+	case "rotate":
+		if strings.TrimSpace(*currentKeyID) == "" || strings.TrimSpace(*newKeyID) == "" {
+			return errors.New("--current-key and --new-key are required")
+		}
+		if err := authority.Rotate(*currentKeyID, *newKeyID); err != nil {
+			return err
+		}
+		if err := authority.Save(*path); err != nil {
+			return err
+		}
+		return writeJSONOutput(output, map[string]any{"file": *path, "retired_key_id": strings.TrimSpace(*currentKeyID), "active_key_id": strings.TrimSpace(*newKeyID)})
+	case "revoke-key":
+		if strings.TrimSpace(*keyID) == "" {
+			return errors.New("--key-id is required")
+		}
+		if err := authority.RevokeKey(*keyID); err != nil {
+			return err
+		}
+		if err := authority.Save(*path); err != nil {
+			return err
+		}
+		return writeJSONOutput(output, map[string]any{"file": *path, "revoked_key_id": strings.TrimSpace(*keyID)})
+	case "revoke-credential":
+		if strings.TrimSpace(*credentialID) == "" {
+			return errors.New("--credential-id is required")
+		}
+		if err := authority.RevokeCredential(*credentialID); err != nil {
+			return err
+		}
+		if err := authority.Save(*path); err != nil {
+			return err
+		}
+		return writeJSONOutput(output, map[string]any{"file": *path, "revoked_credential_id": strings.TrimSpace(*credentialID)})
+	default:
+		return fmt.Errorf("unsupported service-credential action %q", action)
+	}
 }
 
 func workspaceCommand(args []string, output io.Writer) error {
@@ -259,15 +370,17 @@ func workspacebundleCounts(manifest workspacebundle.Manifest) workspacebundle.Co
 }
 
 type apiOptions struct {
-	BaseURL        string
-	Workspace      string
-	Tenant         string
-	Token          string
-	ID             string
-	RequirementID  string
-	Status         string
-	File           string
-	IdempotencyKey string
+	BaseURL         string
+	Workspace       string
+	Tenant          string
+	Token           string
+	ID              string
+	RequirementID   string
+	Status          string
+	File            string
+	IdempotencyKey  string
+	IncludeTerminal bool
+	Reason          string
 }
 
 func orchestrationControl(resource string, args []string) {
@@ -288,6 +401,13 @@ func orchestrationControl(resource string, args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if resource == "timer" && action == "cancel" && len(body) == 0 && strings.TrimSpace(opts.Reason) != "" {
+		body, err = json.Marshal(map[string]string{"reason": strings.TrimSpace(opts.Reason)})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	response, err := doAPIRequest(method, path, body, opts)
 	if err != nil {
@@ -331,6 +451,8 @@ func bindAPIOptions(fs *flag.FlagSet) apiOptions {
 	fs.StringVar(&opts.Status, "status", "", "status filter")
 	fs.StringVar(&opts.File, "file", "", "JSON request body")
 	fs.StringVar(&opts.IdempotencyKey, "idempotency-key", "", "idempotency key")
+	fs.BoolVar(&opts.IncludeTerminal, "include-terminal", false, "include terminal timers in timer list")
+	fs.StringVar(&opts.Reason, "reason", "", "operator reason for timer cancellation")
 	return opts
 }
 
@@ -386,6 +508,26 @@ func orchestrationRequest(resource, action string, opts apiOptions) (string, str
 				return "", "", false, err
 			}
 			return http.MethodPost, "/api/v1/squads/" + id + "/" + action + "?workspace_id=" + url.QueryEscape(opts.Workspace), false, nil
+		}
+	case "timer":
+		switch action {
+		case "list":
+			return http.MethodGet, "/api/v1/timers?include_terminal=" + strconv.FormatBool(opts.IncludeTerminal), false, nil
+		case "get":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodGet, "/api/v1/timers/" + id, false, nil
+		case "explain":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodGet, "/api/v1/timers/" + id + "/explain", false, nil
+		case "cancel":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodPost, "/api/v1/timers/" + id + "/cancel", false, nil
 		}
 	case "plan":
 		switch action {

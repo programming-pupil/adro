@@ -76,6 +76,12 @@ with a different value does not replace an existing password. For a local
 profile where the password is unknown, stop ADRO, back up and remove its
 `auth.json`, then start once with a new password of at least 10 characters.
 
+Machine callers use short-lived, audience-bound service credentials; the old
+shared `ADRO_API_TOKEN` setting is rejected. Initialize and issue credentials
+with `adroctl service-credential`, then set `ADRO_SERVICE_CREDENTIAL_FILE`.
+Rotation, revocation, file permissions, and failure semantics are documented in
+`docs/operations/identity-and-service-credentials.md`.
+
 Open `http://127.0.0.1:8081`. The API readiness endpoint is
 `http://127.0.0.1:8080/readyz`.
 

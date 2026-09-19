@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -50,6 +51,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 	}
 	now := w.Scheduler.now()
 	finished := make([]NodeAttempt, 0)
+	if w.Scheduler.Admission != nil {
+		if err := w.recoverTerminalReservations(plan, *projection, now); err != nil {
+			return finished, err
+		}
+	}
 	for _, attempt := range cloneProjection(*projection).Attempts {
 		if attempt.Status != AttemptRunning {
 			continue
@@ -85,6 +91,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 				if finishErr != nil {
 					return finished, finishErr
 				}
+				if w.Scheduler.Admission != nil {
+					if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, ResourceVector{}, true, now); settleErr != nil {
+						return finished, settleErr
+					}
+				}
 				finished = append(finished, item)
 				continue
 			}
@@ -97,6 +108,11 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 			item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: "timeout", Result: StructuredResult{Outcome: "timeout", Summary: "provider lease expired", EvidenceIDs: []string{"lease-expired:" + attempt.ID}}, Failure: &FailureReason{Code: "lease_expired", Message: "provider lease expired", Retryable: true}, Now: now})
 			if err != nil {
 				return finished, err
+			}
+			if w.Scheduler.Admission != nil {
+				if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, ResourceVector{}, true, now); settleErr != nil {
+					return finished, settleErr
+				}
 			}
 			finished = append(finished, item)
 			continue
@@ -201,9 +217,38 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		if err != nil {
 			return finished, err
 		}
+		if w.Scheduler.Admission != nil {
+			normalized, raw, usageErr := normalizedProviderResources(snapshot)
+			if usageErr != nil {
+				return finished, usageErr
+			}
+			if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, raw, normalized, false, now); settleErr != nil {
+				return finished, settleErr
+			}
+		}
 		finished = append(finished, item)
 	}
 	return finished, nil
+}
+
+func (w Worker) recoverTerminalReservations(plan RequirementExecutionPlan, projection PlanProjection, now time.Time) error {
+	attemptIDs := make([]string, 0, len(projection.Attempts))
+	for id, attempt := range projection.Attempts {
+		if attempt.ResourceReservationID == "" || (attempt.Status != AttemptPassed && attempt.Status != AttemptFailed && attempt.Status != AttemptCancelled && attempt.Status != AttemptTimedOut) {
+			continue
+		}
+		attemptIDs = append(attemptIDs, id)
+	}
+	sort.Strings(attemptIDs)
+	for _, id := range attemptIDs {
+		attempt := projection.Attempts[id]
+		tokens, tools, _ := resultUsage(attempt.Result)
+		normalized := ResourceVector{Tokens: tokens, ToolCalls: int64(tools), ConcurrencySlots: 1}
+		if err := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, attempt, nil, normalized, true, now); err != nil {
+			return fmt.Errorf("recover resource reservation for attempt %s: %w", attempt.ID, err)
+		}
+	}
+	return nil
 }
 
 func (w Worker) providerForAttempt(ctx context.Context, plan RequirementExecutionPlan, attempt NodeAttempt) (provider.ExecutionProvider, error) {

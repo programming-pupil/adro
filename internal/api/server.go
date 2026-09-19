@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
 	adroauth "github.com/adro-project/adro/internal/auth"
@@ -35,6 +36,7 @@ import (
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
+	runtimepkg "github.com/adro-project/adro/internal/runtime"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
@@ -42,24 +44,32 @@ import (
 )
 
 type Server struct {
-	Store            *store.Memory
-	Provider         provider.ExecutionProvider
-	RuntimeProviders *provider.RuntimeProviderPool
-	Artifacts        artifact.Store
-	Events           *events.Bus
-	Runners          *runner.Supervisor
-	Audit            *audit.Ledger
-	Harness          *harness.Store
-	Plugins          *plugins.Registry
-	Logger           *slog.Logger
-	Router           *provider.AgentRouteResolver
-	Auth             *adroauth.Service
-	Orchestration    orchestration.ControlRepository
-	Memory           *memory.Repository
-	Tracer           telemetry.Tracer
-	uploadMu         sync.Mutex
-	materializeMu    sync.Mutex
-	idempotencyMu    sync.Mutex
+	Store              *store.Memory
+	Provider           provider.ExecutionProvider
+	RuntimeProviders   *provider.RuntimeProviderPool
+	Artifacts          artifact.Store
+	Events             *events.Bus
+	Runners            *runner.Supervisor
+	Audit              *audit.Ledger
+	Harness            *harness.Store
+	Plugins            *plugins.Registry
+	Logger             *slog.Logger
+	Router             *provider.AgentRouteResolver
+	Auth               *adroauth.Service
+	ServiceCredentials *adroauth.ServiceCredentialAuthority
+	Orchestration      orchestration.ControlRepository
+	ResourceLedger     *orchestration.ResourceLedger
+	Admission          *orchestration.AdmissionController
+	Timers             *runtimepkg.TimerStore
+	Memory             *memory.Repository
+	Tracer             telemetry.Tracer
+	// MCPClient is the injected protocol boundary. A zero value is fail-closed:
+	// stdio and secret references stay disabled until the caller supplies an
+	// explicit transport policy and SecretResolver.
+	MCPClient     mcpclient.Client
+	uploadMu      sync.Mutex
+	materializeMu sync.Mutex
+	idempotencyMu sync.Mutex
 	// legacyGraphMu serializes the compatibility adapter's read/reduce/commit
 	// sequence. The pipeline store has compare-and-swap versions, while the
 	// graph projection is loaded and committed through separate repository
@@ -169,11 +179,32 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		router = provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
 	}
 	var startupErr error
+	tracer, tracerErr := telemetry.NewTracerFromEnvironment(context.Background())
+	if tracerErr != nil {
+		logger.Error("initialize telemetry", "error", tracerErr)
+		startupErr = fmt.Errorf("initialize telemetry: %w", tracerErr)
+		tracer = telemetry.LocalTracer()
+	}
 	authService, err := adroauth.NewService(os.Getenv("ADRO_AUTH_STATE_FILE"), os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	if err != nil {
 		logger.Error("load authentication state", "error", err)
 		startupErr = fmt.Errorf("load authentication state: %w", err)
 		authService, _ = adroauth.NewService("", os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
+	}
+	var serviceCredentials *adroauth.ServiceCredentialAuthority
+	if strings.TrimSpace(os.Getenv("ADRO_API_TOKEN")) != "" {
+		legacyErr := errors.New("ADRO_API_TOKEN is not supported; use short-lived audience-bound service credentials")
+		logger.Error("reject legacy machine credential", "error", legacyErr)
+		startupErr = errors.Join(startupErr, legacyErr)
+	}
+	if path := strings.TrimSpace(os.Getenv("ADRO_SERVICE_CREDENTIAL_FILE")); path != "" {
+		loaded, loadErr := adroauth.LoadServiceCredentialAuthority(path, nil, 15*time.Minute)
+		if loadErr != nil {
+			logger.Error("load service credential authority", "error", loadErr)
+			startupErr = errors.Join(startupErr, fmt.Errorf("load service credential authority: %w", loadErr))
+		} else {
+			serviceCredentials = loaded
+		}
 	}
 	harnessStore, harnessErr := harness.New("")
 	if harnessErr != nil {
@@ -199,6 +230,29 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 	if orchestrationRepo == nil && strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")) == "" {
 		orchestrationRepo = orchestration.NewMemoryRepository()
 	}
+	resourcePath := strings.TrimSpace(os.Getenv("ADRO_RESOURCE_STATE_FILE"))
+	resourceLedger, resourceErr := orchestration.NewResourceLedger(resourcePath, orchestration.ResourceLedgerOptions{})
+	if resourceErr != nil {
+		logger.Error("load resource accounting state", "error", resourceErr, "path", resourcePath)
+		startupErr = errors.Join(startupErr, fmt.Errorf("load resource accounting state: %w", resourceErr))
+		resourceLedger, _ = orchestration.NewResourceLedger("", orchestration.ResourceLedgerOptions{})
+	}
+	fairQueue, queueErr := orchestration.NewFairAdmissionQueue(orchestration.FairQueuePolicy{})
+	if queueErr != nil {
+		logger.Error("initialize admission queue", "error", queueErr)
+		startupErr = errors.Join(startupErr, fmt.Errorf("initialize admission queue: %w", queueErr))
+	}
+	admission := &orchestration.AdmissionController{Ledger: resourceLedger, Queue: fairQueue}
+	var timerStore *runtimepkg.TimerStore
+	if timerPath := strings.TrimSpace(os.Getenv("ADRO_TIMER_STATE_FILE")); timerPath != "" {
+		loaded, timerErr := runtimepkg.NewTimerStore(timerPath, runtimepkg.TimerStoreOptions{})
+		if timerErr != nil {
+			logger.Error("load durable timer state", "error", timerErr, "path", timerPath)
+			startupErr = errors.Join(startupErr, fmt.Errorf("load durable timer state: %w", timerErr))
+		} else {
+			timerStore = loaded
+		}
+	}
 	runners := runner.NewSupervisor()
 	if path := strings.TrimSpace(os.Getenv("ADRO_RUNNER_STATE_FILE")); path != "" {
 		if loaded, loadErr := runner.NewPersistentSupervisor(path); loadErr == nil {
@@ -222,7 +276,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		}
 	}
 	workRoot := os.Getenv("ADRO_WORK_ROOT")
-	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: telemetry.Tracer{Exporter: telemetry.ExporterFromEnvironment()}, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
+	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, ServiceCredentials: serviceCredentials, Orchestration: orchestrationRepo, ResourceLedger: resourceLedger, Admission: admission, Timers: timerStore, Memory: memoryRepo, Tracer: tracer, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
@@ -237,6 +291,17 @@ func NewWithRoutingAndOrchestration(s *store.Memory, p provider.ExecutionProvide
 }
 
 func (s *Server) Routes() http.Handler { return http.HandlerFunc(s.ServeHTTP) }
+
+// Shutdown flushes the process-level telemetry provider after HTTP traffic has
+// stopped. The caller owns the timeout and can combine this with other
+// component shutdowns in reverse startup order.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	return s.Tracer.Shutdown(ctx)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	traceCtx, serverSpan, traceErr := telemetry.StartRemoteSpan(r.Context(), r.Header.Get(telemetry.TraceParentHeader), r.Header.Get(telemetry.TraceStateHeader))
 	r = r.WithContext(traceCtx)
@@ -355,6 +420,64 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.login(w, r)
 		return
 	}
+	userSession, userAuthenticated := s.authenticateUserSession(r)
+	user := userSession.User
+	machineActor, machineAuthenticated := s.authenticateService(r)
+	credentialPresented := bearerToken(r) != ""
+	if strings.HasPrefix(path, "/api/") &&
+		((path != "/api/v1/auth/me" && authMode == "required" && !userAuthenticated && !machineAuthenticated) ||
+			(credentialPresented && !userAuthenticated && !machineAuthenticated)) {
+		s.problem(w, r, http.StatusUnauthorized, "authentication_required", "present a valid active user session or short-lived service credential", nil)
+		return
+	}
+	var verifiedActor coreidentity.Actor
+	if userAuthenticated {
+		// Interactive identity is authoritative. Never let a browser-supplied
+		// header impersonate another member or escape the user's workspace.
+		identityTenant := userTenant(user)
+		if requestedTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); requestedTenant != "" && requestedTenant != identityTenant {
+			s.problem(w, r, http.StatusForbidden, "tenant_access_denied", "the requested tenant is outside your authenticated identity", nil)
+			return
+		}
+		verifiedActor = coreidentity.Actor{
+			Type: coreidentity.ActorHuman, ID: user.ID, TenantID: identityTenant, WorkspaceID: user.WorkspaceID,
+			AuthnMethod: "local_session", CredentialID: userSession.CredentialID, Audience: adroauth.ServiceTokenAudienceAPI,
+			IssuedAt: userSession.IssuedAt.UTC().Truncate(time.Microsecond), ExpiresAt: userSession.ExpiresAt.UTC().Truncate(time.Microsecond),
+		}
+		r.Header.Set("X-Member-ID", user.ID)
+		r.Header.Del("X-Agent-ID")
+		r.Header.Set("X-Workspace-ID", user.WorkspaceID)
+		r.Header.Set("X-Tenant-ID", identityTenant)
+		if menu := menuForPath(path); menu != "" && !user.Can(menu) {
+			s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to use this product area", map[string]any{"menu_id": menu})
+			return
+		}
+	} else if machineAuthenticated {
+		for header, expected := range map[string]string{"X-Tenant-ID": machineActor.TenantID, "X-Workspace-ID": machineActor.WorkspaceID} {
+			if requested := strings.TrimSpace(r.Header.Get(header)); requested != "" && requested != expected {
+				s.problem(w, r, http.StatusForbidden, "identity_scope_mismatch", "request scope differs from the verified service credential", nil)
+				return
+			}
+		}
+		verifiedActor = machineActor
+		r.Header.Set("X-Member-ID", machineActor.ID)
+		if machineActor.Type == coreidentity.ActorAgent {
+			r.Header.Set("X-Agent-ID", machineActor.ID)
+		} else {
+			r.Header.Del("X-Agent-ID")
+		}
+		r.Header.Set("X-Workspace-ID", machineActor.WorkspaceID)
+		r.Header.Set("X-Tenant-ID", machineActor.TenantID)
+	}
+	if verifiedActor.ID != "" {
+		ctx, identityErr := coreidentity.WithVerifiedActor(r.Context(), verifiedActor, time.Now().UTC(), adroauth.ServiceTokenAudienceAPI)
+		if identityErr != nil {
+			s.problem(w, r, http.StatusUnauthorized, "identity_invalid", "verified identity is no longer valid", nil)
+			return
+		}
+		ctx = context.WithValue(ctx, authenticatedWorkspaceKey{}, verifiedActor.WorkspaceID)
+		r = r.WithContext(context.WithValue(ctx, authenticatedTenantKey{}, verifiedActor.TenantID))
+	}
 	var buffered *bufferedResponseWriter
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if len(idempotencyKey) > 255 {
@@ -413,30 +536,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			writeBufferedResponse(originalWriter, response)
 		}()
-	}
-	user, userAuthenticated := s.authenticateUser(r)
-	machineAuthenticated := authorizedMachine(r)
-	if strings.HasPrefix(path, "/api/") && path != "/api/v1/auth/me" && authMode == "required" && !userAuthenticated && !machineAuthenticated {
-		s.problem(w, r, http.StatusUnauthorized, "authentication_required", "sign in with an active ADRO account", nil)
-		return
-	}
-	if userAuthenticated {
-		// Interactive identity is authoritative. Never let a browser-supplied
-		// header impersonate another member or escape the user's workspace.
-		identityTenant := userTenant(user)
-		if requestedTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); requestedTenant != "" && requestedTenant != identityTenant {
-			s.problem(w, r, http.StatusForbidden, "tenant_access_denied", "the requested tenant is outside your authenticated identity", nil)
-			return
-		}
-		r.Header.Set("X-Member-ID", user.ID)
-		r.Header.Set("X-Workspace-ID", user.WorkspaceID)
-		r.Header.Set("X-Tenant-ID", identityTenant)
-		ctx := context.WithValue(r.Context(), authenticatedWorkspaceKey{}, user.WorkspaceID)
-		r = r.WithContext(context.WithValue(ctx, authenticatedTenantKey{}, identityTenant))
-		if menu := menuForPath(path); menu != "" && !user.Can(menu) {
-			s.problem(w, r, http.StatusForbidden, "menu_access_denied", "your account is not allowed to use this product area", map[string]any{"menu_id": menu})
-			return
-		}
 	}
 	// PostgreSQL orchestration adapters apply RLS identity inside each commit
 	// transaction. Scope comes only from the authenticated/request boundary, not
@@ -499,6 +598,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"runtime_id": runtimeID, "items": items})
+	case path == "/api/v1/timers" || strings.HasPrefix(path, "/api/v1/timers/"):
+		s.timerRoute(w, r, strings.TrimPrefix(path, "/api/v1/timers"))
+	case path == "/api/v1/resources":
+		s.resourceAccountingRoute(w, r, false)
+	case path == "/api/v1/resources/quotas":
+		s.resourceAccountingRoute(w, r, true)
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {
@@ -968,11 +1073,9 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, 400, "invalid_json", err.Error(), nil)
 		return
 	}
-	if workspaceID := r.Header.Get("X-Workspace-ID"); workspaceID != "" {
-		in.WorkspaceID = workspaceID
-	}
-	if memberID := r.Header.Get("X-Member-ID"); memberID != "" {
-		in.CreatedBy = memberID
+	in.WorkspaceID = requestWorkspace(r, in.WorkspaceID)
+	if actorID := requestActorID(r); actorID != "" {
+		in.CreatedBy = actorID
 	}
 	if err := s.validateRequirementRepositoryRelations(in.WorkspaceID, in.RepositoryIDs); err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "invalid_repository_relation", err.Error(), nil)
@@ -1728,8 +1831,8 @@ func (s *Server) attachmentRoute(w http.ResponseWriter, r *http.Request, user ad
 		s.problem(w, r, http.StatusInternalServerError, "artifact_publish_failed", err.Error(), nil)
 		return
 	}
-	createdBy := r.Header.Get("X-Member-ID")
-	if userAuthenticated {
+	createdBy := requestActorID(r)
+	if userAuthenticated && createdBy == "" {
 		createdBy = user.ID
 	}
 	item, err := s.Store.SaveAttachment(domain.EntityAttachment{WorkspaceID: workspaceID, OwnerType: ownerType, OwnerID: ownerID, Filename: filename, MediaType: mediaType, SizeBytes: meta.SizeBytes, ArtifactURI: meta.Key.URI(), CreatedBy: createdBy})
@@ -3169,7 +3272,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 			case len(parts) == 2 && r.Method == http.MethodPost && (parts[1] == "discover" || parts[1] == "health-check" || parts[1] == "approve"):
 				updated := item
 				if parts[1] == "discover" {
-					_, digest, discoverErr := (mcpclient.Client{}).Discover(r.Context(), item)
+					_, digest, discoverErr := s.MCPClient.Discover(r.Context(), item)
 					if discoverErr != nil {
 						// Discovery is an operator probe. Keep the resource addressable
 						// when a remote server is offline, but never fabricate a schema
@@ -3187,7 +3290,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 					updated.SchemaDigest = digest
 				}
 				if parts[1] == "health-check" {
-					if healthErr := (mcpclient.Client{}).Health(r.Context(), item); healthErr != nil {
+					if healthErr := s.MCPClient.Health(r.Context(), item); healthErr != nil {
 						updated.Status = "unreachable"
 						saved, saveErr := s.Store.UpsertMCPServer(updated)
 						if saveErr != nil {
@@ -3234,7 +3337,7 @@ func (s *Server) mcpRoute(w http.ResponseWriter, r *http.Request, path string) {
 					return
 				}
 				started := time.Now()
-				response, invokeErr := (mcpclient.Client{}).Invoke(r.Context(), item, input.Tool, input.Request)
+				response, invokeErr := s.MCPClient.Invoke(r.Context(), item, input.Tool, input.Request)
 				invocationStatus := "completed"
 				if invokeErr != nil {
 					invocationStatus = "failed"
@@ -3558,7 +3661,7 @@ func (s *Server) automationRunRoute(w http.ResponseWriter, r *http.Request, path
 		case "cancel":
 			status = "cancelled"
 		case "takeover":
-			status, actor = "running", r.Header.Get("X-Member-ID")
+			status, actor = "running", requestActorID(r)
 			if actor == "" {
 				actor = "local-user"
 			}
@@ -3733,7 +3836,7 @@ func (s *Server) approvalRoute(w http.ResponseWriter, r *http.Request, path stri
 				s.problem(w, r, 422, "invalid_decision", "decision must be approved or rejected", nil)
 				return
 			}
-			saved, err := s.Store.DecideApproval(parts[0], input.Decision, r.Header.Get("X-Member-ID"), input.Reason)
+			saved, err := s.Store.DecideApproval(parts[0], input.Decision, requestActorID(r), input.Reason)
 			if err != nil {
 				code := 409
 				if errors.Is(err, store.ErrNotFound) {
@@ -4069,15 +4172,66 @@ func (s *Server) recordAudit(r *http.Request, workspaceID, action, correlationID
 	if s.Audit == nil {
 		return
 	}
-	actorID, actorType := r.Header.Get("X-Member-ID"), "member"
-	if actorID == "" {
-		actorID, actorType = "local-user", "system"
+	actorID, actorType := "local-user", "system"
+	if actor, ok := coreidentity.FromContext(r.Context()); ok {
+		actorID, actorType = actor.ID, string(actor.Type)
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["identity"] = map[string]any{
+			"effective":  coreidentity.ActorRef{Type: actor.Type, ID: actor.ID},
+			"original":   actor.Original(),
+			"delegation": append([]coreidentity.Transition(nil), actor.Delegation...),
+			"credential": actor.CredentialID,
+		}
+	} else if headerActor := requestActorID(r); headerActor != "" {
+		actorID, actorType = headerActor, requestActorType(r)
 	}
 	if _, err := s.Audit.Append(audit.Event{TenantID: tenant(r), WorkspaceID: workspaceID, ActorType: actorType, ActorID: actorID, Action: action, CorrelationID: correlationID, Payload: payload}); err != nil {
 		action = strings.ReplaceAll(strings.ReplaceAll(action, "\n", "\\n"), "\r", "\\r")
 		errorText := strings.ReplaceAll(strings.ReplaceAll(err.Error(), "\n", "\\n"), "\r", "\\r")
 		s.Logger.Warn("audit append failed", "action", action, "error", errorText)
 	}
+}
+
+func verifiedActor(r *http.Request) (coreidentity.Actor, bool) {
+	if r == nil {
+		return coreidentity.Actor{}, false
+	}
+	return coreidentity.FromContext(r.Context())
+}
+
+// requestActorID returns the identity established by authentication middleware.
+// Header fallback exists only for the explicit local optional-auth profile; in
+// authenticated deployments ServeHTTP replaces those headers from the verified
+// credential before any handler is invoked.
+func requestActorID(r *http.Request) string {
+	if actor, ok := verifiedActor(r); ok {
+		return actor.ID
+	}
+	if r == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(r.Header.Get("X-Member-ID")); id != "" {
+		return id
+	}
+	return strings.TrimSpace(r.Header.Get("X-Agent-ID"))
+}
+
+func requestActorType(r *http.Request) string {
+	if actor, ok := verifiedActor(r); ok {
+		return string(actor.Type)
+	}
+	if r == nil {
+		return ""
+	}
+	if strings.TrimSpace(r.Header.Get("X-Member-ID")) != "" {
+		return "member"
+	}
+	if strings.TrimSpace(r.Header.Get("X-Agent-ID")) != "" {
+		return "agent"
+	}
+	return ""
 }
 func (s *Server) problem(w http.ResponseWriter, r *http.Request, status int, code, detail string, extra map[string]any) {
 	traceID := w.Header().Get("X-Trace-ID")
@@ -4320,6 +4474,9 @@ func localAuthBackend() bool {
 }
 
 func tenant(r *http.Request) string {
+	if actor, ok := coreidentity.FromContext(r.Context()); ok {
+		return actor.TenantID
+	}
 	if value, ok := r.Context().Value(authenticatedTenantKey{}).(string); ok && strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
 	}
@@ -4337,6 +4494,9 @@ func userTenant(user adroauth.User) string {
 }
 
 func runnerRequestScope(r *http.Request) (string, string) {
+	if actor, ok := coreidentity.FromContext(r.Context()); ok {
+		return actor.WorkspaceID, actor.TenantID
+	}
 	return strings.TrimSpace(r.Header.Get("X-Workspace-ID")), strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
 }
 
@@ -4357,6 +4517,9 @@ func runnerInRequestScope(item runner.Runner, workspaceID, tenantID string) bool
 // authenticated identity or explicit machine header is authoritative; a body
 // workspace is retained only for unauthenticated/provider bootstrap flows.
 func requestWorkspace(r *http.Request, bodyWorkspace string) string {
+	if actor, ok := coreidentity.FromContext(r.Context()); ok {
+		return actor.WorkspaceID
+	}
 	if workspace := strings.TrimSpace(r.Header.Get("X-Workspace-ID")); workspace != "" {
 		return workspace
 	}
@@ -4367,6 +4530,9 @@ func requestWorkspace(r *http.Request, bodyWorkspace string) string {
 }
 
 func workspaceMatchesRequest(r *http.Request, resourceWorkspace string) bool {
+	if actor, ok := coreidentity.FromContext(r.Context()); ok {
+		return strings.TrimSpace(resourceWorkspace) == actor.WorkspaceID
+	}
 	requested := strings.TrimSpace(r.Header.Get("X-Workspace-ID"))
 	return requested == "" || strings.TrimSpace(resourceWorkspace) == requested
 }
@@ -4469,23 +4635,32 @@ func (s *Server) evidenceForRequest(r *http.Request, items []domain.EvidenceBund
 	return filtered
 }
 
-func authorizedMachine(r *http.Request) bool {
-	expected := os.Getenv("ADRO_API_TOKEN")
-	if expected == "" {
-		return false
+func (s *Server) authenticateService(r *http.Request) (coreidentity.Actor, bool) {
+	if s == nil || s.ServiceCredentials == nil {
+		return coreidentity.Actor{}, false
 	}
-	value := bearerToken(r)
-	if value == "" {
-		return false
+	actor, err := s.ServiceCredentials.Verify(bearerToken(r), adroauth.ServiceTokenAudienceAPI)
+	return actor, err == nil
+}
+
+func (s *Server) serviceAuthenticated(r *http.Request) bool {
+	if actor, ok := verifiedActor(r); ok {
+		return actor.Type != coreidentity.ActorHuman
 	}
-	return subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
+	_, ok := s.authenticateService(r)
+	return ok
+}
+
+func (s *Server) authenticateUserSession(r *http.Request) (adroauth.Session, bool) {
+	if s.Auth == nil {
+		return adroauth.Session{}, false
+	}
+	return s.Auth.AuthenticateSession(bearerToken(r))
 }
 
 func (s *Server) authenticateUser(r *http.Request) (adroauth.User, bool) {
-	if s.Auth == nil {
-		return adroauth.User{}, false
-	}
-	return s.Auth.AuthenticateToken(bearerToken(r))
+	session, ok := s.authenticateUserSession(r)
+	return session.User, ok
 }
 
 func bearerToken(r *http.Request) string {

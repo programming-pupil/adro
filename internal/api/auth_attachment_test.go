@@ -9,15 +9,176 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
+	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	"github.com/gorilla/websocket"
 )
+
+// Threat ID: TM-IDENT-001
+func TestServiceCredentialRejectsScopeSpoofingAndBindsActor(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "")
+	s := testServer(t)
+	token := testServiceToken(t, s, coreidentity.ActorWorker, "worker-1", "tenant-1", "workspace-1")
+	base := map[string]string{"Authorization": "Bearer " + token}
+	for _, spoof := range []map[string]string{
+		{"X-Tenant-ID": "tenant-2"},
+		{"X-Workspace-ID": "workspace-2"},
+	} {
+		headers := map[string]string{"Authorization": base["Authorization"]}
+		for key, value := range spoof {
+			headers[key] = value
+		}
+		response := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", headers)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "identity_scope_mismatch") {
+			t.Fatalf("scope spoof headers=%v status=%d body=%s", spoof, response.Code, response.Body.String())
+		}
+	}
+	headers := map[string]string{"Authorization": base["Authorization"], "X-Member-ID": "spoofed", "X-Agent-ID": "spoofed-agent"}
+	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", `{"workspace_id":"foreign","created_by":"spoofed","title":"Service identity","description":"verified actor owns the mutation","acceptance_criteria":["bound scope"],"assignee_member_ids":["member-1"]}`, headers)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var requirement domain.Requirement
+	if err := json.Unmarshal(created.Body.Bytes(), &requirement); err != nil {
+		t.Fatal(err)
+	}
+	if requirement.WorkspaceID != "workspace-1" || requirement.CreatedBy != "worker-1" {
+		t.Fatalf("service identity was not authoritative: %+v", requirement)
+	}
+
+	sharedBody := `{"title":"Tenant idempotency","description":"keys are tenant scoped","acceptance_criteria":["no cross-tenant replay"],"assignee_member_ids":["member-1"]}`
+	first := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", sharedBody, map[string]string{"Authorization": "Bearer " + token, "Idempotency-Key": "same-key"})
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first tenant mutation status=%d body=%s", first.Code, first.Body.String())
+	}
+	secondToken, _, err := s.ServiceCredentials.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorWorker, ID: "worker-2", TenantID: "tenant-2", WorkspaceID: "workspace-1", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", sharedBody, map[string]string{"Authorization": "Bearer " + secondToken, "Idempotency-Key": "same-key"})
+	if second.Code != http.StatusCreated || second.Header().Get("Idempotency-Replayed") != "" {
+		t.Fatalf("second tenant mutation status=%d replay=%q body=%s", second.Code, second.Header().Get("Idempotency-Replayed"), second.Body.String())
+	}
+	var firstRequirement, secondRequirement domain.Requirement
+	if json.Unmarshal(first.Body.Bytes(), &firstRequirement) != nil || json.Unmarshal(second.Body.Bytes(), &secondRequirement) != nil || firstRequirement.ID == secondRequirement.ID {
+		t.Fatalf("tenant idempotency was shared: first=%+v second=%+v", firstRequirement, secondRequirement)
+	}
+}
+
+func TestInvalidBearerIsRejectedInOptionalAuthMode(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "")
+	s := testServer(t)
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", nil).Code; got != http.StatusOK {
+		t.Fatalf("anonymous optional-auth request status=%d", got)
+	}
+	for _, path := range []string{"/api/v1/bugs", "/api/v1/auth/me"} {
+		response := request(t, s.Routes(), http.MethodGet, path, "", map[string]string{"Authorization": "Bearer invalid"})
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("invalid bearer path=%s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+// Threat ID: TM-IDENT-002
+func TestRevokedAndExpiredServiceCredentialsAreRejected(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "")
+	s := testServer(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	state, err := adroauth.GenerateServiceCredentialState("key-1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ServiceCredentials = authority
+	issue := func(id string) (string, coreidentity.Actor) {
+		t.Helper()
+		token, actor, issueErr := authority.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorService, ID: id, TenantID: "tenant", WorkspaceID: "workspace", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute})
+		if issueErr != nil {
+			t.Fatal(issueErr)
+		}
+		return token, actor
+	}
+	revokedToken, revokedActor := issue("revoked-service")
+	if err := authority.RevokeCredential(revokedActor.CredentialID); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer " + revokedToken}).Code; got != http.StatusUnauthorized {
+		t.Fatalf("revoked credential status=%d", got)
+	}
+	expiredToken, expiredActor := issue("expired-service")
+	now = expiredActor.ExpiresAt
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer " + expiredToken}).Code; got != http.StatusUnauthorized {
+		t.Fatalf("expired credential status=%d", got)
+	}
+}
+
+// Threat ID: TM-IDENT-002
+func TestLegacyStaticAPITokenFailsClosedAtStartup(t *testing.T) {
+	t.Setenv("ADRO_API_TOKEN", "legacy-static-secret")
+	t.Setenv("ADRO_AUTH_MODE", "optional")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "state_load_failed") || strings.Contains(response.Body.String(), "legacy-static-secret") {
+		t.Fatalf("legacy token readiness status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// Threat ID: TM-IDENT-003
+func TestAuditPreservesOriginalActorAndDelegationChain(t *testing.T) {
+	t.Setenv("ADRO_AUTH_MODE", "required")
+	t.Setenv("ADRO_ADMIN_PASSWORD", "")
+	s := testServer(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	state, err := adroauth.GenerateServiceCredentialState("key-1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ServiceCredentials = authority
+	delegation := []coreidentity.Transition{{
+		From: coreidentity.ActorRef{Type: coreidentity.ActorHuman, ID: "human-owner"},
+		Mode: coreidentity.TransitionDelegation, Reason: "execute approved runtime action", At: now,
+	}}
+	token, actor, err := authority.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorAgent, ID: "agent-1", TenantID: "tenant-1", WorkspaceID: "workspace-1", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute, Delegation: delegation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements", `{"title":"Delegated mutation","description":"audit the chain","acceptance_criteria":["identity retained"],"assignee_member_ids":["member-1"]}`, map[string]string{"Authorization": "Bearer " + token})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+	}
+	events := s.Audit.List()
+	if len(events) == 0 {
+		t.Fatal("delegated mutation produced no audit event")
+	}
+	event := events[len(events)-1]
+	identityEvidence, ok := event.Payload["identity"].(map[string]any)
+	if !ok {
+		t.Fatalf("identity evidence=%#v", event.Payload["identity"])
+	}
+	original, originalOK := identityEvidence["original"].(coreidentity.ActorRef)
+	chain, chainOK := identityEvidence["delegation"].([]coreidentity.Transition)
+	if event.ActorType != "agent" || event.ActorID != "agent-1" || identityEvidence["credential"] != actor.CredentialID || !originalOK || original.ID != "human-owner" || !chainOK || len(chain) != 1 {
+		t.Fatalf("audit actor=%s/%s identity=%#v", event.ActorType, event.ActorID, identityEvidence)
+	}
+}
 
 func TestInteractiveLoginMenuAuthorizationAndRevocation(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "required")
@@ -127,7 +288,7 @@ func TestAuthenticatedCommentEditRevisionRecordsAuthenticatedActor(t *testing.T)
 	if revisions.Code != http.StatusOK || json.Unmarshal(revisions.Body.Bytes(), &history) != nil || len(history.Items) != 2 {
 		t.Fatalf("revisions status=%d body=%s", revisions.Code, revisions.Body.String())
 	}
-	if history.Items[1].EditorID != admin.ID || history.Items[1].EditorType != "member" {
+	if history.Items[1].EditorID != admin.ID || history.Items[1].EditorType != "human" {
 		t.Fatalf("revision editor was not authenticated identity: %+v", history.Items[1])
 	}
 }
@@ -175,10 +336,10 @@ func TestRunnerRoutesEnforceWorkspaceAndTenantOwnership(t *testing.T) {
 	t.Setenv("ADRO_ADMIN_USERNAME", "admin")
 	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
 	t.Setenv("ADRO_AUTH_STATE_FILE", "")
-	t.Setenv("ADRO_API_TOKEN", "machine-token")
 	s := testServer(t)
+	machineToken := testServiceToken(t, s, coreidentity.ActorWorker, "runner-worker", "workspace-a", "workspace-a")
 	root := t.TempDir()
-	registered := request(t, s.Routes(), http.MethodPost, "/api/v1/runners", `{"name":"owned","provider":"test","version":"1","workspace_root":"`+root+`","concurrency":1}`, map[string]string{"Authorization": "Bearer machine-token", "X-Workspace-ID": "workspace-a"})
+	registered := request(t, s.Routes(), http.MethodPost, "/api/v1/runners", `{"name":"owned","provider":"test","version":"1","workspace_root":"`+root+`","concurrency":1}`, map[string]string{"Authorization": "Bearer " + machineToken, "X-Workspace-ID": "workspace-a"})
 	if registered.Code != http.StatusCreated {
 		t.Fatalf("register status=%d body=%s", registered.Code, registered.Body.String())
 	}

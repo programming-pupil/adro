@@ -63,6 +63,12 @@ spec:
               value: /var/lib/adro/runners.json
             - name: ADRO_RUN_STATE_FILE
               value: /var/lib/adro/runs.json
+            - name: ADRO_ORCHESTRATION_STATE_FILE
+              value: /var/lib/adro/orchestration.json
+            - name: ADRO_RESOURCE_STATE_FILE
+              value: /var/lib/adro/resources.json
+            - name: ADRO_TIMER_STATE_FILE
+              value: /var/lib/adro/timers.json
             - name: ADRO_WORK_ROOT
               value: /var/lib/adro/workspaces
             - name: ADRO_PROVIDER

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,11 +11,113 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
+	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/store"
 )
+
+func TestServiceCredentialCommandLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	var output bytes.Buffer
+	if err := serviceCredentialCommand([]string{"init", "--file", path, "--key-id", "key-1"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential state mode=%v err=%v", info.Mode().Perm(), err)
+	}
+	output.Reset()
+	if err := serviceCredentialCommand([]string{"issue", "--file", path, "--type", "worker", "--id", "worker-1", "--tenant", "tenant-1", "--workspace", "workspace-1", "--ttl", "2m"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var issued struct {
+		Token string             `json:"token"`
+		Actor coreidentity.Actor `json:"actor"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &issued); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor, err := authority.Verify(issued.Token, adroauth.ServiceTokenAudienceAPI); err != nil || actor.ID != "worker-1" || actor.CredentialID != issued.Actor.CredentialID {
+		t.Fatalf("verified actor=%+v err=%v", actor, err)
+	}
+
+	output.Reset()
+	if err := serviceCredentialCommand([]string{"revoke-credential", "--file", path, "--credential-id", issued.Actor.CredentialID}, &output); err != nil {
+		t.Fatal(err)
+	}
+	authority, err = adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Verify(issued.Token, adroauth.ServiceTokenAudienceAPI); !errors.Is(err, adroauth.ErrServiceTokenRevoked) {
+		t.Fatalf("revoked credential returned %v", err)
+	}
+
+	output.Reset()
+	if err := serviceCredentialCommand([]string{"issue", "--file", path, "--type", "service", "--id", "scheduler", "--tenant", "tenant-1", "--workspace", "workspace-1", "--ttl", "2m"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var oldKeyIssue struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &oldKeyIssue); err != nil {
+		t.Fatal(err)
+	}
+	if err := serviceCredentialCommand([]string{"rotate", "--file", path, "--current-key", "key-1", "--new-key", "key-2"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	authority, err = adroauth.LoadServiceCredentialAuthority(path, func() time.Time { return time.Now().UTC() }, adroauth.DefaultServiceTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Verify(oldKeyIssue.Token, adroauth.ServiceTokenAudienceAPI); err != nil {
+		t.Fatalf("retired key rejected live credential: %v", err)
+	}
+	if err := serviceCredentialCommand([]string{"revoke-key", "--file", path, "--key-id", "key-1"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	authority, err = adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Verify(oldKeyIssue.Token, adroauth.ServiceTokenAudienceAPI); !errors.Is(err, adroauth.ErrServiceTokenRevoked) {
+		t.Fatalf("revoked key returned %v", err)
+	}
+	if err := serviceCredentialCommand([]string{"init", "--file", path, "--key-id", "overwrite"}, io.Discard); err == nil {
+		t.Fatal("credential init overwrote existing state")
+	}
+}
+
+func TestTimerRequestRoutes(t *testing.T) {
+	tests := []struct {
+		action string
+		method string
+		path   string
+	}{
+		{"list", http.MethodGet, "/api/v1/timers?include_terminal=true"},
+		{"get", http.MethodGet, "/api/v1/timers/timer-1"},
+		{"explain", http.MethodGet, "/api/v1/timers/timer-1/explain"},
+		{"cancel", http.MethodPost, "/api/v1/timers/timer-1/cancel"},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			method, path, _, err := orchestrationRequest("timer", test.action, apiOptions{ID: "timer-1", IncludeTerminal: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if method != test.method || path != test.path {
+				t.Fatalf("got method=%s path=%s, want method=%s path=%s", method, path, test.method, test.path)
+			}
+		})
+	}
+}
 
 func TestOrchestrationRequestRoutes(t *testing.T) {
 	tests := []struct {
