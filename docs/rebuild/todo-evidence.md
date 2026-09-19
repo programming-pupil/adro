@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **36 evidenced**, **74 partial**, **341 unverified**
+- Evidence tracking: **38 evidenced**, **78 partial**, **335 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -493,22 +493,28 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. Durable Ed25519 trust store supports authenticated rotation, retirement, revocation-driven quarantine, compatible rollback and persistence rollback tests; artifact distribution/signing remains pending
 
 - [ ] `P0-SEC-006` [source:362] [state:partial] 建立 threat model 到测试 ID 的双向追踪。
-  - Recorded evidence state: `partial`. `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 27 mapped threats and bidirectional test annotations; full threat coverage remains pending
+  - Recorded evidence state: `partial`. `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 30 mapped threats and bidirectional test annotations; full threat coverage remains pending
 
 - [ ] `P1-SEC-007` [source:363] [state:partial] 生成 SBOM、SLSA provenance、签名 artifact 和 reproducible build evidence。
   - Recorded evidence state: `partial`. `SBOM`, `THIRD_PARTY_NOTICES` and license copies now cover the current dependency graph and `make supply-chain` verifies them; SLSA provenance, signed release artifacts and reproducible binary evidence remain pending
 
-- [ ] `P0-IDENT-001` [source:364] [state:unverified] API 边界验证主体身份，Runtime 内只接收已验证的 `Actor` 与不可伪造 tenant context。
+- [ ] `P0-IDENT-001` [source:364] [state:partial] API 边界验证主体身份，Runtime 内只接收已验证的 `Actor` 与不可伪造 tenant context。
+  - Recorded evidence state: `partial`. `core/identity.Actor` is bound to request context only after human-session or service-credential verification; authenticated handlers use immutable actor/tenant/workspace scope and spoofing tests fail closed, while non-HTTP runtime boundaries still need full migration
 
-- [ ] `P0-IDENT-002` [source:365] [state:unverified] 明确 human、service、agent、worker、extension 五类主体及其凭据、会话和撤销语义。
+- [ ] `P0-IDENT-002` [source:365] [state:evidenced] 明确 human、service、agent、worker、extension 五类主体及其凭据、会话和撤销语义。
+  - Recorded evidence state: `complete locally for reference boundary`. Human, service, agent, worker and extension actor types, human-session revocation, short-lived service credentials, key retirement/revocation and per-credential revocation are implemented and tested
 
-- [ ] `P0-IDENT-003` [source:366] [state:unverified] tenant/workspace membership 与 capability policy 分离；membership 不能自动授予工具权限。
+- [ ] `P0-IDENT-003` [source:366] [state:partial] tenant/workspace membership 与 capability policy 分离；membership 不能自动授予工具权限。
+  - Recorded evidence state: `partial`. Membership remains an API/menu boundary and `core/policy` remains the capability boundary; complete enforcement across every tool/model/MCP dispatch is still pending
 
-- [ ] `P0-IDENT-004` [source:367] [state:unverified] service-to-service 使用短期凭据和 audience binding；禁止共享静态管理员 token。
+- [ ] `P0-IDENT-004` [source:367] [state:evidenced] service-to-service 使用短期凭据和 audience binding；禁止共享静态管理员 token。
+  - Recorded evidence state: `complete locally for reference boundary`. Ed25519 service credentials bind audience, actor, tenant, workspace and a maximum 15-minute lifetime; `ADRO_API_TOKEN` fails readiness and `adroctl service-credential` manages init/issue/rotation/revocation
 
-- [ ] `P0-IDENT-005` [source:368] [state:unverified] impersonation、delegation、takeover 和 break-glass 必须显式记录原始 actor 与代理链。
+- [ ] `P0-IDENT-005` [source:368] [state:partial] impersonation、delegation、takeover 和 break-glass 必须显式记录原始 actor 与代理链。
+  - Recorded evidence state: `partial`. Delegation, impersonation, takeover and break-glass transitions preserve original/effective actors, require approval for privileged modes and emit audit-chain evidence; authoritative event propagation across all async work remains pending
 
-- [ ] `P0-IDENT-006` [source:369] [state:unverified] 所有 store、cache、queue、blob、trace 和 projection 验证 tenant boundary。
+- [ ] `P0-IDENT-006` [source:369] [state:partial] 所有 store、cache、queue、blob、trace 和 projection 验证 tenant boundary。
+  - Recorded evidence state: `partial`. Authenticated API, artifact, runner, comments, audit and orchestration request paths use verified tenant/workspace context; full store/cache/queue/blob/trace/projection conformance remains pending
 
 ## 7.3 Extension Isolation
 

@@ -292,8 +292,12 @@ func (c Comment) Validate() error {
 	if strings.TrimSpace(c.AuthorID) == "" || strings.TrimSpace(c.Content) == "" {
 		return errors.New("author_id and content are required")
 	}
-	if c.AuthorType != "member" && c.AuthorType != "agent" && c.AuthorType != "system" {
-		return errors.New("author_type must be member, agent, or system")
+	switch c.AuthorType {
+	case "human", "service", "agent", "worker", "extension", "system", "member":
+		// member is retained only for imported legacy comment projections; new
+		// authenticated requests use the closed core identity actor vocabulary.
+	default:
+		return errors.New("author_type must be a verified actor type or system")
 	}
 	return nil
 }

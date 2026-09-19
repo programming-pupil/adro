@@ -65,6 +65,11 @@ ADRO_ADMIN_PASSWORD='change-this-password' \
 如果忘记了本地密码，请先停止 ADRO，备份并删除对应的 `auth.json`，再使用至少
 10 个字符的新密码启动一次。
 
+机器调用方使用绑定 audience 的短期服务凭据；旧的共享 `ADRO_API_TOKEN` 配置会
+被拒绝。使用 `adroctl service-credential` 初始化、签发、轮换和撤销凭据，并设置
+`ADRO_SERVICE_CREDENTIAL_FILE`。完整运维与失败语义见
+`docs/operations/identity-and-service-credentials.md`。
+
 启动后访问 `http://127.0.0.1:8081`，API 就绪检查为
 `http://127.0.0.1:8080/readyz`。
 

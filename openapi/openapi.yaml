@@ -1,9 +1,9 @@
 ---
 openapi: 3.1.0
 info:
-  title: ADRO Control API
+  title: ADRO Durable Agent Runtime API
   version: 0.1.0
-  description: Provider-independent Agentic Delivery & Release Orchestrator API.
+  description: Durable, inspectable execution API for Agent sessions, plans, effects, approvals, context, memory, events, and recovery.
   license:
     name: Apache License 2.0
     identifier: Apache-2.0
@@ -7028,6 +7028,8 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+      bearerFormat: ADRO human session or short-lived Ed25519 service credential
+      description: Service credentials bind actor, tenant, workspace, audience, issue time, and expiry; shared static API tokens are rejected.
     cookieAuth:
       type: apiKey
       in: cookie

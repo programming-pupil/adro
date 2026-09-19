@@ -23,7 +23,7 @@ import (
 // workspace identity boundary as the rest of the API. Unauthenticated access
 // remains available only in the explicit local optional-auth profile.
 func (s *Server) orchestrationPermission(r *http.Request) bool {
-	if authorizedMachine(r) {
+	if s.serviceAuthenticated(r) {
 		return true
 	}
 	if user, ok := s.authenticateUser(r); ok {
@@ -36,7 +36,7 @@ func (s *Server) orchestrationPermission(r *http.Request) bool {
 // allowed to run an existing plan must not be able to publish or mutate the
 // Agent/Squad definitions that shape future executions.
 func (s *Server) orchestrationManagePermission(r *http.Request) bool {
-	if authorizedMachine(r) {
+	if s.serviceAuthenticated(r) {
 		return true
 	}
 	if user, ok := s.authenticateUser(r); ok {

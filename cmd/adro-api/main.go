@@ -58,6 +58,12 @@ func main() {
 	setDefaultEnv("ADRO_EVENT_STATE_FILE", filepath.Join(stateDir, "events.json"))
 	setDefaultEnv("ADRO_AUDIT_STATE_FILE", filepath.Join(stateDir, "audit.json"))
 	setDefaultEnv("ADRO_AUTH_STATE_FILE", filepath.Join(stateDir, "auth.json"))
+	if strings.TrimSpace(os.Getenv("ADRO_SERVICE_CREDENTIAL_FILE")) == "" {
+		candidate := filepath.Join(stateDir, "service-credentials.json")
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			setDefaultEnv("ADRO_SERVICE_CREDENTIAL_FILE", candidate)
+		}
+	}
 	setDefaultEnv("ADRO_RUN_STATE_FILE", filepath.Join(stateDir, "runs.json"))
 	setDefaultEnv("ADRO_HARNESS_STATE_FILE", filepath.Join(stateDir, "harness.json"))
 	setDefaultEnv("ADRO_PLUGIN_STATE_FILE", filepath.Join(stateDir, "plugins.json"))

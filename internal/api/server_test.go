@@ -17,7 +17,9 @@ import (
 	"testing"
 	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
+	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/orchestration"
@@ -35,6 +37,28 @@ func testServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	return New(store.NewMemory(), provider.NewMockProvider(bus), fs, bus, nil)
+}
+
+func testServiceToken(t *testing.T, server *Server, actorType coreidentity.ActorType, actorID, tenantID, workspaceID string) string {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	state, err := adroauth.GenerateServiceCredentialState("test-service-key", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return time.Now().UTC() }, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.ServiceCredentials = authority
+	token, _, err := authority.Issue(adroauth.ServiceTokenIssueRequest{
+		Type: actorType, ID: actorID, TenantID: tenantID, WorkspaceID: workspaceID,
+		Audience: adroauth.ServiceTokenAudienceAPI, TTL: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func TestRunRouteReadsRuntimeProviderPoolRuns(t *testing.T) {
@@ -1236,13 +1260,13 @@ func TestWorkspaceStreamHTTPReplayAndAckAreScoped(t *testing.T) {
 
 func TestOptionalBearerAuthMode(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "required")
-	t.Setenv("ADRO_API_TOKEN", "test-token")
 	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
 	s := testServer(t)
+	token := testServiceToken(t, s, coreidentity.ActorService, "api-client", "local", "local")
 	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("without token status=%d", got)
 	}
-	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer test-token"}).Code; got != http.StatusOK {
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer " + token}).Code; got != http.StatusOK {
 		t.Fatalf("with token status=%d", got)
 	}
 	if got := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil).Code; got != http.StatusOK {

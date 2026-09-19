@@ -294,6 +294,15 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 			return
 		}
+		if actor, authenticated := verifiedActor(r); authenticated {
+			if reviewer := strings.TrimSpace(input.Reviewer); reviewer != "" && reviewer != actor.ID {
+				s.problem(w, r, http.StatusForbidden, "identity_actor_mismatch", "memory reviewer differs from the verified actor", nil)
+				return
+			}
+			input.Reviewer = actor.ID
+		} else if strings.TrimSpace(input.Reviewer) == "" {
+			input.Reviewer = requestActorID(r)
+		}
 		item, transitionErr := s.Harness.TransitionMemoryWithReview(session.ID, parts[2], input.Status, input.Reviewer, input.Reason)
 		if transitionErr != nil {
 			status := http.StatusUnprocessableEntity
@@ -310,7 +319,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, tail strin
 		if s.Memory != nil {
 			actor := strings.TrimSpace(input.Reviewer)
 			if actor == "" {
-				actor = strings.TrimSpace(r.Header.Get("X-Member-ID"))
+				actor = requestActorID(r)
 			}
 			if actor == "" {
 				actor = "api"
@@ -536,7 +545,7 @@ func (s *Server) sessionMemory(w http.ResponseWriter, r *http.Request, session h
 			return
 		}
 		if memoryErr == nil {
-			actor := strings.TrimSpace(r.Header.Get("X-Member-ID"))
+			actor := requestActorID(r)
 			if actor == "" {
 				actor = "api"
 			}

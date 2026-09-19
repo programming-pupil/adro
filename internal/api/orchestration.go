@@ -279,14 +279,14 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 			s.problem(w, r, http.StatusConflict, "projection_unavailable", projectionErr.Error(), nil)
 			return
 		}
-		executor := s.graphExecutor(r.Header.Get("X-Member-ID"))
+		executor := s.graphExecutor(requestActorID(r))
 		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
 		if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 			s.problem(w, r, http.StatusConflict, "plan_resume_failed", tickErr.Error(), map[string]any{"report": report})
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "projection": projection, "report": report})
-		s.watchGraphPlan(plan, *input.Context, input.WorkItemID, input.AgentBinding, r.Header.Get("X-Member-ID"))
+		s.watchGraphPlan(plan, *input.Context, input.WorkItemID, input.AgentBinding, requestActorID(r))
 		return
 	}
 	projection, err := s.Orchestration.GetProjection(plan.ID)
@@ -327,11 +327,17 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 	if input.LeaseToken == 0 {
 		input.LeaseToken = attempt.Lease.FencingToken
 	}
-	executor := orchestration.Executor{Events: s.Orchestration, Owner: r.Header.Get("X-Member-ID")}
+	executor := orchestration.Executor{Events: s.Orchestration, Owner: requestActorID(r)}
 	if action == "takeover" {
 		owner := strings.TrimSpace(input.Owner)
-		if owner == "" {
-			owner = strings.TrimSpace(r.Header.Get("X-Member-ID"))
+		if actor, authenticated := verifiedActor(r); authenticated {
+			if owner != "" && owner != actor.ID {
+				s.problem(w, r, http.StatusForbidden, "identity_actor_mismatch", "takeover owner differs from the verified actor", nil)
+				return
+			}
+			owner = actor.ID
+		} else if owner == "" {
+			owner = requestActorID(r)
 		}
 		if owner == "" {
 			s.problem(w, r, http.StatusBadRequest, "owner_required", "owner is required for takeover", nil)
@@ -465,14 +471,14 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 		s.problem(w, r, http.StatusConflict, "projection_unavailable", err.Error(), nil)
 		return
 	}
-	executor := s.graphExecutor(r.Header.Get("X-Member-ID"))
+	executor := s.graphExecutor(requestActorID(r))
 	report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(context.Background(), plan, &projection, *input.Envelope, input.WorkItemID, input.AgentBindingID)
 	if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 		s.problem(w, r, http.StatusConflict, "plan_tick_failed", tickErr.Error(), map[string]any{"report": report})
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "projection": projection, "report": report})
-	s.watchGraphPlan(plan, *input.Envelope, input.WorkItemID, input.AgentBindingID, r.Header.Get("X-Member-ID"))
+	s.watchGraphPlan(plan, *input.Envelope, input.WorkItemID, input.AgentBindingID, requestActorID(r))
 }
 
 // watchGraphPlan keeps a graph execution moving after the HTTP request that
@@ -601,7 +607,7 @@ func (s *Server) executionPlanApproval(w http.ResponseWriter, r *http.Request, p
 		event = "approval_denied"
 		result = orchestration.StructuredResult{Outcome: "denied", Summary: "human approval denied", EvidenceIDs: []string{"human-denial:" + attempt.ID}}
 	}
-	executor := orchestration.Executor{Events: s.Orchestration, Owner: r.Header.Get("X-Member-ID")}
+	executor := orchestration.Executor{Events: s.Orchestration, Owner: requestActorID(r)}
 	finished, err := executor.FinishAttempt(context.Background(), plan, &projection, attempt.ID, orchestration.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, IdempotencyKey: attempt.IdempotencyKey + ":" + event})
 	if err != nil {
 		s.problem(w, r, http.StatusConflict, "approval_failed", err.Error(), nil)

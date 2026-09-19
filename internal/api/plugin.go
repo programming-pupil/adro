@@ -192,7 +192,7 @@ func (s *Server) pluginKeyRoute(w http.ResponseWriter, r *http.Request, tail str
 }
 
 func (s *Server) pluginAdminAllowed(r *http.Request) bool {
-	if authorizedMachine(r) {
+	if s.serviceAuthenticated(r) {
 		return true
 	}
 	user, authenticated := s.authenticateUser(r)

@@ -65,8 +65,9 @@ and prove all of the following before changing the startup gate:
   manifest digest and Ed25519 signature verified before activation; three
   consecutive failed probes quarantine the installation.
 - plugin lifecycle API calls are workspace-scoped; authenticated members cannot
-  install, activate, quarantine, or report health, while a machine token may do
-  so only for the workspace named by its request boundary. A userless optional
+  install, activate, quarantine, or report health, while a short-lived service
+  credential may do so only for its cryptographically bound tenant and workspace.
+  A userless optional
   local profile permits bootstrap installation until the first administrator is
   created.
 

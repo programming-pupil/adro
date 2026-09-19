@@ -226,6 +226,31 @@
       "tests": [
         "internal/security/redaction_test.go#TestTraceAttributeRedaction"
       ]
+    },
+    {
+      "id": "TM-IDENT-001",
+      "description": "A caller forges actor, tenant, or workspace headers to escape the scope bound to its authenticated credential.",
+      "mitigation": "Authentication binds a validated Actor to request context and handlers derive identity and scope only from that context in authenticated profiles.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestServiceCredentialRejectsScopeSpoofingAndBindsActor"
+      ]
+    },
+    {
+      "id": "TM-IDENT-002",
+      "description": "A static, expired, revoked, or otherwise invalid service credential continues to authorize API calls.",
+      "mitigation": "Short-lived Ed25519 credentials bind audience and scope; key and credential revocation fail closed and the legacy static token configuration prevents readiness.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestRevokedAndExpiredServiceCredentialsAreRejected",
+        "internal/api/auth_attachment_test.go#TestLegacyStaticAPITokenFailsClosedAtStartup"
+      ]
+    },
+    {
+      "id": "TM-IDENT-003",
+      "description": "Delegation, impersonation, takeover, or break-glass hides the initiating principal from audit evidence.",
+      "mitigation": "Actor transitions retain the original principal and complete transition chain, and audit records store both effective and original identity with the credential ID.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestAuditPreservesOriginalActorAndDelegationChain"
+      ]
     }
   ]
 }

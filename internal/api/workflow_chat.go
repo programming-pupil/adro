@@ -265,7 +265,7 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chat := domain.ChatSession{WorkspaceID: workspaceID, AgentID: strings.TrimSpace(input.AgentID), ProjectID: strings.TrimSpace(input.ProjectID), Title: strings.TrimSpace(input.Title), CreatedBy: strings.TrimSpace(input.CreatedBy), RuntimeID: strings.TrimSpace(input.RuntimeID), Model: strings.TrimSpace(input.Model), ThinkingLevel: strings.TrimSpace(input.ThinkingLevel), ServiceTier: strings.TrimSpace(input.ServiceTier)}
-	if userID := strings.TrimSpace(r.Header.Get("X-Member-ID")); userID != "" {
+	if userID := requestActorID(r); userID != "" {
 		chat.CreatedBy = userID
 	}
 	if chat.Title == "" {
