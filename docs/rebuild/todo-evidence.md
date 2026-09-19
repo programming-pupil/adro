@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **36 evidenced**, **67 partial**, **348 unverified**
+- Evidence tracking: **36 evidenced**, **74 partial**, **341 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -335,27 +335,34 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 ## 5.3 Approval 与 Policy
 
-- [ ] `P0-POLICY-001` [source:269] [state:unverified] 定义 capability-based policy，不按工具名称硬编码权限。
+- [ ] `P0-POLICY-001` [source:269] [state:partial] 定义 capability-based policy，不按工具名称硬编码权限。
+  - Recorded evidence state: `partial`. `core/policy` evaluates declared capabilities rather than adapter/tool names; migration of every dispatch path remains pending
 
 - [ ] `P0-POLICY-002` [source:270] [state:unverified] `approval/asked` 与 `approval/decided` 必须成对持久化。
 
 - [ ] `P0-POLICY-003` [source:271] [state:unverified] 无 answerer、answerer 崩溃或返回未知值时 fail-closed。
 
-- [ ] `P0-POLICY-004` [source:272] [state:unverified] 子 Agent 权限只能继承或收缩，不能扩张。
+- [ ] `P0-POLICY-004` [source:272] [state:partial] 子 Agent 权限只能继承或收缩，不能扩张。
+  - Recorded evidence state: `partial`. `core/policy.ValidateChild` rejects tenant/workspace changes, added capabilities/destinations and higher sensitivity; orchestration delegation wiring remains pending
 
 - [ ] `P0-POLICY-005` [source:273] [state:unverified] policy 版本和 decision evidence 进入 step snapshot。
 
 - [ ] `P1-POLICY-006` [source:274] [state:unverified] 支持 session policy override，但必须受 tenant ceiling 限制。
 
-- [ ] `P0-POLICY-007` [source:275] [state:unverified] 每次决策持久化规范化 input digest、output、policy bundle digest、engine version 和 evaluation timestamp。
+- [ ] `P0-POLICY-007` [source:275] [state:partial] 每次决策持久化规范化 input digest、output、policy bundle digest、engine version 和 evaluation timestamp。
+  - Recorded evidence state: `partial`. Canonical decision records bind scope, normalized input digest, outcome/reason, bundle digest, engine version and timestamp; `adapters/policy/eventstore` persists and idempotently reads them; production composition remains pending
 
-- [ ] `P0-POLICY-008` [source:276] [state:unverified] replay 默认读取历史 decision record；审计模式可用固定 policy bundle 复算并报告 divergence。
+- [ ] `P0-POLICY-008` [source:276] [state:partial] replay 默认读取历史 decision record；审计模式可用固定 policy bundle 复算并报告 divergence。
+  - Recorded evidence state: `partial`. Historical `Replay` avoids current-policy evaluation and `Audit` reports recomputation divergence; persisted audit APIs remain pending
 
-- [ ] `P0-POLICY-009` [source:277] [state:unverified] 指令与数据分离；用户内容、检索内容、工具输出和网页内容携带 taint/trust labels。
+- [ ] `P0-POLICY-009` [source:277] [state:partial] 指令与数据分离；用户内容、检索内容、工具输出和网页内容携带 taint/trust labels。
+  - Recorded evidence state: `partial`. Typed context provenance separates trusted instructions from tainted user/retrieved/tool/model data; provider/tool migration remains pending
 
-- [ ] `P0-POLICY-010` [source:278] [state:unverified] 数据外发在 dispatch 前执行 destination、sensitivity、tenant 和 purpose policy，不依赖 prompt 自我约束。
+- [ ] `P0-POLICY-010` [source:278] [state:partial] 数据外发在 dispatch 前执行 destination、sensitivity、tenant 和 purpose policy，不依赖 prompt 自我约束。
+  - Recorded evidence state: `partial`. Extension dispatch evaluates tenant/workspace, capability, exact destination, purpose and sensitivity and persists the decision before dispatch; model/tool/MCP/HTTP integration remains pending
 
-- [ ] `P0-POLICY-011` [source:279] [state:unverified] policy engine 可内置或外接，但超时、不可达、版本不匹配和无结果都必须 fail-closed。
+- [ ] `P0-POLICY-011` [source:279] [state:partial] policy engine 可内置或外接，但超时、不可达、版本不匹配和无结果都必须 fail-closed。
+  - Recorded evidence state: `partial`. Evaluator errors, timeouts, malformed results and engine-version mismatch produce durable deny outcomes; external engine conformance remains pending
 
 ## 5.3.1 Human Interaction
 
@@ -480,13 +487,13 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `internal/security/provenance.go` and prompt manifest v2 derive trust from runtime zones, preserve taint/sensitivity, reject cross-tenant input and structurally escape untrusted content; provider-wide migration remains pending
 
 - [ ] `P0-SEC-004` [source:360] [state:partial] 插件 manifest 声明权限、网络、文件、secret 和数据外发能力。
-  - Recorded evidence state: `partial`. Plugin manifests canonically sign generic, file, network, secret and data-egress permissions and the runtime receives a registry-issued grant; payload-level egress enforcement remains pending
+  - Recorded evidence state: `partial`. Plugin manifests canonically sign generic, file, network, secret and data-egress permissions; registry/startup verify network-to-egress coverage and the extension supervisor enforces classified calls; adapter-wide integration remains pending
 
 - [ ] `P0-SEC-005` [source:361] [state:partial] 保留签名、quarantine 能力，并增加 key rotation、revocation、rollback。
   - Recorded evidence state: `partial`. Durable Ed25519 trust store supports authenticated rotation, retirement, revocation-driven quarantine, compatible rollback and persistence rollback tests; artifact distribution/signing remains pending
 
 - [ ] `P0-SEC-006` [source:362] [state:partial] 建立 threat model 到测试 ID 的双向追踪。
-  - Recorded evidence state: `partial`. `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 26 mapped threats and bidirectional test annotations; full threat coverage remains pending
+  - Recorded evidence state: `partial`. `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 27 mapped threats and bidirectional test annotations; full threat coverage remains pending
 
 - [ ] `P1-SEC-007` [source:363] [state:partial] 生成 SBOM、SLSA provenance、签名 artifact 和 reproducible build evidence。
   - Recorded evidence state: `partial`. `SBOM`, `THIRD_PARTY_NOTICES` and license copies now cover the current dependency graph and `make supply-chain` verifies them; SLSA provenance, signed release artifacts and reproducible binary evidence remain pending

@@ -16,7 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	corepolicy "github.com/adro-project/adro/core/policy"
 	extensionport "github.com/adro-project/adro/ports/extensions"
+	policyport "github.com/adro-project/adro/ports/policy"
 	"github.com/adro-project/adro/ports/sandbox"
 	"github.com/adro-project/adro/ports/secretstore"
 )
@@ -43,6 +45,8 @@ var (
 	ErrSecretsUnavailable   = errors.New("extension secret injection is unavailable")
 	ErrUnsupportedExecution = errors.New("extension execution mode is unsupported")
 	ErrAdapterPanic         = errors.New("in-process extension panicked")
+	ErrPolicyDenied         = errors.New("extension data egress is denied")
+	ErrPolicyUnavailable    = errors.New("extension policy decision cannot be persisted")
 )
 
 type State string
@@ -131,6 +135,17 @@ type StartRequest struct {
 	SecretRefs    []secretstore.SecretRef
 }
 
+// EgressRequest classifies one outbound adapter call. The runtime records the
+// resulting decision before it sends any payload to the extension process.
+type EgressRequest struct {
+	TenantID    string
+	WorkspaceID string
+	ActorID     string
+	Destination string
+	Purpose     string
+	Sensitivity corepolicy.Sensitivity
+}
+
 type Config struct {
 	Broker           sandbox.SandboxBroker
 	Authorizer       extensionport.Authorizer
@@ -143,6 +158,9 @@ type Config struct {
 	InitialBackoff   time.Duration
 	MaxBackoff       time.Duration
 	CallTimeout      time.Duration
+	PolicyEvaluator  corepolicy.Evaluator
+	PolicyRecorder   policyport.DecisionRecorder
+	PolicyTimeout    time.Duration
 }
 
 type Supervisor struct {
@@ -177,6 +195,12 @@ func NewSupervisor(cfg Config) (*Supervisor, error) {
 	if cfg.CallTimeout <= 0 {
 		cfg.CallTimeout = defaultCallTimeout
 	}
+	if cfg.PolicyEvaluator == nil {
+		cfg.PolicyEvaluator = corepolicy.BuiltinEvaluator{}
+	}
+	if cfg.PolicyTimeout <= 0 {
+		cfg.PolicyTimeout = cfg.CallTimeout
+	}
 	if cfg.Broker == nil && cfg.InProcessFactory == nil {
 		return nil, fmt.Errorf("%w: sandbox broker or in-process factory is required", ErrInvalidRequest)
 	}
@@ -198,11 +222,16 @@ func (s *Supervisor) Start(ctx context.Context, request StartRequest) (*Instance
 	if err := s.validateStart(request); err != nil {
 		return nil, err
 	}
+	policyBundle, err := extensionPolicyBundle(request.Installation)
+	if err != nil {
+		return nil, err
+	}
 	instance := &Instance{
-		supervisor: s,
-		request:    cloneStartRequest(request),
-		state:      StateStarting,
-		done:       make(chan struct{}),
+		supervisor:   s,
+		request:      cloneStartRequest(request),
+		state:        StateStarting,
+		done:         make(chan struct{}),
+		policyBundle: policyBundle,
 	}
 	instance.lifecycleCtx, instance.cancel = context.WithCancel(context.Background())
 	instance.audit("start", StateStarting, "")
@@ -231,6 +260,9 @@ func (s *Supervisor) validateStart(request StartRequest) error {
 	}
 	if item.State != "active" {
 		return fmt.Errorf("%w: installation state is %s", ErrUnauthorized, item.State)
+	}
+	if request.TenantID != "" && request.TenantID != item.TenantID {
+		return fmt.Errorf("%w: sandbox tenant differs from signed installation scope", ErrUnauthorized)
 	}
 	if manifest.ExecutionMode == extensionport.ExecutionInProcess {
 		if s.cfg.InProcessFactory == nil {
@@ -281,6 +313,9 @@ func (s *Supervisor) validateStart(request StartRequest) error {
 	if _, err := sanitizeEnvironment(request.Environment); err != nil {
 		return err
 	}
+	if err := validateEgressNetworkBinding(manifest); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -309,6 +344,7 @@ type Instance struct {
 	lastErr        error
 	session        *processSession
 	inProcess      InProcessAdapter
+	policyBundle   *corepolicy.FrozenBundle
 	lifecycleCtx   context.Context
 	cancel         context.CancelFunc
 	done           chan struct{}
@@ -550,6 +586,16 @@ func (i *Instance) monitor() {
 }
 
 func (i *Instance) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return i.call(ctx, method, params, nil)
+}
+
+// CallWithEgress binds a classified payload to the signed destination grant.
+// The decision record is persisted before the adapter receives the request.
+func (i *Instance) CallWithEgress(ctx context.Context, method string, params any, egress EgressRequest) (json.RawMessage, error) {
+	return i.call(ctx, method, params, &egress)
+}
+
+func (i *Instance) call(ctx context.Context, method string, params any, egress *EgressRequest) (json.RawMessage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -581,6 +627,11 @@ func (i *Instance) Call(ctx context.Context, method string, params any) (json.Ra
 	if state != StateRunning {
 		return nil, ErrUnavailable
 	}
+	if method != "adro.health" {
+		if err := i.authorizeEgress(callCtx, method, egress); err != nil {
+			return nil, err
+		}
+	}
 	if adapter != nil {
 		if int64(len(payloadJSON)) > i.request.Installation.Manifest.MaxMessageBytes {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, ErrMessageTooLarge)
@@ -609,6 +660,42 @@ func (i *Instance) Call(ctx context.Context, method string, params any) (json.Ra
 		_ = session.stream.Close()
 	}
 	return result, err
+}
+
+func (i *Instance) authorizeEgress(ctx context.Context, method string, request *EgressRequest) error {
+	if i.policyBundle == nil {
+		if request != nil {
+			return fmt.Errorf("%w: extension has no signed data-egress grant", ErrPolicyDenied)
+		}
+		return nil
+	}
+	if request == nil {
+		return fmt.Errorf("%w: classified egress metadata is required", ErrPolicyDenied)
+	}
+	input := corepolicy.Input{
+		TenantID: request.TenantID, WorkspaceID: request.WorkspaceID, ActorID: request.ActorID,
+		Capability: method, Destination: request.Destination, Purpose: request.Purpose, Sensitivity: request.Sensitivity,
+	}
+	record, err := corepolicy.EvaluateFailClosed(
+		ctx, i.supervisor.cfg.PolicyEvaluator, *i.policyBundle, input,
+		i.supervisor.cfg.Now().UTC(), i.supervisor.cfg.PolicyTimeout, corepolicy.EngineVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	if i.supervisor.cfg.PolicyRecorder == nil {
+		i.audit("policy_unavailable", i.State(), "decision recorder is not configured")
+		return ErrPolicyUnavailable
+	}
+	if err := i.supervisor.cfg.PolicyRecorder.RecordDecision(ctx, record); err != nil {
+		i.audit("policy_unavailable", i.State(), "decision record failed")
+		return ErrPolicyUnavailable
+	}
+	if record.Outcome != corepolicy.OutcomeAllow {
+		i.audit("policy_denied", i.State(), record.ReasonCode)
+		return fmt.Errorf("%w: %s", ErrPolicyDenied, record.ReasonCode)
+	}
+	return nil
 }
 
 func (i *Instance) Health(ctx context.Context) error {
@@ -1062,4 +1149,47 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func extensionPolicyBundle(item extensionport.Installation) (*corepolicy.FrozenBundle, error) {
+	if len(item.Manifest.DataEgressPermissions) == 0 {
+		return nil, nil
+	}
+	rules := make([]corepolicy.EgressRule, len(item.Manifest.DataEgressPermissions))
+	for index, permission := range item.Manifest.DataEgressPermissions {
+		rules[index] = corepolicy.EgressRule{
+			Destination: permission.Destination, Purpose: permission.Purpose,
+			MaxSensitivity: corepolicy.Sensitivity(permission.MaxSensitivity),
+		}
+	}
+	bundle, err := corepolicy.FreezeBundle(corepolicy.Bundle{
+		ID: "extension:" + item.Manifest.ID, Version: item.Manifest.Version + "@" + item.Digest,
+		TenantID: item.TenantID, WorkspaceID: item.WorkspaceID,
+		Capabilities: append([]string(nil), item.Manifest.Capabilities...), Egress: rules,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: signed egress policy: %v", ErrInvalidRequest, err)
+	}
+	return &bundle, nil
+}
+
+func validateEgressNetworkBinding(manifest extensionport.Manifest) error {
+	networkRules := make([]corepolicy.NetworkRule, len(manifest.NetworkPermissions))
+	for index, permission := range manifest.NetworkPermissions {
+		networkRules[index] = corepolicy.NetworkRule{
+			Domain: permission.Domain, IP: permission.IP, CIDR: permission.CIDR,
+			Ports: append([]int(nil), permission.Ports...), Protocol: permission.Protocol, Purpose: permission.Purpose,
+		}
+	}
+	egressRules := make([]corepolicy.EgressRule, len(manifest.DataEgressPermissions))
+	for index, permission := range manifest.DataEgressPermissions {
+		egressRules[index] = corepolicy.EgressRule{
+			Destination: permission.Destination, Purpose: permission.Purpose,
+			MaxSensitivity: corepolicy.Sensitivity(permission.MaxSensitivity),
+		}
+	}
+	if err := corepolicy.ValidateNetworkEgress(networkRules, egressRules); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	return nil
 }

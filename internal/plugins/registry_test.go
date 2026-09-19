@@ -229,11 +229,13 @@ func TestManifestDeclaresAndValidatesEverySensitiveCapabilityClass(t *testing.T)
 	}
 
 	for name, mutate := range map[string]func(*Manifest){
-		"file escape": func(m *Manifest) { m.FilePermissions[0].Path = "../host" },
-		"network":     func(m *Manifest) { m.NetworkPermissions[0].Ports = []int{0} },
-		"secret":      func(m *Manifest) { m.SecretPermissions[0].Purpose = "" },
-		"egress":      func(m *Manifest) { m.DataEgressPermissions[0].Destination = "http://api.example.test" },
-		"message":     func(m *Manifest) { m.MaxMessageBytes = maxManifestMessageSize + 1 },
+		"file escape":            func(m *Manifest) { m.FilePermissions[0].Path = "../host" },
+		"network":                func(m *Manifest) { m.NetworkPermissions[0].Ports = []int{0} },
+		"secret":                 func(m *Manifest) { m.SecretPermissions[0].Purpose = "" },
+		"egress":                 func(m *Manifest) { m.DataEgressPermissions[0].Destination = "http://api.example.test" },
+		"network without egress": func(m *Manifest) { m.DataEgressPermissions = nil },
+		"egress mismatch":        func(m *Manifest) { m.DataEgressPermissions[0].Destination = "https://other.example.test/events" },
+		"message":                func(m *Manifest) { m.MaxMessageBytes = maxManifestMessageSize + 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := cloneManifest(manifest)

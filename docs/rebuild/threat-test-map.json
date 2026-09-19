@@ -123,6 +123,15 @@
       ]
     },
     {
+      "id": "TM-EGRESS-001",
+      "description": "A caller sends data to an undeclared destination, purpose, tenant scope, or sensitivity level, or dispatches before decision evidence is durable.",
+      "mitigation": "Canonical capability and egress policy evaluates signed grants fail closed and the supervisor persists the decision before adapter dispatch.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorPersistsEgressDecisionBeforeDispatch",
+        "runtime/extensions/supervisor_test.go#TestSupervisorFailsClosedWhenEgressDecisionCannotBePersisted"
+      ]
+    },
+    {
       "id": "TM-SBX-001",
       "description": "A sandbox request escapes the workspace through traversal or symlink aliases.",
       "mitigation": "Canonical containment and component-by-component symlink checks reject unsafe paths.",

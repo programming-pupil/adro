@@ -84,9 +84,9 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-SEC-001 | partial | Metadata-only scope-bound secret leases and development memory broker with expiry/revocation/copy/canary tests; production storage and injection remain pending |
 | P0-SEC-002 | partial | Central sensitivity/redaction package now protects orchestration diagnostics and trace attributes; complete prompt/tool/log adapter integration remains pending |
 | P0-SEC-003 | partial | `internal/security/provenance.go` and prompt manifest v2 derive trust from runtime zones, preserve taint/sensitivity, reject cross-tenant input and structurally escape untrusted content; provider-wide migration remains pending |
-| P0-SEC-004 | partial | Plugin manifests canonically sign generic, file, network, secret and data-egress permissions and the runtime receives a registry-issued grant; payload-level egress enforcement remains pending |
+| P0-SEC-004 | partial | Plugin manifests canonically sign generic, file, network, secret and data-egress permissions; registry/startup verify network-to-egress coverage and the extension supervisor enforces classified calls; adapter-wide integration remains pending |
 | P0-SEC-005 | partial | Durable Ed25519 trust store supports authenticated rotation, retirement, revocation-driven quarantine, compatible rollback and persistence rollback tests; artifact distribution/signing remains pending |
-| P0-SEC-006 | partial | `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 26 mapped threats and bidirectional test annotations; full threat coverage remains pending |
+| P0-SEC-006 | partial | `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 27 mapped threats and bidirectional test annotations; full threat coverage remains pending |
 | P0-EXT-001 | partial | Registry authorization plus explicit in-process factory and panic containment exist; production adapter wiring and isolation evidence remain pending |
 | P0-EXT-002 | partial | `runtime/extensions` runs reference external adapters over bounded JSON-RPC on `SandboxBroker` without EventStore/database handles; production isolation remains pending |
 | P0-EXT-003 | partial | Bounded reference handshake verifies protocol, adapter, schema, capability/permission subsets and message size; production adapter conformance remains pending |
@@ -96,6 +96,13 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-EXT-007 | partial | Host environment is not inherited and manifest file/network/secret grants map to broker requests; production secret injection and network proxy remain pending |
 | P0-EXT-008 | partial | Registry compatibility matrix, signed activation/rollback and rolling handshake rejection exist; live rolling replacement orchestration remains pending |
 | P0-EXT-009 | partial | Malicious suite covers timeout, protocol flood, forged IDs, overclaim, panic, invalid/oversized output and exit storms; memory/fork bomb and forged receipt integration remain pending |
+| P0-POLICY-001 | partial | `core/policy` evaluates declared capabilities rather than adapter/tool names; migration of every dispatch path remains pending |
+| P0-POLICY-004 | partial | `core/policy.ValidateChild` rejects tenant/workspace changes, added capabilities/destinations and higher sensitivity; orchestration delegation wiring remains pending |
+| P0-POLICY-007 | partial | Canonical decision records bind scope, normalized input digest, outcome/reason, bundle digest, engine version and timestamp; `adapters/policy/eventstore` persists and idempotently reads them; production composition remains pending |
+| P0-POLICY-008 | partial | Historical `Replay` avoids current-policy evaluation and `Audit` reports recomputation divergence; persisted audit APIs remain pending |
+| P0-POLICY-009 | partial | Typed context provenance separates trusted instructions from tainted user/retrieved/tool/model data; provider/tool migration remains pending |
+| P0-POLICY-010 | partial | Extension dispatch evaluates tenant/workspace, capability, exact destination, purpose and sensitivity and persists the decision before dispatch; model/tool/MCP/HTTP integration remains pending |
+| P0-POLICY-011 | partial | Evaluator errors, timeouts, malformed results and engine-version mismatch produce durable deny outcomes; external engine conformance remains pending |
 | P0-ARCH-012 | partial | `scripts/verify-public-identity.py` checks tracked public text without printing forbidden values, with negative tests and optional private denylist; full historical scan, private policy and naming cleanup remain pending |
 | P0-TRIM-010 | partial | SPDX SBOM, dependency notices, license copies and supply-chain verification are reproducible from the manifests; full security, governance and release gates remain pending |
 | P1-SEC-007 | partial | `SBOM`, `THIRD_PARTY_NOTICES` and license copies now cover the current dependency graph and `make supply-chain` verifies them; SLSA provenance, signed release artifacts and reproducible binary evidence remain pending |

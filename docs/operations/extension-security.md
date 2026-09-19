@@ -32,6 +32,8 @@ Untrusted adapters run through `ports/sandbox.SandboxBroker` as independent proc
 
 The runtime exposes newline-delimited JSON-RPC 2.0 over the bounded execution stream. It does not expose EventStore, database, lease, scheduler, or raw secret handles.
 
+Signed network grants and data-egress obligations must cover each other exactly. For calls that can leave the runtime, the caller supplies tenant, workspace, actor, destination, purpose, and sensitivity metadata. `core/policy` evaluates that metadata against the registry-issued grant, and `ports/policy.DecisionRecorder` must persist the resulting allow or deny fact before dispatch. Missing metadata, a recorder failure, evaluator timeout, engine-version mismatch, scope mismatch, or excessive sensitivity fails closed. See `docs/operations/policy-engine.md`.
+
 ## Handshake and calls
 
 Before dispatch, the adapter must complete a bounded handshake containing:
@@ -68,4 +70,4 @@ The current malicious-extension suite covers protocol mismatch, capability overc
 
 ## Current limitations
 
-The local sandbox is a development/reference backend and does not claim secure tenant isolation. macOS Seatbelt has real deny-default tests; production OCI/remote isolation, controlled network proxying, Linux and Windows OS isolation, hard-link/mount/TOCTOU protection, CPU/memory/disk enforcement, destination secret injection, and payload-sensitivity enforcement against the signed data-egress grant remain required. The supervisor is a tested runtime component but is not yet wired into every production adapter call path or Runtime Inspector page. WASI execution and malicious receipt verification at a remote adapter boundary also remain pending.
+The local sandbox is a development/reference backend and does not claim secure tenant isolation. macOS Seatbelt has real deny-default tests; production OCI/remote isolation, controlled network proxying, Linux and Windows OS isolation, hard-link/mount/TOCTOU protection, CPU/memory/disk enforcement, and destination secret injection remain required. Payload sensitivity is enforced for the reference extension call boundary, but every model/tool/MCP/HTTP path still needs the same policy integration and a production durable decision store. The supervisor is not yet wired into every production adapter call path or Runtime Inspector page. WASI execution and malicious receipt verification at a remote adapter boundary also remain pending.

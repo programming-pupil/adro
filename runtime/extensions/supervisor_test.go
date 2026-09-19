@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/adapters/sandbox/local"
+	corepolicy "github.com/adro-project/adro/core/policy"
 	extensionport "github.com/adro-project/adro/ports/extensions"
+	policyport "github.com/adro-project/adro/ports/policy"
 	"github.com/adro-project/adro/ports/sandbox"
 )
 
@@ -274,6 +276,154 @@ func TestSupervisorEnforcesNegotiatedFrameSize(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-EGRESS-001
+func TestSupervisorPersistsEgressDecisionBeforeDispatch(t *testing.T) {
+	manifest := testManifest()
+	manifest.ExecutionMode = extensionport.ExecutionInProcess
+	manifest.NetworkPermissions = []extensionport.NetworkPermission{{
+		Domain: "api.example.test", Ports: []int{443}, Protocol: "https", Purpose: "event delivery",
+	}}
+	manifest.DataEgressPermissions = []extensionport.DataEgressPermission{{
+		Destination: "https://api.example.test/events", Purpose: "event delivery", MaxSensitivity: string(corepolicy.SensitivityInternal),
+	}}
+	installation := extensionport.Installation{
+		Manifest: manifest, State: "active", TenantID: "tenant", WorkspaceID: "workspace",
+		Digest: "digest", Signature: "signature", KeyID: "key",
+	}
+	var mu sync.Mutex
+	var decisions []corepolicy.DecisionRecord
+	var order []string
+	adapter := &policyRecordingAdapter{recordCall: func() {
+		mu.Lock()
+		order = append(order, "call")
+		mu.Unlock()
+	}}
+	supervisor, err := NewSupervisor(Config{
+		Authorizer: allowAuthorizer(),
+		InProcessFactory: func(context.Context, extensionport.Installation) (InProcessAdapter, error) {
+			return adapter, nil
+		},
+		PolicyRecorder: policyport.RecordFunc(func(_ context.Context, record corepolicy.DecisionRecord) error {
+			mu.Lock()
+			decisions = append(decisions, record)
+			order = append(order, "record:"+string(record.Outcome))
+			mu.Unlock()
+			return nil
+		}),
+		Now: func() time.Time { return time.Date(2026, 9, 19, 1, 2, 3, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := supervisor.Start(context.Background(), StartRequest{Installation: installation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = instance.Stop(context.Background()) }()
+
+	if _, err := instance.Call(context.Background(), "echo", map[string]any{"value": "unclassified"}); !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("unclassified call returned %v", err)
+	}
+	denied := EgressRequest{
+		TenantID: "tenant", WorkspaceID: "workspace", ActorID: "worker",
+		Destination: "https://api.example.test/events", Purpose: "event delivery", Sensitivity: corepolicy.SensitivitySecret,
+	}
+	if _, err := instance.CallWithEgress(context.Background(), "echo", map[string]any{"value": "secret"}, denied); !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("secret egress returned %v", err)
+	}
+	wrongScope := denied
+	wrongScope.TenantID, wrongScope.Sensitivity = "other-tenant", corepolicy.SensitivityPublic
+	if _, err := instance.CallWithEgress(context.Background(), "echo", map[string]any{"value": "scope"}, wrongScope); !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("cross-tenant egress returned %v", err)
+	}
+	allowed := denied
+	allowed.Sensitivity = corepolicy.SensitivityInternal
+	result, err := instance.CallWithEgress(context.Background(), "echo", map[string]any{"value": "internal"}, allowed)
+	if err != nil || string(result) != `{"value":"internal"}` {
+		t.Fatalf("allowed result=%s err=%v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if adapter.calls.Load() != 1 {
+		t.Fatalf("adapter calls=%d, want 1", adapter.calls.Load())
+	}
+	if len(decisions) != 3 || decisions[0].ReasonCode != "sensitivity_exceeds_grant" || decisions[1].ReasonCode != "tenant_scope_mismatch" || decisions[2].Outcome != corepolicy.OutcomeAllow {
+		t.Fatalf("decisions=%+v", decisions)
+	}
+	if got := strings.Join(order, ","); got != "record:deny,record:deny,record:allow,call" {
+		t.Fatalf("dispatch order=%s", got)
+	}
+}
+
+// Threat ID: TM-EGRESS-001
+func TestSupervisorFailsClosedWhenEgressDecisionCannotBePersisted(t *testing.T) {
+	manifest := testManifest()
+	manifest.ExecutionMode = extensionport.ExecutionInProcess
+	manifest.NetworkPermissions = []extensionport.NetworkPermission{{Domain: "api.example.test", Ports: []int{443}, Protocol: "https", Purpose: "delivery"}}
+	manifest.DataEgressPermissions = []extensionport.DataEgressPermission{{Destination: "https://api.example.test/events", Purpose: "delivery", MaxSensitivity: string(corepolicy.SensitivityInternal)}}
+	installation := extensionport.Installation{Manifest: manifest, State: "active", TenantID: "tenant", WorkspaceID: "workspace", Digest: "digest", Signature: "signature", KeyID: "key"}
+	adapter := &policyRecordingAdapter{}
+	supervisor, err := NewSupervisor(Config{
+		Authorizer:       allowAuthorizer(),
+		InProcessFactory: func(context.Context, extensionport.Installation) (InProcessAdapter, error) { return adapter, nil },
+		PolicyRecorder:   policyport.RecordFunc(func(context.Context, corepolicy.DecisionRecord) error { return errors.New("store unavailable") }),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := supervisor.Start(context.Background(), StartRequest{Installation: installation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = instance.Stop(context.Background()) }()
+	request := EgressRequest{TenantID: "tenant", WorkspaceID: "workspace", ActorID: "worker", Destination: "https://api.example.test/events", Purpose: "delivery", Sensitivity: corepolicy.SensitivityPublic}
+	if _, err := instance.CallWithEgress(context.Background(), "echo", map[string]any{"value": "safe"}, request); !errors.Is(err, ErrPolicyUnavailable) {
+		t.Fatalf("record failure returned %v", err)
+	}
+	if adapter.calls.Load() != 0 {
+		t.Fatalf("adapter dispatched before durable decision: %d", adapter.calls.Load())
+	}
+}
+
+func TestSupervisorRequiresNetworkAndEgressPermissionsToMatch(t *testing.T) {
+	manifest := testManifest()
+	manifest.ExecutionMode = extensionport.ExecutionInProcess
+	installation := extensionport.Installation{Manifest: manifest, State: "active", TenantID: "tenant", WorkspaceID: "workspace", Digest: "digest", Signature: "signature", KeyID: "key"}
+	supervisor, err := NewSupervisor(Config{Authorizer: allowAuthorizer(), InProcessFactory: func(context.Context, extensionport.Installation) (InProcessAdapter, error) { return fakeAdapter{}, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation.Manifest.NetworkPermissions = []extensionport.NetworkPermission{{Domain: "api.example.test", Ports: []int{443}, Protocol: "https", Purpose: "delivery"}}
+	if _, err := supervisor.Start(context.Background(), StartRequest{Installation: installation}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("network-only manifest returned %v", err)
+	}
+	installation.Manifest.DataEgressPermissions = []extensionport.DataEgressPermission{{Destination: "https://other.example.test/events", Purpose: "delivery", MaxSensitivity: string(corepolicy.SensitivityPublic)}}
+	if _, err := supervisor.Start(context.Background(), StartRequest{Installation: installation}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("mismatched destination returned %v", err)
+	}
+}
+
+func TestSupervisorRejectsSandboxTenantOverride(t *testing.T) {
+	manifest := testManifest()
+	manifest.ExecutionMode = extensionport.ExecutionInProcess
+	installation := extensionport.Installation{
+		Manifest: manifest, State: "active", TenantID: "tenant", WorkspaceID: "workspace",
+		Digest: "digest", Signature: "signature", KeyID: "key",
+	}
+	supervisor, err := NewSupervisor(Config{
+		Authorizer: allowAuthorizer(),
+		InProcessFactory: func(context.Context, extensionport.Installation) (InProcessAdapter, error) {
+			return fakeAdapter{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(context.Background(), StartRequest{Installation: installation, TenantID: "other-tenant"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("tenant override returned %v", err)
+	}
+}
+
 // Threat ID: TM-EXT-001
 func TestSupervisorInProcessRequiresExplicitFactoryAndHandshake(t *testing.T) {
 	manifest := testManifest()
@@ -491,6 +641,23 @@ type hostileAdapter struct {
 	callPanic bool
 	result    json.RawMessage
 }
+
+type policyRecordingAdapter struct {
+	calls      atomic.Int32
+	recordCall func()
+}
+
+func (*policyRecordingAdapter) Handshake(_ context.Context, expected Handshake) (Handshake, error) {
+	return expected, nil
+}
+func (a *policyRecordingAdapter) Call(_ context.Context, _ string, params json.RawMessage) (json.RawMessage, error) {
+	a.calls.Add(1)
+	if a.recordCall != nil {
+		a.recordCall()
+	}
+	return append(json.RawMessage(nil), params...), nil
+}
+func (*policyRecordingAdapter) Close(context.Context) error { return nil }
 
 func (h hostileAdapter) Handshake(_ context.Context, expected Handshake) (Handshake, error) {
 	return expected, nil

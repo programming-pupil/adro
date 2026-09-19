@@ -1291,7 +1291,16 @@ func TestRuntimeModelsEndpointReturnsPerModelOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
+	for _, descriptor := range provider.RuntimeRegistry {
+		key := "ADRO_" + strings.ToUpper(strings.ReplaceAll(descriptor.ID, "-", "_")) + "_PATH"
+		path := filepath.Join(dir, "missing-"+descriptor.ID)
+		if descriptor.ID == "codex" {
+			path = script
+		}
+		t.Setenv(key, path)
+	}
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/codex/models", "", nil)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model-a"`) || !strings.Contains(response.Body.String(), `"priority"`) {

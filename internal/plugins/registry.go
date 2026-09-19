@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	corepolicy "github.com/adro-project/adro/core/policy"
 	"github.com/adro-project/adro/internal/security"
 	extensionport "github.com/adro-project/adro/ports/extensions"
 )
@@ -882,6 +883,9 @@ func validateManifest(manifest Manifest) error {
 			return fmt.Errorf("%w: data egress permission %d: %v", ErrInvalid, index, err)
 		}
 	}
+	if err := validateNetworkEgressBindings(manifest); err != nil {
+		return err
+	}
 	if err := validateStringSet("compatible_schema_digests", manifest.CompatibleSchemaDigests, false); err != nil {
 		return err
 	}
@@ -1091,6 +1095,27 @@ func validateEgressPermission(permission DataEgressPermission) error {
 	parsed, err := url.Parse(strings.TrimSpace(permission.Destination))
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("destination must be an absolute credential-free https URL without query or fragment")
+	}
+	return nil
+}
+
+func validateNetworkEgressBindings(manifest Manifest) error {
+	networkRules := make([]corepolicy.NetworkRule, len(manifest.NetworkPermissions))
+	for index, permission := range manifest.NetworkPermissions {
+		networkRules[index] = corepolicy.NetworkRule{
+			Domain: permission.Domain, IP: permission.IP, CIDR: permission.CIDR,
+			Ports: append([]int(nil), permission.Ports...), Protocol: permission.Protocol, Purpose: permission.Purpose,
+		}
+	}
+	egressRules := make([]corepolicy.EgressRule, len(manifest.DataEgressPermissions))
+	for index, permission := range manifest.DataEgressPermissions {
+		egressRules[index] = corepolicy.EgressRule{
+			Destination: permission.Destination, Purpose: permission.Purpose,
+			MaxSensitivity: corepolicy.Sensitivity(permission.MaxSensitivity),
+		}
+	}
+	if err := corepolicy.ValidateNetworkEgress(networkRules, egressRules); err != nil {
+		return fmt.Errorf("%w: network/data-egress binding: %v", ErrInvalid, err)
 	}
 	return nil
 }
