@@ -58,7 +58,23 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
 | P0-TIMER-005 | complete locally for reference backend | Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending |
-| P0-TIMER-006 | partial | `TimerExplanation` is available as a read model; Runtime Inspector/API/CLI listing and cancellation endpoints remain pending |
+| P0-TIMER-006 | partial | Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancel, `adroctl timer` commands, and WebUI Timer Inspector now use the durable TimerStore; API scope/idempotency tests and Playwright Inspector coverage exist, while real timer seeding through every production retry/deadline call site remains pending |
+| P1-GRAPH-009 | complete locally | Backpressure, weighted fairness, priority aging/inversion, workspace quota and non-sheddable recovery tests in `internal/orchestration/resource_accounting_test.go` |
+| P0-GRAPH-010 | complete locally for local scheduler | `Scheduler.Tick` reserves tenant/workspace/agent capacity before provider dispatch and reports explicit admitted/waiting/rejected states; distributed SQL quota adapter remains pending |
+| P0-GRAPH-011 | complete locally for reference queue | Integer weighted fair queuing exposes virtual finish and a conservative starvation deadline with deterministic tests |
+| P0-GRAPH-012 | complete locally for reference queue | Priority aging raises waiting work to a configured maximum; tenant emergency ceilings cap priority with an auditable decision |
+| P0-GRAPH-013 | complete locally for reference queue | Overload shedding only removes low-priority unpersisted work; persisted and recovery requests are protected |
+| P0-GRAPH-014 | complete locally for reference queue | Claim order uses effective priority, integer virtual finish and a stable tenant/workspace/agent/time/ID key |
+| P0-GRAPH-015 | complete locally | `internal/orchestration/resource_accounting_benchmark_test.go` and `scripts/run-resource-scheduler-benchmarks.sh` benchmark noisy-neighbor fairness, bursts, quota exhaustion, worker jitter/recovery and priority inversion; sustained multi-process soak remains a release gate |
+| P0-RES-001 | complete locally | `ResourceVector` unifies CPU time, memory peak, disk/output/network bytes, tokens, tool calls, wall time and concurrency slots |
+| P0-RES-002 | complete locally | Every reservation preserves requested, reserved, consumed, released and overage vectors |
+| P0-RES-003 | complete locally | Child reservations are carved from the parent and child consumption rolls up, preventing recursive delegation oversell |
+| P0-RES-004 | complete locally for reference backend | Scheduler reserve-before-dispatch, worker settlement, failed-dispatch release, atomic persistence rollback and deepest-first orphan recovery are tested |
+| P0-RES-005 | complete locally | Usage attribution binds tenant, workspace, agent, session, step, model/tool effect and cost center |
+| P0-RES-006 | complete locally | Soft limits return warning/compaction/degradation actions; hard limits produce explicit waiting/rejected decisions and terminal overage reason |
+| P0-RES-007 | complete locally | Usage retains raw provider JSON, normalized usage, independent estimate, signed discrepancy and explicit missing-provider fallback |
+| P0-RES-008 | complete locally | `/api/v1/resources` drives the Cost Center burn bars, reservation table, anomaly evidence and child-Agent attribution; `e2e/resource-accounting.spec.js` covers desktop refresh and narrow-screen overflow |
+| P0-RES-009 | complete locally for reference backend | Conformance covers duplicate/conflicting usage, delayed billing, missing usage, negative values and integer overflow rollback |
 | P0-LOOP-001 | partial | Reference Session/Turn/Step hierarchy, snapshots, checkpoint boundaries, parent/child settlement and restart replay exist in `internal/runtime/lifecycle_state.go`; pure reducer/EventStore/RuntimeEngine integration remains pending |
 | P0-LOOP-002 | partial | Reference Step rejects model request commit before durable `step.context_frozen` and replay verifies the frozen digest; production model dispatch path is not yet cut over |
 | P0-LOOP-003 | partial | `ModelRequest` canonical prompt/config/context/policy digest and Journal replay tests exist; all provider adapters are not migrated |

@@ -280,7 +280,7 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 			return
 		}
 		executor := s.graphExecutor(requestActorID(r))
-		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
+		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Admission: s.Admission, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
 		if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 			s.problem(w, r, http.StatusConflict, "plan_resume_failed", tickErr.Error(), map[string]any{"report": report})
 			return
@@ -472,7 +472,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 		return
 	}
 	executor := s.graphExecutor(requestActorID(r))
-	report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(context.Background(), plan, &projection, *input.Envelope, input.WorkItemID, input.AgentBindingID)
+	report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Admission: s.Admission, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(context.Background(), plan, &projection, *input.Envelope, input.WorkItemID, input.AgentBindingID)
 	if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
 		s.problem(w, r, http.StatusConflict, "plan_tick_failed", tickErr.Error(), map[string]any{"report": report})
 		return
@@ -531,6 +531,7 @@ func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, env
 			Scheduler: orchestration.Scheduler{
 				Repository: s.Orchestration,
 				Executor:   s.graphExecutorFor(owner, invokerID),
+				Admission:  s.Admission,
 				Config:     orchestration.SchedulerConfig{MaxConcurrent: plan.PolicySnapshot.Budget.Concurrent},
 			},
 			PollInterval: graphWatchPollInterval(),

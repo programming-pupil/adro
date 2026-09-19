@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func main() {
 		configCheck(os.Args[2:])
 	case "graph-validate":
 		graphValidate(os.Args[2:])
-	case "agent", "squad", "plan":
+	case "agent", "squad", "plan", "timer":
 		orchestrationControl(os.Args[1], os.Args[2:])
 	case "workspace":
 		if err := workspaceCommand(os.Args[2:], os.Stdout); err != nil {
@@ -64,10 +65,11 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|workspace|service-credential|api|version>")
+	fmt.Println("Usage: adroctl <up|install|health|config-check|graph-validate|agent|squad|plan|timer|workspace|service-credential|api|version>")
 	fmt.Println("  adroctl agent <list|get|create|validate|enable|disable|archive> [flags]")
 	fmt.Println("  adroctl squad <list|get|create|validate|dry-run|publish|disable|archive> [flags]")
 	fmt.Println("  adroctl plan <list|get|create|publish|timeline|replay|diagnostics> [flags]")
+	fmt.Println("  adroctl timer <list|get|explain|cancel> [flags]")
 	fmt.Println("  adroctl workspace <export|preflight|import|export-postgres|preflight-postgres|import-postgres> [flags]")
 	fmt.Println("  adroctl service-credential <init|issue|rotate|revoke-key|revoke-credential> [flags]")
 	fmt.Println("  adroctl api --method GET --path /api/v1/... [--file body.json]")
@@ -368,15 +370,17 @@ func workspacebundleCounts(manifest workspacebundle.Manifest) workspacebundle.Co
 }
 
 type apiOptions struct {
-	BaseURL        string
-	Workspace      string
-	Tenant         string
-	Token          string
-	ID             string
-	RequirementID  string
-	Status         string
-	File           string
-	IdempotencyKey string
+	BaseURL         string
+	Workspace       string
+	Tenant          string
+	Token           string
+	ID              string
+	RequirementID   string
+	Status          string
+	File            string
+	IdempotencyKey  string
+	IncludeTerminal bool
+	Reason          string
 }
 
 func orchestrationControl(resource string, args []string) {
@@ -397,6 +401,13 @@ func orchestrationControl(resource string, args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if resource == "timer" && action == "cancel" && len(body) == 0 && strings.TrimSpace(opts.Reason) != "" {
+		body, err = json.Marshal(map[string]string{"reason": strings.TrimSpace(opts.Reason)})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	response, err := doAPIRequest(method, path, body, opts)
 	if err != nil {
@@ -440,6 +451,8 @@ func bindAPIOptions(fs *flag.FlagSet) apiOptions {
 	fs.StringVar(&opts.Status, "status", "", "status filter")
 	fs.StringVar(&opts.File, "file", "", "JSON request body")
 	fs.StringVar(&opts.IdempotencyKey, "idempotency-key", "", "idempotency key")
+	fs.BoolVar(&opts.IncludeTerminal, "include-terminal", false, "include terminal timers in timer list")
+	fs.StringVar(&opts.Reason, "reason", "", "operator reason for timer cancellation")
 	return opts
 }
 
@@ -495,6 +508,26 @@ func orchestrationRequest(resource, action string, opts apiOptions) (string, str
 				return "", "", false, err
 			}
 			return http.MethodPost, "/api/v1/squads/" + id + "/" + action + "?workspace_id=" + url.QueryEscape(opts.Workspace), false, nil
+		}
+	case "timer":
+		switch action {
+		case "list":
+			return http.MethodGet, "/api/v1/timers?include_terminal=" + strconv.FormatBool(opts.IncludeTerminal), false, nil
+		case "get":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodGet, "/api/v1/timers/" + id, false, nil
+		case "explain":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodGet, "/api/v1/timers/" + id + "/explain", false, nil
+		case "cancel":
+			if err := requireID(); err != nil {
+				return "", "", false, err
+			}
+			return http.MethodPost, "/api/v1/timers/" + id + "/cancel", false, nil
 		}
 	case "plan":
 		switch action {

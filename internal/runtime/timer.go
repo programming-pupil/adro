@@ -376,6 +376,13 @@ func (s *TimerStore) Cancel(id, reason string) (Timer, error) {
 		if timer.State == TimerFired || timer.State == TimerExpired {
 			return ErrTimerConflict
 		}
+		if timer.State == TimerCancelled {
+			if timer.TerminalReason != strings.TrimSpace(reason) {
+				return ErrTimerConflict
+			}
+			result = cloneTimer(timer)
+			return nil
+		}
 		timer.State, timer.TerminalReason = TimerCancelled, strings.TrimSpace(reason)
 		timer.CancelledAt, timer.UpdatedAt = s.clock.Now().UTC(), s.clock.Now().UTC()
 		timer.Owner, timer.ClaimKey, timer.LeaseExpiresAt = "", "", time.Time{}

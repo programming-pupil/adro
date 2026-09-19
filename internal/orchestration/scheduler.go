@@ -135,9 +135,13 @@ func edgeSatisfied(edge WorkflowEdge, attempt NodeAttempt) bool {
 }
 
 type SchedulerConfig struct {
-	MaxConcurrent int
-	LeaseTTL      time.Duration
-	Now           func() time.Time
+	MaxConcurrent              int
+	LeaseTTL                   time.Duration
+	ReservationTTL             time.Duration
+	TenantID                   string
+	DefaultPriority            int
+	EmergencyPriorityThreshold int
+	Now                        func() time.Time
 }
 
 // Scheduler is a deterministic worker facade. It derives readiness from the
@@ -146,15 +150,17 @@ type SchedulerConfig struct {
 type Scheduler struct {
 	Repository Repository
 	Executor   Executor
+	Admission  *AdmissionController
 	Config     SchedulerConfig
 }
 
 type ScheduleReport struct {
-	Started  []NodeAttempt     `json:"started,omitempty"`
-	Advanced []NodeAttempt     `json:"advanced,omitempty"`
-	Waiting  []string          `json:"waiting,omitempty"`
-	Blocked  map[string]string `json:"blocked,omitempty"`
-	Terminal bool              `json:"terminal"`
+	Started    []NodeAttempt                `json:"started,omitempty"`
+	Advanced   []NodeAttempt                `json:"advanced,omitempty"`
+	Waiting    []string                     `json:"waiting,omitempty"`
+	Blocked    map[string]string            `json:"blocked,omitempty"`
+	Admissions map[string]AdmissionDecision `json:"admissions,omitempty"`
+	Terminal   bool                         `json:"terminal"`
 }
 
 func (s Scheduler) now() time.Time {
@@ -200,6 +206,11 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 			})
 			if err != nil {
 				return report, err
+			}
+			if s.Admission != nil {
+				if settleErr := settleAttemptReservation(s.Admission.Ledger, plan, finished, nil, ResourceVector{}, true, now); settleErr != nil {
+					return report, settleErr
+				}
 			}
 			report.Advanced = append(report.Advanced, finished)
 		}
@@ -272,14 +283,68 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	executor.Repository = s.Repository
 	executor.Now = s.Config.Now
 	executor.LeaseTTL = s.Config.LeaseTTL
-	started, err := executor.DispatchReadyLimited(ctx, plan, projection, envelope, workItemID, agentBindingID, limit)
+	var started []NodeAttempt
+	var err error
+	if s.Admission == nil {
+		started, err = executor.DispatchReadyLimited(ctx, plan, projection, envelope, workItemID, agentBindingID, limit)
+	} else {
+		report.Admissions = map[string]AdmissionDecision{}
+		selections := make([]DispatchSelection, 0, limit)
+		for _, node := range ready {
+			if node.Kind != NodeAgent && node.Kind != NodeSquad {
+				continue
+			}
+			if len(selections) >= limit {
+				report.Blocked[node.ID] = "concurrency_limit"
+				continue
+			}
+			request := s.dispatchAdmissionRequest(plan, *projection, node, envelope, workItemID)
+			decision, admissionErr := s.Admission.TryAdmit(request)
+			if admissionErr != nil {
+				err = admissionErr
+				break
+			}
+			report.Admissions[node.ID] = decision
+			nodeProjection := projection.Nodes[node.ID]
+			nodeProjection.AdmissionState = decision.State
+			nodeProjection.AdmissionReason = decision.Reason
+			nodeProjection.ResourceReservationID = decision.ReservationID
+			projection.Nodes[node.ID] = nodeProjection
+			switch decision.State {
+			case AdmissionAdmitted:
+				selections = append(selections, DispatchSelection{NodeID: node.ID, ResourceReservationID: decision.ReservationID})
+			case AdmissionWaiting:
+				report.Blocked[node.ID] = "admission_waiting:" + decision.Reason
+			case AdmissionRejected:
+				report.Blocked[node.ID] = "admission_rejected:" + decision.Reason
+			case AdmissionShed:
+				report.Blocked[node.ID] = "admission_shed:" + decision.Reason
+			}
+		}
+		if err == nil && len(selections) > 0 {
+			started, err = executor.DispatchSelectedLimited(ctx, plan, projection, envelope, workItemID, agentBindingID, selections, limit)
+		}
+		if releaseErr := s.releaseUnstartedReservations(selections, started); err == nil && releaseErr != nil {
+			err = releaseErr
+		}
+		if len(started) == 0 && len(report.Blocked) > 0 && projection.Status != PlanTerminal {
+			projection.Status = PlanWaiting
+			if s.Repository != nil {
+				if saveErr := s.Repository.SaveProjection(*projection); err == nil && saveErr != nil {
+					err = saveErr
+				}
+			}
+		}
+	}
 	if err != nil {
 		return report, err
 	}
 	report.Started = append(report.Started, started...)
 	for _, node := range ready {
 		if (node.Kind == NodeAgent || node.Kind == NodeSquad) && !containsAttemptNode(started, node.ID) {
-			report.Blocked[node.ID] = "concurrency_limit"
+			if _, explained := report.Blocked[node.ID]; !explained {
+				report.Blocked[node.ID] = "concurrency_limit"
+			}
 		}
 	}
 	if report.Blocked != nil && len(report.Blocked) == 0 {
@@ -287,6 +352,93 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	}
 	report.Terminal = projection.Status == PlanTerminal
 	return report, nil
+}
+
+func (s Scheduler) dispatchAdmissionRequest(plan RequirementExecutionPlan, projection PlanProjection, node WorkflowNode, envelope harness.ContextEnvelope, workItemID string) AdmissionRequest {
+	now := s.now()
+	attemptNo := projection.Nodes[node.ID].AttemptNo + 1
+	requestID := fmt.Sprintf("%s:%s:%d", plan.ID, node.ID, attemptNo)
+	tenantID := strings.TrimSpace(s.Config.TenantID)
+	if tenantID == "" {
+		tenantID = tenantForWorkspace(plan.WorkspaceID)
+	}
+	agentID := ""
+	if node.AgentRef != nil {
+		agentID = node.AgentRef.ID
+	} else if node.SquadRef != nil {
+		agentID = "squad:" + node.SquadRef.ID
+	}
+	requestedTokens := node.Budget.Tokens
+	if envelope.Manifest.TokenEstimate > requestedTokens {
+		requestedTokens = envelope.Manifest.TokenEstimate
+	}
+	wallTime := node.Timeout
+	if wallTime <= 0 {
+		wallTime = node.Budget.Duration
+	}
+	resources := ResourceVector{Tokens: requestedTokens, ToolCalls: int64(node.Budget.ToolCalls), WallTimeNanos: int64(wallTime), ConcurrencySlots: 1}
+	deadline := plan.Deadline.UTC()
+	if deadline.IsZero() {
+		ttl := s.Config.ReservationTTL
+		if ttl <= 0 {
+			ttl = s.Config.LeaseTTL
+		}
+		if ttl <= 0 {
+			ttl = 15 * time.Minute
+		}
+		deadline = now.Add(ttl)
+	}
+	if wallTime > 0 && now.Add(wallTime).Before(deadline) {
+		deadline = now.Add(wallTime)
+	}
+	priority := s.Config.DefaultPriority
+	for _, edge := range plan.GraphSnapshot.Edges {
+		if edge.To == node.ID && edge.Priority > priority {
+			priority = edge.Priority
+		}
+	}
+	cost := resources.Tokens/1000 + resources.ToolCalls + 1
+	costCenter := strings.TrimSpace(workItemID)
+	if costCenter == "" {
+		costCenter = plan.RequirementID
+	}
+	return AdmissionRequest{
+		ID: requestID, PlanID: plan.ID, NodeID: node.ID,
+		Scope:               ResourceScope{TenantID: tenantID, WorkspaceID: plan.WorkspaceID, AgentID: agentID, SessionID: envelope.Manifest.SessionID, StepID: requestID, CostCenter: costCenter},
+		ParentReservationID: s.parentReservationID(plan), Resources: resources,
+		Priority: priority, Emergency: s.Config.EmergencyPriorityThreshold > 0 && priority >= s.Config.EmergencyPriorityThreshold,
+		Persisted: s.Repository != nil, SchedulingCost: cost, SubmittedAt: now, Deadline: deadline,
+	}
+}
+
+func (s Scheduler) parentReservationID(plan RequirementExecutionPlan) string {
+	if s.Repository == nil || strings.TrimSpace(plan.ParentPlanID) == "" || strings.TrimSpace(plan.ParentAttemptID) == "" {
+		return ""
+	}
+	parent, err := s.Repository.GetProjection(plan.ParentPlanID)
+	if err != nil {
+		return ""
+	}
+	return parent.Attempts[plan.ParentAttemptID].ResourceReservationID
+}
+
+func (s Scheduler) releaseUnstartedReservations(selections []DispatchSelection, started []NodeAttempt) error {
+	if s.Admission == nil || s.Admission.Ledger == nil {
+		return nil
+	}
+	startedReservations := make(map[string]bool, len(started))
+	for _, attempt := range started {
+		startedReservations[attempt.ResourceReservationID] = true
+	}
+	for _, selection := range selections {
+		if selection.ResourceReservationID == "" || startedReservations[selection.ResourceReservationID] {
+			continue
+		}
+		if _, err := s.Admission.Ledger.Release(selection.ResourceReservationID, "dispatch-release:"+selection.ResourceReservationID, "dispatch_not_started", s.now()); err != nil && !errors.Is(err, ErrResourceReservationTerminal) {
+			return err
+		}
+	}
+	return nil
 }
 
 func limitForStructural(plan RequirementExecutionPlan, configured int) int {

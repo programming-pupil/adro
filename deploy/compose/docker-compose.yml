@@ -33,6 +33,9 @@ services:
       ADRO_AUDIT_STATE_FILE: /var/lib/adro/audit.json
       ADRO_RUNNER_STATE_FILE: /var/lib/adro/runners.json
       ADRO_RUN_STATE_FILE: /var/lib/adro/runs.json
+      ADRO_ORCHESTRATION_STATE_FILE: /var/lib/adro/orchestration.json
+      ADRO_RESOURCE_STATE_FILE: /var/lib/adro/resources.json
+      ADRO_TIMER_STATE_FILE: /var/lib/adro/timers.json
       ADRO_ARTIFACT_ROOT: /var/lib/adro/artifacts
       ADRO_WORK_ROOT: /var/lib/adro/workspaces
       ADRO_PROVIDER: ${ADRO_PROVIDER:-local}

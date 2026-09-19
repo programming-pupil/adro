@@ -585,18 +585,25 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P1-GRAPH-008` [source:405] [state:unverified] 提供 distributed worker claim：`SKIP LOCKED` 或等价 CAS、heartbeat、generation-aware requeue。
 
 - [ ] `P1-GRAPH-009` [source:406] [state:unverified] 添加背压、公平性、优先级反转和 workspace quota 测试。
+  - Recorded evidence state: `complete locally`. Backpressure, weighted fairness, priority aging/inversion, workspace quota and protected recovery tests are in `internal/orchestration/resource_accounting_test.go`
 
 - [ ] `P0-GRAPH-010` [source:407] [state:unverified] scheduler 建立 tenant/workspace/agent 多级 admission control，超额任务进入明确等待或拒绝状态。
+  - Recorded evidence state: `complete locally for local scheduler`. `Scheduler.Tick` reserves tenant/workspace/agent capacity before provider dispatch and records admitted/waiting/rejected decisions; distributed SQL quota composition remains pending
 
 - [ ] `P0-GRAPH-011` [source:408] [state:unverified] 使用 weighted fair queuing 或等价算法，定义可验证的 starvation bound。
+  - Recorded evidence state: `complete locally for reference queue`. Integer weighted fair queuing exposes virtual finish and a conservative starvation deadline with deterministic noisy-neighbor ordering tests
 
 - [ ] `P0-GRAPH-012` [source:409] [state:unverified] priority aging 防止低优先级永久饥饿；紧急优先级必须受 tenant ceiling 限制。
+  - Recorded evidence state: `complete locally for reference queue`. Virtual-clock priority aging reaches the configured maximum and emergency priority is capped per tenant
 
 - [ ] `P0-GRAPH-013` [source:410] [state:unverified] 过载时优先 load shed 未持久化、低优先级工作，不能丢弃已 dispatch effect 的恢复任务。
+  - Recorded evidence state: `complete locally for reference queue`. Overload shedding removes only low-priority unpersisted work and protects persisted/dispatched recovery work
 
 - [ ] `P0-GRAPH-014` [source:411] [state:unverified] claim 排序键稳定且可解释；相同输入和时钟下调度结果可复现。
+  - Recorded evidence state: `complete locally for reference queue`. Stable claim order uses effective priority, integer virtual finish and an explainable tenant/workspace/agent/time/ID key
 
 - [ ] `P0-GRAPH-015` [source:412] [state:unverified] 建立 noisy-neighbor、突发流量、配额耗尽、worker 抖动和优先级反转基准。
+  - Recorded evidence state: `complete locally`. `internal/orchestration/resource_accounting_benchmark_test.go` and `scripts/run-resource-scheduler-benchmarks.sh` cover noisy-neighbor fairness, burst load, quota exhaustion, worker jitter/recovery and priority inversion; sustained multi-process soak remains a release gate
 
 ## 8.2.1 Durable Timer
 
@@ -616,27 +623,36 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `complete locally for reference backend`. Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending
 
 - [ ] `P0-TIMER-006` [source:421] [state:partial] WebUI/CLI 可查看、取消和解释 timer，但不能直接修改数据库行。
-  - Recorded evidence state: `partial`. `TimerExplanation` is available as a read model; Runtime Inspector/API/CLI listing and cancellation endpoints remain pending
+  - Recorded evidence state: `partial`. Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancellation, `adroctl timer list|get|explain|cancel`, and the WebUI Timer Inspector are implemented. Real TimerStore API isolation/cancellation tests live in `internal/api/timers_test.go`; browser contract coverage is `e2e/timer-inspector.spec.js`; operational contract is `docs/operations/durable-timers.md`. Full production retry/deadline/scheduled-resume integration and independent final acceptance remain open.
 
 ## 8.3 Resource Accounting
 
 - [ ] `P0-RES-001` [source:425] [state:unverified] 统一计量 CPU time、memory peak、disk bytes、output bytes、network bytes、tokens、tool calls、wall clock 和并发槽位。
+  - Recorded evidence state: `complete locally`. `ResourceVector` unifies CPU time, memory peak, disk/output/network bytes, tokens, tool calls, wall time and concurrency slots
 
 - [ ] `P0-RES-002` [source:426] [state:unverified] 每项资源同时支持 request、reserved、consumed、released 和 overage 状态。
+  - Recorded evidence state: `complete locally`. `ResourceState` retains requested, reserved, consumed, released and overage vectors without overwriting earlier phases
 
 - [ ] `P0-RES-003` [source:427] [state:unverified] 父任务预算等于自身消耗加全部子任务保留额度，防止递归 delegation 超卖。
+  - Recorded evidence state: `complete locally`. Child reservations carve capacity from their parent and child consumption rolls up recursively, rejecting oversell
 
 - [ ] `P0-RES-004` [source:428] [state:unverified] 执行前 reserve，结束后 settle；崩溃恢复必须回收孤儿 reservation。
+  - Recorded evidence state: `complete locally for reference backend`. Reserve-before-dispatch, settlement, failed-dispatch release, atomic persistence rollback and deepest-first orphan recovery are tested
 
 - [ ] `P0-RES-005` [source:429] [state:unverified] usage 记录关联 tenant、session、step、model call、tool effect 和 cost center。
+  - Recorded evidence state: `complete locally`. Usage records bind tenant, workspace, agent, session, step, model call/tool effect and cost center
 
 - [ ] `P0-RES-006` [source:430] [state:unverified] 达到 soft limit 触发 warning/compaction/降级，达到 hard limit 进入可解释终止状态。
+  - Recorded evidence state: `complete locally`. Soft limits emit warning/compaction/degradation actions; hard limits produce explicit waiting/rejected decisions and terminal overage reason
 
 - [ ] `P0-RES-007` [source:431] [state:unverified] 不信任 provider 自报 usage；保存原始 usage、标准化 usage 和估算差异。
+  - Recorded evidence state: `complete locally`. Records preserve raw provider JSON, normalized usage, independent estimate, signed discrepancy and explicit missing-provider fallback
 
 - [ ] `P0-RES-008` [source:432] [state:unverified] WebUI 展示预算燃尽、reservation、异常峰值和子 Agent 归因。
+  - Recorded evidence state: `complete locally`. `/api/v1/resources` drives the Cost Center burn, reservation, anomaly and child-Agent attribution panels; `e2e/resource-accounting.spec.js` verifies API use, refresh and narrow-screen layout
 
 - [ ] `P0-RES-009` [source:433] [state:unverified] conformance 覆盖重复 usage event、延迟账单、缺失 usage、负数与溢出。
+  - Recorded evidence state: `complete locally for reference backend`. Tests cover duplicate/conflicting usage, delayed billing, missing provider usage, negative values and integer overflow rollback
 
 ## 9.1 Store Ports
 

@@ -13,6 +13,262 @@ security:
 - bearerAuth: []
 - cookieAuth: []
 paths:
+  "/api/v1/timers":
+    get:
+      operationId: get_api_v1_timers
+      summary: List durable timers visible in the authenticated workspace
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - name: include_terminal
+        in: query
+        description: Include fired, cancelled, and expired timers.
+        schema:
+          type: boolean
+          default: false
+      - name: session_id
+        in: query
+        schema:
+          type: string
+      - name: run_id
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Scoped durable timer read model
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, include_terminal]
+                properties:
+                  items:
+                    type: array
+                    items: { "$ref": "#/components/schemas/Timer" }
+                  include_terminal: { type: boolean }
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+  "/api/v1/timers/{timer_id}":
+    get:
+      operationId: get_api_v1_timers_by_timer_id
+      summary: Read one durable timer
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - name: timer_id
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Durable timer
+          content:
+            application/json:
+              schema: { "$ref": "#/components/schemas/Timer" }
+        '404':
+          description: Timer is absent or outside the request scope
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+  "/api/v1/timers/{timer_id}/explain":
+    get:
+      operationId: get_api_v1_timers_by_timer_id_explain
+      summary: Explain a durable timer's recovery state
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - name: timer_id
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Timer explanation and next safe action
+          content:
+            application/json:
+              schema: { "$ref": "#/components/schemas/TimerExplanation" }
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+  "/api/v1/timers/{timer_id}/cancel":
+    post:
+      operationId: post_api_v1_timers_by_timer_id_cancel
+      summary: Cancel a durable timer through the state machine
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - name: timer_id
+        in: path
+        required: true
+        schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 500 }
+              additionalProperties: false
+      responses:
+        '200':
+          description: Cancelled durable timer
+          content:
+            application/json:
+              schema: { "$ref": "#/components/schemas/Timer" }
+        '409':
+          description: Timer is already terminal with a different outcome
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema: { "$ref": "#/components/schemas/Problem" }
+  "/api/v1/resources":
+    get:
+      operationId: get_api_v1_resources
+      summary: Read resource burn, reservations, anomalies, and child-Agent attribution
+      description: Returns a bounded, read-only projection for the authenticated tenant and workspace. Provider usage remains untrusted and is shown beside local estimates.
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - name: usage_limit
+        in: query
+        description: Maximum number of recent usage records to include.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+      responses:
+        '200':
+          description: Resource accounting projection
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ResourceAccountingView"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+  "/api/v1/resources/quotas":
+    get:
+      operationId: get_api_v1_resources_quotas
+      summary: List tenant and workspace resource quotas
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      responses:
+        '200':
+          description: Scoped resource quotas
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/ResourceQuota"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    put:
+      operationId: put_api_v1_resources_quotas
+      summary: Create or replace a validated resource quota
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ResourceQuotaInput"
+      responses:
+        '200':
+          description: Persisted resource quota
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ResourceQuota"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+    delete:
+      operationId: delete_api_v1_resources_quotas
+      summary: Delete an exact tenant, workspace, or Agent quota
+      parameters:
+      - "$ref": "#/components/parameters/WorkspaceID"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - name: quota_workspace_id
+        in: query
+        description: Workspace portion of the exact quota scope. Omit for a tenant quota.
+        schema:
+          type: string
+      - name: agent_id
+        in: query
+        description: Agent portion of the exact quota scope.
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Quota deleted
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
   "/api/v1/execution-plans":
     get:
       operationId: get_api_v1_execution_plans
@@ -7057,6 +7313,286 @@ components:
         minLength: 1
         maxLength: 255
   schemas:
+    TimerScope:
+      type: object
+      required: [tenant_id, workspace_id, session_id, run_id]
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        session_id: { type: string }
+        run_id: { type: string }
+      additionalProperties: false
+    TimerCommand:
+      type: object
+      required: [name, idempotency_key]
+      properties:
+        name: { type: string }
+        idempotency_key: { type: string }
+        payload: {}
+      additionalProperties: false
+    Timer:
+      type: object
+      required: [id, schedule_key, scope, due_at, command, command_digest, policy, state, fencing_token, created_at, updated_at]
+      properties:
+        id: { type: string }
+        schedule_key: { type: string }
+        scope: { "$ref": "#/components/schemas/TimerScope" }
+        due_at: { type: string, format: date-time }
+        interval: { type: integer, format: int64, minimum: 0, description: Duration in nanoseconds. }
+        command: { "$ref": "#/components/schemas/TimerCommand" }
+        command_digest: { type: string }
+        stream_id: { type: string }
+        expected_sequence: { type: integer, format: int64, minimum: 0 }
+        generation: { type: integer, format: int64, minimum: 0 }
+        policy: { type: string, enum: [catch_up, coalesce, expire] }
+        max_catch_up: { type: integer, minimum: 1 }
+        max_lateness: { type: integer, format: int64, minimum: 0, description: Duration in nanoseconds. }
+        state: { type: string, enum: [pending, claimed, fired, cancelled, expired] }
+        owner: { type: string }
+        lease_expires_at: { type: string, format: date-time }
+        fencing_token: { type: integer, format: int64, minimum: 0 }
+        claim_key: { type: string }
+        claim_generation: { type: integer, format: int64, minimum: 0 }
+        claim_missed: { type: integer, minimum: 0 }
+        claim_advance_to: { type: string, format: date-time }
+        suppressed_count: { type: integer, format: int64, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        cancelled_at: { type: string, format: date-time }
+        expired_at: { type: string, format: date-time }
+        terminal_reason: { type: string }
+      additionalProperties: false
+    TimerExplanation:
+      type: object
+      required: [timer, reason, next_action]
+      properties:
+        timer: { "$ref": "#/components/schemas/Timer" }
+        reason: { type: string }
+        next_action: { type: string }
+        occurrence_key: { type: string }
+      additionalProperties: false
+    ResourceVector:
+      type: object
+      description: Provider-neutral, non-negative resource quantities. Duration fields are nanoseconds; zero quota dimensions are unlimited.
+      properties:
+        cpu_time_nanos:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_peak_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        disk_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        output_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        network_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        tool_calls:
+          type: integer
+          format: int64
+          minimum: 0
+        wall_time_nanos:
+          type: integer
+          format: int64
+          minimum: 0
+        concurrency_slots:
+          type: integer
+          format: int64
+          minimum: 0
+      additionalProperties: false
+    ResourceDelta:
+      type: object
+      description: Signed provider-minus-estimator differences. These values never grant budget credit.
+      properties:
+        cpu_time_nanos: { type: integer, format: int64 }
+        memory_peak_bytes: { type: integer, format: int64 }
+        disk_bytes: { type: integer, format: int64 }
+        output_bytes: { type: integer, format: int64 }
+        network_bytes: { type: integer, format: int64 }
+        tokens: { type: integer, format: int64 }
+        tool_calls: { type: integer, format: int64 }
+        wall_time_nanos: { type: integer, format: int64 }
+        concurrency_slots: { type: integer, format: int64 }
+      additionalProperties: false
+    ResourceScope:
+      type: object
+      required:
+      - tenant_id
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        agent_id: { type: string }
+        session_id: { type: string }
+        step_id: { type: string }
+        model_call_id: { type: string }
+        tool_effect_id: { type: string }
+        cost_center: { type: string }
+      additionalProperties: false
+    ResourceState:
+      type: object
+      required:
+      - requested
+      - reserved
+      - consumed
+      - released
+      - overage
+      properties:
+        requested: { "$ref": "#/components/schemas/ResourceVector" }
+        reserved: { "$ref": "#/components/schemas/ResourceVector" }
+        consumed: { "$ref": "#/components/schemas/ResourceVector" }
+        released: { "$ref": "#/components/schemas/ResourceVector" }
+        overage: { "$ref": "#/components/schemas/ResourceVector" }
+      additionalProperties: false
+    ResourceQuotaInput:
+      type: object
+      required:
+      - scope
+      properties:
+        scope:
+          "$ref": "#/components/schemas/ResourceScope"
+        soft_limit:
+          "$ref": "#/components/schemas/ResourceVector"
+        hard_limit:
+          "$ref": "#/components/schemas/ResourceVector"
+        queue_weight:
+          type: integer
+          format: int64
+          minimum: 0
+        emergency_priority_ceiling:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    ResourceQuota:
+      type: object
+      required:
+      - scope
+      - updated_at
+      properties:
+        scope:
+          "$ref": "#/components/schemas/ResourceScope"
+        soft_limit:
+          "$ref": "#/components/schemas/ResourceVector"
+        hard_limit:
+          "$ref": "#/components/schemas/ResourceVector"
+        queue_weight:
+          type: integer
+          format: int64
+          minimum: 0
+        emergency_priority_ceiling:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ResourceReservation:
+      type: object
+      required:
+      - id
+      - scope
+      - state
+      - own_consumed
+      - status
+      - created_at
+      - updated_at
+      properties:
+        id: { type: string }
+        idempotency_key: { type: string }
+        payload_digest: { type: string }
+        scope: { "$ref": "#/components/schemas/ResourceScope" }
+        parent_id: { type: string }
+        state: { "$ref": "#/components/schemas/ResourceState" }
+        own_consumed: { "$ref": "#/components/schemas/ResourceVector" }
+        status:
+          type: string
+          enum: [reserved, settled, released, expired]
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        terminal_at: { type: string, format: date-time }
+        terminal_reason: { type: string }
+        soft_actions:
+          type: array
+          items: { type: string }
+      additionalProperties: false
+    ResourceUsageRecord:
+      type: object
+      required:
+      - id
+      - reservation_id
+      - scope
+      - normalized
+      - estimated
+      - discrepancy
+      - observed_at
+      - payload_digest
+      properties:
+        id: { type: string }
+        reservation_id: { type: string }
+        scope: { "$ref": "#/components/schemas/ResourceScope" }
+        raw_provider:
+          description: Original untrusted provider usage payload.
+        normalized: { "$ref": "#/components/schemas/ResourceVector" }
+        estimated: { "$ref": "#/components/schemas/ResourceVector" }
+        discrepancy: { "$ref": "#/components/schemas/ResourceDelta" }
+        provider_usage_missing: { type: boolean }
+        delayed_billing: { type: boolean }
+        observed_at: { type: string, format: date-time }
+        payload_digest: { type: string }
+      additionalProperties: false
+    ResourceDashboard:
+      type: object
+      required:
+      - scope
+      - exposure
+      - consumed
+      - missing_provider_usage
+      - delayed_bills
+      - generated_at
+      properties:
+        scope: { "$ref": "#/components/schemas/ResourceScope" }
+        exposure: { "$ref": "#/components/schemas/ResourceVector" }
+        consumed: { "$ref": "#/components/schemas/ResourceVector" }
+        active_reservations:
+          type: array
+          items: { "$ref": "#/components/schemas/ResourceReservation" }
+        recent_usage:
+          type: array
+          items: { "$ref": "#/components/schemas/ResourceUsageRecord" }
+        overage_reservation_ids:
+          type: array
+          items: { type: string }
+        missing_provider_usage: { type: integer, minimum: 0 }
+        delayed_bills: { type: integer, minimum: 0 }
+        child_agent_usage:
+          type: object
+          additionalProperties:
+            "$ref": "#/components/schemas/ResourceVector"
+        generated_at: { type: string, format: date-time }
+      additionalProperties: false
+    ResourceAccountingView:
+      type: object
+      required:
+      - dashboard
+      - quotas
+      properties:
+        dashboard: { "$ref": "#/components/schemas/ResourceDashboard" }
+        quotas:
+          type: array
+          items: { "$ref": "#/components/schemas/ResourceQuota" }
+      additionalProperties: false
     WorkflowStep:
       type: object
       required:

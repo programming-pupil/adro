@@ -95,6 +95,30 @@ func TestServiceCredentialCommandLifecycle(t *testing.T) {
 	}
 }
 
+func TestTimerRequestRoutes(t *testing.T) {
+	tests := []struct {
+		action string
+		method string
+		path   string
+	}{
+		{"list", http.MethodGet, "/api/v1/timers?include_terminal=true"},
+		{"get", http.MethodGet, "/api/v1/timers/timer-1"},
+		{"explain", http.MethodGet, "/api/v1/timers/timer-1/explain"},
+		{"cancel", http.MethodPost, "/api/v1/timers/timer-1/cancel"},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			method, path, _, err := orchestrationRequest("timer", test.action, apiOptions{ID: "timer-1", IncludeTerminal: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if method != test.method || path != test.path {
+				t.Fatalf("got method=%s path=%s, want method=%s path=%s", method, path, test.method, test.path)
+			}
+		})
+	}
+}
+
 func TestOrchestrationRequestRoutes(t *testing.T) {
 	tests := []struct {
 		name         string

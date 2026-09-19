@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/security"
@@ -127,10 +128,24 @@ func (s *Server) runDiagnostics(w http.ResponseWriter, r *http.Request, runID st
 		if !matched {
 			continue
 		}
-		s.writeJSON(w, http.StatusOK, orchestrationDiagnostics(runID, plan, projection, events, s.Orchestration.ListOutbox(plan.ID, "")))
+		diagnostics := orchestrationDiagnostics(runID, plan, projection, events, s.Orchestration.ListOutbox(plan.ID, ""))
+		if s.ResourceLedger != nil {
+			scope := orchestration.ResourceScope{TenantID: tenantForRequest(r, plan.WorkspaceID), WorkspaceID: plan.WorkspaceID}
+			if resources, resourceErr := s.ResourceLedger.Dashboard(scope, 100); resourceErr == nil {
+				diagnostics["resources"] = resources
+			}
+		}
+		s.writeJSON(w, http.StatusOK, diagnostics)
 		return
 	}
 	s.problem(w, r, http.StatusNotFound, "run_not_found", "run is not present in orchestration event history", nil)
+}
+
+func tenantForRequest(r *http.Request, workspaceID string) string {
+	if value := strings.TrimSpace(tenant(r)); value != "" {
+		return value
+	}
+	return strings.TrimSpace(workspaceID)
 }
 
 func planTimelineItems(plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, events []orchestration.Event) []map[string]any {

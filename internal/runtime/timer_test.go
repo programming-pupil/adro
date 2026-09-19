@@ -216,6 +216,30 @@ func TestTimerStoreExplainsRecoveryState(t *testing.T) {
 	}
 }
 
+func TestTimerStoreCancellationIsConvergentForSameReason(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "timers.json")
+	clock := testkit.NewManualClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	store, err := NewTimerStore(path, timerOptions(clock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := timerSpec(timerScope(), "cancel-convergent", "timer-cancel-convergent", clock.Now().Add(time.Hour))
+	if _, _, err := store.Schedule(spec); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Cancel(spec.ID, "operator_review")
+	if err != nil || first.State != TimerCancelled {
+		t.Fatalf("first cancellation=%+v err=%v", first, err)
+	}
+	second, err := store.Cancel(spec.ID, "operator_review")
+	if err != nil || second.State != TimerCancelled || !second.CancelledAt.Equal(first.CancelledAt) {
+		t.Fatalf("repeat cancellation=%+v err=%v", second, err)
+	}
+	if _, err := store.Cancel(spec.ID, "different_reason"); !errors.Is(err, ErrTimerConflict) {
+		t.Fatalf("different cancellation reason err=%v", err)
+	}
+}
+
 func TestTimerStoreUsesStableOrderingAndUTCForClockJumpsAndDST(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "timers.json")
 	zone := time.FixedZone("CST", 8*60*60)

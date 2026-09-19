@@ -104,6 +104,8 @@ Environment:
   ADRO_RUNNER_STATE_FILE  Durable runner registration and heartbeat state file.
   ADRO_ORCHESTRATION_STATE_FILE
                           Durable Agent/Squad graph, plan, event and outbox state file.
+  ADRO_RESOURCE_STATE_FILE  Durable resource reservations, quotas and usage state file.
+  ADRO_TIMER_STATE_FILE    Durable timer schedules, leases and execution state file.
   ADRO_MEMORY_STATE_FILE   Durable evidence-backed Memory state file.
   ADRO_HOME               Local state directory (default: ./.adro).
   ADRO_API_PORT           API port (default: 8080).
@@ -345,6 +347,8 @@ export ADRO_HARNESS_STATE_FILE="${ADRO_HARNESS_STATE_FILE:-$STATE_DIR/harness.js
 export ADRO_PLUGIN_STATE_FILE="${ADRO_PLUGIN_STATE_FILE:-$STATE_DIR/plugins.json}"
 export ADRO_RUNNER_STATE_FILE="${ADRO_RUNNER_STATE_FILE:-$STATE_DIR/runners.json}"
 export ADRO_ORCHESTRATION_STATE_FILE="${ADRO_ORCHESTRATION_STATE_FILE:-$STATE_DIR/orchestration.json}"
+export ADRO_RESOURCE_STATE_FILE="${ADRO_RESOURCE_STATE_FILE:-$STATE_DIR/resources.json}"
+export ADRO_TIMER_STATE_FILE="${ADRO_TIMER_STATE_FILE:-$STATE_DIR/timers.json}"
 export ADRO_MEMORY_STATE_FILE="${ADRO_MEMORY_STATE_FILE:-$STATE_DIR/memory.json}"
 
 log "Starting native ADRO API on :$API_PORT"

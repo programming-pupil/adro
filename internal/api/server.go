@@ -36,6 +36,7 @@ import (
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
+	runtimepkg "github.com/adro-project/adro/internal/runtime"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
@@ -57,6 +58,9 @@ type Server struct {
 	Auth               *adroauth.Service
 	ServiceCredentials *adroauth.ServiceCredentialAuthority
 	Orchestration      orchestration.ControlRepository
+	ResourceLedger     *orchestration.ResourceLedger
+	Admission          *orchestration.AdmissionController
+	Timers             *runtimepkg.TimerStore
 	Memory             *memory.Repository
 	Tracer             telemetry.Tracer
 	uploadMu           sync.Mutex
@@ -222,6 +226,29 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 	if orchestrationRepo == nil && strings.TrimSpace(os.Getenv("ADRO_ORCHESTRATION_STATE_FILE")) == "" {
 		orchestrationRepo = orchestration.NewMemoryRepository()
 	}
+	resourcePath := strings.TrimSpace(os.Getenv("ADRO_RESOURCE_STATE_FILE"))
+	resourceLedger, resourceErr := orchestration.NewResourceLedger(resourcePath, orchestration.ResourceLedgerOptions{})
+	if resourceErr != nil {
+		logger.Error("load resource accounting state", "error", resourceErr, "path", resourcePath)
+		startupErr = errors.Join(startupErr, fmt.Errorf("load resource accounting state: %w", resourceErr))
+		resourceLedger, _ = orchestration.NewResourceLedger("", orchestration.ResourceLedgerOptions{})
+	}
+	fairQueue, queueErr := orchestration.NewFairAdmissionQueue(orchestration.FairQueuePolicy{})
+	if queueErr != nil {
+		logger.Error("initialize admission queue", "error", queueErr)
+		startupErr = errors.Join(startupErr, fmt.Errorf("initialize admission queue: %w", queueErr))
+	}
+	admission := &orchestration.AdmissionController{Ledger: resourceLedger, Queue: fairQueue}
+	var timerStore *runtimepkg.TimerStore
+	if timerPath := strings.TrimSpace(os.Getenv("ADRO_TIMER_STATE_FILE")); timerPath != "" {
+		loaded, timerErr := runtimepkg.NewTimerStore(timerPath, runtimepkg.TimerStoreOptions{})
+		if timerErr != nil {
+			logger.Error("load durable timer state", "error", timerErr, "path", timerPath)
+			startupErr = errors.Join(startupErr, fmt.Errorf("load durable timer state: %w", timerErr))
+		} else {
+			timerStore = loaded
+		}
+	}
 	runners := runner.NewSupervisor()
 	if path := strings.TrimSpace(os.Getenv("ADRO_RUNNER_STATE_FILE")); path != "" {
 		if loaded, loadErr := runner.NewPersistentSupervisor(path); loadErr == nil {
@@ -245,7 +272,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		}
 	}
 	workRoot := os.Getenv("ADRO_WORK_ROOT")
-	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, ServiceCredentials: serviceCredentials, Orchestration: orchestrationRepo, Memory: memoryRepo, Tracer: tracer, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
+	return &Server{Store: s, Provider: p, RuntimeProviders: provider.NewRuntimeProviderPool(p, workRoot, b), Artifacts: a, Events: b, Runners: runners, Audit: audit.NewLedger(), Harness: harnessStore, Plugins: pluginRegistry, Logger: logger, Router: router, Auth: authService, ServiceCredentials: serviceCredentials, Orchestration: orchestrationRepo, ResourceLedger: resourceLedger, Admission: admission, Timers: timerStore, Memory: memoryRepo, Tracer: tracer, uploads: map[string]*upload{}, watchedRuns: map[string]struct{}{}, watchedPlans: map[string]struct{}{}, triggerOutcomes: map[string][]mentions.TriggerOutcome{}, startupErr: startupErr}
 }
 
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
@@ -567,6 +594,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"runtime_id": runtimeID, "items": items})
+	case path == "/api/v1/timers" || strings.HasPrefix(path, "/api/v1/timers/"):
+		s.timerRoute(w, r, strings.TrimPrefix(path, "/api/v1/timers"))
+	case path == "/api/v1/resources":
+		s.resourceAccountingRoute(w, r, false)
+	case path == "/api/v1/resources/quotas":
+		s.resourceAccountingRoute(w, r, true)
 	case path == "/api/v1/audit" && r.Method == http.MethodGet:
 		items := s.Audit.List()
 		if workspaceID := requestWorkspace(r, ""); workspaceID != "" {

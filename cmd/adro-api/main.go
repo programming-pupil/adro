@@ -69,6 +69,8 @@ func main() {
 	setDefaultEnv("ADRO_PLUGIN_STATE_FILE", filepath.Join(stateDir, "plugins.json"))
 	setDefaultEnv("ADRO_RUNNER_STATE_FILE", filepath.Join(stateDir, "runners.json"))
 	setDefaultEnv("ADRO_ORCHESTRATION_STATE_FILE", filepath.Join(stateDir, "orchestration.json"))
+	setDefaultEnv("ADRO_RESOURCE_STATE_FILE", filepath.Join(stateDir, "resources.json"))
+	setDefaultEnv("ADRO_TIMER_STATE_FILE", filepath.Join(stateDir, "timers.json"))
 	setDefaultEnv("ADRO_MEMORY_STATE_FILE", filepath.Join(stateDir, "memory.json"))
 	root := *artifactRoot
 	if root == "" {

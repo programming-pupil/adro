@@ -222,16 +222,30 @@ func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecut
 }
 
 func (e Executor) DispatchReady(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) ([]NodeAttempt, error) {
-	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, 0)
+	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, 0, nil)
 }
 
 // DispatchReadyLimited is used by bounded workers to preserve the projection
 // and event ordering while enforcing a per-tick concurrency ceiling.
 func (e Executor) DispatchReadyLimited(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int) ([]NodeAttempt, error) {
-	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, limit)
+	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, limit, nil)
 }
 
-func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int) ([]NodeAttempt, error) {
+// DispatchSelection binds an admitted node to the reservation that must be
+// persisted on its attempt before provider dispatch.
+type DispatchSelection struct {
+	NodeID                string
+	ResourceReservationID string
+}
+
+// DispatchSelectedLimited dispatches exactly the admitted nodes in the supplied
+// deterministic order. A selection that is no longer ready fails closed so a
+// stale admission cannot consume a different graph snapshot.
+func (e Executor) DispatchSelectedLimited(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, selections []DispatchSelection, limit int) ([]NodeAttempt, error) {
+	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, limit, selections)
+}
+
+func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int, selections []DispatchSelection) ([]NodeAttempt, error) {
 	if projection == nil {
 		return nil, fmt.Errorf("projection is required")
 	}
@@ -243,6 +257,29 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 	// clock here would allow a retry to dispatch early during replay/tests and
 	// could also race a plan deadline between the scheduler and provider call.
 	ready := ReadyNodesAt(plan, *projection, e.now())
+	reservationByNode := map[string]string{}
+	if len(selections) > 0 {
+		readyByID := make(map[string]WorkflowNode, len(ready))
+		for _, node := range ready {
+			readyByID[node.ID] = node
+		}
+		selected := make([]WorkflowNode, 0, len(selections))
+		seen := map[string]bool{}
+		for _, selection := range selections {
+			nodeID := strings.TrimSpace(selection.NodeID)
+			if nodeID == "" || seen[nodeID] {
+				return nil, fmt.Errorf("dispatch selection contains an empty or duplicate node %q", nodeID)
+			}
+			node, ok := readyByID[nodeID]
+			if !ok {
+				return nil, fmt.Errorf("dispatch selection node %s is no longer ready", nodeID)
+			}
+			seen[nodeID] = true
+			selected = append(selected, node)
+			reservationByNode[nodeID] = strings.TrimSpace(selection.ResourceReservationID)
+		}
+		ready = selected
+	}
 	hasProviderNode := false
 	for _, node := range ready {
 		if node.Kind == NodeAgent || node.Kind == NodeSquad {
@@ -367,7 +404,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		key := plan.ID + ":" + node.ID + ":" + fmt.Sprint(attemptNo)
 		h := sha256.Sum256([]byte(key + nodeEnvelope.ReplayKey))
 		payloadHash := hex.EncodeToString(h[:])
-		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, nodeEnvelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, Now: now})
+		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, nodeEnvelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, ResourceReservationID: reservationByNode[node.ID], Now: now})
 		if err != nil {
 			return started, err
 		}
@@ -390,7 +427,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				p := tail[len(tail)-1]
 				previous = &p
 			}
-			ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": nodeEnvelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID})
+			ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": nodeEnvelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID, "resource_reservation_id": a.ResourceReservationID})
 			if evErr != nil {
 				*projection = before
 				return started, evErr
