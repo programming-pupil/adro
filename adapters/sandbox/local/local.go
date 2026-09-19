@@ -262,6 +262,11 @@ func (b *Broker) Execute(ctx context.Context, handle sandbox.SandboxHandle) (san
 	if err != nil {
 		return b.failStart(handle, stream, cancel, fmt.Errorf("sandbox stderr pipe: %w", err))
 	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return b.failStart(handle, stream, cancel, fmt.Errorf("sandbox stdin pipe: %w", err))
+	}
+	stream.setInput(stdin)
 
 	b.mu.Lock()
 	item, lookupErr := b.lookupLocked(handle)

@@ -49,6 +49,7 @@ var (
 	ErrOutputLimit            = errors.New("sandbox output limit exceeded")
 	ErrExecutionTimeout       = errors.New("sandbox execution timed out")
 	ErrExecutionCancelled     = errors.New("sandbox execution cancelled")
+	ErrInputClosed            = errors.New("sandbox input is closed")
 )
 
 func (l EnforcementLevel) Valid() bool {
@@ -320,6 +321,8 @@ type ExecutionResult struct {
 type ExecutionStream interface {
 	Events() <-chan ExecutionEvent
 	Errors() <-chan error
+	Send(context.Context, []byte) error
+	CloseInput() error
 	Wait(context.Context) (ExecutionResult, error)
 	Close() error
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/adro-project/adro/ports/sandbox"
 )
 
+// Threat ID: TM-SBX-005
 func TestCancellationTerminatesDescendantProcessTree(t *testing.T) {
 	broker := newTestSandbox(t)
 	if !broker.cap.ProcessTreeCancellation {

@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build architecture fuzz-smoke store-conformance coverage-ledger rebuild-ledger contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e dsh-real real-evidence test-expert test-all verify run local
+.PHONY: test test-race vet build architecture fuzz-smoke store-conformance coverage-ledger rebuild-ledger threat-map contracts supply-chain fault-matrix browser postgres-conformance production-conformance real-e2e dsh-real real-evidence test-expert test-all verify run local
 
 GO ?= ./scripts/e2e-go.sh
 
@@ -28,6 +28,9 @@ coverage-ledger:
 
 rebuild-ledger:
 	./scripts/verify-rebuild-ledger.py
+
+threat-map:
+	./scripts/verify-threat-test-map.py
 
 contracts:
 	bash -n start.sh
@@ -64,6 +67,9 @@ contracts:
 	ruby scripts/openapi-contract.rb
 	ruby scripts/coverage-ledger.rb --check
 	./scripts/verify-rebuild-ledger.py
+	./scripts/verify-threat-test-map.py
+	./scripts/test-public-identity.py
+	./scripts/verify-public-identity.py
 	ruby -rjson -e 'require "yaml"; YAML.load_file("openapi/openapi.yaml"); YAML.load_file("deploy/compose/docker-compose.yml"); YAML.load_file("charts/adro/Chart.yaml"); YAML.load_file("charts/adro/values.yaml"); JSON.parse(File.read("charts/adro/values.schema.json")); JSON.parse(File.read("release/dependencies.json")); JSON.parse(File.read("SBOM"))'
 	bash -n examples/three-repo-feign/run.sh
 

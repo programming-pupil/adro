@@ -113,6 +113,7 @@ func TestToolLoopAppliesTimeoutAndCancelsTool(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-DURABLE-002
 func TestToolLoopDoesNotReplayWriteAfterUnknownOutcome(t *testing.T) {
 	j := mustJournal(t, "")
 	scope := testScope()

@@ -6,7 +6,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - Authoritative item count: **451**
 - Source identity digest: `c1065cf81b5abe01266024367a74b8c58df1571e1f24e761ba26d7243d9bded6`
-- Evidence tracking: **36 evidenced**, **50 partial**, **365 unverified**
+- Evidence tracking: **36 evidenced**, **67 partial**, **348 unverified**
 - Checkbox rule: only final evidence review may change `[ ]` to `[x]`; deleting, merging, or renaming an item fails `scripts/verify-rebuild-ledger.py`.
 
 ## 1. 不可妥协的架构原则
@@ -33,7 +33,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-ARCH-011` [source:62] [state:unverified] 建立 clean-room 来源规则；设计项只能标记为 `ADRO-origin`、`public-standard-derived` 或 `independent-design`。
 
-- [ ] `P0-ARCH-012` [source:65] [state:unverified] 禁止在公开代码、注释、文档、示例、测试夹具、标识符、UI 文案、API Schema、提交信息、变更日志和发布说明中出现竞争项目名称。
+- [ ] `P0-ARCH-012` [source:65] [state:partial] 禁止在公开代码、注释、文档、示例、测试夹具、标识符、UI 文案、API Schema、提交信息、变更日志和发布说明中出现竞争项目名称。
+  - Recorded evidence state: `partial`. `scripts/verify-public-identity.py` checks tracked public text without printing forbidden values, with negative tests and optional private denylist; full historical scan, private policy and naming cleanup remain pending
 
 - [ ] `P0-ARCH-013` [source:68] [state:partial] 建立“能力声明证据矩阵”，每项能力绑定实现符号、conformance、fault test、文档和稳定性等级。
   - Recorded evidence state: `partial`. `docs/rebuild/capability-evidence.md` records capability maturity and missing gates; `docs/rebuild/todo-evidence.md` mirrors all 451 authoritative checklist items with deletion-resistant source identity verification
@@ -76,7 +77,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-TRIM-009` [source:105] [state:unverified] 保留 Agent、Squad、Graph、Chat 页面可复用交互，但重命名为 Runtime 概念。
 
-- [ ] `P0-TRIM-010` [source:106] [state:unverified] 保留 Apache-2.0、SBOM、第三方许可证、Security、Governance、Release 门禁。
+- [ ] `P0-TRIM-010` [source:106] [state:partial] 保留 Apache-2.0、SBOM、第三方许可证、Security、Governance、Release 门禁。
+  - Recorded evidence state: `partial`. SPDX SBOM, dependency notices, license copies and supply-chain verification are reproducible from the manifests; full security, governance and release gates remain pending
 
 ## 3.0 显式生命周期系统
 
@@ -444,45 +446,50 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 7.1 Sandbox Broker
 
 - [ ] `P0-SBX-001` [source:346] [state:evidenced] 定义 enforcement levels：`none`、`process`、`filesystem`、`network`、`container`、`microvm`、`remote`。
-  - Recorded evidence state: `complete locally for contract`. `ports/sandbox` defines and validates all seven cumulative levels, rejects unknown/inconsistent capability sets, and has ordering/fail-closed tests
+  - Recorded evidence state: `complete locally for contract`. Seven cumulative enforcement levels and capability validation in `ports/sandbox`; unknown or inconsistent capabilities fail closed
 
 - [ ] `P0-SBX-002` [source:347] [state:partial] production profile 最低要求由 policy 声明；能力不足时拒绝启动。
-  - Recorded evidence state: `partial`. `SandboxRequest.RequiredLevel` and resource requirements fail closed in `adapters/sandbox/local`; production policy-engine wiring and startup profile selection remain pending
+  - Recorded evidence state: `partial`. Local `Prepare` rejects insufficient enforcement and unsupported CPU/memory/disk/secret/output requirements; production policy wiring remains pending
 
 - [ ] `P0-SBX-003` [source:348] [state:partial] local developer backend 支持 macOS Seatbelt、Linux Landlock/bwrap、Windows restricted token/ACL。
-  - Recorded evidence state: `partial`. Real macOS Seatbelt deny-default and file/network negative tests exist; Linux Landlock/bwrap and Windows restricted-token/ACL implementations are absent
+  - Recorded evidence state: `partial`. macOS Seatbelt deny-default implementation and real negative probes exist; Linux Landlock/bwrap and Windows restricted-token/ACL remain pending
 
 - [ ] `P0-SBX-004` [source:349] [state:partial] 明确本地 OS sandbox 不是多租户隔离，UI 不得显示为“secure tenant sandbox”。
-  - Recorded evidence state: `partial`. Local capabilities always report `secure_tenant_isolation=false` and `docs/operations/sandbox.md` states the limitation; Runtime Inspector/API presentation remains pending
+  - Recorded evidence state: `partial`. Local capability metadata explicitly reports no secure tenant isolation and the limitation is documented; Inspector/API wiring remains pending
 
 - [ ] `P0-SBX-005` [source:350] [state:unverified] 交付 rootless OCI 或 remote worker backend，至少一个达到 production conformance。
 
 - [ ] `P0-SBX-006` [source:351] [state:partial] 网络默认 deny，使用 domain/IP/port capability grant 和受控代理。
-  - Recorded evidence state: `partial`. Network grant validation covers domain/IP/CIDR, ports, protocol, purpose and expiry; Seatbelt denies outbound traffic and rejects grants it cannot faithfully enforce; controlled proxy and DNS-rebinding conformance are pending
+  - Recorded evidence state: `partial`. Strict network grant contract plus real Seatbelt default-deny evidence; controlled proxy, grant enforcement and DNS-rebinding tests remain pending
 
 - [ ] `P0-SBX-007` [source:352] [state:partial] 文件规则区分 read、write、create、delete、execute，并解析 symlink/ancestor alias。
-  - Recorded evidence state: `partial`. Separate operations, workspace containment, leaf/ancestor symlink rejection and real Seatbelt allow/deny tests exist; hard-link, mount-boundary and descriptor-relative TOCTOU protection remain pending
+  - Recorded evidence state: `partial`. Separate file operations, containment and symlink/ancestor checks with Seatbelt allow/deny evidence; hard-link/mount/TOCTOU controls remain pending
 
 - [ ] `P0-SBX-008` [source:353] [state:partial] 进程树、超时、取消、输出上限和孤儿进程清理纳入统一 runner contract。
-  - Recorded evidence state: `partial`. Unified stream/result contract, bounded event buffer, timeout, pre-start/running cancellation, output termination and Unix process-group descendant cleanup tests exist; Windows job-object cleanup and CPU/memory/disk limits remain pending
+  - Recorded evidence state: `partial`. Bounded streams, output termination, timeout, cancellation and Unix descendant cleanup are tested; Windows process trees and CPU/memory/disk enforcement remain pending
 
 ## 7.2 Secret 与数据安全
 
 - [ ] `P0-SEC-001` [source:357] [state:partial] 实现 Secret Broker，事件和日志只保存 secret reference。
-  - Recorded evidence state: `partial`. `ports/secretstore` uses metadata-only scope-bound leases and `adapters/secret/memory` proves copy, expiry, revocation and canary-free serialization; production secret storage/injection and every event/log boundary remain pending
+  - Recorded evidence state: `partial`. Metadata-only scope-bound secret leases and development memory broker with expiry/revocation/copy/canary tests; production storage and injection remain pending
 
 - [ ] `P0-SEC-002` [source:358] [state:partial] 对 prompt、tool input/output、trace attribute 做敏感数据分类与脱敏。
-  - Recorded evidence state: `partial`. `internal/security` defines sensitivity/surface classes and recursive fail-closed redaction; orchestration diagnostics and trace attributes have canary tests; real prompt/tool adapter paths and log bridge integration remain pending
+  - Recorded evidence state: `partial`. Central sensitivity/redaction package now protects orchestration diagnostics and trace attributes; complete prompt/tool/log adapter integration remains pending
 
-- [ ] `P0-SEC-003` [source:359] [state:unverified] 定义 prompt injection trust zones：用户内容、retrieved content、tool output 均为 untrusted。
+- [ ] `P0-SEC-003` [source:359] [state:partial] 定义 prompt injection trust zones：用户内容、retrieved content、tool output 均为 untrusted。
+  - Recorded evidence state: `partial`. `internal/security/provenance.go` and prompt manifest v2 derive trust from runtime zones, preserve taint/sensitivity, reject cross-tenant input and structurally escape untrusted content; provider-wide migration remains pending
 
-- [ ] `P0-SEC-004` [source:360] [state:unverified] 插件 manifest 声明权限、网络、文件、secret 和数据外发能力。
+- [ ] `P0-SEC-004` [source:360] [state:partial] 插件 manifest 声明权限、网络、文件、secret 和数据外发能力。
+  - Recorded evidence state: `partial`. Plugin manifests canonically sign generic, file, network, secret and data-egress permissions and the runtime receives a registry-issued grant; payload-level egress enforcement remains pending
 
-- [ ] `P0-SEC-005` [source:361] [state:unverified] 保留签名、quarantine 能力，并增加 key rotation、revocation、rollback。
+- [ ] `P0-SEC-005` [source:361] [state:partial] 保留签名、quarantine 能力，并增加 key rotation、revocation、rollback。
+  - Recorded evidence state: `partial`. Durable Ed25519 trust store supports authenticated rotation, retirement, revocation-driven quarantine, compatible rollback and persistence rollback tests; artifact distribution/signing remains pending
 
-- [ ] `P0-SEC-006` [source:362] [state:unverified] 建立 threat model 到测试 ID 的双向追踪。
+- [ ] `P0-SEC-006` [source:362] [state:partial] 建立 threat model 到测试 ID 的双向追踪。
+  - Recorded evidence state: `partial`. `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 26 mapped threats and bidirectional test annotations; full threat coverage remains pending
 
-- [ ] `P1-SEC-007` [source:363] [state:unverified] 生成 SBOM、SLSA provenance、签名 artifact 和 reproducible build evidence。
+- [ ] `P1-SEC-007` [source:363] [state:partial] 生成 SBOM、SLSA provenance、签名 artifact 和 reproducible build evidence。
+  - Recorded evidence state: `partial`. `SBOM`, `THIRD_PARTY_NOTICES` and license copies now cover the current dependency graph and `make supply-chain` verifies them; SLSA provenance, signed release artifacts and reproducible binary evidence remain pending
 
 - [ ] `P0-IDENT-001` [source:364] [state:unverified] API 边界验证主体身份，Runtime 内只接收已验证的 `Actor` 与不可伪造 tenant context。
 
@@ -498,23 +505,32 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 ## 7.3 Extension Isolation
 
-- [ ] `P0-EXT-001` [source:373] [state:unverified] 可信、版本锁定的 Go adapter 可进程内运行；未知来源扩展不得进入核心进程。
+- [ ] `P0-EXT-001` [source:373] [state:partial] 可信、版本锁定的 Go adapter 可进程内运行；未知来源扩展不得进入核心进程。
+  - Recorded evidence state: `partial`. Registry authorization plus explicit in-process factory and panic containment exist; production adapter wiring and isolation evidence remain pending
 
-- [ ] `P0-EXT-002` [source:374] [state:unverified] 非可信扩展通过独立进程与 gRPC、Connect 或 JSON-RPC 窄协议运行。
+- [ ] `P0-EXT-002` [source:374] [state:partial] 非可信扩展通过独立进程与 gRPC、Connect 或 JSON-RPC 窄协议运行。
+  - Recorded evidence state: `partial`. `runtime/extensions` runs reference external adapters over bounded JSON-RPC on `SandboxBroker` without EventStore/database handles; production isolation remains pending
 
-- [ ] `P0-EXT-003` [source:375] [state:unverified] 扩展握手包含协议版本、schema digest、capabilities、权限需求和最大消息尺寸。
+- [ ] `P0-EXT-003` [source:375] [state:partial] 扩展握手包含协议版本、schema digest、capabilities、权限需求和最大消息尺寸。
+  - Recorded evidence state: `partial`. Bounded reference handshake verifies protocol, adapter, schema, capability/permission subsets and message size; production adapter conformance remains pending
 
-- [ ] `P0-EXT-004` [source:376] [state:unverified] 扩展进程由 supervisor 管理启动、健康、崩溃、指数退避、最大重启和 quarantine。
+- [ ] `P0-EXT-004` [source:376] [state:partial] 扩展进程由 supervisor 管理启动、健康、崩溃、指数退避、最大重启和 quarantine。
+  - Recorded evidence state: `partial`. Reference supervisor covers start/health/stop, cumulative restart budget, capped backoff, quarantine and bounded audit in crash/exit tests; production lifecycle integration remains pending
 
-- [ ] `P0-EXT-005` [source:377] [state:unverified] 扩展崩溃不能带崩 Runtime；进行中的写 effect 按 durable effect 状态机恢复。
+- [ ] `P0-EXT-005` [source:377] [state:partial] 扩展崩溃不能带崩 Runtime；进行中的写 effect 按 durable effect 状态机恢复。
+  - Recorded evidence state: `partial`. Extension crashes are isolated and durable write effects already retain unknown-outcome semantics; production adapter/effect integration remains pending
 
-- [ ] `P0-EXT-006` [source:378] [state:unverified] 纯计算、无 I/O 的 transform 可选用 WASI；核心调度、事件存储和 effect 协议不得放入 WASI 插件。
+- [ ] `P0-EXT-006` [source:378] [state:partial] 纯计算、无 I/O 的 transform 可选用 WASI；核心调度、事件存储和 effect 协议不得放入 WASI 插件。
+  - Recorded evidence state: `partial`. WASI is represented in the signed contract and explicitly rejected without a dedicated runtime; a production WASI transform runner is absent
 
-- [ ] `P0-EXT-007` [source:379] [state:unverified] 扩展不能获得宿主环境变量；文件、网络与 secret 由 broker 按 capability 注入。
+- [ ] `P0-EXT-007` [source:379] [state:partial] 扩展不能获得宿主环境变量；文件、网络与 secret 由 broker 按 capability 注入。
+  - Recorded evidence state: `partial`. Host environment is not inherited and manifest file/network/secret grants map to broker requests; production secret injection and network proxy remain pending
 
-- [ ] `P0-EXT-008` [source:380] [state:unverified] adapter 升降级经过兼容性矩阵和滚动握手；不兼容实例不得接收新任务。
+- [ ] `P0-EXT-008` [source:380] [state:partial] adapter 升降级经过兼容性矩阵和滚动握手；不兼容实例不得接收新任务。
+  - Recorded evidence state: `partial`. Registry compatibility matrix, signed activation/rollback and rolling handshake rejection exist; live rolling replacement orchestration remains pending
 
-- [ ] `P0-EXT-009` [source:381] [state:unverified] 提供恶意扩展测试：超时、内存膨胀、协议洪泛、伪造 receipt、越权访问和退出风暴。
+- [ ] `P0-EXT-009` [source:381] [state:partial] 提供恶意扩展测试：超时、内存膨胀、协议洪泛、伪造 receipt、越权访问和退出风暴。
+  - Recorded evidence state: `partial`. Malicious suite covers timeout, protocol flood, forged IDs, overclaim, panic, invalid/oversized output and exit storms; memory/fork bomb and forged receipt integration remain pending
 
 ## 8.1 Agent 与 Delegation
 
@@ -917,7 +933,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-GOV-010` [source:636] [state:unverified] denylist 由组织私有配置提供，CI 日志只报告规则 ID 与位置，不回显被禁名称。
 
-- [ ] `P0-GOV-011` [source:637] [state:unverified] PR 模板要求作者确认 clean-room 来源、许可证、能力证据和无外部项目命名污染。
+- [ ] `P0-GOV-011` [source:637] [state:partial] PR 模板要求作者确认 clean-room 来源、许可证、能力证据和无外部项目命名污染。
+  - Recorded evidence state: `partial`. `.github/PULL_REQUEST_TEMPLATE.md` asks authors to record clean-room provenance, license/SBOM impact, capability evidence and naming scan; independent review enforcement remains pending
 
 - [ ] `P0-GOV-012` [source:638] [state:unverified] 设计讨论使用中性能力语言与公开标准编号，不以外部仓库结构作为 ADRO 公共 API 命名来源。
 

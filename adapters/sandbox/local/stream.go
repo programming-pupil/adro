@@ -12,6 +12,8 @@ import (
 
 type executionStream struct {
 	mu            sync.Mutex
+	inputMu       sync.Mutex
+	inputWriteMu  sync.Mutex
 	events        chan sandbox.ExecutionEvent
 	errors        chan error
 	done          chan struct{}
@@ -30,6 +32,8 @@ type executionStream struct {
 	err           error
 	clock         func() time.Time
 	cancel        context.CancelFunc
+	input         io.WriteCloser
+	inputClosed   bool
 }
 
 func newExecutionStream(limit int64, clock func() time.Time) *executionStream {
@@ -49,6 +53,97 @@ func (s *executionStream) setCancel(cancel context.CancelFunc) {
 	s.mu.Lock()
 	s.cancel = cancel
 	s.mu.Unlock()
+}
+
+// setInput must be called before the command is started. The stream owns the
+// pipe for the rest of the process lifetime and closes it when execution
+// finishes. Keeping ownership here prevents extension callers from retaining
+// a raw process pipe and bypassing the stream lifecycle.
+func (s *executionStream) setInput(input io.WriteCloser) {
+	s.inputMu.Lock()
+	if s.input == nil && !s.inputClosed {
+		s.input = input
+	} else if input != nil {
+		_ = input.Close()
+	}
+	s.inputMu.Unlock()
+}
+
+func (s *executionStream) Send(ctx context.Context, data []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	// A single writer at a time keeps JSON-RPC frames from interleaving. The
+	// context watcher closes the OS pipe on cancellation, which unblocks a
+	// blocked write when the child stops reading.
+	s.inputWriteMu.Lock()
+	defer s.inputWriteMu.Unlock()
+	s.inputMu.Lock()
+	input := s.input
+	closed := s.inputClosed || input == nil
+	s.inputMu.Unlock()
+	if closed {
+		return sandbox.ErrInputClosed
+	}
+
+	type writeResult struct {
+		written int
+		err     error
+	}
+	result := make(chan writeResult, 1)
+	copyData := append([]byte(nil), data...)
+	go func() {
+		written, err := input.Write(copyData)
+		if err == nil && written != len(copyData) {
+			err = io.ErrShortWrite
+		}
+		result <- writeResult{written: written, err: err}
+	}()
+	select {
+	case written := <-result:
+		if written.err != nil {
+			s.inputMu.Lock()
+			closed := s.inputClosed
+			s.inputMu.Unlock()
+			if closed {
+				return sandbox.ErrInputClosed
+			}
+		}
+		return written.err
+	case <-ctx.Done():
+		_ = s.CloseInput()
+		return ctx.Err()
+	}
+}
+
+// CloseInput is idempotent. Once closure is requested, callers must not
+// retry writes even when the underlying pipe reports a close error.
+func (s *executionStream) CloseInput() error {
+	s.inputMu.Lock()
+	if s.inputClosed {
+		s.inputMu.Unlock()
+		return nil
+	}
+	s.inputClosed = true
+	input := s.input
+	s.input = nil
+	s.inputMu.Unlock()
+	if input == nil {
+		return nil
+	}
+	if err := input.Close(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *executionStream) markStarted(at time.Time) {
@@ -123,6 +218,7 @@ func (s *executionStream) exceededLimit() bool {
 
 func (s *executionStream) finish(result sandbox.ExecutionResult, err error) {
 	s.finishOnce.Do(func() {
+		_ = s.CloseInput()
 		s.mu.Lock()
 		result.Stdout = append([]byte(nil), s.stdout...)
 		result.Stderr = append([]byte(nil), s.stderr...)
@@ -154,6 +250,7 @@ func (s *executionStream) Wait(ctx context.Context) (sandbox.ExecutionResult, er
 
 func (s *executionStream) Close() error {
 	s.closeOnce.Do(func() {
+		_ = s.CloseInput()
 		s.mu.Lock()
 		cancel := s.cancel
 		s.mu.Unlock()

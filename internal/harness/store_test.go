@@ -43,7 +43,7 @@ func TestCompileManifestIsTypedBoundedAndStable(t *testing.T) {
 		t.Fatalf("invalid manifest=%+v", manifest)
 	}
 	for _, block := range manifest.Blocks {
-		if block.Hash == "" || block.Source == "" || block.Policy == "" || block.Trust == "" || block.TokenEstimate <= 0 {
+		if block.Hash == "" || block.Source == "" || block.Policy == "" || !block.TrustLevel.Valid() || !block.Sensitivity.Valid() || block.TenantScope == "" || block.Purpose == "" || block.TokenEstimate <= 0 {
 			t.Fatalf("missing block lineage=%+v", block)
 		}
 	}
@@ -193,7 +193,7 @@ func TestCompileCompatibilityAdapterUsesAuthoritativePromptManifest(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, "[ADRO_PROMPT_SEGMENT kind=latest_objective") {
+	if !strings.Contains(prompt, `"type":"adro.prompt.segment.v2"`) || !strings.Contains(prompt, `"kind":"latest_objective"`) || !strings.Contains(prompt, `"trust_level":"untrusted"`) {
 		t.Fatalf("compatibility prompt bypassed prompt manifest: %s", prompt)
 	}
 	if !strings.Contains(prompt, "preserve the latest objective") {
@@ -291,7 +291,7 @@ func TestCompilePromptWithZeroSessionBudgetStillUsesAuthoritativeCompiler(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, "kind=latest_objective") || !strings.Contains(prompt, "preserve the latest objective") {
+	if !strings.Contains(prompt, `"kind":"latest_objective"`) || !strings.Contains(prompt, "preserve the latest objective") {
 		t.Fatalf("zero-budget prompt bypassed the authoritative compiler: %s", prompt)
 	}
 }

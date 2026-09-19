@@ -117,6 +117,7 @@ func TestJournalConcurrentEffectIntentIsIdempotent(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-DURABLE-001
 func TestStaleWorkerCannotCommitEffectReceipt(t *testing.T) {
 	j := mustJournal(t, "")
 	scope := testScope()

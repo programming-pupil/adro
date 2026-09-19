@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -39,6 +40,13 @@ func TestSandboxHelperProcess(t *testing.T) {
 		_, _ = fmt.Fprint(os.Stderr, "stderr-value")
 	case "environment":
 		_, _ = fmt.Fprint(os.Stdout, os.Getenv("ADRO_TEST_VALUE"))
+	case "read-input":
+		payload, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		if err != nil {
+			_, _ = fmt.Fprint(os.Stderr, err)
+			os.Exit(98)
+		}
+		_, _ = os.Stdout.Write(payload)
 	case "sleep":
 		duration, err := time.ParseDuration(args[1])
 		if err != nil {
@@ -151,6 +159,7 @@ func TestPrepareFreezesRequestAndValidatesHandleIdentity(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-SBX-001
 func TestPathValidationRejectsEscapeAndSymlinkAliases(t *testing.T) {
 	broker := newTestSandbox(t)
 	if _, err := broker.validatePath(filepath.Join("..", "outside"), false); !errors.Is(err, sandbox.ErrPathEscape) {
@@ -226,6 +235,7 @@ func TestPreparedCancellationPreventsExecution(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-SBX-003
 func TestExecutionTimeoutAndCancellation(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		broker := newTestSandbox(t)
@@ -259,6 +269,7 @@ func TestExecutionTimeoutAndCancellation(t *testing.T) {
 	})
 }
 
+// Threat ID: TM-SBX-004
 func TestOutputLimitTerminatesProcess(t *testing.T) {
 	broker := newTestSandbox(t)
 	request := helperRequest(t, broker, "flood", "1024")
@@ -314,6 +325,50 @@ func TestExecutionPreservesFrozenEnvironment(t *testing.T) {
 	if got := string(result.Stdout); got != "expected" {
 		t.Fatalf("environment output = %q, want expected", got)
 	}
+}
+
+func TestExecutionStreamSendsAndClosesInput(t *testing.T) {
+	broker := newTestSandbox(t)
+	handle := prepareHelper(t, broker, helperRequest(t, broker, "read-input"))
+	stream, err := broker.Execute(context.Background(), handle)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if err := stream.Send(context.Background(), []byte("extension-request")); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if err := stream.CloseInput(); err != nil {
+		t.Fatalf("close input: %v", err)
+	}
+	if err := stream.CloseInput(); err != nil {
+		t.Fatalf("repeated close input: %v", err)
+	}
+	result, err := stream.Wait(context.Background())
+	if err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if got := string(result.Stdout); got != "extension-request" {
+		t.Fatalf("stdout = %q, want extension-request", got)
+	}
+	if err := stream.Send(context.Background(), []byte("late")); !errors.Is(err, sandbox.ErrInputClosed) {
+		t.Fatalf("send after close = %v, want ErrInputClosed", err)
+	}
+}
+
+func TestExecutionStreamSendHonorsCancelledContext(t *testing.T) {
+	broker := newTestSandbox(t)
+	handle := prepareHelper(t, broker, helperRequest(t, broker, "sleep", "30s"))
+	stream, err := broker.Execute(context.Background(), handle)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := stream.Send(ctx, []byte("cancelled")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("send with cancelled context = %v", err)
+	}
+	_ = stream.Close()
+	_, _ = stream.Wait(context.Background())
 }
 
 func TestNonzeroExitIsReported(t *testing.T) {

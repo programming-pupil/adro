@@ -1251,11 +1251,17 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 }
 
 func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	emptyRuntimeDir := t.TempDir()
+	t.Setenv("PATH", emptyRuntimeDir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
-	// Pin Codex to an unavailable path so this test remains independent of the
-	// macOS desktop fallback on developer machines that have Codex installed.
-	t.Setenv("ADRO_CODEX_PATH", filepath.Join(t.TempDir(), "missing-codex"))
+	// Pin every registered runtime to a missing executable. This keeps the API
+	// contract test independent of PATH, login-shell startup files, desktop-app
+	// fallbacks, and runtime-specific overrides on the developer machine.
+	for _, descriptor := range provider.RuntimeRegistry {
+		key := "ADRO_" + strings.ToUpper(strings.ReplaceAll(descriptor.ID, "-", "_")) + "_PATH"
+		t.Setenv(key, filepath.Join(emptyRuntimeDir, "missing-"+descriptor.ID))
+	}
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
 	if response.Code != http.StatusOK {

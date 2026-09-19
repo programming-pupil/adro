@@ -111,7 +111,7 @@ def main() -> int:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path(".multica/attachments/adro-top-runtime-rebuild-todolist.zh-CN.md"),
+        default=Path("attachments/adro-top-runtime-rebuild-todolist.zh-CN.md"),
     )
     parser.add_argument("--progress", type=Path, default=Path("docs/rebuild/progress.md"))
     parser.add_argument("--output", type=Path, default=Path("docs/rebuild/todo-evidence.md"))

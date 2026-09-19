@@ -24,6 +24,7 @@ import (
 	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
+	"github.com/adro-project/adro/internal/security"
 )
 
 var (
@@ -215,17 +216,22 @@ type ContextStatus struct {
 // text so a retry can prove it used the same input, rather than rebuilding a
 // prompt from mutable in-memory state.
 type ContextBlock struct {
-	ID              string            `json:"id"`
-	Kind            string            `json:"kind"`
-	Source          string            `json:"source"`
-	Content         string            `json:"content"`
-	Hash            string            `json:"hash"`
-	Policy          string            `json:"policy"`
-	Trust           string            `json:"trust"`
-	SelectionReason string            `json:"selection_reason"`
-	TokenEstimate   int64             `json:"token_estimate"`
-	Mandatory       bool              `json:"mandatory"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	ID              string                `json:"id"`
+	Kind            string                `json:"kind"`
+	Source          string                `json:"source"`
+	Content         string                `json:"content"`
+	Hash            string                `json:"hash"`
+	Policy          string                `json:"policy"`
+	Trust           string                `json:"trust,omitempty"`
+	TrustLevel      security.TrustLevel   `json:"trust_level,omitempty"`
+	Sensitivity     security.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope     string                `json:"tenant_scope,omitempty"`
+	Purpose         string                `json:"purpose,omitempty"`
+	TaintLabels     []security.TaintLabel `json:"taint_labels,omitempty"`
+	SelectionReason string                `json:"selection_reason"`
+	TokenEstimate   int64                 `json:"token_estimate"`
+	Mandatory       bool                  `json:"mandatory"`
+	Metadata        map[string]string     `json:"metadata,omitempty"`
 }
 
 // ContextManifest is the typed context contract exchanged with providers.
@@ -322,7 +328,14 @@ func (m ContextManifest) Validate() error {
 func toContextBlocks(blocks []ContextBlock) []contextcontract.Block {
 	converted := make([]contextcontract.Block, len(blocks))
 	for i, block := range blocks {
-		converted[i] = contextcontract.Block{ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash, Policy: block.Policy, Trust: block.Trust, SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate, Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata)}
+		converted[i] = contextcontract.Block{
+			ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash,
+			Policy: block.Policy, Trust: block.Trust, TrustLevel: block.TrustLevel,
+			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
+			TaintLabels:     append([]security.TaintLabel(nil), block.TaintLabels...),
+			SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate,
+			Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata),
+		}
 	}
 	return converted
 }
@@ -330,7 +343,14 @@ func toContextBlocks(blocks []ContextBlock) []contextcontract.Block {
 func fromContextManifest(manifest contextcontract.Manifest, records []contextcontract.CompressionRecord) ContextManifest {
 	blocks := make([]ContextBlock, len(manifest.Blocks))
 	for i, block := range manifest.Blocks {
-		blocks[i] = ContextBlock{ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash, Policy: block.Policy, Trust: block.Trust, SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate, Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata)}
+		blocks[i] = ContextBlock{
+			ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash,
+			Policy: block.Policy, Trust: block.Trust, TrustLevel: block.TrustLevel,
+			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
+			TaintLabels:     append([]security.TaintLabel(nil), block.TaintLabels...),
+			SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate,
+			Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata),
+		}
 	}
 	prompt := manifest.PromptManifest
 	if prompt.Segments != nil {

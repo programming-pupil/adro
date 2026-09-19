@@ -41,6 +41,7 @@ func TestBrokerCopiesStoredAndReturnedMaterial(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-SECRET-001
 func TestBrokerRejectsUnauthorizedSecretScopes(t *testing.T) {
 	now := time.Date(2026, 9, 19, 2, 0, 0, 0, time.UTC)
 	broker := newTestBroker(t, func() time.Time { return now })
@@ -139,6 +140,7 @@ func TestLeaseExpiryAndRevocationEraseMaterial(t *testing.T) {
 	assertLeaseErased(t, broker, revoked.ID)
 }
 
+// Threat ID: TM-SECRET-002
 func TestPublicMetadataNeverSerializesPlaintext(t *testing.T) {
 	now := time.Date(2026, 9, 19, 2, 0, 0, 0, time.UTC)
 	broker := newTestBroker(t, func() time.Time { return now })

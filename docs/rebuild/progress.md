@@ -83,6 +83,23 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-SBX-008 | partial | Bounded streams, output termination, timeout, cancellation and Unix descendant cleanup are tested; Windows process trees and CPU/memory/disk enforcement remain pending |
 | P0-SEC-001 | partial | Metadata-only scope-bound secret leases and development memory broker with expiry/revocation/copy/canary tests; production storage and injection remain pending |
 | P0-SEC-002 | partial | Central sensitivity/redaction package now protects orchestration diagnostics and trace attributes; complete prompt/tool/log adapter integration remains pending |
+| P0-SEC-003 | partial | `internal/security/provenance.go` and prompt manifest v2 derive trust from runtime zones, preserve taint/sensitivity, reject cross-tenant input and structurally escape untrusted content; provider-wide migration remains pending |
+| P0-SEC-004 | partial | Plugin manifests canonically sign generic, file, network, secret and data-egress permissions and the runtime receives a registry-issued grant; payload-level egress enforcement remains pending |
+| P0-SEC-005 | partial | Durable Ed25519 trust store supports authenticated rotation, retirement, revocation-driven quarantine, compatible rollback and persistence rollback tests; artifact distribution/signing remains pending |
+| P0-SEC-006 | partial | `docs/rebuild/threat-test-map.json` and `scripts/verify-threat-test-map.py` enforce 26 mapped threats and bidirectional test annotations; full threat coverage remains pending |
+| P0-EXT-001 | partial | Registry authorization plus explicit in-process factory and panic containment exist; production adapter wiring and isolation evidence remain pending |
+| P0-EXT-002 | partial | `runtime/extensions` runs reference external adapters over bounded JSON-RPC on `SandboxBroker` without EventStore/database handles; production isolation remains pending |
+| P0-EXT-003 | partial | Bounded reference handshake verifies protocol, adapter, schema, capability/permission subsets and message size; production adapter conformance remains pending |
+| P0-EXT-004 | partial | Reference supervisor covers start/health/stop, cumulative restart budget, capped backoff, quarantine and bounded audit in crash/exit tests; production lifecycle integration remains pending |
+| P0-EXT-005 | partial | Extension crashes are isolated and durable write effects already retain unknown-outcome semantics; production adapter/effect integration remains pending |
+| P0-EXT-006 | partial | WASI is represented in the signed contract and explicitly rejected without a dedicated runtime; a production WASI transform runner is absent |
+| P0-EXT-007 | partial | Host environment is not inherited and manifest file/network/secret grants map to broker requests; production secret injection and network proxy remain pending |
+| P0-EXT-008 | partial | Registry compatibility matrix, signed activation/rollback and rolling handshake rejection exist; live rolling replacement orchestration remains pending |
+| P0-EXT-009 | partial | Malicious suite covers timeout, protocol flood, forged IDs, overclaim, panic, invalid/oversized output and exit storms; memory/fork bomb and forged receipt integration remain pending |
+| P0-ARCH-012 | partial | `scripts/verify-public-identity.py` checks tracked public text without printing forbidden values, with negative tests and optional private denylist; full historical scan, private policy and naming cleanup remain pending |
+| P0-TRIM-010 | partial | SPDX SBOM, dependency notices, license copies and supply-chain verification are reproducible from the manifests; full security, governance and release gates remain pending |
+| P1-SEC-007 | partial | `SBOM`, `THIRD_PARTY_NOTICES` and license copies now cover the current dependency graph and `make supply-chain` verifies them; SLSA provenance, signed release artifacts and reproducible binary evidence remain pending |
+| P0-GOV-011 | partial | `.github/PULL_REQUEST_TEMPLATE.md` asks authors to record clean-room provenance, license/SBOM impact, capability evidence and naming scan; independent review enforcement remains pending |
 | SOURCE-L0652 | complete locally | The private JSON envelope exporter was removed; no custom OTLP wire implementation remains in the runtime |
 | SOURCE-L0703 | complete locally | Official OpenTelemetry Go SDK dependencies, provider lifecycle and standard OTLP/HTTP protobuf export are implemented and tested |
 | P0-STREAM-001 | partial | Monotonic event sequence and cursor with replay/gap tests; persistent stream adapter and all transport mappings remain pending |

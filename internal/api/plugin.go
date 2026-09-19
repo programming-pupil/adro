@@ -13,12 +13,20 @@ func (s *Server) pluginRoute(w http.ResponseWriter, r *http.Request, tail string
 		s.problem(w, r, http.StatusServiceUnavailable, "plugin_registry_unavailable", "plugin registry is not configured", nil)
 		return
 	}
+	tail = strings.Trim(tail, "/")
+	if tail == "keys" || strings.HasPrefix(tail, "keys/") {
+		if !s.pluginAdminAllowed(r) {
+			s.problem(w, r, http.StatusForbidden, "administrator_required", "plugin trust-store access requires administrator access", nil)
+			return
+		}
+		s.pluginKeyRoute(w, r, strings.TrimPrefix(tail, "keys"))
+		return
+	}
 	if r.Method != http.MethodGet && !s.pluginAdminAllowed(r) {
 		s.problem(w, r, http.StatusForbidden, "administrator_required", "plugin installation and lifecycle changes require administrator access", nil)
 		return
 	}
 	workspaceID := requestWorkspace(r, "local")
-	tail = strings.Trim(tail, "/")
 	if tail == "" {
 		if r.Method == http.MethodGet {
 			items := s.Plugins.ListWorkspace(workspaceID)
@@ -106,7 +114,81 @@ func (s *Server) pluginRoute(w http.ResponseWriter, r *http.Request, tail string
 		s.writeJSON(w, http.StatusOK, item)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "rollback" && r.Method == http.MethodPost {
+		item, err = s.Plugins.RollbackForWorkspace(workspaceID, item.Manifest.ID)
+		if err != nil {
+			s.problem(w, r, http.StatusConflict, "plugin_rollback_failed", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, item)
+		return
+	}
 	s.problem(w, r, http.StatusNotFound, "not_found", "route not found", nil)
+}
+
+func (s *Server) pluginKeyRoute(w http.ResponseWriter, r *http.Request, tail string) {
+	tail = strings.Trim(tail, "/")
+	if tail == "" {
+		switch r.Method {
+		case http.MethodGet:
+			s.writeJSON(w, http.StatusOK, map[string]any{"items": s.Plugins.ListKeys()})
+		case http.MethodPost:
+			var request plugins.TrustKeyRequest
+			if err := decodeJSON(r, &request); err != nil {
+				s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+				return
+			}
+			key, err := s.Plugins.TrustKey(request)
+			if err != nil {
+				status := http.StatusUnprocessableEntity
+				if errors.Is(err, plugins.ErrConflict) {
+					status = http.StatusConflict
+				}
+				s.problem(w, r, status, "plugin_key_trust_failed", err.Error(), nil)
+				return
+			}
+			s.writeJSON(w, http.StatusCreated, key)
+		default:
+			s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		}
+		return
+	}
+	parts := strings.Split(tail, "/")
+	if len(parts) != 2 || r.Method != http.MethodPost {
+		s.problem(w, r, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
+	switch parts[1] {
+	case "rotate":
+		var request plugins.KeyRotationRequest
+		if err := decodeJSON(r, &request); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+			return
+		}
+		request.CurrentKeyID = parts[0]
+		key, err := s.Plugins.RotateKey(request)
+		if err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "plugin_key_rotation_failed", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, key)
+	case "revoke":
+		var input struct {
+			Reason string `json:"reason"`
+		}
+		if err := decodeJSON(r, &input); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
+			return
+		}
+		key, err := s.Plugins.RevokeKey(parts[0], input.Reason)
+		if err != nil {
+			s.problem(w, r, http.StatusUnprocessableEntity, "plugin_key_revocation_failed", err.Error(), nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, key)
+	default:
+		s.problem(w, r, http.StatusNotFound, "not_found", "route not found", nil)
+	}
 }
 
 func (s *Server) pluginAdminAllowed(r *http.Request) bool {

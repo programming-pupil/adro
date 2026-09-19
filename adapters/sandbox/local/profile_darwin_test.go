@@ -51,6 +51,7 @@ func TestSeatbeltAllowsGrantedWriteAndDeniesUngrantWrite(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-SBX-002
 func TestSeatbeltDeniesOutboundNetworkByDefault(t *testing.T) {
 	broker := newTestSandbox(t)
 	if broker.cap.Backend != "macos-seatbelt" {

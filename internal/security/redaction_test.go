@@ -27,6 +27,7 @@ func TestSensitivityAndSurfaceVocabulary(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-REDACT-001
 func TestPromptAndToolPayloadsRedactByDefault(t *testing.T) {
 	for _, surface := range []Surface{SurfacePrompt, SurfaceToolInput, SurfaceToolOutput} {
 		if got := Redact(surface, "canary-plaintext"); got != Redacted {
@@ -88,6 +89,7 @@ func TestExplicitClassifiedValueRedactsCanary(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-REDACT-002
 func TestTraceAttributeRedaction(t *testing.T) {
 	for name, input := range map[string]struct {
 		key, value, want string

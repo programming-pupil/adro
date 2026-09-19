@@ -6662,6 +6662,142 @@ paths:
           headers:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"
+  "/api/v1/plugins/keys":
+    get:
+      operationId: get_api_v1_plugin_keys
+      summary: List trusted extension publisher keys
+      responses:
+        '200':
+          description: Trusted publisher keys and lifecycle state
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+    post:
+      operationId: post_api_v1_plugin_keys
+      summary: Trust an Ed25519 extension publisher key
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '201':
+          description: Trusted publisher key
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+  "/api/v1/plugins/keys/{key_id}/rotate":
+    parameters:
+    - name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      operationId: post_api_v1_plugin_keys_by_key_id_rotate
+      summary: Rotate an active publisher key with a signed transition
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: New active publisher key
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+  "/api/v1/plugins/keys/{key_id}/revoke":
+    parameters:
+    - name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      operationId: post_api_v1_plugin_keys_by_key_id_revoke
+      summary: Revoke a publisher key and quarantine its installations
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/JsonObject"
+      responses:
+        '200':
+          description: Revoked publisher key
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
   "/api/v1/plugins/{id}/quarantine":
     parameters:
     - name: id
@@ -6676,7 +6812,7 @@ paths:
       - "$ref": "#/components/parameters/IdempotencyKey"
       - "$ref": "#/components/parameters/RequestID"
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -6702,6 +6838,40 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+  "/api/v1/plugins/{id}/rollback":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      operationId: post_api_v1_plugins_by_id_rollback
+      summary: Roll back to the newest compatible signed installation
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      - "$ref": "#/components/parameters/RequestID"
+      responses:
+        '200':
+          description: Active rollback installation
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/JsonObject"
+          headers:
+            X-Request-ID:
+              "$ref": "#/components/headers/RequestID"
+            Idempotency-Replayed:
+              "$ref": "#/components/headers/IdempotencyReplayed"
+        default:
+          description: Problem Details response
+          content:
+            application/problem+json:
+              schema:
+                "$ref": "#/components/schemas/Problem"
           headers:
             X-Request-ID:
               "$ref": "#/components/headers/RequestID"

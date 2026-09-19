@@ -110,7 +110,7 @@ function licenseSource(item) {
   // Go modules are inconsistent about the license filename (lib/pq ships
   // LICENSE.md while most modules use LICENSE). Pick the first conventional
   // candidate so release generation never fails for a valid SPDX dependency.
-  for (const filename of ['LICENSE', 'LICENSE.md', 'COPYING', 'NOTICE']) {
+  for (const filename of ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'License', 'LICENCE', 'COPYING', 'NOTICE']) {
     const candidate = join(moduleDir, filename);
     if (existsSync(candidate)) return candidate;
   }
@@ -140,7 +140,7 @@ function generatedFiles(outputRoot) {
     licenseConcluded: item.license,
     licenseDeclared: item.license,
     copyrightText: 'NOASSERTION',
-    supplier: `Organization: ${item.supplier}`,
+    supplier: item.supplier === 'NOASSERTION' ? 'NOASSERTION' : `Organization: ${item.supplier}`,
     externalRefs: [{ referenceCategory: 'PACKAGE-MANAGER', referenceType: 'purl', referenceLocator: purl(item) }]
   }));
   const sbom = {
@@ -192,6 +192,7 @@ function generatedFiles(outputRoot) {
     const normalizedLicense = license
       .toString('utf8')
       .replace(/\r\n?/gu, '\n')
+      .replace(/[ \t]+$/gmu, '')
       .replace(/\n*$/u, '\n');
     files.set(target, normalizedLicense);
     notices.push(`${item.name} ${item.version}`);
