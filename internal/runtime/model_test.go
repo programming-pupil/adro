@@ -123,6 +123,10 @@ func TestBoundedModelStreamEnforcesCursorRetentionAndOptionalDrop(t *testing.T) 
 	if !errors.Is(err, ErrStreamGap) || gap == nil || gap.Reason != "cursor_outside_retention" {
 		t.Fatalf("retention gap=%+v err=%v", gap, err)
 	}
+	metrics := stream.Metrics()
+	if metrics.RequestID != "model-request-1" || metrics.DroppedOptional != 1 || metrics.ResumeCount != 3 || metrics.GapCount != 2 || metrics.BackpressureCount != 1 || metrics.ReadCount != 3 || metrics.LastSequence != 3 || metrics.ConsumerLag != 1 {
+		t.Fatalf("unexpected stream metrics=%+v", metrics)
+	}
 }
 
 func TestBoundedModelStreamDisconnectsOnExplicitOverflowPolicy(t *testing.T) {

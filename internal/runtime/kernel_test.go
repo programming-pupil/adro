@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/adro-project/adro/core/testkit"
 )
 
 func testScope() Scope {
@@ -278,5 +280,30 @@ func TestEffectTransitionsRequirePositiveFenceAndMatchingTool(t *testing.T) {
 	}
 	if _, err := j.ReconcileEffect(scope, "effect-call-id", "different-call", "worker", lease.FencingToken, "confirmed", nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("reconciliation completed mismatched tool: %v", err)
+	}
+}
+
+func TestJournalWithInjectedDependenciesUsesDeterministicClockAndIDs(t *testing.T) {
+	clock := testkit.NewManualClock(time.Date(2026, 9, 19, 5, 0, 0, 0, time.UTC))
+	ids := &testkit.SequenceIDs{}
+	j, err := NewJournalWithOptions("", JournalOptions{Clock: clock, IDs: ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := j.Append(Input{EventType: EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID, Scope: scope, WriterID: "worker", FencingToken: lease.FencingToken, IdempotencyKey: "deterministic", Payload: map[string]any{"ok": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.EventID != "event-000001" || !event.CreatedAt.Equal(clock.Now()) || !event.CommittedAt.Equal(clock.Now()) {
+		t.Fatalf("event=%+v clock=%s", event, clock.Now())
+	}
+	clock.Advance(2 * time.Minute)
+	if _, err := j.Append(Input{EventType: EventTurnFinished, AggregateType: "run", AggregateID: scope.RunID, Scope: scope, WriterID: "worker", FencingToken: lease.FencingToken, IdempotencyKey: "deterministic-finish", Payload: map[string]any{"ok": true}}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expired injected lease accepted: %v", err)
 	}
 }

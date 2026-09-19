@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adro-project/adro/core"
 	coreencoding "github.com/adro-project/adro/core/encoding"
-	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
 )
 
@@ -301,6 +301,8 @@ type journalState struct {
 type Journal struct {
 	mu            sync.RWMutex
 	path          string
+	clock         core.Clock
+	ids           core.IDGenerator
 	revision      int64
 	events        []Event
 	leases        map[string]Lease
@@ -310,9 +312,28 @@ type Journal struct {
 	shadowReports map[string]ShadowReport
 }
 
+// JournalOptions makes the durable execution boundary deterministic in tests
+// and replay. Production callers may use NewJournal, which supplies explicit
+// system implementations.
+type JournalOptions struct {
+	Clock core.Clock
+	IDs   core.IDGenerator
+}
+
 func NewJournal(path string) (*Journal, error) {
+	return NewJournalWithOptions(path, JournalOptions{})
+}
+
+func NewJournalWithOptions(path string, options JournalOptions) (*Journal, error) {
+	if options.Clock == nil {
+		options.Clock = core.SystemClock{}
+	}
+	if options.IDs == nil {
+		options.IDs = &core.CryptoIDs{}
+	}
 	j := &Journal{
-		path: strings.TrimSpace(path), leases: map[string]Lease{}, effects: map[string]string{},
+		path: strings.TrimSpace(path), clock: options.Clock, ids: options.IDs,
+		leases: map[string]Lease{}, effects: map[string]string{},
 		shadowTimeout: defaultShadowTimeout, shadowReports: map[string]ShadowReport{},
 	}
 	if j.path == "" {
@@ -340,6 +361,13 @@ func NewJournal(path string) (*Journal, error) {
 		j.effects = state.Effects
 	}
 	return j, nil
+}
+
+func (j *Journal) now() time.Time {
+	if j != nil && j.clock != nil {
+		return j.clock.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // SetShadow enables migration-only dual writes. Existing legacy events are
@@ -520,7 +548,7 @@ func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
 	}
 	if input.FencingToken > 0 {
 		lease, ok := j.leases[input.Scope.TenantID+"\x00"+input.Scope.WorkspaceID+"\x00"+input.Scope.RunID]
-		if ok && (lease.Owner != input.WriterID || lease.FencingToken != input.FencingToken || !lease.ExpiresAt.After(time.Now().UTC())) {
+		if ok && (lease.Owner != input.WriterID || lease.FencingToken != input.FencingToken || !lease.ExpiresAt.After(j.now())) {
 			return Event{}, ErrLeaseLost
 		}
 		if !ok {
@@ -531,7 +559,7 @@ func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
 	if len(existing) > 0 {
 		previous = existing[len(existing)-1].EnvelopeHash
 	}
-	event := Event{EventID: domain.NewID(), SchemaVersion: SchemaVersion, Sequence: int64(len(existing) + 1), EventType: input.EventType, AggregateType: input.AggregateType, AggregateID: input.AggregateID, Scope: input.Scope, CorrelationID: input.CorrelationID, CausationID: input.CausationID, IdempotencyKey: input.IdempotencyKey, WriterID: input.WriterID, FencingToken: input.FencingToken, Status: input.Status, Payload: payload, PayloadHash: ph, PreviousHash: previous, CreatedAt: time.Now().UTC()}
+	event := Event{EventID: j.ids.NewID("event"), SchemaVersion: SchemaVersion, Sequence: int64(len(existing) + 1), EventType: input.EventType, AggregateType: input.AggregateType, AggregateID: input.AggregateID, Scope: input.Scope, CorrelationID: input.CorrelationID, CausationID: input.CausationID, IdempotencyKey: input.IdempotencyKey, WriterID: input.WriterID, FencingToken: input.FencingToken, Status: input.Status, Payload: payload, PayloadHash: ph, PreviousHash: previous, CreatedAt: j.now()}
 	event.CommittedAt = event.CreatedAt
 	event.EnvelopeHash = envelopeDigest(event)
 	return event, nil
@@ -546,7 +574,7 @@ func (j *Journal) AcquireLease(scope Scope, owner string, ttl time.Duration, now
 		return Lease{}, errors.New("scope, owner and positive ttl are required")
 	}
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = j.now()
 	}
 	key := scope.TenantID + "\x00" + scope.WorkspaceID + "\x00" + scope.RunID
 	j.mu.Lock()
@@ -583,7 +611,7 @@ func (j *Journal) ReleaseLease(scope Scope, owner string, fencingToken int64) er
 		return err
 	}
 	lease, ok := j.leases[key]
-	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(time.Now().UTC()) {
+	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(j.now()) {
 		return ErrLeaseLost
 	}
 	leases := cloneLeases(j.leases)

@@ -146,7 +146,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 3.3 确定性基础设施与配置快照
 
 - [ ] `P0-CORE-013` [source:172] [state:partial] 在 core/runtime 注入 `Clock`、`IDGenerator`、`Random`、`Sleeper` 和 `BackoffPolicy`，reducer 内禁止直接调用系统时钟或随机源。
-  - Recorded evidence state: `partial`. Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources
+  - Recorded evidence state: `partial`. `JournalWithOptions` now injects clock and ID generation across lease and event boundaries with deterministic tests; legacy reducers and Random/Sleeper/Backoff call sites remain
 
 - [ ] `P0-CORE-014` [source:173] [state:partial] 测试使用虚拟时钟、序列 ID 和固定随机 seed，可无真实等待地验证 lease、retry、deadline 和 jitter。
   - Recorded evidence state: `partial`. Manual clock, sequence IDs/random and recording sleeper tests
@@ -233,7 +233,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch/acceptance classification; provider adapters still need to emit the facts consistently
 
 - [ ] `P0-MODEL-005` [source:216] [state:partial] 支持指数退避、jitter、`Retry-After`、最大累计等待和持久 retry event。
-  - Recorded evidence state: `partial`. `ModelRetryPolicy` provides bounded deterministic backoff and `ModelRetryTimerSpec` binds retries to durable timers; authoritative retry events and provider integration remain pending
+  - Recorded evidence state: `partial`. `ModelRetryPolicy` provides bounded deterministic backoff, `ModelRetryScheduler` persists idempotent retry timers, and `NewModelRetryCommandHandler` rejects stale digests/attempts before dispatch; authoritative retry events and provider integration remain pending
 
 - [ ] `P0-MODEL-006` [source:217] [state:partial] 支持路由、fallback 和 circuit breaker，但禁止在有未知副作用后切换并重放。
   - Recorded evidence state: `partial`. Deterministic route evidence, historical decision reuse, circuit states and unknown-dispatch guard exist in `internal/runtime/model_retry.go`; live adapter pool/fallback wiring remains pending
@@ -291,7 +291,8 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STREAM-009` [source:239] [state:partial] 建立 slow consumer、断线重连、重复 chunk、乱序、截断 JSON、超大输出和取消风暴测试。
   - Recorded evidence state: `partial`. Reference tests cover retention gap, optional drop, overflow disconnect, duplicate/out-of-order rejection; provider matrix remains pending
 
-- [ ] `P0-STREAM-010` [source:240] [state:unverified] 暴露 buffer occupancy、dropped optional deltas、resume count、gap count 和 consumer lag 指标。
+- [ ] `P0-STREAM-010` [source:240] [state:partial] 暴露 buffer occupancy、dropped optional deltas、resume count、gap count 和 consumer lag 指标。
+  - Recorded evidence state: `partial`. `BoundedModelStream.Metrics` exposes occupancy, drops, resume/gap/backpressure/disconnect/read counters and consumer lag with tests; production metric collector/API wiring remains pending
 
 ## 5.1 Tool Contract
 

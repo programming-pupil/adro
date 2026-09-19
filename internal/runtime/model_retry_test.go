@@ -1,9 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/adro-project/adro/core/testkit"
 )
 
 func testModelCapabilities() ProviderCapabilities {
@@ -119,5 +123,81 @@ func TestModelRetryTimerSpecBindsFrozenRequestAndAttempt(t *testing.T) {
 	}
 	if _, err := NewTimerStore("", TimerStoreOptions{}); err == nil {
 		t.Fatal("empty timer path unexpectedly accepted")
+	}
+}
+
+func TestModelRetrySchedulerPersistsAndValidatesRetryClaim(t *testing.T) {
+	clock := testkit.NewManualClock(time.Date(2026, 9, 19, 5, 30, 0, 0, time.UTC))
+	path := filepath.Join(t.TempDir(), "timers.json")
+	store, err := NewTimerStore(path, timerOptions(clock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler, err := NewModelRetryScheduler(store, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := newModelRequest(t)
+	decision := RetryDecision{Action: ModelRetrySameRequest, Retryable: true, Attempt: 1, NextAttempt: 2, Delay: time.Minute, Reason: "pre_dispatch_retryable_failure"}
+	first, created, err := scheduler.Schedule(request, decision)
+	if err != nil || !created {
+		t.Fatalf("first timer=%+v created=%v err=%v", first, created, err)
+	}
+	second, created, err := scheduler.Schedule(request, decision)
+	if err != nil || created || second.ID != first.ID {
+		t.Fatalf("idempotent timer=%+v created=%v err=%v", second, created, err)
+	}
+	clock.Advance(2 * time.Minute)
+	claims, err := store.ClaimDue(clock.Now(), "model-worker", time.Minute, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("claims=%+v err=%v", claims, err)
+	}
+	called := false
+	handler := NewModelRetryCommandHandler(func(context.Context, Scope, string) (ModelRequest, error) { return request, nil }, func(_ context.Context, got ModelRequest, payload ModelRetryTimerPayload) error {
+		called = true
+		if got.RequestDigest != request.RequestDigest || payload.Attempt != 2 {
+			t.Fatalf("dispatch got=%+v payload=%+v", got, payload)
+		}
+		return nil
+	})
+	if err := ModelRetryTimerDue(claims[0], clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler(context.Background(), claims[0]); err != nil || !called {
+		t.Fatalf("handler err=%v called=%v", err, called)
+	}
+	if _, err := store.Acknowledge(first.ID, "model-worker", claims[0].Timer.FencingToken, claims[0].OccurrenceKey, clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestModelRetryCommandHandlerRejectsStaleDigestAndSkippedAttempt(t *testing.T) {
+	clock := testkit.NewManualClock(time.Date(2026, 9, 19, 5, 30, 0, 0, time.UTC))
+	store, err := NewTimerStore(filepath.Join(t.TempDir(), "timers.json"), timerOptions(clock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler, _ := NewModelRetryScheduler(store, clock)
+	request := newModelRequest(t)
+	decision := RetryDecision{Action: ModelRetrySameRequest, Retryable: true, Attempt: 1, NextAttempt: 2, Delay: 0, Reason: "retry"}
+	timer, _, err := scheduler.Schedule(request, decision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := store.ClaimDue(clock.Now(), "model-worker", time.Minute, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("claims=%+v err=%v", claims, err)
+	}
+	stale := request
+	stale.RequestDigest = "different"
+	handler := NewModelRetryCommandHandler(func(context.Context, Scope, string) (ModelRequest, error) { return stale, nil }, func(context.Context, ModelRequest, ModelRetryTimerPayload) error {
+		t.Fatal("stale retry dispatched")
+		return nil
+	})
+	if err := handler(context.Background(), claims[0]); !errors.Is(err, ErrModelRetryStale) {
+		t.Fatalf("stale digest err=%v", err)
+	}
+	if _, err := store.Fail(timer.ID, "model-worker", claims[0].Timer.FencingToken, claims[0].OccurrenceKey, clock.Now(), "stale_request"); err != nil {
+		t.Fatal(err)
 	}
 }

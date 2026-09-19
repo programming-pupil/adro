@@ -288,18 +288,43 @@ type StreamGap struct {
 // intentionally synchronous: adapters push validated events, consumers read
 // by cursor, and an old cursor produces an explicit gap instead of silently
 // skipping retained events.
+// ModelStreamMetrics is a bounded, read-only snapshot of stream health. The
+// counters are transport evidence and never substitute for the authoritative
+// model event sequence.
+type ModelStreamMetrics struct {
+	RequestID         string `json:"request_id"`
+	Capacity          int    `json:"capacity"`
+	Retention         int    `json:"retention"`
+	Occupancy         int    `json:"occupancy"`
+	LastSequence      int64  `json:"last_sequence"`
+	DroppedOptional   int64  `json:"dropped_optional_deltas"`
+	ResumeCount       int64  `json:"resume_count"`
+	GapCount          int64  `json:"gap_count"`
+	BackpressureCount int64  `json:"backpressure_count"`
+	DisconnectCount   int64  `json:"disconnect_count"`
+	ReadCount         int64  `json:"read_count"`
+	ConsumerLag       int64  `json:"consumer_lag"`
+	Disconnected      bool   `json:"disconnected"`
+}
+
 type BoundedModelStream struct {
-	mu           sync.Mutex
-	requestID    string
-	capacity     int
-	overflow     string
-	retention    int
-	events       []ModelEvent
-	lastSequence int64
-	droppedFrom  int64
-	droppedTo    int64
-	dropped      int64
-	disconnected bool
+	mu                sync.Mutex
+	requestID         string
+	capacity          int
+	overflow          string
+	retention         int
+	events            []ModelEvent
+	lastSequence      int64
+	droppedFrom       int64
+	droppedTo         int64
+	dropped           int64
+	resumeCount       int64
+	gapCount          int64
+	backpressureCount int64
+	disconnectCount   int64
+	readCount         int64
+	consumerSequence  int64
+	disconnected      bool
 }
 
 func NewBoundedModelStream(requestID string, capacity, retention int, overflow string) (*BoundedModelStream, error) {
@@ -316,6 +341,7 @@ func (s *BoundedModelStream) Append(event ModelEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.disconnected {
+		s.disconnectCount++
 		return ErrStreamDisconnected
 	}
 	if err := event.Validate(s.lastSequence, s.requestID); err != nil {
@@ -324,12 +350,15 @@ func (s *BoundedModelStream) Append(event ModelEvent) error {
 	if len(s.events) >= s.capacity {
 		switch s.overflow {
 		case StreamOverflowBlock:
+			s.backpressureCount++
 			return ErrStreamBackpressure
 		case StreamOverflowDisconnect:
 			s.disconnected = true
+			s.disconnectCount++
 			return ErrStreamDisconnected
 		case StreamOverflowDropOptional:
 			if event.Type != ModelEventTextDelta && event.Type != ModelEventReasoningDelta {
+				s.backpressureCount++
 				return ErrStreamBackpressure
 			}
 			if s.droppedFrom == 0 {
@@ -355,12 +384,16 @@ func (s *BoundedModelStream) Read(afterCursor string, limit int) ([]ModelEvent, 
 	if limit <= 0 {
 		return nil, "", nil, errors.New("limit must be positive")
 	}
+	s.readCount++
 	if s.disconnected {
+		s.disconnectCount++
 		return nil, "", nil, ErrStreamDisconnected
 	}
 	start := 0
 	if afterCursor != "" {
+		s.resumeCount++
 		if len(s.events) == 0 {
+			s.gapCount++
 			return nil, "", &StreamGap{RequestID: s.requestID, From: 1, To: 0, Reason: "cursor_outside_retention"}, ErrStreamGap
 		}
 		found := false
@@ -372,10 +405,12 @@ func (s *BoundedModelStream) Read(afterCursor string, limit int) ([]ModelEvent, 
 			}
 		}
 		if !found {
+			s.gapCount++
 			return nil, "", &StreamGap{RequestID: s.requestID, From: s.events[0].Sequence, To: s.events[len(s.events)-1].Sequence, Reason: "cursor_outside_retention"}, ErrStreamGap
 		}
 		for _, event := range s.events {
 			if event.Cursor == afterCursor && s.droppedFrom > event.Sequence {
+				s.gapCount++
 				return nil, "", &StreamGap{RequestID: s.requestID, From: s.droppedFrom, To: s.droppedTo, Reason: "optional_delta_dropped"}, ErrStreamGap
 			}
 		}
@@ -385,6 +420,9 @@ func (s *BoundedModelStream) Read(afterCursor string, limit int) ([]ModelEvent, 
 		end = len(s.events)
 	}
 	items := append([]ModelEvent(nil), s.events[start:end]...)
+	if len(items) > 0 {
+		s.consumerSequence = items[len(items)-1].Sequence
+	}
 	next := ""
 	if end < len(s.events) {
 		next = s.events[end-1].Cursor
@@ -396,4 +434,24 @@ func (s *BoundedModelStream) DroppedOptional() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.dropped
+}
+
+// Metrics returns a consistent snapshot suitable for a diagnostics endpoint
+// or an OpenTelemetry gauge callback. Consumer lag is measured against the
+// latest accepted sequence; optional deltas that were deliberately dropped are
+// therefore visible instead of being mistaken for a healthy empty buffer.
+func (s *BoundedModelStream) Metrics() ModelStreamMetrics {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	lag := s.lastSequence - s.consumerSequence
+	if lag < 0 {
+		lag = 0
+	}
+	return ModelStreamMetrics{
+		RequestID: s.requestID, Capacity: s.capacity, Retention: s.retention,
+		Occupancy: len(s.events), LastSequence: s.lastSequence,
+		DroppedOptional: s.dropped, ResumeCount: s.resumeCount, GapCount: s.gapCount,
+		BackpressureCount: s.backpressureCount, DisconnectCount: s.disconnectCount,
+		ReadCount: s.readCount, ConsumerLag: lag, Disconnected: s.disconnected,
+	}
 }

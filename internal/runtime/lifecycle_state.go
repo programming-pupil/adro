@@ -756,7 +756,7 @@ func stepTransitionAllowedOutsideRunningTurn(eventType string) bool {
 func (j *Journal) validateLifecycleLeaseLocked(scope Scope, owner string, fencingToken int64) error {
 	key := scope.TenantID + "\x00" + scope.WorkspaceID + "\x00" + scope.RunID
 	lease, ok := j.leases[key]
-	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(time.Now().UTC()) {
+	if !ok || lease.Owner != owner || lease.FencingToken != fencingToken || !lease.ExpiresAt.After(j.now()) {
 		return ErrLeaseLost
 	}
 	return nil

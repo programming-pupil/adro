@@ -56,3 +56,9 @@ still need migration to `ModelGateway`, durable retry/backoff and routing
 records, provider query/reconcile adapters, persistent stream storage, API/SSE
 and WebSocket unification, and browser/slow-consumer evidence. Those gaps keep
 the model and stream capabilities below stable.
+
+`BoundedModelStream.Metrics()` exposes transport evidence without changing the
+authoritative event sequence: occupancy, last accepted sequence, consumer lag,
+optional-delta drops, resume attempts, retention gaps, backpressure, reads and
+disconnects. These counters are intended for a diagnostics endpoint or metric
+collector; they do not hide a gap or synthesize a terminal model event.
