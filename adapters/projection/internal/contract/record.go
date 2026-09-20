@@ -5,7 +5,6 @@ package contract
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -70,13 +69,41 @@ func ValidateStored(item projection.Record, tenantID string, maxPayload int64) e
 	return nil
 }
 
+func ValidateOffset(item projection.Offset, tenantID string, stored bool) error {
+	if err := ValidateIdentity(item.TenantID, item.Projection, item.PartitionID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(tenantID) == "" || item.TenantID != strings.TrimSpace(tenantID) {
+		return projection.ErrTenantMismatch
+	}
+	if item.LastSequence < 0 || !ValidDigest(item.ProjectionDigest) {
+		return projection.ErrCorrupt
+	}
+	if stored && item.UpdatedAt.IsZero() {
+		return projection.ErrCorrupt
+	}
+	return nil
+}
+
+func NormalizeOffset(item projection.Offset, now time.Time) projection.Offset {
+	item.TenantID = strings.TrimSpace(item.TenantID)
+	item.Projection = strings.TrimSpace(item.Projection)
+	item.PartitionID = strings.TrimSpace(item.PartitionID)
+	item.ProjectionDigest = strings.ToLower(strings.TrimSpace(item.ProjectionDigest))
+	if item.UpdatedAt.IsZero() {
+		item.UpdatedAt = now.UTC()
+	} else {
+		item.UpdatedAt = item.UpdatedAt.UTC()
+	}
+	return item
+}
+
 func Digest(payload []byte) string {
-	hash := sha256.Sum256(payload)
-	return hex.EncodeToString(hash[:])
+	return projection.Digest(payload)
 }
 
 func ValidDigest(value string) bool {
-	if len(strings.TrimSpace(value)) != sha256.Size*2 {
+	if len(strings.TrimSpace(value)) != 64 {
 		return false
 	}
 	_, err := hex.DecodeString(strings.TrimSpace(value))

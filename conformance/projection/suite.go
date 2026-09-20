@@ -16,6 +16,7 @@ import (
 
 type Backend interface {
 	projectionport.Store
+	projectionport.OffsetStore
 	Close() error
 }
 
@@ -109,6 +110,9 @@ func Run(t *testing.T, factory Factory) {
 		if _, err := store.List(context.Background(), "tenant-a", "sessions"); err == nil {
 			t.Fatal("unscoped list unexpectedly succeeded")
 		}
+		if err := store.PutOffset(context.Background(), projectionport.Offset{TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-4", LastSequence: 0, ProjectionDigest: strings.Repeat("0", 64)}, 0); err == nil {
+			t.Fatal("unscoped offset write unexpectedly succeeded")
+		}
 	})
 
 	t.Run("integrity_and_identity_fail_closed", func(t *testing.T) {
@@ -127,6 +131,35 @@ func Run(t *testing.T, factory Factory) {
 		item.Digest = ""
 		if err := store.Put(ctx, item, 0); err == nil {
 			t.Fatal("control-character key unexpectedly succeeded")
+		}
+	})
+
+	t.Run("offset_cas_and_scope", func(t *testing.T) {
+		store := factory(t)
+		defer store.Close()
+		ctx := scope.WithTenant(context.Background(), "tenant-a")
+		digestOne := strings.Repeat("1", 64)
+		digestTwo := strings.Repeat("2", 64)
+		first := projectionport.Offset{TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-offset", LastSequence: 1, ProjectionDigest: digestOne}
+		if err := store.PutOffset(ctx, first, 0); err != nil {
+			t.Fatal(err)
+		}
+		replay := first
+		if err := store.PutOffset(ctx, replay, 1); err != nil {
+			t.Fatalf("offset replay failed: %v", err)
+		}
+		if err := store.PutOffset(ctx, projectionport.Offset{TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-offset", LastSequence: 2, ProjectionDigest: digestTwo}, 0); !errors.Is(err, projectionport.ErrOffsetConflict) {
+			t.Fatalf("stale offset error=%v", err)
+		}
+		if err := store.PutOffset(ctx, projectionport.Offset{TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-offset", LastSequence: 2, ProjectionDigest: digestTwo}, 1); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.GetOffset(ctx, "tenant-a", "sessions", "stream-offset")
+		if err != nil || got.LastSequence != 2 || got.ProjectionDigest != digestTwo || got.UpdatedAt.IsZero() {
+			t.Fatalf("offset=%+v err=%v", got, err)
+		}
+		if _, err := store.GetOffset(scope.WithTenant(context.Background(), "tenant-b"), "tenant-a", "sessions", "stream-offset"); !errors.Is(err, projectionport.ErrTenantMismatch) {
+			t.Fatalf("cross-tenant offset error=%v", err)
 		}
 	})
 

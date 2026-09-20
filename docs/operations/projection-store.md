@@ -27,3 +27,19 @@ and SQLite adapters.
 PostgreSQL runs the suite when `ADRO_POSTGRES_TEST_DSN` is supplied. The schema
 is also captured in `migrations/018_runtime_projection.sql` for deployments that
 apply migrations separately from adapter startup.
+
+## Event-driven worker and offset
+
+`internal/projection.Worker` replays one tenant/stream projection partition from
+sequence zero or from a verified offset, validates the event hash chain, applies
+pure projector mutations with per-record CAS, and then advances the offset. The
+offset stores `last_sequence` and a canonical digest of the partition's records;
+a digest mismatch or an offset ahead of the EventStore head fails closed. The
+worker subscribes before replay so commits that race recovery remain buffered,
+and repeated batches are skipped by source sequence and payload comparison.
+
+SQLite and PostgreSQL persist offsets in `runtime_projection_offsets`; the
+adapter writes records and offsets through the same database profile, while the
+worker's ordered record-then-offset protocol remains safe to replay after a
+process crash. A future runtime composition must add a single transaction over
+all mutations and the offset when a projection emits multiple records.

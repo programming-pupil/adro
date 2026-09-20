@@ -17,16 +17,17 @@ import (
 type Clock func() time.Time
 
 type Store struct {
-	mu    sync.RWMutex
-	now   Clock
-	items map[string]projection.Record
+	mu      sync.RWMutex
+	now     Clock
+	items   map[string]projection.Record
+	offsets map[string]projection.Offset
 }
 
 func New(now Clock) *Store {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Store{now: now, items: map[string]projection.Record{}}
+	return &Store{now: now, items: map[string]projection.Record{}, offsets: map[string]projection.Offset{}}
 }
 
 func (s *Store) Get(ctx context.Context, tenantID, projectionName, key string) (projection.Record, error) {
@@ -155,6 +156,70 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	return result, nil
 }
 
+func (s *Store) GetOffset(ctx context.Context, tenantID, projectionName, partitionID string) (projection.Offset, error) {
+	if err := ctx.Err(); err != nil {
+		return projection.Offset{}, err
+	}
+	if err := contract.RequireTenant(ctx, tenantID); err != nil {
+		return projection.Offset{}, err
+	}
+	key, err := offsetKey(tenantID, projectionName, partitionID)
+	if err != nil {
+		return projection.Offset{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.offsets[key]
+	if !ok {
+		return projection.Offset{}, projection.ErrOffsetNotFound
+	}
+	if err := contract.ValidateOffset(item, tenantID, true); err != nil {
+		return projection.Offset{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) PutOffset(ctx context.Context, item projection.Offset, expectedSequence int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if expectedSequence < 0 {
+		return projection.ErrOffsetConflict
+	}
+	if err := contract.RequireTenant(ctx, item.TenantID); err != nil {
+		return err
+	}
+	item = contract.NormalizeOffset(item, s.now())
+	if err := contract.ValidateOffset(item, item.TenantID, false); err != nil {
+		return err
+	}
+	key, err := offsetKey(item.TenantID, item.Projection, item.PartitionID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.offsets[key]
+	if !exists {
+		if expectedSequence != 0 {
+			return projection.ErrOffsetConflict
+		}
+		s.offsets[key] = item
+		return nil
+	}
+	if current.TenantID != item.TenantID {
+		return projection.ErrTenantMismatch
+	}
+	if current.LastSequence == item.LastSequence && current.ProjectionDigest == item.ProjectionDigest && expectedSequence == current.LastSequence {
+		return nil
+	}
+	if expectedSequence != current.LastSequence || item.LastSequence <= current.LastSequence {
+		return projection.ErrOffsetConflict
+	}
+	s.offsets[key] = item
+	return nil
+}
+
 // Close satisfies the common conformance backend contract. The in-memory
 // adapter owns no external resources.
 func (s *Store) Close() error { return nil }
@@ -164,6 +229,13 @@ func storageKey(tenantID, projectionName, key string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00" + strings.TrimSpace(key), nil
+}
+
+func offsetKey(tenantID, projectionName, partitionID string) (string, error) {
+	if err := contract.ValidateIdentity(tenantID, projectionName, partitionID); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00" + strings.TrimSpace(partitionID), nil
 }
 
 func clone(item projection.Record) projection.Record {

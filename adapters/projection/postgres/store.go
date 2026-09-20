@@ -91,6 +91,15 @@ func EnsureSchema(db interface {
 		)`,
 		`CREATE INDEX IF NOT EXISTS runtime_projections_source_idx
 			ON runtime_projections (tenant_id, source_stream, source_sequence)`,
+		`CREATE TABLE IF NOT EXISTS runtime_projection_offsets (
+			tenant_id text NOT NULL,
+			projection_name text NOT NULL,
+			partition_id text NOT NULL,
+			last_sequence bigint NOT NULL CHECK (last_sequence >= 0),
+			projection_digest text NOT NULL,
+			updated_at_us bigint NOT NULL,
+			PRIMARY KEY (tenant_id, projection_name, partition_id)
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -308,6 +317,102 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	return result, nil
 }
 
+func (s *Store) GetOffset(ctx context.Context, tenantID, projectionName, partitionID string) (projection.Offset, error) {
+	if err := s.checkOpen(); err != nil {
+		return projection.Offset{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return projection.Offset{}, err
+	}
+	if err := contract.RequireTenant(ctx, tenantID); err != nil {
+		return projection.Offset{}, err
+	}
+	if err := contract.ValidateIdentity(tenantID, projectionName, partitionID); err != nil {
+		return projection.Offset{}, err
+	}
+	item, err := scanOffset(s.db.QueryRowContext(ctx, `SELECT tenant_id, projection_name, partition_id,
+		last_sequence, projection_digest, updated_at_us
+		FROM runtime_projection_offsets
+		WHERE tenant_id=$1 AND projection_name=$2 AND partition_id=$3`,
+		strings.TrimSpace(tenantID), strings.TrimSpace(projectionName), strings.TrimSpace(partitionID)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return projection.Offset{}, projection.ErrOffsetNotFound
+	}
+	if err != nil {
+		return projection.Offset{}, fmt.Errorf("read PostgreSQL projection offset: %w", err)
+	}
+	if err := contract.ValidateOffset(item, tenantID, true); err != nil {
+		return projection.Offset{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) PutOffset(ctx context.Context, item projection.Offset, expectedSequence int64) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if expectedSequence < 0 {
+		return projection.ErrOffsetConflict
+	}
+	tenantID, err := scope.Tenant(ctx)
+	if err != nil {
+		return err
+	}
+	item = contract.NormalizeOffset(item, s.clock.Now())
+	if err := contract.ValidateOffset(item, tenantID, false); err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin PostgreSQL projection offset write: %w", err)
+	}
+	defer tx.Rollback()
+	current, found, err := readOffsetTx(ctx, tx, item.TenantID, item.Projection, item.PartitionID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if expectedSequence != 0 {
+			return projection.ErrOffsetConflict
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO runtime_projection_offsets
+			(tenant_id, projection_name, partition_id, last_sequence, projection_digest, updated_at_us)
+			VALUES ($1,$2,$3,$4,$5,$6)`, item.TenantID, item.Projection, item.PartitionID,
+			item.LastSequence, item.ProjectionDigest, item.UpdatedAt.UnixMicro()); err != nil {
+			return fmt.Errorf("insert PostgreSQL projection offset: %w", err)
+		}
+		return tx.Commit()
+	}
+	if current.TenantID != item.TenantID {
+		return projection.ErrTenantMismatch
+	}
+	if current.LastSequence == item.LastSequence && current.ProjectionDigest == item.ProjectionDigest && expectedSequence == current.LastSequence {
+		return tx.Commit()
+	}
+	if expectedSequence != current.LastSequence || item.LastSequence <= current.LastSequence {
+		return projection.ErrOffsetConflict
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE runtime_projection_offsets SET
+		last_sequence=$1, projection_digest=$2, updated_at_us=$3
+		WHERE tenant_id=$4 AND projection_name=$5 AND partition_id=$6 AND last_sequence=$7`,
+		item.LastSequence, item.ProjectionDigest, item.UpdatedAt.UnixMicro(), item.TenantID,
+		item.Projection, item.PartitionID, expectedSequence)
+	if err != nil {
+		return fmt.Errorf("update PostgreSQL projection offset: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect PostgreSQL projection offset update: %w", err)
+	}
+	if rows != 1 {
+		return projection.ErrOffsetConflict
+	}
+	return tx.Commit()
+}
+
 func (s *Store) Health(ctx context.Context) error {
 	if err := s.checkOpen(); err != nil {
 		return err
@@ -332,6 +437,23 @@ func readTx(ctx context.Context, tx *sql.Tx, tenantID, projectionName, key strin
 	return item, true, nil
 }
 
+func readOffsetTx(ctx context.Context, tx *sql.Tx, tenantID, projectionName, partitionID string) (projection.Offset, bool, error) {
+	item, err := scanOffset(tx.QueryRowContext(ctx, `SELECT tenant_id, projection_name, partition_id,
+		last_sequence, projection_digest, updated_at_us
+		FROM runtime_projection_offsets
+		WHERE tenant_id=$1 AND projection_name=$2 AND partition_id=$3 FOR UPDATE`, tenantID, projectionName, partitionID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return projection.Offset{}, false, nil
+	}
+	if err != nil {
+		return projection.Offset{}, false, fmt.Errorf("lock PostgreSQL projection offset: %w", err)
+	}
+	if err := contract.ValidateOffset(item, tenantID, true); err != nil {
+		return projection.Offset{}, false, err
+	}
+	return item, true, nil
+}
+
 func scan(row interface{ Scan(...any) error }) (projection.Record, error) {
 	var item projection.Record
 	var updatedAtMicros int64
@@ -343,4 +465,16 @@ func scan(row interface{ Scan(...any) error }) (projection.Record, error) {
 	return item, nil
 }
 
+func scanOffset(row interface{ Scan(...any) error }) (projection.Offset, error) {
+	var item projection.Offset
+	var updatedAtMicros int64
+	if err := row.Scan(&item.TenantID, &item.Projection, &item.PartitionID, &item.LastSequence,
+		&item.ProjectionDigest, &updatedAtMicros); err != nil {
+		return projection.Offset{}, err
+	}
+	item.UpdatedAt = time.UnixMicro(updatedAtMicros).UTC()
+	return item, nil
+}
+
 var _ projection.Store = (*Store)(nil)
+var _ projection.OffsetStore = (*Store)(nil)
