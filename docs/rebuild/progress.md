@@ -58,14 +58,14 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-MCP-003 | partial | `internal/runtime/MCPToolExecutor` routes MCP through the durable ToolLoop for approval, timeout, effect intent/dispatch/receipt and unknown-outcome semantics; shared policy/sandbox and Inspector integration remain pending |
 | P0-MCP-004 | partial | `SecretResolver` and `BrokerSecretResolver` keep references out of JSON-RPC and bind short-lived broker leases to an explicit scope; production broker wiring remains pending |
 | P1-MCP-005 | partial | Canonical tool schema digest, duplicate/deleted tool rejection, required-argument checks and protocol-version fail-closed tests exist; live catalog persistence and Inspector evidence remain pending |
-| P0-STORE-001 | partial | EventStore, LeaseStore, Snapshot, Blob, Scope, and Projection ports now exist; production timer backend and full Secret/Projection composition remain pending |
+| P0-STORE-001 | partial | EventStore, Snapshot, Lease, Blob, Secret, Scope, and Projection ports are independent; shared projection contract plus memory, SQLite, and PostgreSQL adapters now enforce digest/CAS/tenant rules; full runtime composition and production SecretStore wiring remain pending |
 | P0-STORE-002 | complete for EventStore | `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA |
 | P0-STORE-003 | complete for EventStore | `adapters/eventstore/postgres`; migrations 001-015 apply together; real PostgreSQL 17 lock-wait, conformance and restore evidence |
 | P0-STORE-004 | complete for EventStore/LeaseStore | SQLite and PostgreSQL run `conformance/eventstore` |
 | P0-STORE-005 | complete for both backends | Expected-sequence CAS, concurrent single-winner and concurrent same-key replay evidence |
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
 | P0-STORE-009 | partial | `internal/artifact.Lifecycle` and `BlobLifecycle` persist roots, legal holds, two-phase tombstone/purge results, and deletion proofs; artifact/blob inventory and workspace rollback now enforce matching tenant scope; event/snapshot/blob projection roots remain to be wired |
-| P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
+| P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; projection primary keys/source indexes and scoped reads/writes now carry tenant boundaries; authenticated scoped read/RLS and full cache/queue/blob/trace composition remain pending |
 | P0-EVAL-023 | partial | `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
 | P0-TIMER-001 | partial | Human deadlines, model retries, positive write effect timeouts, sleep, and scheduled resume use versioned durable command intents; provider-wide call-site and database backend scheduling remain pending |

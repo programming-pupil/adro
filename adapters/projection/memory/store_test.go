@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	projectionconformance "github.com/adro-project/adro/conformance/projection"
 	"github.com/adro-project/adro/ports/projection"
 	"github.com/adro-project/adro/ports/scope"
 )
@@ -34,4 +35,10 @@ func TestProjectionStoreCASAndTenantIsolation(t *testing.T) {
 	if _, err := store.List(context.Background(), "tenant-a", "sessions"); !errors.Is(err, scope.ErrMissingTenant) {
 		t.Fatalf("unscoped list error=%v", err)
 	}
+}
+
+func TestMemoryProjectionConformance(t *testing.T) {
+	projectionconformance.Run(t, func(t *testing.T) projectionconformance.Backend {
+		return New(func() time.Time { return time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC) })
+	})
 }

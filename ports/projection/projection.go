@@ -13,6 +13,9 @@ var (
 	ErrNotFound       = errors.New("projection record not found")
 	ErrConflict       = errors.New("projection compare-and-swap conflict")
 	ErrTenantMismatch = errors.New("projection tenant boundary mismatch")
+	ErrCorrupt        = errors.New("projection record integrity failure")
+	ErrLimit          = errors.New("projection payload exceeds size limit")
+	ErrClosed         = errors.New("projection store is closed")
 )
 
 type Record struct {

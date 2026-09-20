@@ -4,16 +4,14 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/adro-project/adro/adapters/projection/internal/contract"
 	"github.com/adro-project/adro/ports/projection"
-	"github.com/adro-project/adro/ports/scope"
 )
 
 type Clock func() time.Time
@@ -35,10 +33,10 @@ func (s *Store) Get(ctx context.Context, tenantID, projectionName, key string) (
 	if err := ctx.Err(); err != nil {
 		return projection.Record{}, err
 	}
-	if err := requireTenant(ctx, tenantID); err != nil {
+	if err := contract.RequireTenant(ctx, tenantID); err != nil {
 		return projection.Record{}, err
 	}
-	storageKey, err := validateKey(tenantID, projectionName, key)
+	storageKey, err := storageKey(tenantID, projectionName, key)
 	if err != nil {
 		return projection.Record{}, err
 	}
@@ -48,6 +46,9 @@ func (s *Store) Get(ctx context.Context, tenantID, projectionName, key string) (
 	if !ok {
 		return projection.Record{}, projection.ErrNotFound
 	}
+	if err := contract.ValidateStored(item, tenantID, contract.DefaultMaxPayload); err != nil {
+		return projection.Record{}, err
+	}
 	return clone(item), nil
 }
 
@@ -55,30 +56,26 @@ func (s *Store) Put(ctx context.Context, item projection.Record, expectedVersion
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := requireTenant(ctx, item.TenantID); err != nil {
+	if err := contract.RequireTenant(ctx, item.TenantID); err != nil {
 		return err
 	}
-	key, err := validateKey(item.TenantID, item.Projection, item.Key)
+	storageKey, err := storageKey(item.TenantID, item.Projection, item.Key)
 	if err != nil {
 		return err
 	}
-	if item.SourceSequence < 1 || strings.TrimSpace(item.SourceStream) == "" || expectedVersion < 0 {
+	if expectedVersion < 0 {
 		return errors.New("projection source and expected version are required")
 	}
+	item = contract.Normalize(item, s.now())
 	if item.Digest == "" {
-		hash := sha256.Sum256(item.Payload)
-		item.Digest = hex.EncodeToString(hash[:])
+		item.Digest = contract.Digest(item.Payload)
 	}
-	if !validDigest(item.Digest) {
-		return errors.New("projection digest is invalid")
-	}
-	hash := sha256.Sum256(item.Payload)
-	if item.Digest != hex.EncodeToString(hash[:]) {
-		return errors.New("projection digest mismatch")
+	if err := contract.ValidateForWrite(item, item.TenantID, contract.DefaultMaxPayload); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, exists := s.items[key]
+	current, exists := s.items[storageKey]
 	if !exists {
 		if expectedVersion != 0 || item.Version != 1 {
 			return projection.ErrConflict
@@ -87,12 +84,18 @@ func (s *Store) Put(ctx context.Context, item projection.Record, expectedVersion
 		if current.TenantID != item.TenantID {
 			return projection.ErrTenantMismatch
 		}
+		if contract.Equivalent(current, item) && expectedVersion == current.Version {
+			return nil
+		}
+		if current.SourceStream != item.SourceStream || item.SourceSequence <= current.SourceSequence {
+			return projection.ErrConflict
+		}
 		if current.Version != expectedVersion || item.Version != current.Version+1 {
 			return projection.ErrConflict
 		}
 	}
 	item.UpdatedAt = s.now().UTC()
-	s.items[key] = clone(item)
+	s.items[storageKey] = clone(item)
 	return nil
 }
 
@@ -100,10 +103,13 @@ func (s *Store) Delete(ctx context.Context, tenantID, projectionName, key string
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := requireTenant(ctx, tenantID); err != nil {
+	if expectedVersion < 1 {
+		return projection.ErrConflict
+	}
+	if err := contract.RequireTenant(ctx, tenantID); err != nil {
 		return err
 	}
-	storageKey, err := validateKey(tenantID, projectionName, key)
+	storageKey, err := storageKey(tenantID, projectionName, key)
 	if err != nil {
 		return err
 	}
@@ -112,6 +118,9 @@ func (s *Store) Delete(ctx context.Context, tenantID, projectionName, key string
 	item, ok := s.items[storageKey]
 	if !ok {
 		return projection.ErrNotFound
+	}
+	if err := contract.ValidateStored(item, tenantID, contract.DefaultMaxPayload); err != nil {
+		return err
 	}
 	if item.Version != expectedVersion {
 		return projection.ErrConflict
@@ -124,11 +133,11 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := requireTenant(ctx, tenantID); err != nil {
+	if err := contract.RequireTenant(ctx, tenantID); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(projectionName) == "" {
-		return nil, errors.New("tenant and projection are required")
+	if err := contract.ValidateIdentity(tenantID, projectionName, "list-key"); err != nil {
+		return nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -136,6 +145,9 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	prefix := strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00"
 	for key, item := range s.items {
 		if strings.HasPrefix(key, prefix) {
+			if err := contract.ValidateStored(item, tenantID, contract.DefaultMaxPayload); err != nil {
+				return nil, err
+			}
 			result = append(result, clone(item))
 		}
 	}
@@ -143,35 +155,19 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	return result, nil
 }
 
-func validateKey(tenantID, projectionName, key string) (string, error) {
-	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(projectionName) == "" || strings.TrimSpace(key) == "" || strings.ContainsAny(tenantID+projectionName+key, "\x00\r\n") {
-		return "", errors.New("projection tenant, name and key are required")
+// Close satisfies the common conformance backend contract. The in-memory
+// adapter owns no external resources.
+func (s *Store) Close() error { return nil }
+
+func storageKey(tenantID, projectionName, key string) (string, error) {
+	if err := contract.ValidateIdentity(tenantID, projectionName, key); err != nil {
+		return "", err
 	}
 	return strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00" + strings.TrimSpace(key), nil
 }
 
-func requireTenant(ctx context.Context, tenantID string) error {
-	scoped, err := scope.Tenant(ctx)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(tenantID) != scoped {
-		return projection.ErrTenantMismatch
-	}
-	return nil
-}
-
-func validDigest(value string) bool {
-	if len(value) != sha256.Size*2 {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
-}
-
 func clone(item projection.Record) projection.Record {
-	item.Payload = append([]byte(nil), item.Payload...)
-	return item
+	return contract.Clone(item)
 }
 
 var _ projection.Store = (*Store)(nil)

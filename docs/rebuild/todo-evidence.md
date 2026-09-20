@@ -687,7 +687,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 9.1 Store Ports
 
 - [ ] `P0-STORE-001` [source:441] [state:partial] 定义 EventStore、SnapshotStore、LeaseStore、BlobStore、SecretStore、ProjectionStore 独立接口。
-  - Recorded evidence state: `partial`. EventStore and LeaseStore ports exist; Snapshot/Blob/Secret/Projection ports remain pending
+  - Recorded evidence state: `partial`. EventStore, Snapshot, Lease, Blob, Secret, Scope, and Projection ports are independent; `adapters/projection` now provides shared digest/CAS/tenant rules plus memory, SQLite, and PostgreSQL implementations with common conformance. Full runtime composition and production SecretStore wiring remain pending
 
 - [ ] `P0-STORE-002` [source:442] [state:evidenced] SQLite 是 reference backend，不再伪装 production HA。
   - Recorded evidence state: `complete for EventStore`. `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA
@@ -724,7 +724,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. GC reports are content-addressed and durable; corrupt or missing artifact metadata blocks replacement, while backup/object-store proof adapters remain pending
 
 - [ ] `P0-STORE-015` [source:455] [state:partial] 所有表、索引、blob key 和归档分区显式包含 tenant boundary。
-  - Recorded evidence state: `partial`. Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending
+  - Recorded evidence state: `partial`. Composite tenant/stream foreign keys reject cross-tenant EventStore rows; projection primary keys/source indexes and scoped reads/writes now carry tenant boundaries; authenticated scoped read/RLS and full cache/queue/blob/trace composition remain pending
 
 ## 9.1.1 Artifact
 
