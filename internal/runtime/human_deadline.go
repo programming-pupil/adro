@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -56,10 +57,11 @@ func HumanDeadlineTimerSpec(state HumanRequestState) (TimerSpec, error) {
 // acknowledged.
 func (j *Journal) ApplyHumanDeadlineClaim(claim TimerClaim, now time.Time, owner string, fencingToken int64) (HumanDeadlineResult, error) {
 	now = canonicalHumanTime(now)
-	if claim.Timer.Command.Name != HumanDeadlineCommandName || !claim.Timer.Scope.valid() || now.IsZero() ||
-		claim.Timer.State != TimerClaimed || claim.Timer.FencingToken <= 0 || claim.OccurrenceKey == "" ||
-		claim.Timer.ClaimKey != claim.OccurrenceKey || !claim.Timer.LeaseExpiresAt.After(now) {
+	if err := validateTimerClaimShape(claim, HumanDeadlineCommandName); err != nil || now.IsZero() || !claim.Timer.LeaseExpiresAt.After(now) {
 		return HumanDeadlineResult{}, ErrTimerConflict
+	}
+	if strings.TrimSpace(owner) == "" || fencingToken <= 0 {
+		return HumanDeadlineResult{}, ErrLeaseLost
 	}
 	payloadData, err := json.Marshal(claim.Timer.Command.Payload)
 	if err != nil {

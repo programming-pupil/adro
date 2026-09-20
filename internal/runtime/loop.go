@@ -141,7 +141,7 @@ func (l ToolLoop) prepareAttempt(callID string, contract ToolContract, input any
 		return nil, result, err
 	}
 	result.EventIDs = append(result.EventIDs, prepared.EventID)
-	dispatched, err := l.Journal.MarkEffectDispatched(l.Scope, effectID, l.Owner, l.FencingToken)
+	dispatched, err := l.Journal.MarkEffectDispatchedWithTimeout(l.Scope, effectID, contract.Timeout, l.Owner, l.FencingToken)
 	if err != nil {
 		result.Status = "blocked"
 		result.Reason = "effect_dispatch_commit_failed"

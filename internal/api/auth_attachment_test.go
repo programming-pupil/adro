@@ -19,6 +19,7 @@ import (
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
+	"github.com/adro-project/adro/ports/scope"
 	"github.com/gorilla/websocket"
 )
 
@@ -319,7 +320,7 @@ func TestInteractiveIdentityCannotSpoofArtifactTenant(t *testing.T) {
 	t.Setenv("ADRO_AUTH_STATE_FILE", "")
 	s := testServer(t)
 	key := artifact.Key{TenantID: "tenant-secret", ArtifactID: "tenant-proof", Version: 1}
-	if _, err := s.Artifacts.Put(context.Background(), key, strings.NewReader("foreign-data"), artifact.PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
+	if _, err := s.Artifacts.Put(scope.WithTenant(context.Background(), key.TenantID), key, strings.NewReader("foreign-data"), artifact.PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
 		t.Fatal(err)
 	}
 	token := loginToken(t, s, "admin", "AdminPass123!")

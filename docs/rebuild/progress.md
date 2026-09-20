@@ -1,6 +1,6 @@
 # Rebuild Progress
 
-Updated: 2026-09-19.
+Updated: 2026-09-20.
 
 The authoritative issue TodoList remains the complete scope. This file records evidence for landed increments; absence from this table means not completed.
 
@@ -28,7 +28,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-CORE-018 | partial | Turn and Step reference lifecycle freeze canonical config, adapter/protocol, policy, tokenizer, context/tool/policy digests with tamper tests; ExecutionPlan and production engine binding remain pending |
 | P0-CORE-019 | partial | Restart replay retains historical Turn/Step snapshot digests; hot-update boundary integration and authoritative EventStore cutover remain pending |
 | P0-MODEL-004 | partial | `internal/runtime/model_retry.go` defines stable failure classes and explicit dispatch acceptance rules; provider adapter emission remains pending |
-| P0-MODEL-005 | partial | Bounded deterministic backoff, Retry-After handling and durable `model.retry` TimerSpec exist; authoritative retry event/provider wiring remains pending |
+| P0-MODEL-005 | partial | Bounded deterministic backoff, Retry-After handling, authoritative `model.retry_scheduled` plus `timer.schedule_requested` journal intents, and idempotent TimerStore projection exist; provider query/reconcile wiring remains pending |
 | P0-MODEL-006 | partial | Deterministic route evidence, historical route reuse, circuit breaker and unknown-dispatch fallback guard exist; live adapter pool integration remains pending |
 | P0-MODEL-012 | partial | `ModelRouteDecision` records candidate health, rate limit, capabilities, score and reason; API/event persistence remains pending |
 | P0-MODEL-013 | partial | `ModelCircuitBreaker` implements closed/open/half-open with one probe; provider health/admission composition remains pending |
@@ -39,12 +39,12 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-LIFE-005 | partial | Root cancellation propagation is implemented; model/tool/sub-agent integration pending |
 | P0-LIFE-006 | complete locally for reference manager | `Snapshot`, `Readiness` and `Liveness` derive independent probe state, reason and change time from component health in `runtime/lifecycle/manager.go`; production API wiring remains pending |
 | P0-LIFE-009 | partial | Core lifecycle conformance covers startup/shutdown timeout, rollback, repeated stop, aggregated errors and owned-worker cancellation; socket/file-descriptor leak tests and production integration remain pending |
-| P0-EFFECT-001 | partial | Intent, prepare, dispatch, receipt, unknown-outcome and policy-valid reconciled facts in `internal/runtime/kernel.go`; external adapter reconcile implementations remain pending |
+| P0-EFFECT-001 | partial | Intent, prepare, dispatch, receipt, unknown-outcome and policy-valid reconciled facts in `internal/runtime/kernel.go`; positive write timeouts now commit a digest-bound timer intent before dispatch, while external adapter reconcile implementations remain pending |
 | P0-EFFECT-002 | complete for legacy ToolLoop | Intent commits before `tool.started` and callback dispatch; transition APIs require positive lease fencing |
 | P0-EFFECT-003 | partial | Effect ID, input digest, class, explicit reconcile policy and fence are durable; adapter idempotency key contract pending |
 | P0-EFFECT-006 | partial | Journal enforces query/compensate/human/unrecoverable decisions and idempotent resolution; concrete external reconcile adapters remain pending |
 | P0-EFFECT-005 | complete for legacy ToolLoop | Dispatched writes without receipts return `ErrEffectOutcomeUnknown` and are not replayed |
-| P0-EFFECT-007 | partial | Effect receipt and tool terminal event commit atomically; final checkpoint integration pending |
+| P0-EFFECT-007 | partial | Effect receipt, tool terminal event, and timeout-to-unknown transition are journaled with fencing and idempotent timer claims; final checkpoint integration pending |
 | P0-TOOL-001 | complete locally for reference contract | Versioned `ToolContract` freezes name, schemas, capabilities, effect class, limits and concurrency mode in `internal/runtime/tool_contract.go` and `internal/runtime/kernel.go` |
 | P0-TOOL-002 | complete locally for reference contract | Effect classes and explicit reconciliation policy validation in `FreezeToolContract`; write retries fail closed |
 | P0-TOOL-003 | complete locally for reference contract | Canonical frozen contract digest is stored in `tool.authorized`; digest changes conflict during a call |
@@ -58,22 +58,22 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-MCP-003 | partial | `internal/runtime/MCPToolExecutor` routes MCP through the durable ToolLoop for approval, timeout, effect intent/dispatch/receipt and unknown-outcome semantics; shared policy/sandbox and Inspector integration remain pending |
 | P0-MCP-004 | partial | `SecretResolver` and `BrokerSecretResolver` keep references out of JSON-RPC and bind short-lived broker leases to an explicit scope; production broker wiring remains pending |
 | P1-MCP-005 | partial | Canonical tool schema digest, duplicate/deleted tool rejection, required-argument checks and protocol-version fail-closed tests exist; live catalog persistence and Inspector evidence remain pending |
-| P0-STORE-001 | partial | EventStore and LeaseStore ports exist; Snapshot/Blob/Secret/Projection ports remain pending |
+| P0-STORE-001 | partial | EventStore, LeaseStore, Snapshot, Blob, Scope, and Projection ports now exist; production timer backend and full Secret/Projection composition remain pending |
 | P0-STORE-002 | complete for EventStore | `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA |
 | P0-STORE-003 | complete for EventStore | `adapters/eventstore/postgres`; migrations 001-015 apply together; real PostgreSQL 17 lock-wait, conformance and restore evidence |
 | P0-STORE-004 | complete for EventStore/LeaseStore | SQLite and PostgreSQL run `conformance/eventstore` |
 | P0-STORE-005 | complete for both backends | Expected-sequence CAS, concurrent single-winner and concurrent same-key replay evidence |
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
-| P0-STORE-009 | partial | `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; event/snapshot/blob projection roots remain to be wired |
+| P0-STORE-009 | partial | `internal/artifact.Lifecycle` and `BlobLifecycle` persist roots, legal holds, two-phase tombstone/purge results, and deletion proofs; artifact/blob inventory and workspace rollback now enforce matching tenant scope; event/snapshot/blob projection roots remain to be wired |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending |
 | P0-EVAL-023 | partial | `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
-| P0-TIMER-001 | partial | Durable command contracts now cover effect timeout, sleep and scheduled resume in addition to approval/model retry; production call-site scheduling remains pending |
+| P0-TIMER-001 | partial | Human deadlines, model retries, positive write effect timeouts, sleep, and scheduled resume use versioned durable command intents; provider-wide call-site and database backend scheduling remain pending |
 | P0-TIMER-002 | complete locally | `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go` |
 | P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |
 | P0-TIMER-004 | partial | Manual-clock ordering, clock jump, DST normalization and leap-second-shaped input tests exist; broader cross-process and calendar compatibility fixtures remain pending |
 | P0-TIMER-005 | complete locally for reference backend | Bounded catch-up, coalesce, suppression and expiry are persisted and tested; integration with every runtime retry/deadline path remains pending |
-| P0-TIMER-006 | partial | Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancel, `adroctl timer` commands, and WebUI Timer Inspector now use the durable TimerStore; API scope/idempotency tests and Playwright Inspector coverage exist, while real timer seeding through every production retry/deadline call site remains pending |
+| P0-TIMER-006 | partial | Scoped `GET /api/v1/timers`, per-timer read/explain, permission-checked cancel, `adroctl timer` commands, and WebUI Timer Inspector use the durable TimerStore; effect/model/human timer intents now have projector tests, while API/browser and production worker composition remain pending |
 | P1-GRAPH-009 | complete locally | Backpressure, weighted fairness, priority aging/inversion, workspace quota and non-sheddable recovery tests in `internal/orchestration/resource_accounting_test.go` |
 | P0-GRAPH-010 | complete locally for local scheduler | `Scheduler.Tick` reserves tenant/workspace/agent capacity before provider dispatch and reports explicit admitted/waiting/rejected states; distributed SQL quota adapter remains pending |
 | P0-GRAPH-011 | complete locally for reference queue | Integer weighted fair queuing exposes virtual finish and a conservative starvation deadline with deterministic tests |
@@ -123,7 +123,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-IDENT-003 | partial | Membership remains an API/menu boundary and `core/policy` remains the capability boundary; complete enforcement across every tool/model/MCP dispatch is still pending |
 | P0-IDENT-004 | complete locally for reference boundary | Ed25519 service credentials bind audience, actor, tenant, workspace and a maximum 15-minute lifetime; `ADRO_API_TOKEN` fails readiness and `adroctl service-credential` manages init/issue/rotation/revocation |
 | P0-IDENT-005 | partial | Delegation, impersonation, takeover and break-glass transitions preserve original/effective actors, require approval for privileged modes and emit audit-chain evidence; authoritative event propagation across all async work remains pending |
-| P0-IDENT-006 | partial | Authenticated API, artifact, runner, comments, audit and orchestration request paths use verified tenant/workspace context; full store/cache/queue/blob/trace/projection conformance remains pending |
+| P0-IDENT-006 | partial | Authenticated API, artifact object operations, runner, comments, audit and orchestration request paths use verified tenant/workspace context; unscoped or mismatched artifact access fails closed; full store/cache/queue/blob/trace/projection conformance remains pending |
 | P0-EXT-001 | partial | Registry authorization plus explicit in-process factory and panic containment exist; production adapter wiring and isolation evidence remain pending |
 | P0-EXT-002 | partial | `runtime/extensions` runs reference external adapters over bounded JSON-RPC on `SandboxBroker` without EventStore/database handles; production isolation remains pending |
 | P0-EXT-003 | partial | Bounded reference handshake verifies protocol, adapter, schema, capability/permission subsets and message size; production adapter conformance remains pending |
@@ -178,8 +178,8 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-SKILL-004 | partial | Activation checks explicit capability grants and bundles carry no secret/tool handles; all dispatch policy composition remains pending |
 | P0-SKILL-005 | partial | Registry rejects duplicate schemas/capabilities, invalid dependencies and cycles, and enforces token ceilings |
 | P0-SKILL-006 | partial | Ed25519 signatures, key revocation, quarantine, durable reload and lifecycle evidence are covered; distribution compatibility scan remains pending |
-| P0-STORE-013 | partial | Lifecycle roots distinguish retain-until and legal hold and preserve protected objects in every proof |
-| P0-STORE-014 | partial | GC reports are content-addressed, durable and revalidated after restart; backup/object-store proof adapters remain pending |
+| P0-STORE-013 | partial | Lifecycle roots distinguish retain-until and legal hold, preserve protected objects in every proof, and perform scoped deletion only after verified inventory |
+| P0-STORE-014 | partial | GC reports are content-addressed, durable and revalidated after restart; corrupt/missing artifact metadata blocks overwrite and backup/object-store proof adapters remain pending |
 | P0-EVAL-024 | partial | Evaluators receive cloned bundles and results bind bundle/evaluator digests; external fixture catalog remains pending |
 | P0-EVAL-025 | partial | Rule evaluator is separate from model/human evaluators at the interface boundary; model/human adapter implementations remain pending |
 | P0-EVAL-026 | partial | SessionBundle records schema/source digest, tenant scope and redaction state; dataset version/license/split registry remains pending |

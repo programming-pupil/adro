@@ -43,7 +43,7 @@ func (p ModelRetryTimerPayload) Validate() error {
 // It does not consult mutable model state; callers must compare the payload to
 // the request they are about to dispatch.
 func DecodeModelRetryClaim(claim TimerClaim) (ModelRetryTimerPayload, error) {
-	if claim.Timer.Command.Name != ModelRetryCommandName || claim.Timer.State != TimerClaimed || claim.Timer.FencingToken <= 0 || strings.TrimSpace(claim.OccurrenceKey) == "" || claim.Timer.ClaimKey != claim.OccurrenceKey || claim.Timer.LeaseExpiresAt.IsZero() {
+	if err := validateTimerClaimShape(claim, ModelRetryCommandName); err != nil {
 		return ModelRetryTimerPayload{}, ErrModelRetryInvalid
 	}
 	raw, err := json.Marshal(claim.Timer.Command.Payload)

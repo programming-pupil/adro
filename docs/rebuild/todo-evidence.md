@@ -551,7 +551,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. Delegation, impersonation, takeover and break-glass transitions preserve original/effective actors, require approval for privileged modes and emit audit-chain evidence; authoritative event propagation across all async work remains pending
 
 - [ ] `P0-IDENT-006` [source:369] [state:partial] 所有 store、cache、queue、blob、trace 和 projection 验证 tenant boundary。
-  - Recorded evidence state: `partial`. Authenticated API, artifact, runner, comments, audit and orchestration request paths use verified tenant/workspace context; full store/cache/queue/blob/trace/projection conformance remains pending
+  - Recorded evidence state: `partial`. Authenticated API and all reference artifact object operations now require matching verified tenant scope, including workspace-import rollback; full store/cache/queue/blob/trace/projection conformance remains pending
 
 ## 7.3 Extension Isolation
 
@@ -709,7 +709,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STORE-008` [source:448] [state:unverified] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
 
 - [ ] `P0-STORE-009` [source:449] [state:partial] blob 引用由 retained event、snapshot、artifact 和 legal hold 形成 GC root；GC 必须 mark-and-sweep 且可恢复。
-  - Recorded evidence state: `partial`. `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; event/snapshot/blob projection roots remain to be wired
+  - Recorded evidence state: `partial`. `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; inventory, deletion and workspace rollback are tenant-scoped, while event/snapshot/blob projection roots remain to be wired
 
 - [ ] `P0-STORE-010` [source:450] [state:unverified] event 在线保留期与 authoritative archive 分离；删除 read model 不得破坏完整 replay。
 
@@ -718,10 +718,10 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-STORE-012` [source:452] [state:unverified] 隐私删除使用 tombstone、访问撤销和密钥销毁，不篡改 append-only event history。
 
 - [ ] `P0-STORE-013` [source:453] [state:partial] legal hold 优先于普通 retention；所有保留与删除决策写审计事件。
-  - Recorded evidence state: `partial`. Lifecycle roots distinguish retain-until and legal hold and preserve protected objects in every proof
+  - Recorded evidence state: `partial`. Lifecycle roots distinguish retain-until and legal hold, preserve protected objects in every proof, and perform scoped deletion only after verified inventory
 
 - [ ] `P0-STORE-014` [source:454] [state:partial] 生成 proof-of-deletion 报告，覆盖在线库、对象存储、缓存、索引和备份到期状态。
-  - Recorded evidence state: `partial`. GC reports are content-addressed, durable and revalidated after restart; backup/object-store proof adapters remain pending
+  - Recorded evidence state: `partial`. GC reports are content-addressed and durable; corrupt or missing artifact metadata blocks replacement, while backup/object-store proof adapters remain pending
 
 - [ ] `P0-STORE-015` [source:455] [state:partial] 所有表、索引、blob key 和归档分区显式包含 tenant boundary。
   - Recorded evidence state: `partial`. Composite tenant/stream foreign keys reject cross-tenant EventStore rows; authenticated scoped read/RLS ports remain pending

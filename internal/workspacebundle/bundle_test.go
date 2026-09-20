@@ -15,10 +15,11 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/ports/scope"
 )
 
 func TestWorkspaceArchiveRoundTripRedactionRemapAndReplay(t *testing.T) {
-	ctx := context.Background()
+	ctx := scope.WithTenant(context.Background(), "tenant")
 	sourceStore := store.NewMemory()
 	requirement, err := sourceStore.CreateRequirement(domain.Requirement{
 		ID: "requirement-1", WorkspaceID: "source", Title: "Portable work", Description: "retain this",
@@ -197,7 +198,7 @@ func TestWorkspaceImportRollsBackControlAndArtifacts(t *testing.T) {
 	}
 	_ = preflight
 	prepared, _, _, _ := Preflight(archive, "target", "rename")
-	if _, err := targetArtifacts.Stat(context.Background(), prepared.Artifacts[0].Key); err == nil {
+	if _, err := targetArtifacts.Stat(scope.WithTenant(context.Background(), prepared.Artifacts[0].Key.TenantID), prepared.Artifacts[0].Key); err == nil {
 		t.Fatal("artifact survived rollback")
 	}
 }
@@ -261,7 +262,7 @@ func (f *failingDefinitions) ImportDefinitionBundle(workspace string, bundle orc
 
 func minimalArchive(t *testing.T) []byte {
 	t.Helper()
-	ctx := context.Background()
+	ctx := scope.WithTenant(context.Background(), "tenant")
 	control := store.NewMemory()
 	requirement, err := control.CreateRequirement(domain.Requirement{ID: "requirement-1", WorkspaceID: "source", Title: "migrate", Description: "data", AcceptanceCriteria: []string{"ok"}, AssigneeMemberIDs: []string{"member"}, RepositoryIDs: []string{"repo"}})
 	if err != nil {

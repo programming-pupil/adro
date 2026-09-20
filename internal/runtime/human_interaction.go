@@ -55,7 +55,49 @@ func (j *Journal) createHumanRequest(scope Scope, class, eventType, requestID, t
 		return j.humanRequestInitialEventLocked(scope, requestID)
 	}
 	input := Input{EventType: eventType, AggregateType: humanAggregateType(class), AggregateID: requestID, Scope: scope, IdempotencyKey: humanEventKey(class, requestID, "request", key), WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: payload}
-	return j.appendBatchLocked([]Input{input})
+	// The request and its durable deadline intent share one journal commit.
+	// TimerStore materialization may lag or retry, but the authoritative event
+	// cannot exist without a replayable deadline specification.
+	deadlineState := HumanRequestState{Scope: scope, RequestID: requestID, RequestVersion: payloadRequestVersion(class, payload), Class: class, DefinitionDigest: definitionDigest, Deadline: payloadDeadline(class, payload), Status: HumanRequestPending}
+	deadlineSpec, err := HumanDeadlineTimerSpec(deadlineState)
+	if err != nil {
+		return Event{}, err
+	}
+	schedule, err := NewTimerScheduleRequest(deadlineSpec)
+	if err != nil {
+		return Event{}, err
+	}
+	scheduleInput := Input{EventType: EventTimerScheduleRequested, AggregateType: "timer", AggregateID: deadlineSpec.ScheduleKey, Scope: scope, IdempotencyKey: "timer:schedule:" + deadlineSpec.ScheduleKey, WriterID: owner, FencingToken: fencingToken, Status: StatusPending, Payload: map[string]any{"request": schedule}}
+	if _, err := j.appendBatchLocked([]Input{input, scheduleInput}); err != nil {
+		return Event{}, err
+	}
+	// The public request API returns the human request event; the timer intent
+	// is an atomic companion event and must not change the caller's identity.
+	return j.humanRequestInitialEventLocked(scope, requestID)
+}
+
+func payloadRequestVersion(class string, payload map[string]any) int64 {
+	if request, ok := payload["request"]; ok {
+		data, _ := json.Marshal(request)
+		var common struct {
+			RequestVersion int64 `json:"request_version"`
+		}
+		_ = json.Unmarshal(data, &common)
+		return common.RequestVersion
+	}
+	return 0
+}
+
+func payloadDeadline(class string, payload map[string]any) time.Time {
+	if request, ok := payload["request"]; ok {
+		data, _ := json.Marshal(request)
+		var common struct {
+			Deadline time.Time `json:"deadline"`
+		}
+		_ = json.Unmarshal(data, &common)
+		return common.Deadline
+	}
+	return time.Time{}
 }
 
 func (j *Journal) HumanRequestState(scope Scope, requestID string) (HumanRequestState, error) {

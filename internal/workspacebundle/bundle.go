@@ -23,6 +23,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/store"
+	"github.com/adro-project/adro/ports/scope"
 )
 
 const (
@@ -152,7 +153,11 @@ func (s Service) Export(ctx context.Context, workspaceID string) ([]byte, Manife
 		if err != nil {
 			return nil, Manifest{}, fmt.Errorf("attachment %q: %w", attachment.ID, err)
 		}
-		reader, meta, err := s.Artifacts.Open(ctx, key, artifact.ByteRange{End: -1})
+		artifactCtx, err := scopedArtifactContext(ctx, key)
+		if err != nil {
+			return nil, Manifest{}, fmt.Errorf("scope attachment %q payload: %w", attachment.ID, err)
+		}
+		reader, meta, err := s.Artifacts.Open(artifactCtx, key, artifact.ByteRange{End: -1})
 		if err != nil {
 			return nil, Manifest{}, fmt.Errorf("open attachment %q payload: %w", attachment.ID, err)
 		}
@@ -375,7 +380,11 @@ func (s Service) Import(ctx context.Context, data []byte, targetWorkspace, polic
 		return report, nil
 	}
 	for _, entry := range manifest.Artifacts {
-		if _, statErr := s.Artifacts.Stat(ctx, entry.Key); statErr == nil {
+		artifactCtx, scopeErr := scopedArtifactContext(ctx, entry.Key)
+		if scopeErr != nil {
+			return ImportReport{}, fmt.Errorf("scope target artifact %s: %w", entry.Key.URI(), scopeErr)
+		}
+		if _, statErr := s.Artifacts.Stat(artifactCtx, entry.Key); statErr == nil {
 			if preflight.ConflictPolicy == "fail" {
 				return ImportReport{}, fmt.Errorf("%w: artifact %s already exists", ErrConflict, entry.Key.URI())
 			}
@@ -398,7 +407,12 @@ func (s Service) Import(ctx context.Context, data []byte, targetWorkspace, polic
 	createdArtifacts := make([]artifact.Key, 0, len(manifest.Artifacts))
 	rollback := func(cause error) error {
 		for i := len(createdArtifacts) - 1; i >= 0; i-- {
-			_ = s.Artifacts.Delete(context.Background(), createdArtifacts[i], artifact.DeleteOptions{})
+			// Artifact deletion is tenant-scoped.  Rollback must carry the
+			// imported object's authenticated tenant through the same boundary;
+			// using an unscoped background context would silently leave payloads
+			// behind after a later control/definition failure.
+			key := createdArtifacts[i]
+			_ = s.Artifacts.Delete(scope.WithTenant(context.Background(), key.TenantID), key, artifact.DeleteOptions{})
 		}
 		var failures []string
 		if controlBackup != "" {
@@ -417,10 +431,14 @@ func (s Service) Import(ctx context.Context, data []byte, targetWorkspace, polic
 		return cause
 	}
 	for _, entry := range manifest.Artifacts {
-		if _, err := s.Artifacts.Stat(ctx, entry.Key); err == nil {
+		artifactCtx, scopeErr := scopedArtifactContext(ctx, entry.Key)
+		if scopeErr != nil {
+			return ImportReport{}, rollback(fmt.Errorf("scope target artifact %s: %w", entry.Key.URI(), scopeErr))
+		}
+		if _, err := s.Artifacts.Stat(artifactCtx, entry.Key); err == nil {
 			continue
 		}
-		meta, putErr := s.Artifacts.Put(ctx, entry.Key, bytes.NewReader(payloads[entry.Path]), artifact.PutOptions{MediaType: entry.MediaType, Immutable: entry.Immutable})
+		meta, putErr := s.Artifacts.Put(artifactCtx, entry.Key, bytes.NewReader(payloads[entry.Path]), artifact.PutOptions{MediaType: entry.MediaType, Immutable: entry.Immutable})
 		if putErr != nil {
 			return ImportReport{}, rollback(fmt.Errorf("write artifact %s: %w", entry.Key.URI(), putErr))
 		}
@@ -439,6 +457,24 @@ func (s Service) Import(ctx context.Context, data []byte, targetWorkspace, polic
 		return ImportReport{}, rollback(err)
 	}
 	return report, nil
+}
+
+// scopedArtifactContext carries the authenticated object tenant into an
+// artifact adapter.  Migration callers often start with context.Background,
+// so an absent scope is derived from the already validated archive key; an
+// existing scope is never widened or replaced.
+func scopedArtifactContext(ctx context.Context, key artifact.Key) (context.Context, error) {
+	if _, err := scope.Tenant(ctx); err == nil {
+		tenant, _ := scope.Tenant(ctx)
+		if tenant != key.TenantID {
+			return nil, scope.ErrMissingTenant
+		}
+		return ctx, nil
+	}
+	if strings.TrimSpace(key.TenantID) == "" {
+		return nil, scope.ErrMissingTenant
+	}
+	return scope.WithTenant(ctx, key.TenantID), nil
 }
 
 func (s Service) importDefinitions(workspaceID, policy string, bundle orchestration.DefinitionBundle, dryRun bool) (orchestration.DefinitionImportReport, error) {

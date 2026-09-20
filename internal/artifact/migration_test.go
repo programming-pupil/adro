@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"testing"
+
+	"github.com/adro-project/adro/ports/scope"
 )
 
 func TestMigratorVerifiesDestinationHash(t *testing.T) {
@@ -16,10 +18,11 @@ func TestMigratorVerifiesDestinationHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := Key{TenantID: "tenant", ArtifactID: "report", Version: 1}
-	if _, err := source.Put(context.Background(), key, bytes.NewBufferString("verified"), PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
+	ctx := scope.WithTenant(context.Background(), key.TenantID)
+	if _, err := source.Put(ctx, key, bytes.NewBufferString("verified"), PutOptions{MediaType: "text/plain", Immutable: true}); err != nil {
 		t.Fatal(err)
 	}
-	meta, err := (Migrator{Source: source, Destination: destination}).Copy(context.Background(), key)
+	meta, err := (Migrator{Source: source, Destination: destination}).Copy(ctx, key)
 	if err != nil {
 		t.Fatal(err)
 	}

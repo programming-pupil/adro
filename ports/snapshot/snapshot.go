@@ -11,6 +11,8 @@ var (
 	ErrNotFound = errors.New("snapshot not found")
 	ErrConflict = errors.New("snapshot compare-and-swap conflict")
 	ErrCorrupt  = errors.New("snapshot integrity failure")
+	ErrClosed   = errors.New("snapshot store is closed")
+	ErrLimit    = errors.New("snapshot payload exceeds size limit")
 )
 
 // Snapshot is a verified state cache. Event history remains authoritative and

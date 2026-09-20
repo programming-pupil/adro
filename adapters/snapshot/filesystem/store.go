@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/adro-project/adro/ports/scope"
 	"github.com/adro-project/adro/ports/snapshot"
 )
 
@@ -37,26 +38,34 @@ func (s *Store) Get(ctx context.Context, streamID string) (snapshot.Snapshot, er
 	if err := ctx.Err(); err != nil {
 		return snapshot.Snapshot{}, err
 	}
+	tenantID, err := scope.Tenant(ctx)
+	if err != nil {
+		return snapshot.Snapshot{}, err
+	}
 	streamID = strings.TrimSpace(streamID)
 	if streamID == "" {
 		return snapshot.Snapshot{}, errors.New("stream_id is required")
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path := s.path(streamID)
-	file, err := os.Open(path)
+	path := s.path(tenantID, streamID)
+	value, err := readSnapshot(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Read the pre-tenant-layout location only as a migration bridge. The
+		// decoded tenant is checked before any value is returned, so a legacy
+		// snapshot cannot become visible to a different tenant.
+		value, err = readSnapshot(s.legacyPath(streamID))
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return snapshot.Snapshot{}, snapshot.ErrNotFound
 	}
 	if err != nil {
 		return snapshot.Snapshot{}, err
 	}
-	defer file.Close()
-	var value snapshot.Snapshot
-	if err := json.NewDecoder(file).Decode(&value); err != nil {
-		return snapshot.Snapshot{}, snapshot.ErrCorrupt
-	}
-	if err := validate(value, streamID); err != nil {
+	if err := validate(value, tenantID, streamID); err != nil {
+		if value.TenantID != tenantID {
+			return snapshot.Snapshot{}, snapshot.ErrNotFound
+		}
 		return snapshot.Snapshot{}, err
 	}
 	return clone(value), nil
@@ -66,7 +75,11 @@ func (s *Store) Put(ctx context.Context, value snapshot.Snapshot, expectedSequen
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := validate(value, value.StreamID); err != nil {
+	tenantID, err := scope.Tenant(ctx)
+	if err != nil {
+		return err
+	}
+	if err := validate(value, tenantID, value.StreamID); err != nil {
 		return err
 	}
 	if expectedSequence < 0 {
@@ -74,15 +87,30 @@ func (s *Store) Put(ctx context.Context, value snapshot.Snapshot, expectedSequen
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := s.path(value.StreamID)
+	path := s.path(tenantID, value.StreamID)
+	existingPath := path
 	existing, err := readSnapshot(path)
+	existingFound := err == nil
 	if errors.Is(err, fs.ErrNotExist) {
-		if expectedSequence != 0 {
-			return snapshot.ErrConflict
+		legacyPath := s.legacyPath(value.StreamID)
+		existing, err = readSnapshot(legacyPath)
+		if err == nil {
+			existingFound = true
+			existingPath = legacyPath
+			if existing.TenantID != tenantID {
+				return snapshot.ErrConflict
+			}
+		} else if errors.Is(err, fs.ErrNotExist) {
+			if expectedSequence != 0 {
+				return snapshot.ErrConflict
+			}
+		} else {
+			return err
 		}
 	} else if err != nil {
 		return err
-	} else {
+	}
+	if existingFound {
 		if existing.Sequence == value.Sequence && existing.Digest == value.Digest && string(existing.Payload) == string(value.Payload) {
 			return nil
 		}
@@ -110,11 +138,19 @@ func (s *Store) Put(ctx context.Context, value snapshot.Snapshot, expectedSequen
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	if existingPath != path {
+		// The new tenant-qualified copy is now authoritative. Failure to remove
+		// the legacy copy is harmless; Get always prefers the qualified path.
+		_ = os.Remove(existingPath)
+	}
+	return nil
 }
 
-func validate(value snapshot.Snapshot, expectedStream string) error {
-	if strings.TrimSpace(value.TenantID) == "" || strings.TrimSpace(value.StreamID) == "" || value.StreamID != expectedStream || value.Sequence < 1 || value.SchemaVersion < 1 || value.EncodingVersion < 1 || strings.TrimSpace(value.HashAlgorithm) == "" || value.HashVersion < 1 || value.CreatedAt.IsZero() || len(value.Payload) == 0 {
+func validate(value snapshot.Snapshot, expectedTenant, expectedStream string) error {
+	if strings.TrimSpace(value.TenantID) == "" || (strings.TrimSpace(expectedTenant) != "" && value.TenantID != expectedTenant) || strings.TrimSpace(value.StreamID) == "" || value.StreamID != expectedStream || value.Sequence < 1 || value.SchemaVersion < 1 || value.EncodingVersion < 1 || strings.TrimSpace(value.HashAlgorithm) == "" || value.HashVersion < 1 || value.CreatedAt.IsZero() || len(value.Payload) == 0 {
 		return snapshot.ErrCorrupt
 	}
 	digest := sha256.Sum256(value.Payload)
@@ -134,7 +170,7 @@ func readSnapshot(path string) (snapshot.Snapshot, error) {
 	if err := json.NewDecoder(file).Decode(&value); err != nil {
 		return snapshot.Snapshot{}, snapshot.ErrCorrupt
 	}
-	return value, validate(value, value.StreamID)
+	return value, validate(value, "", value.StreamID)
 }
 
 func clone(value snapshot.Snapshot) snapshot.Snapshot {
@@ -142,7 +178,13 @@ func clone(value snapshot.Snapshot) snapshot.Snapshot {
 	return value
 }
 
-func (s *Store) path(streamID string) string {
+func (s *Store) path(tenantID, streamID string) string {
+	tenantDigest := sha256.Sum256([]byte(tenantID))
+	streamDigest := sha256.Sum256([]byte(streamID))
+	return filepath.Join(s.root, hex.EncodeToString(tenantDigest[:]), hex.EncodeToString(streamDigest[:])+".json")
+}
+
+func (s *Store) legacyPath(streamID string) string {
 	digest := sha256.Sum256([]byte(streamID))
 	return filepath.Join(s.root, hex.EncodeToString(digest[:])+".json")
 }

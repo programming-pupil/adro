@@ -244,7 +244,7 @@ func (l ToolLoop) runPreparedGroup(ctx context.Context, calls []batchPreparedCal
 				} else {
 					result.EventIDs = append(result.EventIDs, event.EventID)
 				}
-				if event, err := l.Journal.MarkEffectDispatched(l.Scope, "tool-effect:"+prepared.call.CallID, l.Owner, l.FencingToken); err != nil {
+				if event, err := l.Journal.MarkEffectDispatchedWithTimeout(l.Scope, "tool-effect:"+prepared.call.CallID, prepared.contract.Timeout, l.Owner, l.FencingToken); err != nil {
 					result.Status, result.Reason = "blocked", "effect_dispatch_commit_failed"
 					mu.Lock()
 					results[offset+index] = ToolBatchResult{CallID: prepared.call.CallID, Execution: result, Err: err}

@@ -26,36 +26,37 @@ import (
 const (
 	SchemaVersion = 1
 
-	StatusPending         = "pending"
-	StatusCommitted       = "committed"
-	StatusRejected        = "rejected"
-	StatusRecoveryNeeded  = "recovery_required"
-	EventTurnStarted      = "turn.started"
-	EventTurnFinished     = "turn.finished"
-	EventTurnCheckpointed = "turn.checkpointed"
-	EventToolAuthorized   = "tool.authorized"
-	EventToolStarted      = "tool.started"
-	EventToolApproved     = "tool.approved"
-	EventToolFinished     = "tool.finished"
-	EventToolFailed       = "tool.failed"
-	EventToolCancelled    = "tool.cancelled"
-	EventToolRetried      = "tool.retried"
-	EventToolNotStarted   = "tool.not_started"
-	EventInteraction      = "interaction.accepted"
-	EventUsage            = "usage.recorded"
-	EventEffectIntent     = "effect.intent_committed"
-	EventEffectPrepared   = "effect.dispatch_prepared"
-	EventEffectDispatched = "effect.dispatched"
-	EventEffectReceipted  = "effect.receipted"
-	EventEffectUnknown    = "effect.outcome_unknown"
-	EventEffectReconciled = "effect.reconciled"
-	EventModelRequested   = "model.requested"
-	EventModelPrepared    = "model.dispatch_prepared"
-	EventModelDispatched  = "model.dispatched"
-	EventModelStreamed    = "model.stream_event"
-	EventModelCompleted   = "model.completed"
-	EventModelUnknown     = "model.outcome_unknown"
-	EventModelCancelled   = "model.cancelled"
+	StatusPending            = "pending"
+	StatusCommitted          = "committed"
+	StatusRejected           = "rejected"
+	StatusRecoveryNeeded     = "recovery_required"
+	EventTurnStarted         = "turn.started"
+	EventTurnFinished        = "turn.finished"
+	EventTurnCheckpointed    = "turn.checkpointed"
+	EventToolAuthorized      = "tool.authorized"
+	EventToolStarted         = "tool.started"
+	EventToolApproved        = "tool.approved"
+	EventToolFinished        = "tool.finished"
+	EventToolFailed          = "tool.failed"
+	EventToolCancelled       = "tool.cancelled"
+	EventToolRetried         = "tool.retried"
+	EventToolNotStarted      = "tool.not_started"
+	EventInteraction         = "interaction.accepted"
+	EventUsage               = "usage.recorded"
+	EventEffectIntent        = "effect.intent_committed"
+	EventEffectPrepared      = "effect.dispatch_prepared"
+	EventEffectDispatched    = "effect.dispatched"
+	EventEffectReceipted     = "effect.receipted"
+	EventEffectUnknown       = "effect.outcome_unknown"
+	EventEffectReconciled    = "effect.reconciled"
+	EventModelRequested      = "model.requested"
+	EventModelPrepared       = "model.dispatch_prepared"
+	EventModelDispatched     = "model.dispatched"
+	EventModelStreamed       = "model.stream_event"
+	EventModelCompleted      = "model.completed"
+	EventModelUnknown        = "model.outcome_unknown"
+	EventModelCancelled      = "model.cancelled"
+	EventModelRetryScheduled = "model.retry_scheduled"
 )
 
 var (
@@ -271,6 +272,7 @@ type EffectState struct {
 	ToolCallID        string          `json:"tool_call_id,omitempty"`
 	Class             EffectClass     `json:"effect_class,omitempty"`
 	ReconcilePolicy   ReconcilePolicy `json:"reconcile_policy,omitempty"`
+	InputDigest       string          `json:"input_digest,omitempty"`
 	IntentCommitted   bool            `json:"intent_committed"`
 	DispatchPrepared  bool            `json:"dispatch_prepared"`
 	Dispatched        bool            `json:"dispatched"`
@@ -709,9 +711,10 @@ func (j *Journal) effectStateLocked(scope Scope, effectID string) EffectState {
 				CallID          string          `json:"call_id"`
 				Class           EffectClass     `json:"effect_class"`
 				ReconcilePolicy ReconcilePolicy `json:"reconcile_policy"`
+				InputDigest     string          `json:"input_digest"`
 			}
 			_ = json.Unmarshal(event.Payload, &payload)
-			state.ToolCallID, state.Class, state.ReconcilePolicy = payload.CallID, payload.Class, payload.ReconcilePolicy
+			state.ToolCallID, state.Class, state.ReconcilePolicy, state.InputDigest = payload.CallID, payload.Class, payload.ReconcilePolicy, payload.InputDigest
 			if state.ReconcilePolicy == "" {
 				state.ReconcilePolicy = reconcilePolicyForClass(state.Class)
 			}

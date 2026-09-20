@@ -47,6 +47,20 @@ func TestTimerStorePersistsAndRetriesSchedulesIdempotently(t *testing.T) {
 	if _, _, err := store.Schedule(changed); !errors.Is(err, ErrTimerIdempotencyConflict) {
 		t.Fatalf("changed schedule was accepted: %v", err)
 	}
+	for name, mutate := range map[string]func(*TimerSpec){
+		"generation": func(value *TimerSpec) { value.Generation++ },
+		"policy":     func(value *TimerSpec) { value.Policy = TimerCoalesce },
+		"stream":     func(value *TimerSpec) { value.StreamID = "other-stream" },
+		"lateness":   func(value *TimerSpec) { value.MaxLateness = time.Hour },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := spec
+			mutate(&candidate)
+			if _, _, err := store.Schedule(candidate); !errors.Is(err, ErrTimerIdempotencyConflict) {
+				t.Fatalf("changed %s schedule was accepted: %v", name, err)
+			}
+		})
+	}
 
 	restarted, err := NewTimerStore(path, timerOptions(clock))
 	if err != nil {
@@ -92,6 +106,9 @@ func TestTimerStoreClaimsInOrderAndFencesWorkers(t *testing.T) {
 	retry, err := store.Acknowledge(first.ID, "worker-1", 999, claims[0].OccurrenceKey, clock.Now())
 	if err != nil || retry != result {
 		t.Fatalf("duplicate ack did not converge result=%+v retry=%+v err=%v", result, retry, err)
+	}
+	if _, err := store.Acknowledge(second.ID, "worker-2", secondClaims[0].Timer.FencingToken, claims[0].OccurrenceKey, clock.Now()); !errors.Is(err, ErrTimerIdempotencyConflict) {
+		t.Fatalf("occurrence was acknowledged against a different timer: %v", err)
 	}
 	loaded, err := store.Get(first.ID)
 	if err != nil || loaded.State != TimerFired {

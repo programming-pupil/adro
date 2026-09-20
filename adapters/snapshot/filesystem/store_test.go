@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/ports/scope"
 	"github.com/adro-project/adro/ports/snapshot"
 )
 
@@ -25,24 +26,25 @@ func TestSnapshotStoreCASIdempotenceAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := testSnapshot(1, "state-1")
-	if err := store.Put(context.Background(), value, 0); err != nil {
+	ctx := scope.WithTenant(context.Background(), "tenant-a")
+	if err := store.Put(ctx, value, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Put(context.Background(), value, 0); err != nil {
+	if err := store.Put(ctx, value, 0); err != nil {
 		t.Fatalf("idempotent put: %v", err)
 	}
-	if err := store.Put(context.Background(), testSnapshot(2, "state-2"), 0); !errors.Is(err, snapshot.ErrConflict) {
+	if err := store.Put(ctx, testSnapshot(2, "state-2"), 0); !errors.Is(err, snapshot.ErrConflict) {
 		t.Fatalf("stale CAS err=%v", err)
 	}
 	value2 := testSnapshot(2, "state-2")
-	if err := store.Put(context.Background(), value2, 1); err != nil {
+	if err := store.Put(ctx, value2, 1); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := New(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reopened.Get(context.Background(), "stream-a")
+	got, err := reopened.Get(ctx, "stream-a")
 	if err != nil || got.Sequence != 2 || string(got.Payload) != "state-2" {
 		t.Fatalf("snapshot=%+v err=%v", got, err)
 	}
@@ -55,17 +57,49 @@ func TestSnapshotStoreFailsClosedOnCorruption(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := testSnapshot(1, "state")
-	if err := store.Put(context.Background(), value, 0); err != nil {
+	ctx := scope.WithTenant(context.Background(), "tenant-a")
+	if err := store.Put(ctx, value, 0); err != nil {
 		t.Fatal(err)
 	}
-	matches, err := filepath.Glob(filepath.Join(root, "*.json"))
+	matches, err := filepath.Glob(filepath.Join(root, "*", "*.json"))
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("snapshot paths=%v err=%v", matches, err)
 	}
 	if err := os.WriteFile(matches[0], []byte(`{"sequence":1}`), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "stream-a"); !errors.Is(err, snapshot.ErrCorrupt) {
+	if _, err := store.Get(ctx, "stream-a"); !errors.Is(err, snapshot.ErrCorrupt) {
 		t.Fatalf("corrupt snapshot err=%v", err)
+	}
+}
+
+func TestSnapshotStoreRejectsCrossTenantAccess(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := scope.WithTenant(context.Background(), "tenant-a")
+	if err := store.Put(owner, testSnapshot(1, "private"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(scope.WithTenant(context.Background(), "tenant-b"), "stream-a"); !errors.Is(err, snapshot.ErrNotFound) {
+		t.Fatalf("cross-tenant snapshot read err=%v", err)
+	}
+	if err := store.Put(scope.WithTenant(context.Background(), "tenant-b"), testSnapshot(2, "private"), 0); !errors.Is(err, snapshot.ErrCorrupt) {
+		t.Fatalf("cross-tenant snapshot write err=%v", err)
+	}
+}
+
+func TestSnapshotStoreRequiresTenantScope(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := testSnapshot(1, "scoped")
+	if err := store.Put(context.Background(), value, 0); !errors.Is(err, scope.ErrMissingTenant) {
+		t.Fatalf("unscoped put err=%v", err)
+	}
+	if _, err := store.Get(context.Background(), value.StreamID); !errors.Is(err, scope.ErrMissingTenant) {
+		t.Fatalf("unscoped get err=%v", err)
 	}
 }

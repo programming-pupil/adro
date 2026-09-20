@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("blob not found")
-	ErrConflict   = errors.New("blob metadata conflict")
-	ErrTombstoned = errors.New("blob is tombstoned")
-	ErrLegalHold  = errors.New("blob is under legal hold")
-	ErrLimit      = errors.New("blob exceeds size limit")
+	ErrNotFound      = errors.New("blob not found")
+	ErrConflict      = errors.New("blob metadata conflict")
+	ErrTombstoned    = errors.New("blob is tombstoned")
+	ErrLegalHold     = errors.New("blob is under legal hold")
+	ErrNotTombstoned = errors.New("blob is not tombstoned")
+	ErrLimit         = errors.New("blob exceeds size limit")
 )
 
 // BlobRef is safe to persist in an event. It contains identity and policy
@@ -34,6 +35,10 @@ type BlobMetadata struct {
 	Tombstoned bool      `json:"tombstoned"`
 	LegalHold  bool      `json:"legal_hold"`
 	Tombstone  string    `json:"tombstone,omitempty"`
+	// StoredDigest authenticates the bytes kept by the backend. It is distinct
+	// from BlobRef.Digest, which always identifies the plaintext and therefore
+	// remains stable when an encrypted representation is re-sealed.
+	StoredDigest string `json:"stored_digest,omitempty"`
 }
 
 type BlobPutRequest struct {
@@ -51,4 +56,13 @@ type BlobStore interface {
 	Open(context.Context, BlobRef) (io.ReadCloser, error)
 	Stat(context.Context, BlobRef) (BlobMetadata, error)
 	Tombstone(context.Context, BlobRef, string) error
+}
+
+// Inventory is the optional lifecycle boundary used by mark-and-sweep workers.
+// Implementations must enforce the same tenant scope and integrity checks as
+// BlobStore; callers never receive arbitrary SQL or filesystem paths.
+type Inventory interface {
+	BlobStore
+	List(context.Context, string) ([]BlobMetadata, error)
+	Purge(context.Context, BlobRef, string) error
 }

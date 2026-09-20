@@ -172,9 +172,9 @@ func (s *TimerStore) Schedule(spec TimerSpec) (Timer, bool, error) {
 	err := s.mutate(func() error {
 		if existing, ok := s.findScheduleLocked(spec.Scope, spec.ScheduleKey); ok {
 			// Equal schedules are the only idempotent retry. A changed due
-			// time, interval, or command must be explicit and cannot silently
-			// rewrite a durable timer.
-			if existing.CommandDigest != commandDigest(spec.Command) || !existing.DueAt.Equal(spec.DueAt.UTC()) || existing.Interval != spec.Interval {
+			// time, interval, policy, generation, or command must be explicit
+			// and cannot silently rewrite a durable timer.
+			if existing.Scope != spec.Scope || existing.CommandDigest != commandDigest(spec.Command) || !existing.DueAt.Equal(spec.DueAt.UTC()) || existing.Interval != spec.Interval || existing.Generation != spec.Generation || existing.Policy != normalizeTimerPolicy(spec.Policy) || existing.MaxCatchUp != normalizeMaxCatchUp(spec.MaxCatchUp) || existing.MaxLateness != spec.MaxLateness || existing.StreamID != strings.TrimSpace(spec.StreamID) || existing.ExpectedSequence != spec.ExpectedSequence {
 				return ErrTimerIdempotencyConflict
 			}
 			result = cloneTimer(existing)
@@ -438,6 +438,9 @@ func (s *TimerStore) finish(id, owner string, fencingToken int64, occurrenceKey 
 	var result TimerExecution
 	err := s.mutate(func() error {
 		if prior, ok := s.executions[occurrenceKey]; ok {
+			if prior.TimerID != strings.TrimSpace(id) {
+				return ErrTimerIdempotencyConflict
+			}
 			result = prior
 			return nil
 		}

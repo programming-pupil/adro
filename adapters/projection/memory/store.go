@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/ports/projection"
+	"github.com/adro-project/adro/ports/scope"
 )
 
 type Clock func() time.Time
@@ -34,6 +35,9 @@ func (s *Store) Get(ctx context.Context, tenantID, projectionName, key string) (
 	if err := ctx.Err(); err != nil {
 		return projection.Record{}, err
 	}
+	if err := requireTenant(ctx, tenantID); err != nil {
+		return projection.Record{}, err
+	}
 	storageKey, err := validateKey(tenantID, projectionName, key)
 	if err != nil {
 		return projection.Record{}, err
@@ -49,6 +53,9 @@ func (s *Store) Get(ctx context.Context, tenantID, projectionName, key string) (
 
 func (s *Store) Put(ctx context.Context, item projection.Record, expectedVersion int64) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := requireTenant(ctx, item.TenantID); err != nil {
 		return err
 	}
 	key, err := validateKey(item.TenantID, item.Projection, item.Key)
@@ -93,6 +100,9 @@ func (s *Store) Delete(ctx context.Context, tenantID, projectionName, key string
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := requireTenant(ctx, tenantID); err != nil {
+		return err
+	}
 	storageKey, err := validateKey(tenantID, projectionName, key)
 	if err != nil {
 		return err
@@ -112,6 +122,9 @@ func (s *Store) Delete(ctx context.Context, tenantID, projectionName, key string
 
 func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]projection.Record, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := requireTenant(ctx, tenantID); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(projectionName) == "" {
@@ -135,6 +148,17 @@ func validateKey(tenantID, projectionName, key string) (string, error) {
 		return "", errors.New("projection tenant, name and key are required")
 	}
 	return strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00" + strings.TrimSpace(key), nil
+}
+
+func requireTenant(ctx context.Context, tenantID string) error {
+	scoped, err := scope.Tenant(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(tenantID) != scoped {
+		return projection.ErrTenantMismatch
+	}
+	return nil
 }
 
 func validDigest(value string) bool {

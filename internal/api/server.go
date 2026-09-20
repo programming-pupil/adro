@@ -40,6 +40,7 @@ import (
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
+	"github.com/adro-project/adro/ports/scope"
 	"github.com/gorilla/websocket"
 )
 
@@ -478,6 +479,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, authenticatedWorkspaceKey{}, verifiedActor.WorkspaceID)
 		r = r.WithContext(context.WithValue(ctx, authenticatedTenantKey{}, verifiedActor.TenantID))
 	}
+	// Artifact and other tenant-scoped adapters receive the verified boundary
+	// through the request context.  Optional-auth local development still gets
+	// the same explicit local/header tenant selected by tenant(r); adapters
+	// never infer authority from an object key.
+	r = r.WithContext(scope.WithTenant(r.Context(), tenant(r)))
 	var buffered *bufferedResponseWriter
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if len(idempotencyKey) > 255 {
