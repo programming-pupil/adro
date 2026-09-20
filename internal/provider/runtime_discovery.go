@@ -2,8 +2,10 @@ package provider
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,12 +144,61 @@ func executablePath(command string) (string, error) {
 	return path, nil
 }
 
+type boundedCommandOutput struct {
+	mu       sync.Mutex
+	buffer   bytes.Buffer
+	limit    int
+	exceeded bool
+}
+
+func (o *boundedCommandOutput) Write(data []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	original := len(data)
+	remaining := o.limit - o.buffer.Len()
+	if remaining > 0 {
+		if len(data) > remaining {
+			data = data[:remaining]
+			o.exceeded = true
+		}
+		_, _ = o.buffer.Write(data)
+	} else if len(data) > 0 {
+		o.exceeded = true
+	}
+	return original, nil
+}
+
+func (o *boundedCommandOutput) snapshot() ([]byte, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]byte(nil), o.buffer.Bytes()...), o.exceeded
+}
+
+func runBoundedDiscoveryCommand(cmd *exec.Cmd, limit int) ([]byte, error) {
+	output := &boundedCommandOutput{limit: limit}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	configureLocalCommand(cmd)
+	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
+	cmd.WaitDelay = 250 * time.Millisecond
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	data, exceeded := output.snapshot()
+	if exceeded {
+		return nil, errors.New("runtime discovery output exceeded limit")
+	}
+	return data, nil
+}
+
 var loginShellExecutableCache struct {
 	sync.Mutex
 	key       string
 	items     map[string]string
 	expiresAt time.Time
 }
+
+const loginShellDiscoveryTimeout = 10 * time.Second
 
 func cachedLoginShellExecutables() map[string]string {
 	key := strings.Join([]string{os.Getenv("PATH"), os.Getenv("SHELL"), os.Getenv("HOME")}, "\x00")
@@ -185,11 +236,10 @@ func resolveLoginShellExecutables() map[string]string {
 		fmtLine := "if p=$(command -v " + command + " 2>/dev/null); then printf '" + command + "\\t%s\\n' \"$p\"; fi\n"
 		script.WriteString(fmtLine)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), loginShellDiscoveryTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, shell, "-ilc", script.String())
-	cmd.WaitDelay = time.Second
-	output, err := cmd.Output()
+	output, err := runBoundedDiscoveryCommand(cmd, 1<<20)
 	if err != nil {
 		return items
 	}
@@ -250,8 +300,7 @@ func dshProfileAvailable(path string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--profile", dshProfile, "--probe")
-	cmd.WaitDelay = time.Second
-	output, err := cmd.Output()
+	output, err := runBoundedDiscoveryCommand(cmd, 1<<20)
 	if err != nil {
 		return false
 	}

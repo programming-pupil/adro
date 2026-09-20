@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/adro-project/adro/core/testkit"
 )
 
 func testScope() Scope {
@@ -19,7 +21,8 @@ func TestJournalToolLoopIsAuthorizedAndAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-1", "search", "worker-1", lease.FencingToken, []string{"search"}); err != nil {
+	search := ToolContract{Name: "search", Capabilities: []string{"knowledge.read"}, SideEffectClass: EffectReadOnly, ReconcilePolicy: ReconcileNone}
+	if _, err := j.AuthorizeToolContract(scope, "call-1", "worker-1", lease.FencingToken, search, []string{"knowledge.read"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-1", "search", "worker-1", lease.FencingToken, map[string]any{"q": "durability"}); err != nil {
@@ -32,7 +35,8 @@ func TestJournalToolLoopIsAuthorizedAndAtomic(t *testing.T) {
 	if err := j.Verify(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-2", "shell", "worker-1", lease.FencingToken, []string{"search"}); !errors.Is(err, ErrUnauthorized) {
+	shell := ToolContract{Name: "shell", Capabilities: []string{"process.execute"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}
+	if _, err := j.AuthorizeToolContract(scope, "call-2", "worker-1", lease.FencingToken, shell, []string{"knowledge.read"}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expected deny-by-default authorization, got %v", err)
 	}
 }
@@ -115,6 +119,7 @@ func TestJournalConcurrentEffectIntentIsIdempotent(t *testing.T) {
 	}
 }
 
+// Threat ID: TM-DURABLE-001
 func TestStaleWorkerCannotCommitEffectReceipt(t *testing.T) {
 	j := mustJournal(t, "")
 	scope := testScope()
@@ -122,7 +127,8 @@ func TestStaleWorkerCannotCommitEffectReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, []string{"write"}); err != nil {
+	write := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman}
+	if _, err := j.AuthorizeToolContract(scope, "call-stale", "worker-1", lease.FencingToken, write, []string{"record.write"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-stale", "write", "worker-1", lease.FencingToken, map[string]any{"value": 1}); err != nil {
@@ -156,7 +162,8 @@ func TestEffectReceiptAndUnknownOutcomeCannotBothCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.AuthorizeTool(scope, "call-race", "write", "worker", lease.FencingToken, []string{"write"}); err != nil {
+	write := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
+	if _, err := j.AuthorizeToolContract(scope, "call-race", "worker", lease.FencingToken, write, []string{"record.write"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := j.StartTool(scope, "call-race", "write", "worker", lease.FencingToken, map[string]any{"value": 1}); err != nil {
@@ -211,4 +218,92 @@ func mustJournal(t *testing.T, path string) *Journal {
 		t.Fatal(err)
 	}
 	return j
+}
+
+func TestToolContractApprovalCannotBeBypassedByDirectStart(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := ToolContract{
+		Name: "deploy", Capabilities: []string{"deployment.write"},
+		SideEffectClass: EffectNonRetriableWrite, ReconcilePolicy: ReconcileHuman,
+		RequiresApproval: true,
+	}
+	if _, err := j.AuthorizeToolContract(scope, "approval-direct", "worker", lease.FencingToken, contract, []string{"deployment.write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "approval-direct", "deploy", "worker", lease.FencingToken, nil); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("direct start bypassed approval: %v", err)
+	}
+	if _, err := j.ApproveTool(scope, "approval-direct", "worker", lease.FencingToken, "approved"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "approval-direct", "deploy", "worker", lease.FencingToken, nil); err != nil {
+		t.Fatalf("approved direct start failed: %v", err)
+	}
+}
+
+func TestEffectTransitionsRequirePositiveFenceAndMatchingTool(t *testing.T) {
+	j := mustJournal(t, "")
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := ToolContract{Name: "write", Capabilities: []string{"record.write"}, SideEffectClass: EffectReconcilableWrite, ReconcilePolicy: ReconcileQuery}
+	if _, err := j.AuthorizeToolContract(scope, "effect-call", "worker", lease.FencingToken, contract, []string{"record.write"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.StartTool(scope, "effect-call", "write", "worker", lease.FencingToken, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := j.CommitEffectIntent(scope, "effect-call-id", "effect-call", "write", EffectReconcilableWrite, nil, "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-call-id", "", 0); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("zero fence accepted by prepare: %v", err)
+	}
+	if _, err := j.PrepareEffectDispatch(scope, "effect-call-id", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkEffectDispatched(scope, "effect-call-id", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.CompleteToolEffect(scope, "effect-call-id", "different-call", "worker", lease.FencingToken, map[string]any{"ok": true}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("receipt completed mismatched tool: %v", err)
+	}
+	if _, err := j.MarkEffectOutcomeUnknown(scope, "effect-call-id", "lost", "worker", lease.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.ReconcileEffect(scope, "effect-call-id", "different-call", "worker", lease.FencingToken, "confirmed", nil); !errors.Is(err, ErrConflict) {
+		t.Fatalf("reconciliation completed mismatched tool: %v", err)
+	}
+}
+
+func TestJournalWithInjectedDependenciesUsesDeterministicClockAndIDs(t *testing.T) {
+	clock := testkit.NewManualClock(time.Date(2026, 9, 19, 5, 0, 0, 0, time.UTC))
+	ids := &testkit.SequenceIDs{}
+	j, err := NewJournalWithOptions("", JournalOptions{Clock: clock, IDs: ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := testScope()
+	lease, err := j.AcquireLease(scope, "worker", time.Minute, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := j.Append(Input{EventType: EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID, Scope: scope, WriterID: "worker", FencingToken: lease.FencingToken, IdempotencyKey: "deterministic", Payload: map[string]any{"ok": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.EventID != "event-000001" || !event.CreatedAt.Equal(clock.Now()) || !event.CommittedAt.Equal(clock.Now()) {
+		t.Fatalf("event=%+v clock=%s", event, clock.Now())
+	}
+	clock.Advance(2 * time.Minute)
+	if _, err := j.Append(Input{EventType: EventTurnFinished, AggregateType: "run", AggregateID: scope.RunID, Scope: scope, WriterID: "worker", FencingToken: lease.FencingToken, IdempotencyKey: "deterministic-finish", Payload: map[string]any{"ok": true}}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expired injected lease accepted: %v", err)
+	}
 }

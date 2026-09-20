@@ -61,13 +61,16 @@ type DirectoryEntry struct {
 }
 
 type Session struct {
-	User      User      `json:"user"`
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
+	User         User      `json:"user"`
+	Token        string    `json:"token"`
+	CredentialID string    `json:"credential_id"`
+	IssuedAt     time.Time `json:"issued_at"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 type sessionRecord struct {
 	UserID    string
+	IssuedAt  time.Time
 	ExpiresAt time.Time
 }
 
@@ -137,13 +140,19 @@ func (s *Service) Authenticate(username, password string) (Session, error) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expires := now.Add(sessionLifetime)
-	s.sessions[hashToken(token)] = sessionRecord{UserID: user.ID, ExpiresAt: expires}
-	return Session{User: publicUser(user), Token: token, ExpiresAt: expires}, nil
+	credentialID := hashToken(token)
+	s.sessions[credentialID] = sessionRecord{UserID: user.ID, IssuedAt: now, ExpiresAt: expires}
+	return Session{User: publicUser(user), Token: token, CredentialID: credentialID, IssuedAt: now, ExpiresAt: expires}, nil
 }
 
 func (s *Service) AuthenticateToken(token string) (User, bool) {
+	session, ok := s.AuthenticateSession(token)
+	return session.User, ok
+}
+
+func (s *Service) AuthenticateSession(token string) (Session, bool) {
 	if strings.TrimSpace(token) == "" {
-		return User{}, false
+		return Session{}, false
 	}
 	now := s.now()
 	hash := hashToken(token)
@@ -152,14 +161,14 @@ func (s *Service) AuthenticateToken(token string) (User, bool) {
 	record, ok := s.sessions[hash]
 	if !ok || now.After(record.ExpiresAt) {
 		delete(s.sessions, hash)
-		return User{}, false
+		return Session{}, false
 	}
 	user, ok := s.users[record.UserID]
 	if !ok || user.Status != "active" {
 		delete(s.sessions, hash)
-		return User{}, false
+		return Session{}, false
 	}
-	return publicUser(user), true
+	return Session{User: publicUser(user), CredentialID: hash, IssuedAt: record.IssuedAt, ExpiresAt: record.ExpiresAt}, true
 }
 
 func (s *Service) Logout(token string) {

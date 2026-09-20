@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "threats": [
+    {
+      "id": "TM-PI-001",
+      "description": "User, retrieved, tool, remote, and model content attempts to elevate itself into a trusted instruction zone.",
+      "mitigation": "Canonical provenance derives trust from the runtime entry zone, preserves taint through derivation, and rejects elevation.",
+      "tests": [
+        "internal/security/provenance_test.go#TestUntrustedTrustZonesCannotElevate",
+        "internal/security/provenance_test.go#TestDeriveProvenancePreservesTaintSensitivityAndTenant",
+        "internal/context/manifest_test.go#TestPromptManifestLabelsInjectionZonesAndEscapesStructuralContent"
+      ]
+    },
+    {
+      "id": "TM-PI-002",
+      "description": "Untrusted prompt content forges structural delimiters or sibling prompt segments.",
+      "mitigation": "Prompt manifest v2 emits one canonical JSON frame per segment and escapes content inside the frame.",
+      "tests": [
+        "internal/context/manifest_test.go#TestPromptManifestLabelsInjectionZonesAndEscapesStructuralContent"
+      ]
+    },
+    {
+      "id": "TM-TENANT-001",
+      "description": "Context or derived data crosses tenant scope.",
+      "mitigation": "Manifest normalization and provenance derivation reject mixed tenant scopes.",
+      "tests": [
+        "internal/security/provenance_test.go#TestDeriveProvenancePreservesTaintSensitivityAndTenant",
+        "internal/context/manifest_test.go#TestManifestRejectsCrossTenantContextBlocks"
+      ]
+    },
+    {
+      "id": "TM-SUPPLY-001",
+      "description": "A compromised, retired, or revoked publisher key continues to authorize adapters.",
+      "mitigation": "Signed registry records support authenticated rotation, revocation, quarantine, and compatible rollback.",
+      "tests": [
+        "internal/plugins/registry_test.go#TestRegistryKeyRotationRevocationAndCompatibleRollback"
+      ]
+    },
+    {
+      "id": "TM-SUPPLY-002",
+      "description": "A caller reuses a valid installation identity with forged capabilities or filesystem policy.",
+      "mitigation": "Execution authorization returns the registry's stored signed policy and ignores caller-supplied policy fields.",
+      "tests": [
+        "internal/plugins/registry_test.go#TestAuthorizeExecutionReturnsStoredPolicyAndRejectsForgedIdentity"
+      ]
+    },
+    {
+      "id": "TM-SUPPLY-003",
+      "description": "An adapter with an incompatible protocol, schema, version, or permission set receives work.",
+      "mitigation": "The supervisor completes a bounded handshake and rejects mismatches or permission overclaims before dispatch.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsHandshakeMismatchAndPermissionOverclaim"
+      ]
+    },
+    {
+      "id": "TM-EXT-001",
+      "description": "An unapproved extension enters the runtime process.",
+      "mitigation": "In-process execution requires a registry-issued active grant and an explicit trusted factory.",
+      "tests": [
+        "internal/plugins/registry_test.go#TestAuthorizeExecutionReturnsStoredPolicyAndRejectsForgedIdentity",
+        "runtime/extensions/supervisor_test.go#TestSupervisorInProcessRequiresExplicitFactoryAndHandshake"
+      ]
+    },
+    {
+      "id": "TM-EXT-002",
+      "description": "An out-of-process extension gains broad access to runtime internals.",
+      "mitigation": "The runtime exposes only a bounded JSON-RPC stream over SandboxBroker.",
+      "tests": [
+        "internal/plugins/registry_test.go#TestRegistryKeyRotationRevocationAndCompatibleRollback",
+        "runtime/extensions/supervisor_test.go#TestSupervisorHandshakeCallHealthAndStop"
+      ]
+    },
+    {
+      "id": "TM-EXT-003",
+      "description": "An extension or authorizer changes identity, capabilities, permissions, or response correlation.",
+      "mitigation": "Identity is immutable across authorization; handshake subsets and JSON-RPC IDs are checked fail closed.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsHandshakeMismatchAndPermissionOverclaim",
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsChangedAuthorizationIdentityUndeclaredCallsAndWASI"
+      ]
+    },
+    {
+      "id": "TM-EXT-004",
+      "description": "Crash or silent-exit storms create unbounded restart loops.",
+      "mitigation": "A global restart budget, exponential backoff, bounded handshake timeout, quarantine, and audit events cap recovery.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorCrashRestartQuarantinesAfterBoundedAttempts",
+        "runtime/extensions/supervisor_test.go#TestSupervisorBoundsSilentAndForgedProtocolResponses"
+      ]
+    },
+    {
+      "id": "TM-EXT-005",
+      "description": "An extension floods or corrupts the protocol stream.",
+      "mitigation": "Negotiated frame limits, bounded queues, strict JSON-RPC parsing, and timeout-triggered process closure fail closed.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorBoundsProtocolFlood",
+        "runtime/extensions/supervisor_test.go#TestSupervisorEnforcesNegotiatedFrameSize",
+        "runtime/extensions/supervisor_test.go#TestSupervisorBoundsSilentAndForgedProtocolResponses"
+      ]
+    },
+    {
+      "id": "TM-EXT-006",
+      "description": "An extension inherits host environment state or requests undeclared secret access.",
+      "mitigation": "The environment is constructed from an allowlisted request and secret permissions require opaque scoped references.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsEnvironmentInjectionAndSecretWithoutLease"
+      ]
+    },
+    {
+      "id": "TM-EXT-007",
+      "description": "A caller invokes undeclared adapter methods or routes WASI work through an unrestricted process runner.",
+      "mitigation": "Dispatch checks signed capabilities and rejects WASI until a dedicated runtime exists.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsChangedAuthorizationIdentityUndeclaredCallsAndWASI"
+      ]
+    },
+    {
+      "id": "TM-EXT-008",
+      "description": "A trusted in-process adapter panics or returns oversized or invalid protocol data.",
+      "mitigation": "Panic containment, response validation, negotiated limits, and quarantine prevent a plugin failure from crashing the runtime.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorContainsInProcessPanicAndInvalidResponse"
+      ]
+    },
+    {
+      "id": "TM-EGRESS-001",
+      "description": "A caller sends data to an undeclared destination, purpose, tenant scope, or sensitivity level, or dispatches before decision evidence is durable.",
+      "mitigation": "Canonical capability and egress policy evaluates signed grants fail closed and the supervisor persists the decision before adapter dispatch.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorPersistsEgressDecisionBeforeDispatch",
+        "runtime/extensions/supervisor_test.go#TestSupervisorFailsClosedWhenEgressDecisionCannotBePersisted"
+      ]
+    },
+    {
+      "id": "TM-SBX-001",
+      "description": "A sandbox request escapes the workspace through traversal or symlink aliases.",
+      "mitigation": "Canonical containment and component-by-component symlink checks reject unsafe paths.",
+      "tests": [
+        "adapters/sandbox/local/local_test.go#TestPathValidationRejectsEscapeAndSymlinkAliases"
+      ]
+    },
+    {
+      "id": "TM-SBX-002",
+      "description": "A sandboxed process opens undeclared outbound network connections.",
+      "mitigation": "The macOS reference backend uses a deny-default Seatbelt profile and rejects grants it cannot bind faithfully.",
+      "tests": [
+        "adapters/sandbox/local/profile_darwin_test.go#TestSeatbeltDeniesOutboundNetworkByDefault"
+      ]
+    },
+    {
+      "id": "TM-SBX-003",
+      "description": "A timed-out or cancelled process remains live.",
+      "mitigation": "Execution deadlines and cancellation terminate the process and publish a durable result category.",
+      "tests": [
+        "adapters/sandbox/local/local_test.go#TestExecutionTimeoutAndCancellation"
+      ]
+    },
+    {
+      "id": "TM-SBX-004",
+      "description": "A process exhausts runtime memory through unbounded output.",
+      "mitigation": "Output accounting terminates the process at a finite configured limit.",
+      "tests": [
+        "adapters/sandbox/local/local_test.go#TestOutputLimitTerminatesProcess"
+      ]
+    },
+    {
+      "id": "TM-SBX-005",
+      "description": "A cancelled process leaves descendant processes behind.",
+      "mitigation": "Unix process-group cancellation terminates the complete descendant tree.",
+      "tests": [
+        "adapters/sandbox/local/process_unix_test.go#TestCancellationTerminatesDescendantProcessTree"
+      ]
+    },
+    {
+      "id": "TM-SECRET-001",
+      "description": "A secret reference is resolved outside its tenant, destination, or purpose scope.",
+      "mitigation": "Secret leases bind the complete scope and material requests must reproduce it exactly.",
+      "tests": [
+        "adapters/secret/memory/memory_test.go#TestBrokerRejectsUnauthorizedSecretScopes"
+      ]
+    },
+    {
+      "id": "TM-SECRET-002",
+      "description": "Secret plaintext leaks through serializable lease metadata.",
+      "mitigation": "Public leases contain only opaque references and scoped metadata.",
+      "tests": [
+        "adapters/secret/memory/memory_test.go#TestPublicMetadataNeverSerializesPlaintext"
+      ]
+    },
+    {
+      "id": "TM-SECRET-003",
+      "description": "An extension declares secret access but starts without any broker-issued reference.",
+      "mitigation": "Extension startup rejects secret permissions when no opaque reference is supplied.",
+      "tests": [
+        "runtime/extensions/supervisor_test.go#TestSupervisorRejectsEnvironmentInjectionAndSecretWithoutLease"
+      ]
+    },
+    {
+      "id": "TM-DURABLE-001",
+      "description": "A stale worker forges or commits an effect receipt after losing its lease.",
+      "mitigation": "Effect transitions require the current positive fencing token and matching tool/effect identity.",
+      "tests": [
+        "internal/runtime/kernel_test.go#TestStaleWorkerCannotCommitEffectReceipt"
+      ]
+    },
+    {
+      "id": "TM-DURABLE-002",
+      "description": "A write effect with unknown external outcome is automatically redispatched.",
+      "mitigation": "Unknown write outcomes are terminal until explicit policy-driven reconciliation.",
+      "tests": [
+        "internal/runtime/loop_test.go#TestToolLoopDoesNotReplayWriteAfterUnknownOutcome"
+      ]
+    },
+    {
+      "id": "TM-REDACT-001",
+      "description": "Sensitive prompt or tool payload values cross an adapter boundary in plaintext.",
+      "mitigation": "Prompt and tool surfaces redact unclassified scalar values by default and honor explicit sensitivity.",
+      "tests": [
+        "internal/security/redaction_test.go#TestPromptAndToolPayloadsRedactByDefault"
+      ]
+    },
+    {
+      "id": "TM-REDACT-002",
+      "description": "Credentials or secret-shaped values leak through trace attributes.",
+      "mitigation": "Trace attribute keys and values pass through deterministic redaction before export.",
+      "tests": [
+        "internal/security/redaction_test.go#TestTraceAttributeRedaction"
+      ]
+    },
+    {
+      "id": "TM-IDENT-001",
+      "description": "A caller forges actor, tenant, or workspace headers to escape the scope bound to its authenticated credential.",
+      "mitigation": "Authentication binds a validated Actor to request context and handlers derive identity and scope only from that context in authenticated profiles.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestServiceCredentialRejectsScopeSpoofingAndBindsActor"
+      ]
+    },
+    {
+      "id": "TM-IDENT-002",
+      "description": "A static, expired, revoked, or otherwise invalid service credential continues to authorize API calls.",
+      "mitigation": "Short-lived Ed25519 credentials bind audience and scope; key and credential revocation fail closed and the legacy static token configuration prevents readiness.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestRevokedAndExpiredServiceCredentialsAreRejected",
+        "internal/api/auth_attachment_test.go#TestLegacyStaticAPITokenFailsClosedAtStartup"
+      ]
+    },
+    {
+      "id": "TM-IDENT-003",
+      "description": "Delegation, impersonation, takeover, or break-glass hides the initiating principal from audit evidence.",
+      "mitigation": "Actor transitions retain the original principal and complete transition chain, and audit records store both effective and original identity with the credential ID.",
+      "tests": [
+        "internal/api/auth_attachment_test.go#TestAuditPreservesOriginalActorAndDelegationChain"
+      ]
+    },
+    {
+      "id": "TM-HUMAN-001",
+      "description": "Two responders race to claim or decide the same human or approval request, or a displaced claimant submits a late answer.",
+      "mitigation": "Claims are lease-like durable transitions serialized under the runtime write fence; takeover increments generation and only the current eligible claimant may respond.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanApprovalConcurrentClaimTakeoverAndDuplicateDecision"
+      ]
+    },
+    {
+      "id": "TM-HUMAN-002",
+      "description": "An ineligible or expired human identity answers a request after its authorization window closes.",
+      "mitigation": "Actor credentials, tenant/workspace scope, eligibility, request version, claim ownership, schema, and deadline are checked before a response event can commit.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanRequestRejectsExpiredIneligibleAndUnsafeResponses"
+      ]
+    },
+    {
+      "id": "TM-HUMAN-003",
+      "description": "A human response changes frozen context while a model stream or tool effect is active.",
+      "mitigation": "Responses commit separately and become visible only through an apply event targeting a pending step while its parent turn is in the matching waiting state.",
+      "tests": [
+        "internal/runtime/human_interaction_test.go#TestHumanInteractionResponseAppliesOnlyAtSafeBoundaryAndReplays"
+      ]
+    }
+  ]
+}

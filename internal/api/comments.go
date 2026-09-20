@@ -74,7 +74,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 			runtimeHealthy = true
 		}
 	}
-	userCanInvoke := !authRequired() || authorizedMachine(r)
+	userCanInvoke := !authRequired() || s.serviceAuthenticated(r)
 	if user, ok := s.authenticateUser(r); ok {
 		userCanInvoke = user.Can("agents") || user.Can("delivery")
 	}
@@ -192,11 +192,11 @@ func (s *Server) commentEditRoute(w http.ResponseWriter, r *http.Request, commen
 }
 
 func commentActor(r *http.Request) (string, string) {
-	if id := strings.TrimSpace(r.Header.Get("X-Member-ID")); id != "" {
-		return id, "member"
+	if actor, ok := verifiedActor(r); ok {
+		return actor.ID, string(actor.Type)
 	}
-	if id := strings.TrimSpace(r.Header.Get("X-Agent-ID")); id != "" {
-		return id, "agent"
+	if id := requestActorID(r); id != "" {
+		return id, requestActorType(r)
 	}
 	return "local-user", "system"
 }
@@ -305,14 +305,7 @@ func (s *Server) commentRoute(w http.ResponseWriter, r *http.Request, targetType
 		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 		return
 	}
-	authorID := strings.TrimSpace(r.Header.Get("X-Member-ID"))
-	authorType := "member"
-	if authorID == "" {
-		authorID = strings.TrimSpace(r.Header.Get("X-Agent-ID"))
-		if authorID != "" {
-			authorType = "agent"
-		}
-	}
+	authorID, authorType := commentActor(r)
 	if authorID == "" {
 		// Body identity fields are display-only input. They are never trusted as
 		// the actor because a caller could otherwise impersonate an Agent/member

@@ -36,7 +36,10 @@ type NodeProjection struct {
 	// It prevents a pending repair target or verification node from being
 	// consumed merely because it was also an entry node or became ready through
 	// an unrelated edge.
-	ReadyEdgeIDs []string `json:"ready_edge_ids,omitempty"`
+	ReadyEdgeIDs          []string       `json:"ready_edge_ids,omitempty"`
+	AdmissionState        AdmissionState `json:"admission_state,omitempty"`
+	AdmissionReason       string         `json:"admission_reason,omitempty"`
+	ResourceReservationID string         `json:"resource_reservation_id,omitempty"`
 }
 type PlanProjection struct {
 	PlanID   string     `json:"plan_id"`
@@ -213,16 +216,17 @@ func (p PlanProjection) Validate() error {
 }
 
 type TransitionInput struct {
-	PlanRevision    int64
-	AttemptID       string
-	LeaseToken      int64
-	Event           string
-	Result          StructuredResult
-	Failure         *FailureReason
-	OutputArtifacts []string
-	IdempotencyKey  string
-	PayloadHash     string
-	Now             time.Time
+	PlanRevision          int64
+	AttemptID             string
+	LeaseToken            int64
+	Event                 string
+	Result                StructuredResult
+	Failure               *FailureReason
+	OutputArtifacts       []string
+	IdempotencyKey        string
+	PayloadHash           string
+	ResourceReservationID string
+	Now                   time.Time
 }
 
 func NewProjection(plan RequirementExecutionPlan) (PlanProjection, error) {
@@ -396,7 +400,7 @@ func (p *PlanProjection) StartAttempt(plan RequirementExecutionPlan, nodeID, att
 		p.Idempotency[input.IdempotencyKey] = input.PayloadHash
 	}
 	parentAttempt := n.CurrentAttempt
-	a := NodeAttempt{ID: attemptID, PlanID: plan.ID, NodeID: nodeID, AttemptNo: attemptNo, Lease: lease, IdempotencyKey: input.IdempotencyKey, InputManifest: in, Status: AttemptRunning, StartedAt: &now, ParentAttemptID: parentAttempt, RetryOf: parentAttempt, RepairState: repairLifecycleAtStart(*p, plan.GraphSnapshot, nodeID)}
+	a := NodeAttempt{ID: attemptID, PlanID: plan.ID, NodeID: nodeID, AttemptNo: attemptNo, Lease: lease, IdempotencyKey: input.IdempotencyKey, InputManifest: in, Status: AttemptRunning, StartedAt: &now, ParentAttemptID: parentAttempt, RetryOf: parentAttempt, ResourceReservationID: strings.TrimSpace(input.ResourceReservationID), RepairState: repairLifecycleAtStart(*p, plan.GraphSnapshot, nodeID)}
 	if repairID, state := repairPlanForDispatch(*p, plan.GraphSnapshot, nodeID); repairID != "" {
 		a.RepairPlanID = repairID
 		a.RepairState = state

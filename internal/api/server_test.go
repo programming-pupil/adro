@@ -17,7 +17,9 @@ import (
 	"testing"
 	"time"
 
+	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
+	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/orchestration"
@@ -35,6 +37,28 @@ func testServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	return New(store.NewMemory(), provider.NewMockProvider(bus), fs, bus, nil)
+}
+
+func testServiceToken(t *testing.T, server *Server, actorType coreidentity.ActorType, actorID, tenantID, workspaceID string) string {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	state, err := adroauth.GenerateServiceCredentialState("test-service-key", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return time.Now().UTC() }, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.ServiceCredentials = authority
+	token, _, err := authority.Issue(adroauth.ServiceTokenIssueRequest{
+		Type: actorType, ID: actorID, TenantID: tenantID, WorkspaceID: workspaceID,
+		Audience: adroauth.ServiceTokenAudienceAPI, TTL: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func TestRunRouteReadsRuntimeProviderPoolRuns(t *testing.T) {
@@ -1236,13 +1260,13 @@ func TestWorkspaceStreamHTTPReplayAndAckAreScoped(t *testing.T) {
 
 func TestOptionalBearerAuthMode(t *testing.T) {
 	t.Setenv("ADRO_AUTH_MODE", "required")
-	t.Setenv("ADRO_API_TOKEN", "test-token")
 	t.Setenv("ADRO_ADMIN_PASSWORD", "AdminPass123!")
 	s := testServer(t)
+	token := testServiceToken(t, s, coreidentity.ActorService, "api-client", "local", "local")
 	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", nil).Code; got != http.StatusUnauthorized {
 		t.Fatalf("without token status=%d", got)
 	}
-	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer test-token"}).Code; got != http.StatusOK {
+	if got := request(t, s.Routes(), http.MethodGet, "/api/v1/bugs", "", map[string]string{"Authorization": "Bearer " + token}).Code; got != http.StatusOK {
 		t.Fatalf("with token status=%d", got)
 	}
 	if got := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil).Code; got != http.StatusOK {
@@ -1251,11 +1275,17 @@ func TestOptionalBearerAuthMode(t *testing.T) {
 }
 
 func TestDiscoveredRuntimesEndpointReturnsCompleteRegistry(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	emptyRuntimeDir := t.TempDir()
+	t.Setenv("PATH", emptyRuntimeDir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
-	// Pin Codex to an unavailable path so this test remains independent of the
-	// macOS desktop fallback on developer machines that have Codex installed.
-	t.Setenv("ADRO_CODEX_PATH", filepath.Join(t.TempDir(), "missing-codex"))
+	// Pin every registered runtime to a missing executable. This keeps the API
+	// contract test independent of PATH, login-shell startup files, desktop-app
+	// fallbacks, and runtime-specific overrides on the developer machine.
+	for _, descriptor := range provider.RuntimeRegistry {
+		key := "ADRO_" + strings.ToUpper(strings.ReplaceAll(descriptor.ID, "-", "_")) + "_PATH"
+		t.Setenv(key, filepath.Join(emptyRuntimeDir, "missing-"+descriptor.ID))
+	}
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/discovered", "", nil)
 	if response.Code != http.StatusOK {
@@ -1285,7 +1315,16 @@ func TestRuntimeModelsEndpointReturnsPerModelOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	t.Setenv("SHELL", "")
 	t.Setenv("ADRO_EXECUTOR", "")
+	for _, descriptor := range provider.RuntimeRegistry {
+		key := "ADRO_" + strings.ToUpper(strings.ReplaceAll(descriptor.ID, "-", "_")) + "_PATH"
+		path := filepath.Join(dir, "missing-"+descriptor.ID)
+		if descriptor.ID == "codex" {
+			path = script
+		}
+		t.Setenv(key, path)
+	}
 	s := testServer(t)
 	response := request(t, s.Routes(), http.MethodGet, "/api/v1/runtimes/codex/models", "", nil)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model-a"`) || !strings.Contains(response.Body.String(), `"priority"`) {
@@ -1318,5 +1357,42 @@ func TestRequiredLocalAuthReadinessNeedsIdentitySource(t *testing.T) {
 	response := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil)
 	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "auth_not_configured") {
 		t.Fatalf("readiness status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+type shutdownRecordingExporter struct {
+	shutdowns int
+}
+
+func (*shutdownRecordingExporter) Export(context.Context, []telemetry.Span) error { return nil }
+func (e *shutdownRecordingExporter) Shutdown(context.Context) error {
+	e.shutdowns++
+	return nil
+}
+
+func TestInvalidTelemetryConfigurationFailsClosed(t *testing.T) {
+	t.Setenv("ADRO_OTEL_EXPORTER_OTLP_ENDPOINT", "collector.invalid/no-scheme?secret=value")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	s := testServer(t)
+	response := request(t, s.Routes(), http.MethodGet, "/readyz", "", nil)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "state_load_failed") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestServerSharesTracerWithGraphExecutorsAndShutsItDown(t *testing.T) {
+	s := testServer(t)
+	exporter := &shutdownRecordingExporter{}
+	s.Tracer = telemetry.Tracer{Exporter: exporter}
+	executor := s.graphExecutor("worker")
+	if executor.Tracer.Exporter != exporter {
+		t.Fatal("graph executor did not receive the process tracer")
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if exporter.shutdowns != 1 {
+		t.Fatalf("shutdowns=%d", exporter.shutdowns)
 	}
 }

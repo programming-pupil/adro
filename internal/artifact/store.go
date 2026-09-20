@@ -12,10 +12,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/adro-project/adro/ports/scope"
 )
 
 type Key struct {
@@ -51,6 +54,9 @@ type ObjectMeta struct {
 }
 
 type Store interface {
+	// Every method that addresses a Key must receive a matching
+	// scope.WithTenant context. Implementations must fail closed when the
+	// caller omits or mismatches that scope.
 	Capabilities(context.Context) (Capabilities, error)
 	Put(context.Context, Key, io.Reader, PutOptions) (ObjectMeta, error)
 	Open(context.Context, Key, ByteRange) (io.ReadCloser, ObjectMeta, error)
@@ -102,6 +108,12 @@ func pathComponentDigest(value string) string {
 }
 
 func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions) (ObjectMeta, error) {
+	if err := requireTenantScope(ctx, k); err != nil {
+		return ObjectMeta{}, err
+	}
+	if r == nil {
+		return ObjectMeta{}, errors.New("artifact content reader is required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.path(k)
@@ -131,8 +143,19 @@ func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions
 	if err := ctx.Err(); err != nil {
 		return ObjectMeta{}, err
 	}
-	if existing, err := s.readMeta(path, k); err == nil && existing.Immutable {
-		return ObjectMeta{}, errors.New("immutable artifact already exists")
+	if existing, metaErr := s.readMeta(path, k); metaErr == nil {
+		if existing.Immutable {
+			return ObjectMeta{}, errors.New("immutable artifact already exists")
+		}
+	} else if !errors.Is(metaErr, fs.ErrNotExist) {
+		// Never overwrite an object whose integrity metadata cannot be
+		// authenticated.  Doing so would erase evidence of corruption and make
+		// a failed recovery look like a successful replacement.
+		return ObjectMeta{}, fmt.Errorf("read existing artifact metadata: %w", metaErr)
+	} else if _, contentErr := os.Stat(path); contentErr == nil {
+		return ObjectMeta{}, errors.New("artifact content exists without metadata")
+	} else if !errors.Is(contentErr, fs.ErrNotExist) {
+		return ObjectMeta{}, fmt.Errorf("inspect existing artifact content: %w", contentErr)
 	}
 	meta := ObjectMeta{Key: k, MediaType: opts.MediaType, SizeBytes: n, ContentSHA256: hex.EncodeToString(h.Sum(nil)), CreatedAt: time.Now().UTC(), Immutable: opts.Immutable}
 	metaTmp, err := os.CreateTemp(filepath.Dir(path), ".metadata-*")
@@ -159,6 +182,9 @@ func (s *FileStore) Put(ctx context.Context, k Key, r io.Reader, opts PutOptions
 }
 
 func (s *FileStore) Open(ctx context.Context, k Key, br ByteRange) (io.ReadCloser, ObjectMeta, error) {
+	if err := requireTenantScope(ctx, k); err != nil {
+		return nil, ObjectMeta{}, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	path, err := s.path(k)
@@ -219,6 +245,9 @@ type rangeReadCloser struct {
 func (r *rangeReadCloser) Close() error { return r.closer.Close() }
 
 func (s *FileStore) Stat(ctx context.Context, k Key) (ObjectMeta, error) {
+	if err := requireTenantScope(ctx, k); err != nil {
+		return ObjectMeta{}, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	path, err := s.path(k)
@@ -269,6 +298,9 @@ func verifyObject(path string, meta ObjectMeta) error {
 }
 
 func (s *FileStore) Delete(ctx context.Context, k Key, opts DeleteOptions) error {
+	if err := requireTenantScope(ctx, k); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if opts.LegalHold {
@@ -286,6 +318,24 @@ func (s *FileStore) Delete(ctx context.Context, k Key, opts DeleteOptions) error
 		return err
 	}
 	_ = os.Remove(path + ".meta.json")
+	return nil
+}
+
+// requireTenantScope makes every object operation carry an authenticated
+// tenant boundary.  A key is never allowed to supply its own authority: the
+// caller's verified scope must match it exactly, otherwise the operation fails
+// closed before touching the filesystem.
+func requireTenantScope(ctx context.Context, k Key) error {
+	if ctx == nil {
+		return scope.ErrMissingTenant
+	}
+	tenant, err := scope.Tenant(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(k.TenantID) == "" || tenant != k.TenantID {
+		return scope.ErrMissingTenant
+	}
 	return nil
 }
 func (s *FileStore) Health(ctx context.Context) error {
@@ -306,6 +356,68 @@ func (s *FileStore) readMeta(path string, key Key) (ObjectMeta, error) {
 	if err := json.NewDecoder(f).Decode(&meta); err != nil {
 		return ObjectMeta{}, err
 	}
-	meta.Key = key
+	if key.TenantID != "" || key.ArtifactID != "" || key.Version != 0 {
+		if meta.Key != (Key{}) && meta.Key != key {
+			return ObjectMeta{}, errors.New("artifact metadata key does not match requested key")
+		}
+		meta.Key = key
+	}
 	return meta, nil
+}
+
+// List returns verified object metadata for the authenticated tenant. An
+// unscoped or mismatched inventory request is rejected; a lifecycle worker
+// must never turn a local filesystem walk into a cross-tenant scan.
+func (s *FileStore) List(ctx context.Context, tenantID string) ([]ObjectMeta, error) {
+	if s == nil {
+		return nil, errors.New("artifact store is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	scopedTenant, err := scope.Tenant(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		tenantID = scopedTenant
+	}
+	if tenantID != scopedTenant {
+		return nil, scope.ErrMissingTenant
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]ObjectMeta, 0)
+	err = filepath.WalkDir(s.root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
+			return nil
+		}
+		contentPath := strings.TrimSuffix(path, ".meta.json")
+		meta, err := s.readMeta(contentPath, Key{})
+		if err != nil {
+			return fmt.Errorf("read artifact metadata %s: %w", entry.Name(), err)
+		}
+		if meta.Key.TenantID != tenantID {
+			return nil
+		}
+		if err := verifyObject(contentPath, meta); err != nil {
+			return fmt.Errorf("verify artifact %s: %w", meta.Key.URI(), err)
+		}
+		result = append(result, meta)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Key.URI() < result[j].Key.URI()
+	})
+	return result, nil
 }

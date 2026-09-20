@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/security"
 )
 
 // planTimeline returns the immutable event chain together with the current
@@ -127,10 +128,24 @@ func (s *Server) runDiagnostics(w http.ResponseWriter, r *http.Request, runID st
 		if !matched {
 			continue
 		}
-		s.writeJSON(w, http.StatusOK, orchestrationDiagnostics(runID, plan, projection, events, s.Orchestration.ListOutbox(plan.ID, "")))
+		diagnostics := orchestrationDiagnostics(runID, plan, projection, events, s.Orchestration.ListOutbox(plan.ID, ""))
+		if s.ResourceLedger != nil {
+			scope := orchestration.ResourceScope{TenantID: tenantForRequest(r, plan.WorkspaceID), WorkspaceID: plan.WorkspaceID}
+			if resources, resourceErr := s.ResourceLedger.Dashboard(scope, 100); resourceErr == nil {
+				diagnostics["resources"] = resources
+			}
+		}
+		s.writeJSON(w, http.StatusOK, diagnostics)
 		return
 	}
 	s.problem(w, r, http.StatusNotFound, "run_not_found", "run is not present in orchestration event history", nil)
+}
+
+func tenantForRequest(r *http.Request, workspaceID string) string {
+	if value := strings.TrimSpace(tenant(r)); value != "" {
+		return value
+	}
+	return strings.TrimSpace(workspaceID)
 }
 
 func planTimelineItems(plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, events []orchestration.Event) []map[string]any {
@@ -238,7 +253,7 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 		if err := json.Unmarshal(event.Payload, &item); err != nil {
 			item = map[string]any{"redacted": true}
 		} else {
-			item = redactOrchestrationValue(item, "")
+			item = security.Redact(security.SurfaceEvent, item)
 		}
 		data := map[string]any{
 			"event_id": event.ID, "plan_id": event.PlanID, "workspace_id": event.WorkspaceID,
@@ -252,29 +267,6 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 		result = append(result, data)
 	}
 	return result
-}
-
-func redactOrchestrationValue(value any, key string) any {
-	lower := strings.ToLower(strings.TrimSpace(key))
-	if lower == "prompt" || lower == "input" || lower == "content" || lower == "secret" || strings.Contains(lower, "secret") || strings.Contains(lower, "token_value") {
-		return "[redacted]"
-	}
-	switch typed := value.(type) {
-	case map[string]any:
-		copy := make(map[string]any, len(typed))
-		for childKey, childValue := range typed {
-			copy[childKey] = redactOrchestrationValue(childValue, childKey)
-		}
-		return copy
-	case []any:
-		copy := make([]any, len(typed))
-		for i, child := range typed {
-			copy[i] = redactOrchestrationValue(child, key)
-		}
-		return copy
-	default:
-		return value
-	}
 }
 
 func lastSequence(events []orchestration.Event) int64 {

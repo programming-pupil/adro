@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -89,12 +90,21 @@ func runDSHHelperRequest(t *testing.T, mode string, timeout time.Duration, resum
 	t.Setenv("ADRO_TEST_DSH_LOG", logPath)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	_, output, runErr := executeDSHRuntime(
+	var writesMu sync.Mutex
+	var writes strings.Builder
+	_, output, runErr := executeDSHRuntimeWithHooks(
 		ctx, executable, []string{"-test.run=^TestDSHRuntimeHelperProcess$"},
-		"run-1", "task", t.TempDir(), "dsh-session", "provider/model", "high", resumed, nil, nil,
+		"run-1", "task", t.TempDir(), "dsh-session", "provider/model", "high", resumed, nil,
+		dshRuntimeHooks{onWrite: func(frame []byte) {
+			writesMu.Lock()
+			_, _ = writes.Write(frame)
+			writesMu.Unlock()
+		}},
 	)
-	requests, _ := os.ReadFile(logPath)
-	return output, string(requests), runErr
+	writesMu.Lock()
+	requests := writes.String()
+	writesMu.Unlock()
+	return output, requests, runErr
 }
 
 func TestExecuteDSHRuntimeBoundsProcessExitAfterResult(t *testing.T) {

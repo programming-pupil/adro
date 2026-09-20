@@ -137,19 +137,28 @@ func TestRuntimeProviderPoolRestoresSelectedRuntimeRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		snapshot, snapshotErr := selected.GetRun(context.Background(), binding.ID)
-		if snapshotErr != nil {
-			t.Fatal(snapshotErr)
-		}
-		if snapshot.Status != "running" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("selected runtime did not finish")
-		}
-		time.Sleep(10 * time.Millisecond)
+	selectedProvider, ok := selected.(selectedRuntimeProvider)
+	if !ok {
+		t.Fatalf("resolved provider type %T", selected)
+	}
+	local, ok := selectedProvider.provider.(*LocalProvider)
+	if !ok {
+		t.Fatalf("selected provider implementation %T", selectedProvider.provider)
+	}
+	local.mu.RLock()
+	run := local.runs[binding.ID]
+	local.mu.RUnlock()
+	if run == nil || run.done == nil {
+		t.Fatal("selected runtime did not expose owned completion")
+	}
+	select {
+	case <-run.done:
+	case <-time.After(time.Minute):
+		t.Fatal("selected runtime did not finish")
+	}
+	terminalSnapshot, err := selected.GetRun(context.Background(), binding.ID)
+	if err != nil || terminalSnapshot.Status == "running" {
+		t.Fatalf("terminal selected snapshot=%+v err=%v", terminalSnapshot, err)
 	}
 
 	restartedFallback, err := NewPersistentLocalProvider(executable, nil, workRoot, statePath, events.NewBus())

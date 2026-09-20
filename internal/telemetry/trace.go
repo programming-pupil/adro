@@ -11,7 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -110,6 +113,9 @@ func ContextWithSpan(ctx context.Context, span SpanContext) context.Context {
 		return ctx
 	}
 	span.Remote = false
+	if otelSpan, ok := toOTelSpanContext(span); ok {
+		ctx = oteltrace.ContextWithSpanContext(ctx, otelSpan)
+	}
 	return context.WithValue(ctx, contextKey{}, span)
 }
 
@@ -118,7 +124,14 @@ func FromContext(ctx context.Context) (SpanContext, bool) {
 		return SpanContext{}, false
 	}
 	span, ok := ctx.Value(contextKey{}).(SpanContext)
-	return span, ok && span.Valid()
+	if ok && span.Valid() {
+		return span, true
+	}
+	otelSpan := oteltrace.SpanContextFromContext(ctx)
+	if !otelSpan.IsValid() {
+		return SpanContext{}, false
+	}
+	return fromOTelSpanContext(otelSpan), true
 }
 
 func InjectHeader(header http.Header, ctx context.Context) {
@@ -182,27 +195,52 @@ func validHex(value string, length int) bool {
 }
 
 func validTraceState(value string) bool {
-	if value == "" {
-		return true
+	_, err := oteltrace.ParseTraceState(value)
+	return err == nil
+}
+
+func toOTelSpanContext(span SpanContext) (oteltrace.SpanContext, bool) {
+	if !span.Valid() {
+		return oteltrace.SpanContext{}, false
 	}
-	if len(value) > 512 || strings.ContainsAny(value, "\r\n") {
-		return false
+	traceID, err := oteltrace.TraceIDFromHex(span.TraceID)
+	if err != nil {
+		return oteltrace.SpanContext{}, false
 	}
-	members := strings.Split(value, ",")
-	if len(members) > 32 {
-		return false
+	spanID, err := oteltrace.SpanIDFromHex(span.SpanID)
+	if err != nil {
+		return oteltrace.SpanContext{}, false
 	}
-	for _, member := range members {
-		member = strings.TrimSpace(member)
-		parts := strings.SplitN(member, "=", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || len(parts[0]) > 256 || len(parts[1]) > 256 {
-			return false
-		}
-		if strings.ContainsAny(parts[0]+parts[1], " ,\t") {
-			return false
-		}
+	flags, err := strconv.ParseUint(span.TraceFlags, 16, 8)
+	if err != nil {
+		return oteltrace.SpanContext{}, false
 	}
-	return true
+	state, err := oteltrace.ParseTraceState(span.TraceState)
+	if err != nil {
+		return oteltrace.SpanContext{}, false
+	}
+	return oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID: traceID, SpanID: spanID, TraceFlags: oteltrace.TraceFlags(flags), TraceState: state, Remote: span.Remote,
+	}), true
+}
+
+func fromOTelSpanContext(span oteltrace.SpanContext) SpanContext {
+	return SpanContext{
+		TraceID: span.TraceID().String(), SpanID: span.SpanID().String(),
+		TraceFlags: fmt.Sprintf("%02x", byte(span.TraceFlags())), TraceState: span.TraceState().String(), Remote: span.IsRemote(),
+	}
+}
+
+func contextWithLocalSpanContext(ctx context.Context, span oteltrace.SpanContext) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !span.IsValid() {
+		return ctx
+	}
+	local := fromOTelSpanContext(span)
+	local.Remote = false
+	return context.WithValue(ctx, contextKey{}, local)
 }
 
 func randomHex(bytes int) string {

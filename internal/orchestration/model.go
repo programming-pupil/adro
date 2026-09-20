@@ -431,27 +431,28 @@ const (
 )
 
 type NodeAttempt struct {
-	ID              string                  `json:"id"`
-	PlanID          string                  `json:"plan_id"`
-	NodeID          string                  `json:"node_id"`
-	AttemptNo       int                     `json:"attempt_no"`
-	RunID           string                  `json:"run_id,omitempty"`
-	SessionID       string                  `json:"session_id,omitempty"`
-	WorkDir         string                  `json:"workdir,omitempty"`
-	Lease           Lease                   `json:"lease,omitempty"`
-	IdempotencyKey  string                  `json:"idempotency_key,omitempty"`
-	InputManifest   harness.ContextEnvelope `json:"input_manifest"`
-	OutputArtifacts []string                `json:"output_artifacts,omitempty"`
-	Result          StructuredResult        `json:"result,omitempty"`
-	RepairState     RepairLifecycle         `json:"repair_state,omitempty"`
-	RepairPlanID    string                  `json:"repair_plan_id,omitempty"`
-	Status          AttemptStatus           `json:"status"`
-	FailureReason   *FailureReason          `json:"failure_reason,omitempty"`
-	ParentAttemptID string                  `json:"parent_attempt_id,omitempty"`
-	RetryOf         string                  `json:"retry_of,omitempty"`
-	ChildPlanID     string                  `json:"child_plan_id,omitempty"`
-	StartedAt       *time.Time              `json:"started_at,omitempty"`
-	FinishedAt      *time.Time              `json:"finished_at,omitempty"`
+	ID                    string                  `json:"id"`
+	PlanID                string                  `json:"plan_id"`
+	NodeID                string                  `json:"node_id"`
+	AttemptNo             int                     `json:"attempt_no"`
+	RunID                 string                  `json:"run_id,omitempty"`
+	SessionID             string                  `json:"session_id,omitempty"`
+	WorkDir               string                  `json:"workdir,omitempty"`
+	Lease                 Lease                   `json:"lease,omitempty"`
+	IdempotencyKey        string                  `json:"idempotency_key,omitempty"`
+	InputManifest         harness.ContextEnvelope `json:"input_manifest"`
+	OutputArtifacts       []string                `json:"output_artifacts,omitempty"`
+	Result                StructuredResult        `json:"result,omitempty"`
+	RepairState           RepairLifecycle         `json:"repair_state,omitempty"`
+	RepairPlanID          string                  `json:"repair_plan_id,omitempty"`
+	Status                AttemptStatus           `json:"status"`
+	FailureReason         *FailureReason          `json:"failure_reason,omitempty"`
+	ParentAttemptID       string                  `json:"parent_attempt_id,omitempty"`
+	RetryOf               string                  `json:"retry_of,omitempty"`
+	ChildPlanID           string                  `json:"child_plan_id,omitempty"`
+	ResourceReservationID string                  `json:"resource_reservation_id,omitempty"`
+	StartedAt             *time.Time              `json:"started_at,omitempty"`
+	FinishedAt            *time.Time              `json:"finished_at,omitempty"`
 }
 type FailureReason struct {
 	Code      string `json:"code"`

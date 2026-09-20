@@ -1,12 +1,348 @@
 {
   "go": [
     {
+      "name": "cel.dev/expr",
+      "version": "v0.25.2",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/cel.dev/expr/@v/v0.25.2.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "cloud.google.com/go/auth",
+      "version": "v0.18.2",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/cloud.google.com/go/auth/@v/v0.18.2.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "cloud.google.com/go/compute/metadata",
+      "version": "v0.9.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/cloud.google.com/go/compute/metadata/@v/v0.9.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/apapsch/go-jsonmerge/v2",
+      "version": "v2.0.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/apapsch/go-jsonmerge/v2/@v/v2.0.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/cenkalti/backoff/v5",
+      "version": "v5.0.3",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/cenkalti/backoff/v5/@v/v5.0.3.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/cespare/xxhash/v2",
+      "version": "v2.3.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/cespare/xxhash/v2/@v/v2.3.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/cncf/xds/go",
+      "version": "v0.0.0-20260202195803-dba9d589def2",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/cncf/xds/go/@v/v0.0.0-20260202195803-dba9d589def2.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "license": "ISC",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/davecgh/go-spew/@v/v1.1.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "github.com/dustin/go-humanize",
       "version": "v1.0.1",
       "license": "MIT",
       "scope": "runtime",
       "source": "https://github.com/dustin/go-humanize",
       "supplier": "Dustin Go Humanize Authors"
+    },
+    {
+      "name": "github.com/envoyproxy/go-control-plane",
+      "version": "v0.14.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/envoyproxy/go-control-plane/@v/v0.14.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/envoyproxy/go-control-plane/envoy",
+      "version": "v1.37.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/envoyproxy/go-control-plane/envoy/@v/v1.37.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/envoyproxy/go-control-plane/ratelimit",
+      "version": "v0.1.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/envoyproxy/go-control-plane/ratelimit/@v/v0.1.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/envoyproxy/protoc-gen-validate",
+      "version": "v1.3.3",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/envoyproxy/protoc-gen-validate/@v/v1.3.3.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/felixge/httpsnoop",
+      "version": "v1.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/felixge/httpsnoop/@v/v1.1.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-jose/go-jose/v4",
+      "version": "v4.1.4",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-jose/go-jose/v4/@v/v4.1.4.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-logr/logr",
+      "version": "v1.4.4",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-logr/logr/@v/v1.4.4.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-logr/stdr",
+      "version": "v1.2.2",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-logr/stdr/@v/v1.2.2.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/analysis",
+      "version": "v0.25.5",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/analysis/@v/v0.25.5.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/errors",
+      "version": "v0.22.8",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/errors/@v/v0.22.8.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/jsonpointer",
+      "version": "v1.0.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/jsonpointer/@v/v1.0.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/jsonreference",
+      "version": "v1.0.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/jsonreference/@v/v1.0.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/loads",
+      "version": "v0.25.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/loads/@v/v0.25.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/runtime",
+      "version": "v0.33.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/runtime/@v/v0.33.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/runtime/server-middleware",
+      "version": "v0.30.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/runtime/server-middleware/@v/v0.30.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/spec",
+      "version": "v0.22.9",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/spec/@v/v0.22.9.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/strfmt",
+      "version": "v0.27.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/strfmt/@v/v0.27.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/cmdutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/cmdutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/conv",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/conv/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/fileutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/fileutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/jsonutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/jsonutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/loading",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/loading/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/mangling",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/mangling/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/netutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/netutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/pools",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/pools/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/stringutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/stringutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/typeutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/typeutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/swag/yamlutils",
+      "version": "v0.28.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/swag/yamlutils/@v/v0.28.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-openapi/validate",
+      "version": "v0.26.1",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-openapi/validate/@v/v0.26.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/go-viper/mapstructure/v2",
+      "version": "v2.5.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/go-viper/mapstructure/v2/@v/v2.5.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/golang/glog",
+      "version": "v1.2.5",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/golang/glog/@v/v1.2.5.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/golang/protobuf",
+      "version": "v1.5.4",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/golang/protobuf/@v/v1.5.4.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/google/go-cmp",
+      "version": "v0.7.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/google/go-cmp/@v/v0.7.0.zip",
+      "supplier": "NOASSERTION"
     },
     {
       "name": "github.com/google/pprof",
@@ -17,12 +353,44 @@
       "supplier": "The Go Authors"
     },
     {
+      "name": "github.com/google/s2a-go",
+      "version": "v0.1.9",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/google/s2a-go/@v/v0.1.9.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "github.com/google/uuid",
       "version": "v1.6.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://github.com/google/uuid",
       "supplier": "Google"
+    },
+    {
+      "name": "github.com/googleapis/enterprise-certificate-proxy",
+      "version": "v0.3.11",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/googleapis/enterprise-certificate-proxy/@v/v0.3.11.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/googleapis/gax-go/v2",
+      "version": "v2.17.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/googleapis/gax-go/v2/@v/v2.17.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp",
+      "version": "v1.33.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/!google!cloud!platform/opentelemetry-operations-go/detectors/gcp/@v/v1.33.0.zip",
+      "supplier": "NOASSERTION"
     },
     {
       "name": "github.com/gorilla/websocket",
@@ -33,12 +401,28 @@
       "supplier": "Gorilla WebSocket Authors"
     },
     {
+      "name": "github.com/grpc-ecosystem/grpc-gateway/v2",
+      "version": "v2.30.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/grpc-ecosystem/grpc-gateway/v2/@v/v2.30.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "github.com/hashicorp/golang-lru/v2",
       "version": "v2.0.7",
       "license": "MPL-2.0",
       "scope": "runtime",
       "source": "https://github.com/hashicorp/golang-lru",
       "supplier": "HashiCorp"
+    },
+    {
+      "name": "github.com/kr/pretty",
+      "version": "v0.3.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/kr/pretty/@v/v0.3.1.zip",
+      "supplier": "NOASSERTION"
     },
     {
       "name": "github.com/lib/pq",
@@ -65,6 +449,38 @@
       "supplier": "Nuno Cruces"
     },
     {
+      "name": "github.com/oapi-codegen/runtime",
+      "version": "v1.6.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/oapi-codegen/runtime/@v/v1.6.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/oklog/ulid/v2",
+      "version": "v2.1.1",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/oklog/ulid/v2/@v/v2.1.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/planetscale/vtprotobuf",
+      "version": "v0.6.1-0.20240319094008-0393e58bdf10",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/planetscale/vtprotobuf/@v/v0.6.1-0.20240319094008-0393e58bdf10.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/pmezard/go-difflib/@v/v1.0.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "github.com/remyoudompheng/bigfft",
       "version": "v0.0.0-20230129092748-24d4a6f8daec",
       "license": "MIT",
@@ -73,12 +489,188 @@
       "supplier": "Remy Oudompheng"
     },
     {
+      "name": "github.com/rogpeppe/fastuuid",
+      "version": "v1.2.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/rogpeppe/fastuuid/@v/v1.2.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/rogpeppe/go-internal",
+      "version": "v1.14.1",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/rogpeppe/go-internal/@v/v1.14.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/spiffe/go-spiffe/v2",
+      "version": "v2.7.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/spiffe/go-spiffe/v2/@v/v2.7.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "github.com/stretchr/testify",
+      "version": "v1.12.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/github.com/stretchr/testify/@v/v1.12.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/auto/sdk",
+      "version": "v1.2.1",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/auto/sdk/@v/v1.2.1.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/contrib/detectors/gcp",
+      "version": "v1.44.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/contrib/detectors/gcp/@v/v1.44.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc",
+      "version": "v0.70.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/@v/v0.70.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+      "version": "v0.70.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/@v/v0.70.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/exporters/otlp/otlptrace",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/exporters/stdout/stdouttrace",
+      "version": "v1.45.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/exporters/stdout/stdouttrace/@v/v1.45.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/metric",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/metric/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/sdk",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/sdk/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/sdk/metric",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/sdk/metric/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/otel/trace",
+      "version": "v1.46.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/otel/trace/@v/v1.46.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.opentelemetry.io/proto/otlp",
+      "version": "v1.11.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.opentelemetry.io/proto/otlp/@v/v1.11.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.uber.org/goleak",
+      "version": "v1.3.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.uber.org/goleak/@v/v1.3.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "go.yaml.in/yaml/v3",
+      "version": "v3.0.5",
+      "license": "MIT AND Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/go.yaml.in/yaml/v3/@v/v3.0.5.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "golang.org/x/crypto",
+      "version": "v0.55.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/golang.org/x/crypto/@v/v0.55.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "golang.org/x/mod",
       "version": "v0.38.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/mod",
       "supplier": "The Go Authors"
+    },
+    {
+      "name": "golang.org/x/net",
+      "version": "v0.58.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/golang.org/x/net/@v/v0.58.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "golang.org/x/oauth2",
+      "version": "v0.36.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.36.0.zip",
+      "supplier": "NOASSERTION"
     },
     {
       "name": "golang.org/x/sync",
@@ -97,12 +689,84 @@
       "supplier": "The Go Authors"
     },
     {
+      "name": "golang.org/x/term",
+      "version": "v0.45.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/golang.org/x/term/@v/v0.45.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "golang.org/x/text",
+      "version": "v0.41.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/golang.org/x/text/@v/v0.41.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
       "name": "golang.org/x/tools",
       "version": "v0.48.0",
       "license": "BSD-3-Clause",
       "scope": "runtime",
       "source": "https://cs.opensource.google/go/x/tools",
       "supplier": "The Go Authors"
+    },
+    {
+      "name": "gonum.org/v1/gonum",
+      "version": "v0.17.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/gonum.org/v1/gonum/@v/v0.17.0.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "google.golang.org/genproto/googleapis/api",
+      "version": "v0.0.0-20260819154853-08b0e4226688",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/google.golang.org/genproto/googleapis/api/@v/v0.0.0-20260819154853-08b0e4226688.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "google.golang.org/genproto/googleapis/rpc",
+      "version": "v0.0.0-20260819154853-08b0e4226688",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/google.golang.org/genproto/googleapis/rpc/@v/v0.0.0-20260819154853-08b0e4226688.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "google.golang.org/grpc",
+      "version": "v1.83.2",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/google.golang.org/grpc/@v/v1.83.2.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "google.golang.org/protobuf",
+      "version": "v1.36.12",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/google.golang.org/protobuf/@v/v1.36.12.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "gopkg.in/check.v1",
+      "version": "v1.0.0-20201130134442-10cb98267c6c",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/gopkg.in/check.v1/@v/v1.0.0-20201130134442-10cb98267c6c.zip",
+      "supplier": "NOASSERTION"
+    },
+    {
+      "name": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "license": "MIT AND Apache-2.0",
+      "scope": "runtime",
+      "source": "https://proxy.golang.org/gopkg.in/yaml.v3/@v/v3.0.1.zip",
+      "supplier": "NOASSERTION"
     },
     {
       "name": "modernc.org/cc/v4",

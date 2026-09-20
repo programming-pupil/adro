@@ -13,20 +13,27 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/adro-project/adro/internal/security"
 )
 
 type Block struct {
-	ID              string            `json:"id"`
-	Kind            string            `json:"kind"`
-	Source          string            `json:"source"`
-	Content         string            `json:"content"`
-	Hash            string            `json:"hash"`
-	Policy          string            `json:"policy"`
-	Trust           string            `json:"trust"`
-	SelectionReason string            `json:"selection_reason"`
-	TokenEstimate   int64             `json:"token_estimate"`
-	Mandatory       bool              `json:"mandatory"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	ID              string                `json:"id"`
+	Kind            string                `json:"kind"`
+	Source          string                `json:"source"`
+	Content         string                `json:"content"`
+	Hash            string                `json:"hash"`
+	Policy          string                `json:"policy"`
+	Trust           string                `json:"trust,omitempty"`
+	TrustLevel      security.TrustLevel   `json:"trust_level,omitempty"`
+	Sensitivity     security.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope     string                `json:"tenant_scope,omitempty"`
+	Purpose         string                `json:"purpose,omitempty"`
+	TaintLabels     []security.TaintLabel `json:"taint_labels,omitempty"`
+	SelectionReason string                `json:"selection_reason"`
+	TokenEstimate   int64                 `json:"token_estimate"`
+	Mandatory       bool                  `json:"mandatory"`
+	Metadata        map[string]string     `json:"metadata,omitempty"`
 }
 type Manifest struct {
 	SessionID               string              `json:"session_id"`
@@ -56,16 +63,20 @@ type Envelope struct {
 // provider adapter may choose its wire format, but it cannot reorder or
 // weaken these segments without invalidating the manifest.
 type PromptSegment struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Version     int64  `json:"version"`
-	Hash        string `json:"hash"`
-	Trust       string `json:"trust"`
-	Mandatory   bool   `json:"mandatory"`
-	TokenBudget int64  `json:"token_budget"`
-	Sensitivity string `json:"sensitivity,omitempty"`
-	Source      string `json:"source"`
-	Content     string `json:"content"`
+	ID          string                `json:"id"`
+	Kind        string                `json:"kind"`
+	Version     int64                 `json:"version"`
+	Hash        string                `json:"hash"`
+	Trust       string                `json:"trust,omitempty"`
+	TrustLevel  security.TrustLevel   `json:"trust_level,omitempty"`
+	Mandatory   bool                  `json:"mandatory"`
+	TokenBudget int64                 `json:"token_budget"`
+	Sensitivity security.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope string                `json:"tenant_scope,omitempty"`
+	Purpose     string                `json:"purpose,omitempty"`
+	TaintLabels []security.TaintLabel `json:"taint_labels,omitempty"`
+	Source      string                `json:"source"`
+	Content     string                `json:"content"`
 }
 
 // PromptManifest is shared by graph, pipeline, comment, repair, and session
@@ -77,9 +88,11 @@ type PromptManifest struct {
 }
 
 const (
-	PromptManifestVersion = "prompt-manifest-v1"
-	CompilerVersion       = "adro-context-v2"
-	TokenizerID           = "rune4-v1"
+	PromptManifestVersion       = "prompt-manifest-v2"
+	legacyPromptManifestVersion = "prompt-manifest-v1"
+	CompilerVersion             = "adro-context-v3"
+	legacyCompilerVersion       = "adro-context-v2"
+	TokenizerID                 = "rune4-v1"
 )
 
 // Tokenizer is the provider-facing token accounting contract. The old
@@ -158,12 +171,172 @@ var promptSegmentRanks = map[string]int{
 	"evidence": 90, "output_contract": 100,
 }
 
+func normalizeBlocks(session string, blocks []Block) ([]Block, error) {
+	if strings.TrimSpace(session) == "" {
+		return nil, errors.New("session is required for context provenance")
+	}
+	result := make([]Block, len(blocks))
+	tenantScope := ""
+	for index, block := range blocks {
+		normalized, err := normalizeBlockProvenance(session, block)
+		if err != nil {
+			return nil, fmt.Errorf("block %s provenance: %w", block.ID, err)
+		}
+		if tenantScope == "" {
+			tenantScope = normalized.TenantScope
+		} else if normalized.TenantScope != tenantScope {
+			return nil, fmt.Errorf("block %s crosses tenant scope %q into %q", block.ID, tenantScope, normalized.TenantScope)
+		}
+		result[index] = normalized
+	}
+	return result, nil
+}
+
+func normalizeBlockProvenance(session string, block Block) (Block, error) {
+	block.Source = strings.TrimSpace(block.Source)
+	block.Metadata = cloneMetadata(block.Metadata)
+	block.TaintLabels = append([]security.TaintLabel(nil), block.TaintLabels...)
+	zone := trustZoneForBlock(block)
+
+	sensitivity := block.Sensitivity
+	if sensitivity == "" {
+		sensitivity = security.Sensitivity(strings.ToLower(strings.TrimSpace(block.Metadata["sensitivity"])))
+	}
+	if sensitivity == "" {
+		sensitivity = security.SensitivityInternal
+	}
+	if !sensitivity.Valid() {
+		return Block{}, fmt.Errorf("invalid sensitivity %q", sensitivity)
+	}
+	tenantScope := strings.TrimSpace(block.TenantScope)
+	if tenantScope == "" {
+		tenantScope = strings.TrimSpace(block.Metadata["tenant_scope"])
+	}
+	if tenantScope == "" {
+		tenantScope = "session:" + strings.TrimSpace(session)
+	}
+	purpose := strings.TrimSpace(block.Purpose)
+	if purpose == "" {
+		purpose = strings.TrimSpace(block.Metadata["purpose"])
+	}
+	if purpose == "" {
+		purpose = "model_context"
+	}
+
+	provenance, err := security.NewProvenance(zone, block.Source, tenantScope, purpose, sensitivity)
+	if err != nil {
+		return Block{}, err
+	}
+	if block.TrustLevel.Valid() {
+		provenance.TrustLevel = security.LessTrusted(provenance.TrustLevel, block.TrustLevel)
+	} else if legacy := security.TrustLevel(strings.ToLower(strings.TrimSpace(block.Trust))); legacy.Valid() {
+		provenance.TrustLevel = security.LessTrusted(provenance.TrustLevel, legacy)
+	}
+	provenance.Sensitivity = security.MaxSensitivity(provenance.Sensitivity, sensitivity)
+	provenance.TaintLabels = append(provenance.TaintLabels, block.TaintLabels...)
+	provenance, err = security.CanonicalizeProvenance(provenance)
+	if err != nil {
+		return Block{}, err
+	}
+	if err := security.EnforceTrustZone(zone, provenance); err != nil {
+		return Block{}, err
+	}
+	block.Trust = ""
+	block.TrustLevel = provenance.TrustLevel
+	block.Sensitivity = provenance.Sensitivity
+	block.TenantScope = provenance.TenantScope
+	block.Purpose = provenance.Purpose
+	block.TaintLabels = append([]security.TaintLabel(nil), provenance.TaintLabels...)
+	return block, nil
+}
+
+func trustZoneForBlock(block Block) security.TrustZone {
+	kind := strings.ToLower(strings.TrimSpace(block.Kind))
+	source := strings.ToLower(strings.TrimSpace(block.Source))
+	policy := strings.ToLower(strings.TrimSpace(block.Policy))
+	reason := strings.ToLower(strings.TrimSpace(block.SelectionReason))
+	legacyTrust := strings.ToLower(strings.TrimSpace(block.Trust))
+
+	if kind == "tool_result" || strings.HasPrefix(source, "tool:") && kind != "tool_call" && kind != "tool_schema" {
+		return security.ZoneToolOutput
+	}
+	if strings.HasPrefix(source, "http:") || strings.HasPrefix(source, "https:") || strings.HasPrefix(source, "remote:") || strings.HasPrefix(source, "web:") || strings.HasPrefix(source, "mcp:") {
+		return security.ZoneRemoteContent
+	}
+	if strings.HasPrefix(source, "user") || strings.Contains(reason, "latest_objective") {
+		return security.ZoneUserContent
+	}
+	if kind == "summary" || kind == "tool_call" || strings.HasPrefix(source, "compression:") || strings.HasPrefix(source, "model:") || strings.HasPrefix(source, "assistant:") {
+		return security.ZoneModelOutput
+	}
+	if source == "system" || kind == "system" || kind == "policy" {
+		return security.ZoneSystemPolicy
+	}
+	if strings.HasPrefix(source, "workspace:") || kind == "workspace_policy" {
+		return security.ZoneWorkspacePolicy
+	}
+	if policy == "frozen_plan" || legacyTrust == "plan_snapshot" || kind == "tool_schema" {
+		return security.ZoneVerifiedArtifact
+	}
+	switch kind {
+	case "memory", "archive", "turn", "code", "json", "artifact", "evidence":
+		return security.ZoneRetrievedContent
+	}
+	if strings.HasPrefix(source, "memory") || strings.HasPrefix(source, "archive") || strings.HasPrefix(source, "turn") || strings.HasPrefix(source, "artifact:") || strings.HasPrefix(source, "retrieved:") {
+		return security.ZoneRetrievedContent
+	}
+	return security.ZoneUnknown
+}
+
+func blockProvenance(block Block) security.Provenance {
+	return security.Provenance{
+		Source: block.Source, TrustLevel: block.TrustLevel, Sensitivity: block.Sensitivity,
+		TenantScope: block.TenantScope, Purpose: block.Purpose,
+		TaintLabels: append([]security.TaintLabel(nil), block.TaintLabels...),
+	}
+}
+
+func segmentProvenance(segment PromptSegment) security.Provenance {
+	return security.Provenance{
+		Source: segment.Source, TrustLevel: segment.TrustLevel, Sensitivity: segment.Sensitivity,
+		TenantScope: segment.TenantScope, Purpose: segment.Purpose,
+		TaintLabels: append([]security.TaintLabel(nil), segment.TaintLabels...),
+	}
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	if metadata == nil {
+		return nil
+	}
+	result := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		result[key] = value
+	}
+	return result
+}
+
+func equalTaintLabels(left, right []security.TaintLabel) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 // BuildPromptManifest translates compiled context blocks into canonical
 // semantic layers. Callers may override the derived layer with metadata
 // prompt_kind when they have a stronger contract than the generic adapter.
-func BuildPromptManifest(blocks []Block) (PromptManifest, error) {
-	segments := make([]PromptSegment, 0, len(blocks))
-	for _, block := range blocks {
+func BuildPromptManifest(session string, blocks []Block) (PromptManifest, error) {
+	normalized, err := normalizeBlocks(session, blocks)
+	if err != nil {
+		return PromptManifest{}, err
+	}
+	segments := make([]PromptSegment, 0, len(normalized))
+	for _, block := range normalized {
 		kind := strings.TrimSpace(block.Metadata["prompt_kind"])
 		if kind == "" {
 			kind = promptKindForBlock(block)
@@ -171,13 +344,17 @@ func BuildPromptManifest(blocks []Block) (PromptManifest, error) {
 		if _, ok := promptSegmentRanks[kind]; !ok {
 			return PromptManifest{}, fmt.Errorf("prompt segment %s has unsupported kind %q", block.ID, kind)
 		}
-		if block.ID == "" || block.Source == "" || block.Hash == "" || block.Policy == "" || block.Trust == "" || block.SelectionReason == "" || block.TokenEstimate < 1 || strings.TrimSpace(block.Content) == "" {
+		if block.ID == "" || block.Source == "" || block.Hash == "" || block.Policy == "" || block.SelectionReason == "" || block.TokenEstimate < 1 || strings.TrimSpace(block.Content) == "" {
 			return PromptManifest{}, fmt.Errorf("prompt segment %s has incomplete lineage", block.ID)
 		}
+		if err := blockProvenance(block).Validate(); err != nil {
+			return PromptManifest{}, fmt.Errorf("prompt segment %s provenance: %w", block.ID, err)
+		}
 		segments = append(segments, PromptSegment{
-			ID: block.ID, Kind: kind, Version: 1, Hash: block.Hash, Trust: block.Trust,
+			ID: block.ID, Kind: kind, Version: 2, Hash: block.Hash, TrustLevel: block.TrustLevel,
 			Mandatory: block.Mandatory, TokenBudget: block.TokenEstimate,
-			Sensitivity: strings.TrimSpace(block.Metadata["sensitivity"]), Source: block.Source, Content: block.Content,
+			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
+			TaintLabels: append([]security.TaintLabel(nil), block.TaintLabels...), Source: block.Source, Content: block.Content,
 		})
 	}
 	sort.SliceStable(segments, func(i, j int) bool {
@@ -193,15 +370,28 @@ func BuildPromptManifest(blocks []Block) (PromptManifest, error) {
 }
 
 func (p PromptManifest) Validate() error {
-	if p.Version != PromptManifestVersion || p.Digest == "" {
+	if (p.Version != PromptManifestVersion && p.Version != legacyPromptManifestVersion) || p.Digest == "" {
 		return errors.New("invalid prompt manifest metadata")
 	}
 	lastRank := -1
 	seen := map[string]struct{}{}
 	for _, segment := range p.Segments {
 		rank, ok := promptSegmentRanks[segment.Kind]
-		if !ok || segment.Version < 1 || segment.ID == "" || segment.Hash == "" || segment.Trust == "" || segment.Source == "" || segment.TokenBudget < 1 || strings.TrimSpace(segment.Content) == "" {
+		if !ok || segment.Version < 1 || segment.ID == "" || segment.Hash == "" || segment.Source == "" || segment.TokenBudget < 1 || strings.TrimSpace(segment.Content) == "" {
 			return fmt.Errorf("invalid prompt segment %s", segment.ID)
+		}
+		switch p.Version {
+		case legacyPromptManifestVersion:
+			if strings.TrimSpace(segment.Trust) == "" {
+				return fmt.Errorf("legacy prompt segment %s has no trust metadata", segment.ID)
+			}
+		case PromptManifestVersion:
+			if segment.Version < 2 {
+				return fmt.Errorf("prompt segment %s uses an obsolete schema", segment.ID)
+			}
+			if err := segmentProvenance(segment).Validate(); err != nil {
+				return fmt.Errorf("prompt segment %s provenance: %w", segment.ID, err)
+			}
 		}
 		if rank < lastRank {
 			return errors.New("prompt manifest segment order is not canonical")
@@ -219,11 +409,9 @@ func (p PromptManifest) Validate() error {
 }
 
 // RenderPromptManifest is the provider-neutral text adapter for the typed
-// prompt contract. The manifest remains authoritative: rendering preserves
-// canonical segment order and includes each segment's lineage metadata so a
-// provider cannot silently collapse or reorder policy, objective, tool, or
-// evidence layers. Callers that need a structured wire format should send the
-// PromptManifest itself and use this only as the textual compatibility view.
+// prompt contract. Version 2 uses one JSON object per segment, so untrusted
+// content is escaped and cannot forge structural delimiters. Trust and taint
+// metadata stay adjacent to the content presented to the model.
 func RenderPromptManifest(p PromptManifest) (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
@@ -233,12 +421,24 @@ func RenderPromptManifest(p PromptManifest) (string, error) {
 		if strings.TrimSpace(segment.Content) == "" {
 			continue
 		}
-		fmt.Fprintf(&builder, "[ADRO_PROMPT_SEGMENT kind=%s id=%s version=%d hash=%s trust=%s mandatory=%t source=%s]\n", segment.Kind, segment.ID, segment.Version, segment.Hash, segment.Trust, segment.Mandatory, segment.Source)
-		builder.WriteString(segment.Content)
-		if !strings.HasSuffix(segment.Content, "\n") {
-			builder.WriteByte('\n')
+		if p.Version == legacyPromptManifestVersion {
+			fmt.Fprintf(&builder, "[ADRO_PROMPT_SEGMENT kind=%s id=%s version=%d hash=%s trust=%s mandatory=%t source=%s]\n", segment.Kind, segment.ID, segment.Version, segment.Hash, segment.Trust, segment.Mandatory, segment.Source)
+			builder.WriteString(segment.Content)
+			if !strings.HasSuffix(segment.Content, "\n") {
+				builder.WriteByte('\n')
+			}
+			builder.WriteString("[/ADRO_PROMPT_SEGMENT]\n")
+			continue
 		}
-		builder.WriteString("[/ADRO_PROMPT_SEGMENT]\n")
+		frame, err := json.Marshal(struct {
+			Type    string        `json:"type"`
+			Segment PromptSegment `json:"segment"`
+		}{Type: "adro.prompt.segment.v2", Segment: segment})
+		if err != nil {
+			return "", fmt.Errorf("render prompt segment %s: %w", segment.ID, err)
+		}
+		builder.Write(frame)
+		builder.WriteByte('\n')
 	}
 	return strings.TrimSpace(builder.String()), nil
 }
@@ -277,7 +477,14 @@ func promptManifestDigest(p PromptManifest) string {
 // Rehash recalculates derived digest fields after durable provenance or
 // compression records are attached to a compiled selection.
 func (m Manifest) Rehash() (Manifest, error) {
-	prompt, err := BuildPromptManifest(m.Blocks)
+	normalized, err := normalizeBlocks(m.SessionID, m.Blocks)
+	if err != nil {
+		return Manifest{}, err
+	}
+	sort.SliceStable(normalized, func(i, j int) bool { return normalized[i].ID < normalized[j].ID })
+	m.Blocks = normalized
+	m.CompilerVersion = CompilerVersion
+	prompt, err := BuildPromptManifest(m.SessionID, m.Blocks)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -450,7 +657,10 @@ func newManifest(session string, version, budget int64, blocks []Block, tokenize
 	if strings.TrimSpace(tokenizerID) == "" {
 		return Manifest{}, errors.New("tokenizer id is required")
 	}
-	cp := append([]Block(nil), blocks...)
+	cp, err := normalizeBlocks(session, blocks)
+	if err != nil {
+		return Manifest{}, err
+	}
 	if cp == nil {
 		cp = []Block{}
 	}
@@ -458,7 +668,7 @@ func newManifest(session string, version, budget int64, blocks []Block, tokenize
 	var total int64
 	required := make([]string, 0)
 	for i := range cp {
-		if cp[i].ID == "" || cp[i].Source == "" || cp[i].Policy == "" || cp[i].Trust == "" || cp[i].SelectionReason == "" || cp[i].TokenEstimate < 1 {
+		if cp[i].ID == "" || cp[i].Source == "" || cp[i].Policy == "" || !cp[i].TrustLevel.Valid() || !cp[i].Sensitivity.Valid() || cp[i].TenantScope == "" || cp[i].Purpose == "" || cp[i].SelectionReason == "" || cp[i].TokenEstimate < 1 {
 			return Manifest{}, fmt.Errorf("block %s is missing lineage metadata", cp[i].ID)
 		}
 		if cp[i].Hash == "" {
@@ -472,7 +682,7 @@ func newManifest(session string, version, budget int64, blocks []Block, tokenize
 	if total > budget {
 		return Manifest{}, ErrOverflow
 	}
-	prompt, err := BuildPromptManifest(cp)
+	prompt, err := BuildPromptManifest(session, cp)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -488,6 +698,18 @@ func (m Manifest) Validate() error {
 	if m.CompilerVersion == "" || m.TokenizerID == "" {
 		return errors.New("context compiler metadata is required")
 	}
+	switch m.CompilerVersion {
+	case CompilerVersion:
+		if m.PromptManifest.Version != PromptManifestVersion {
+			return errors.New("context compiler and prompt manifest versions are incompatible")
+		}
+	case legacyCompilerVersion:
+		if m.PromptManifest.Version != legacyPromptManifestVersion {
+			return errors.New("legacy context compiler and prompt manifest versions are incompatible")
+		}
+	default:
+		return fmt.Errorf("unsupported context compiler version %q", m.CompilerVersion)
+	}
 	if strings.HasPrefix(m.TokenizerID, "model-aware-v1:") && strings.TrimPrefix(m.TokenizerID, "model-aware-v1:") == "" {
 		return errors.New("model-aware tokenizer id is incomplete")
 	}
@@ -497,12 +719,16 @@ func (m Manifest) Validate() error {
 	if err := validatePromptManifestBindings(m); err != nil {
 		return err
 	}
+	if err := validateCompressionRecords(m); err != nil {
+		return err
+	}
 	if len(m.OmittedRequiredIDs) > 0 {
 		return errors.New("context manifest omits required blocks")
 	}
 	required := make(map[string]struct{}, len(m.RequiredBlockIDs))
 	seenBlocks := make(map[string]struct{}, len(m.Blocks))
 	var total int64
+	tenantScope := ""
 	for _, b := range m.Blocks {
 		if b.ID == "" {
 			return errors.New("context block id is required")
@@ -513,6 +739,21 @@ func (m Manifest) Validate() error {
 		seenBlocks[b.ID] = struct{}{}
 		if b.Hash != HashBlock(b) {
 			return fmt.Errorf("block %s hash mismatch", b.ID)
+		}
+		if m.CompilerVersion == CompilerVersion {
+			if err := blockProvenance(b).Validate(); err != nil {
+				return fmt.Errorf("block %s provenance: %w", b.ID, err)
+			}
+			if err := security.EnforceTrustZone(trustZoneForBlock(b), blockProvenance(b)); err != nil {
+				return fmt.Errorf("block %s trust zone: %w", b.ID, err)
+			}
+			if tenantScope == "" {
+				tenantScope = b.TenantScope
+			} else if b.TenantScope != tenantScope {
+				return fmt.Errorf("block %s crosses tenant scope %q into %q", b.ID, tenantScope, b.TenantScope)
+			}
+		} else if strings.TrimSpace(b.Trust) == "" {
+			return fmt.Errorf("legacy block %s has no trust metadata", b.ID)
 		}
 		if b.Mandatory {
 			required[b.ID] = struct{}{}
@@ -579,6 +820,13 @@ func validatePromptManifestBindings(m Manifest) error {
 		}
 		if segment.Hash != block.Hash || segment.Source != block.Source || segment.Content != block.Content || segment.Mandatory != block.Mandatory || segment.TokenBudget != block.TokenEstimate {
 			return fmt.Errorf("prompt manifest binding mismatch for block %s", segment.ID)
+		}
+		if m.PromptManifest.Version == PromptManifestVersion {
+			if segment.TrustLevel != block.TrustLevel || segment.Sensitivity != block.Sensitivity || segment.TenantScope != block.TenantScope || segment.Purpose != block.Purpose || !equalTaintLabels(segment.TaintLabels, block.TaintLabels) {
+				return fmt.Errorf("prompt manifest provenance binding mismatch for block %s", segment.ID)
+			}
+		} else if segment.Trust != block.Trust {
+			return fmt.Errorf("legacy prompt manifest trust binding mismatch for block %s", segment.ID)
 		}
 		kind := strings.TrimSpace(block.Metadata["prompt_kind"])
 		if kind == "" {
@@ -681,6 +929,11 @@ func CompileWithSummarizer(session string, version, budget int64, blocks []Block
 }
 
 func compileWithSummarizer(session string, version, budget int64, blocks []Block, summarizer Summarizer, tokenizer Tokenizer) (Manifest, CompressionRecord, error) {
+	normalized, normalizeErr := normalizeBlocks(session, blocks)
+	if normalizeErr != nil {
+		return Manifest{}, CompressionRecord{}, normalizeErr
+	}
+	blocks = normalized
 	m, err := newManifest(session, version, budget, blocks, tokenizer.ID())
 	if err == nil {
 		return m, CompressionRecord{}, nil
@@ -752,7 +1005,26 @@ func compileWithSummarizer(session string, version, budget int64, blocks []Block
 	if remaining > 0 && len(semanticOptional) > 0 {
 		summary, summaryErr := summarizer.Summarize(SummaryRequest{Blocks: semanticOptional, TargetTokens: remaining, TokenizerID: tokenizer.ID(), Estimate: tokenizer.Estimate})
 		if summaryErr == nil && strings.TrimSpace(summary.Content) != "" && summary.QualityScore >= 0.60 {
-			summaryBlock := Block{ID: "summary:" + sourceHash[:16], Kind: "summary", Source: "compression:" + sourceHash, Content: strings.TrimSpace(summary.Content), Policy: "summarize", Trust: "derived", SelectionReason: "semantic_compaction", TokenEstimate: tokenizer.Estimate(summary.Content), Metadata: map[string]string{"source_hash": sourceHash, "algorithm": "semantic-extractive", "version": "v1", "tokenizer_id": tokenizer.ID()}}
+			inputs := make([]security.Provenance, 0, len(semanticOptional))
+			for _, block := range semanticOptional {
+				inputs = append(inputs, blockProvenance(block))
+			}
+			provenance, provenanceErr := security.DeriveProvenance(
+				security.ZoneModelOutput, "compression:"+sourceHash, semanticOptional[0].TenantScope,
+				"model_context", security.SensitivityPublic, inputs...,
+			)
+			if provenanceErr != nil {
+				return Manifest{}, record, fmt.Errorf("derive summary provenance: %w", provenanceErr)
+			}
+			summaryBlock := Block{
+				ID: "summary:" + sourceHash[:16], Kind: "summary", Source: provenance.Source,
+				Content: strings.TrimSpace(summary.Content), Policy: "summarize",
+				TrustLevel: provenance.TrustLevel, Sensitivity: provenance.Sensitivity,
+				TenantScope: provenance.TenantScope, Purpose: provenance.Purpose,
+				TaintLabels:     append([]security.TaintLabel(nil), provenance.TaintLabels...),
+				SelectionReason: "semantic_compaction", TokenEstimate: tokenizer.Estimate(summary.Content),
+				Metadata: map[string]string{"source_hash": sourceHash, "algorithm": "semantic-extractive", "version": "v1", "tokenizer_id": tokenizer.ID()},
+			}
 			if summaryBlock.TokenEstimate > 0 && summaryBlock.TokenEstimate <= remaining {
 				summaryBlock.Hash = HashBlock(summaryBlock)
 				selected = append(selected, summaryBlock)

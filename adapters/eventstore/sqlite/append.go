@@ -154,7 +154,7 @@ func findReplay(ctx context.Context, conn *sql.Conn, request eventstore.AppendRe
 			return eventstore.AppendResult{}, false, eventstore.ErrIdempotencyConflict
 		}
 		var envelope event.Envelope
-		if err := json.Unmarshal(raw, &envelope); err != nil || envelope.Verify() != nil {
+		if err := json.Unmarshal(raw, &envelope); err != nil || envelope.VerifyStored() != nil {
 			return eventstore.AppendResult{}, false, eventstore.ErrCorrupt
 		}
 		if envelope.StreamID != request.StreamID || envelope.TenantID != item.TenantID ||
