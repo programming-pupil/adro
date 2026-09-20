@@ -137,7 +137,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending
 
 - [ ] `P0-CORE-010` [source:166] [state:partial] 所有 projection 支持从 sequence 0 重建并比较 digest。
-  - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; `internal/projection.Worker` replays one tenant/stream partition from sequence zero with a digest-checked offset, while other views and full transaction composition remain pending
+  - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; `internal/projection.Worker` replays one tenant/stream partition from sequence zero with a canonical digest-checked offset, and configured `projection.AtomicStore` backends commit mutation pages with their offsets atomically; other views and runtime composition remain pending
 
 - [ ] `P0-CORE-011` [source:167] [state:unverified] 删除无法重建或与 authoritative stream 冲突的 snapshot 字段。
 
@@ -687,7 +687,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 9.1 Store Ports
 
 - [ ] `P0-STORE-001` [source:441] [state:partial] 定义 EventStore、SnapshotStore、LeaseStore、BlobStore、SecretStore、ProjectionStore 独立接口。
-  - Recorded evidence state: `partial`. EventStore, Snapshot, Lease, Blob, Secret, Scope, and Projection ports are independent; `adapters/projection` provides shared digest/CAS/tenant rules plus memory, SQLite, and PostgreSQL implementations with common conformance, and `internal/projection.Worker` persists digest-checked offsets. Full runtime composition and production SecretStore wiring remain pending
+  - Recorded evidence state: `partial`. EventStore, Snapshot, Lease, Blob, Secret, Scope, and Projection ports are independent; `adapters/projection` provides shared digest/CAS/tenant rules plus memory, SQLite, and PostgreSQL implementations with common conformance, `projection.AtomicStore` commits ordered mutation pages with offsets in one backend transaction, and `internal/projection.Worker` uses that path when configured. Full runtime composition and production SecretStore wiring remain pending
 
 - [ ] `P0-STORE-002` [source:442] [state:evidenced] SQLite 是 reference backend，不再伪装 production HA。
   - Recorded evidence state: `complete for EventStore`. `adapters/eventstore/sqlite` is explicitly single-node and does not claim HA
@@ -798,7 +798,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-EVAL-003` [source:504] [state:unverified] Tool adapter conformance：schema、approval、timeout、ordered result、effect receipt、reconcile。
 
 - [ ] `P0-EVAL-004` [source:505] [state:partial] Store conformance：CAS、atomic batch、lease、tail repair、corruption、migration。
-  - Recorded evidence state: `partial`. Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending
+  - Recorded evidence state: `partial`. Shared suites cover CAS, idempotency, atomic multi-mutation plus offset commit/replay/delete/rollback, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending
 
 - [ ] `P0-EVAL-005` [source:506] [state:unverified] Sandbox conformance：filesystem、network、process、secret、cross-tenant negative tests。
 

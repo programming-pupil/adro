@@ -144,3 +144,48 @@ func Normalize(item projection.Record, now time.Time) projection.Record {
 func canonical(value string) string {
 	return strings.TrimSpace(value)
 }
+
+// ValidateBatch applies backend-independent checks before a transactional
+// projection page is executed. Mutations must remain in source order.
+func ValidateBatch(batch projection.Batch, tenantID string, maxPayload int64) error {
+	if err := ValidateIdentity(batch.TenantID, batch.Projection, batch.PartitionID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(tenantID) == "" || batch.TenantID != strings.TrimSpace(tenantID) {
+		return projection.ErrTenantMismatch
+	}
+	if batch.LastSequence < 1 {
+		return errors.New("projection batch last sequence must be positive")
+	}
+	if maxPayload <= 0 {
+		maxPayload = DefaultMaxPayload
+	}
+	seen := make(map[string]int64, len(batch.Mutations))
+	var previousSequence int64
+	for _, mutation := range batch.Mutations {
+		if canonical(mutation.Key) == "" || strings.TrimSpace(mutation.Key) != mutation.Key || strings.ContainsAny(mutation.Key, "\x00\r\n") {
+			return errors.New("projection mutation key is invalid")
+		}
+		if mutation.SourceSequence < 1 || mutation.SourceSequence > batch.LastSequence || mutation.SourceSequence < previousSequence {
+			return errors.New("projection mutation source sequence is out of order")
+		}
+		if mutation.Delete && len(mutation.Payload) != 0 {
+			return errors.New("projection delete mutation contains a payload")
+		}
+		if int64(len(mutation.Payload)) > maxPayload {
+			return projection.ErrLimit
+		}
+		if previous, ok := seen[mutation.Key]; ok && previous == mutation.SourceSequence {
+			return errors.New("projection batch contains duplicate mutation")
+		}
+		seen[mutation.Key] = mutation.SourceSequence
+		previousSequence = mutation.SourceSequence
+	}
+	return nil
+}
+
+// ProjectionDigest delegates the canonical encoding to the projection port so
+// all backends and workers share one offset digest contract.
+func ProjectionDigest(tenantID, projectionName, sourceStream string, records []projection.Record) (string, error) {
+	return projection.ProjectionDigest(tenantID, projectionName, sourceStream, records)
+}

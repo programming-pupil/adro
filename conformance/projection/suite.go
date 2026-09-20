@@ -15,8 +15,7 @@ import (
 )
 
 type Backend interface {
-	projectionport.Store
-	projectionport.OffsetStore
+	projectionport.AtomicStore
 	Close() error
 }
 
@@ -174,6 +173,124 @@ func Run(t *testing.T, factory Factory) {
 		got, err := store.Get(ctx, "tenant-a", "sessions", "session-5")
 		if err != nil || got.UpdatedAt.IsZero() || got.UpdatedAt.Location() != time.UTC {
 			t.Fatalf("updated_at=%v err=%v", got.UpdatedAt, err)
+		}
+	})
+	runAtomicBatchConformance(t, factory)
+}
+
+func runAtomicBatchConformance(t *testing.T, factory Factory) {
+	t.Helper()
+	t.Run("atomic_batch_commit_replay_and_delete", func(t *testing.T) {
+		store := factory(t)
+		defer store.Close()
+		ctx := scope.WithTenant(context.Background(), "tenant-a")
+		batch := projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 2,
+			Mutations: []projectionport.BatchMutation{
+				{Key: "session-a", Payload: []byte("one"), SourceSequence: 1},
+				{Key: "session-b", Payload: []byte("other"), SourceSequence: 1},
+				{Key: "session-a", Payload: []byte("two"), SourceSequence: 2},
+			},
+		}
+		result, err := store.ApplyBatch(ctx, batch, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.UpdatedRecords != 3 || result.DeletedRecords != 0 || result.SkippedMutations != 0 || result.ProjectionDigest == "" {
+			t.Fatalf("first batch result=%+v", result)
+		}
+		item, err := store.Get(ctx, "tenant-a", "sessions", "session-a")
+		if err != nil || item.Version != 2 || item.SourceSequence != 2 || string(item.Payload) != "two" {
+			t.Fatalf("session-a=%+v err=%v", item, err)
+		}
+		offset, err := store.GetOffset(ctx, "tenant-a", "sessions", "stream-a")
+		if err != nil || offset.LastSequence != 2 || offset.ProjectionDigest != result.ProjectionDigest {
+			t.Fatalf("offset=%+v err=%v", offset, err)
+		}
+		if _, err := store.ApplyBatch(scope.WithTenant(context.Background(), "tenant-b"), projectionport.Batch{
+			TenantID: "tenant-b", Projection: "sessions", PartitionID: "stream-a", LastSequence: 1,
+			Mutations: []projectionport.BatchMutation{{Key: "tenant-b-key", Payload: []byte("other"), SourceSequence: 1}},
+		}, 0); err != nil {
+			t.Fatalf("cross-tenant seed batch: %v", err)
+		}
+
+		replay, err := store.ApplyBatch(ctx, batch, 2)
+		if err != nil {
+			t.Fatalf("idempotent batch replay: %v", err)
+		}
+		if replay.UpdatedRecords != 0 || replay.DeletedRecords != 0 || replay.SkippedMutations != 3 || replay.ProjectionDigest != result.ProjectionDigest {
+			t.Fatalf("replay result=%+v", replay)
+		}
+
+		deleted, err := store.ApplyBatch(ctx, projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 3,
+			Mutations: []projectionport.BatchMutation{{Key: "session-a", Delete: true, SourceSequence: 3}},
+		}, 2)
+		if err != nil {
+			t.Fatalf("delete batch: %v", err)
+		}
+		if deleted.DeletedRecords != 1 || deleted.ProjectionDigest == result.ProjectionDigest {
+			t.Fatalf("delete result=%+v", deleted)
+		}
+		if _, err := store.Get(ctx, "tenant-a", "sessions", "session-a"); !errors.Is(err, projectionport.ErrNotFound) {
+			t.Fatalf("deleted record error=%v", err)
+		}
+	})
+
+	t.Run("atomic_batch_rolls_back_records_and_offset", func(t *testing.T) {
+		store := factory(t)
+		defer store.Close()
+		ctx := scope.WithTenant(context.Background(), "tenant-a")
+		seed := projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 1,
+			Mutations: []projectionport.BatchMutation{{Key: "stable", Payload: []byte("before"), SourceSequence: 1}},
+		}
+		if _, err := store.ApplyBatch(ctx, seed, 0); err != nil {
+			t.Fatal(err)
+		}
+		// This row belongs to another source stream. It is excluded from the
+		// stream-a digest, but must still make the second mutation fail closed.
+		if err := store.Put(ctx, projectionport.Record{
+			TenantID: "tenant-a", Projection: "sessions", Key: "foreign", Version: 1,
+			SourceStream: "stream-b", SourceSequence: 1, Payload: []byte("foreign"),
+		}, 0); err != nil {
+			t.Fatal(err)
+		}
+		_, err := store.ApplyBatch(ctx, projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 2,
+			Mutations: []projectionport.BatchMutation{
+				{Key: "stable", Payload: []byte("after"), SourceSequence: 2},
+				{Key: "foreign", Payload: []byte("invalid"), SourceSequence: 2},
+			},
+		}, 1)
+		if !errors.Is(err, projectionport.ErrDiverged) {
+			t.Fatalf("divergent batch error=%v", err)
+		}
+		stable, err := store.Get(ctx, "tenant-a", "sessions", "stable")
+		if err != nil || string(stable.Payload) != "before" || stable.SourceSequence != 1 {
+			t.Fatalf("rollback record=%+v err=%v", stable, err)
+		}
+		offset, err := store.GetOffset(ctx, "tenant-a", "sessions", "stream-a")
+		if err != nil || offset.LastSequence != 1 {
+			t.Fatalf("rollback offset=%+v err=%v", offset, err)
+		}
+	})
+
+	t.Run("atomic_batch_rejects_scope_and_noncanonical_keys", func(t *testing.T) {
+		store := factory(t)
+		defer store.Close()
+		ctx := scope.WithTenant(context.Background(), "tenant-a")
+		batch := projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 1,
+			Mutations: []projectionport.BatchMutation{{Key: " key", Payload: []byte("value"), SourceSequence: 1}},
+		}
+		if _, err := store.ApplyBatch(ctx, batch, 0); err == nil {
+			t.Fatal("noncanonical key unexpectedly succeeded")
+		}
+		if _, err := store.ApplyBatch(scope.WithTenant(context.Background(), "tenant-b"), projectionport.Batch{
+			TenantID: "tenant-a", Projection: "sessions", PartitionID: "stream-a", LastSequence: 1,
+		}, 0); !errors.Is(err, projectionport.ErrTenantMismatch) {
+			t.Fatalf("cross-tenant batch error=%v", err)
 		}
 	})
 }

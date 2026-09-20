@@ -156,6 +156,129 @@ func (s *Store) List(ctx context.Context, tenantID, projectionName string) ([]pr
 	return result, nil
 }
 
+func (s *Store) ApplyBatch(ctx context.Context, batch projection.Batch, expectedSequence int64) (projection.BatchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return projection.BatchResult{}, err
+	}
+	if expectedSequence < 0 {
+		return projection.BatchResult{}, projection.ErrOffsetConflict
+	}
+	if err := contract.RequireTenant(ctx, batch.TenantID); err != nil {
+		return projection.BatchResult{}, err
+	}
+	if err := contract.ValidateBatch(batch, batch.TenantID, contract.DefaultMaxPayload); err != nil {
+		return projection.BatchResult{}, err
+	}
+	if err := contract.ValidateIdentity(batch.TenantID, batch.Projection, batch.PartitionID); err != nil {
+		return projection.BatchResult{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make(map[string]projection.Record, len(s.items))
+	for key, item := range s.items {
+		items[key] = clone(item)
+	}
+	offsets := make(map[string]projection.Offset, len(s.offsets))
+	for key, item := range s.offsets {
+		offsets[key] = item
+	}
+	offsetKeyValue, err := offsetKey(batch.TenantID, batch.Projection, batch.PartitionID)
+	if err != nil {
+		return projection.BatchResult{}, err
+	}
+	currentOffset, hasOffset := offsets[offsetKeyValue]
+	if hasOffset {
+		if err := contract.ValidateOffset(currentOffset, batch.TenantID, true); err != nil {
+			return projection.BatchResult{}, err
+		}
+		if currentOffset.LastSequence != expectedSequence {
+			return projection.BatchResult{}, projection.ErrOffsetConflict
+		}
+		currentRecords, err := recordsForDigest(items, batch.TenantID, batch.Projection)
+		if err != nil {
+			return projection.BatchResult{}, err
+		}
+		if digest, err := projection.ProjectionDigest(batch.TenantID, batch.Projection, batch.PartitionID, currentRecords); err != nil {
+			return projection.BatchResult{}, err
+		} else if !strings.EqualFold(digest, currentOffset.ProjectionDigest) {
+			return projection.BatchResult{}, projection.ErrDiverged
+		}
+	} else if expectedSequence != 0 {
+		return projection.BatchResult{}, projection.ErrOffsetConflict
+	}
+	result := projection.BatchResult{}
+	for _, mutation := range batch.Mutations {
+		key, err := storageKey(batch.TenantID, batch.Projection, mutation.Key)
+		if err != nil {
+			return projection.BatchResult{}, err
+		}
+		current, found := items[key]
+		if found {
+			if err := contract.ValidateStored(current, batch.TenantID, contract.DefaultMaxPayload); err != nil {
+				return projection.BatchResult{}, err
+			}
+			if current.SourceStream != batch.PartitionID {
+				return projection.BatchResult{}, projection.ErrDiverged
+			}
+			if current.SourceSequence > mutation.SourceSequence {
+				result.SkippedMutations++
+				continue
+			}
+			if current.SourceSequence == mutation.SourceSequence {
+				if mutation.Delete {
+					delete(items, key)
+					result.DeletedRecords++
+					continue
+				}
+				if string(current.Payload) != string(mutation.Payload) || current.Digest != contract.Digest(mutation.Payload) {
+					return projection.BatchResult{}, projection.ErrDiverged
+				}
+				result.SkippedMutations++
+				continue
+			}
+		}
+		if mutation.Delete {
+			if !found {
+				result.SkippedMutations++
+				continue
+			}
+			delete(items, key)
+			result.DeletedRecords++
+			continue
+		}
+		version := int64(1)
+		if found {
+			version = current.Version + 1
+		}
+		item := projection.Record{TenantID: batch.TenantID, Projection: batch.Projection, Key: mutation.Key,
+			Version: version, SourceStream: batch.PartitionID, SourceSequence: mutation.SourceSequence,
+			Digest: contract.Digest(mutation.Payload), Payload: append([]byte(nil), mutation.Payload...), UpdatedAt: s.now().UTC()}
+		items[key] = item
+		result.UpdatedRecords++
+	}
+	records, err := recordsForDigest(items, batch.TenantID, batch.Projection)
+	if err != nil {
+		return projection.BatchResult{}, err
+	}
+	digest, err := projection.ProjectionDigest(batch.TenantID, batch.Projection, batch.PartitionID, records)
+	if err != nil {
+		return projection.BatchResult{}, err
+	}
+	if hasOffset && currentOffset.LastSequence == batch.LastSequence && strings.EqualFold(currentOffset.ProjectionDigest, digest) && expectedSequence == currentOffset.LastSequence {
+		result.ProjectionDigest = digest
+		return result, nil
+	}
+	if hasOffset && batch.LastSequence <= currentOffset.LastSequence {
+		return projection.BatchResult{}, projection.ErrOffsetConflict
+	}
+	offsets[offsetKeyValue] = projection.Offset{TenantID: batch.TenantID, Projection: batch.Projection, PartitionID: batch.PartitionID,
+		LastSequence: batch.LastSequence, ProjectionDigest: digest, UpdatedAt: s.now().UTC()}
+	s.items = items
+	s.offsets = offsets
+	result.ProjectionDigest = digest
+	return result, nil
+}
+
 func (s *Store) GetOffset(ctx context.Context, tenantID, projectionName, partitionID string) (projection.Offset, error) {
 	if err := ctx.Err(); err != nil {
 		return projection.Offset{}, err
@@ -238,8 +361,23 @@ func offsetKey(tenantID, projectionName, partitionID string) (string, error) {
 	return strings.TrimSpace(tenantID) + "\x00" + strings.TrimSpace(projectionName) + "\x00" + strings.TrimSpace(partitionID), nil
 }
 
+func recordsForDigest(items map[string]projection.Record, tenantID, projectionName string) ([]projection.Record, error) {
+	result := make([]projection.Record, 0, len(items))
+	for _, item := range items {
+		if item.TenantID != tenantID || item.Projection != projectionName {
+			continue
+		}
+		if err := contract.ValidateStored(item, tenantID, contract.DefaultMaxPayload); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
 func clone(item projection.Record) projection.Record {
 	return contract.Clone(item)
 }
 
 var _ projection.Store = (*Store)(nil)
+var _ projection.AtomicStore = (*Store)(nil)

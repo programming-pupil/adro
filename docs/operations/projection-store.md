@@ -38,8 +38,16 @@ a digest mismatch or an offset ahead of the EventStore head fails closed. The
 worker subscribes before replay so commits that race recovery remain buffered,
 and repeated batches are skipped by source sequence and payload comparison.
 
-SQLite and PostgreSQL persist offsets in `runtime_projection_offsets`; the
-adapter writes records and offsets through the same database profile, while the
-worker's ordered record-then-offset protocol remains safe to replay after a
-process crash. A future runtime composition must add a single transaction over
-all mutations and the offset when a projection emits multiple records.
+SQLite and PostgreSQL persist offsets in `runtime_projection_offsets`.
+`projection.AtomicStore` adds an explicit page boundary: a batch of ordered
+mutations and its offset are committed in one local transaction. The memory
+adapter uses copy-on-write commit/rollback; SQLite uses `BEGIN IMMEDIATE`;
+PostgreSQL locks the offset and projection rows in one transaction. Replaying
+the same batch is idempotent, and a divergent stream, invalid mutation, or
+failed later mutation leaves both records and the offset unchanged.
+
+`internal/projection.Worker` uses this atomic path when its `Atomic` dependency
+is configured; the ordered record-then-offset fallback remains available for
+legacy composition. Runtime/API wiring, production RLS, archive/retention
+roots, and cross-process fault evidence are still required before this
+capability can be called stable.

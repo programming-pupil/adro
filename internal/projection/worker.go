@@ -7,11 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/adro-project/adro/core"
-	coreencoding "github.com/adro-project/adro/core/encoding"
 	coreevent "github.com/adro-project/adro/core/event"
 	"github.com/adro-project/adro/core/ids"
 	eventstoreport "github.com/adro-project/adro/ports/eventstore"
@@ -44,6 +42,7 @@ type Config struct {
 	Events         eventstoreport.Store
 	Store          projectionport.Store
 	Offsets        projectionport.OffsetStore
+	Atomic         projectionport.AtomicStore
 	Clock          core.Clock
 	TenantID       string
 	StreamID       string
@@ -57,6 +56,7 @@ type Worker struct {
 	events         eventstoreport.Store
 	store          projectionport.Store
 	offsets        projectionport.OffsetStore
+	atomic         projectionport.AtomicStore
 	clock          core.Clock
 	tenantID       string
 	streamID       string
@@ -76,6 +76,13 @@ type Report struct {
 }
 
 func NewWorker(config Config) (*Worker, error) {
+	if config.Atomic != nil {
+		// AtomicStore owns both interfaces from one backend. Use it for every
+		// read and write so a caller cannot accidentally pair an atomic writer
+		// with unrelated record or offset stores.
+		config.Store = config.Atomic
+		config.Offsets = config.Atomic
+	}
 	if config.Events == nil || config.Store == nil || config.Offsets == nil {
 		return nil, fmt.Errorf("%w: events, store and offsets are required", ErrInvalidConfig)
 	}
@@ -104,7 +111,7 @@ func NewWorker(config Config) (*Worker, error) {
 		config.Clock = core.SystemClock{}
 	}
 	return &Worker{
-		events: config.Events, store: config.Store, offsets: config.Offsets, clock: config.Clock,
+		events: config.Events, store: config.Store, offsets: config.Offsets, atomic: config.Atomic, clock: config.Clock,
 		tenantID: strings.TrimSpace(config.TenantID), streamID: strings.TrimSpace(config.StreamID),
 		projectionName: strings.TrimSpace(config.ProjectionName), pageSize: config.PageSize,
 		bufferSize: config.BufferSize, casRetries: config.CASRetries,
@@ -229,6 +236,17 @@ func (w *Worker) Run(ctx context.Context, projector Projector) error {
 					return fmt.Errorf("%w: expected %d got %d", ErrSequenceGap, cursor+1, envelope.Sequence)
 				}
 			}
+			if w.atomic != nil {
+				batch, _, err := w.buildBatch(ctx, []coreevent.Envelope{envelope}, projector)
+				if err != nil {
+					return err
+				}
+				if _, err := w.applyAtomicBatch(ctx, batch, cursor); err != nil {
+					return err
+				}
+				cursor = batch.LastSequence
+				continue
+			}
 			report := Report{LastSequence: cursor}
 			if err := w.applyEnvelope(ctx, envelope, projector, &report); err != nil {
 				return err
@@ -317,29 +335,49 @@ func (w *Worker) replay(ctx context.Context, after int64, projector Projector, p
 		if err := coreevent.ValidateChainFrom(batch, cursor, previousDigest); err != nil {
 			return report, cursor, fmt.Errorf("%w: %v", ErrDiverged, err)
 		}
-		for _, envelope := range batch {
-			if envelope.Sequence != cursor+1 {
-				return report, cursor, fmt.Errorf("%w: expected %d got %d", ErrSequenceGap, cursor+1, envelope.Sequence)
+		for index, envelope := range batch {
+			if envelope.Sequence != cursor+int64(index)+1 {
+				return report, cursor, fmt.Errorf("%w: expected %d got %d", ErrSequenceGap, cursor+int64(index)+1, envelope.Sequence)
 			}
-			if err := w.applyEnvelope(ctx, envelope, projector, &report); err != nil {
-				return report, cursor, err
-			}
-			cursor = envelope.Sequence
 			previousDigest = envelope.EnvelopeDigest
 		}
-		if persist {
-			digest, err := w.projectionDigest(ctx)
+		if persist && w.atomic != nil {
+			atomicBatch, batchReport, err := w.buildBatch(ctx, batch, projector)
 			if err != nil {
 				return report, cursor, err
 			}
-			expected := cursor - int64(len(batch))
-			if !hasOffset && expected < 0 {
-				expected = 0
-			}
-			if err := w.putOffset(ctx, cursor, digest, expected); err != nil {
+			result, err := w.applyAtomicBatch(ctx, atomicBatch, cursor)
+			if err != nil {
 				return report, cursor, err
 			}
+			report.Events += batchReport.Events
+			report.Mutations += batchReport.Mutations
+			report.UpdatedRecords += result.UpdatedRecords
+			report.DeletedRecords += result.DeletedRecords
+			report.SkippedMutations += result.SkippedMutations
+			cursor = atomicBatch.LastSequence
 			hasOffset = true
+		} else {
+			for _, envelope := range batch {
+				if err := w.applyEnvelope(ctx, envelope, projector, &report); err != nil {
+					return report, cursor, err
+				}
+				cursor = envelope.Sequence
+			}
+			if persist {
+				digest, err := w.projectionDigest(ctx)
+				if err != nil {
+					return report, cursor, err
+				}
+				expected := cursor - int64(len(batch))
+				if !hasOffset && expected < 0 {
+					expected = 0
+				}
+				if err := w.putOffset(ctx, cursor, digest, expected); err != nil {
+					return report, cursor, err
+				}
+				hasOffset = true
+			}
 		}
 		if len(batch) < w.pageSize {
 			break
@@ -347,6 +385,52 @@ func (w *Worker) replay(ctx context.Context, after int64, projector Projector, p
 	}
 	report.LastSequence = cursor
 	return report, cursor, nil
+}
+
+func (w *Worker) buildBatch(ctx context.Context, envelopes []coreevent.Envelope, projector Projector) (projectionport.Batch, Report, error) {
+	if len(envelopes) == 0 {
+		return projectionport.Batch{}, Report{}, fmt.Errorf("%w: empty projection batch", ErrInvalidConfig)
+	}
+	batch := projectionport.Batch{TenantID: w.tenantID, Projection: w.projectionName, PartitionID: w.streamID, LastSequence: envelopes[len(envelopes)-1].Sequence}
+	report := Report{}
+	for _, envelope := range envelopes {
+		if err := validateEnvelopeScope(envelope, w.tenantID, w.streamID); err != nil {
+			return projectionport.Batch{}, Report{}, err
+		}
+		mutations, err := projector(ctx, envelope)
+		if err != nil {
+			return projectionport.Batch{}, Report{}, fmt.Errorf("project event %d: %w", envelope.Sequence, err)
+		}
+		if err := validateMutations(mutations); err != nil {
+			return projectionport.Batch{}, Report{}, err
+		}
+		report.Events++
+		report.Mutations += len(mutations)
+		for _, mutation := range mutations {
+			batch.Mutations = append(batch.Mutations, projectionport.BatchMutation{
+				Key: mutation.Key, Payload: append([]byte(nil), mutation.Payload...), Delete: mutation.Delete,
+				SourceSequence: envelope.Sequence,
+			})
+		}
+	}
+	return batch, report, nil
+}
+
+func (w *Worker) applyAtomicBatch(ctx context.Context, batch projectionport.Batch, expectedSequence int64) (projectionport.BatchResult, error) {
+	for attempt := 0; attempt <= w.casRetries; attempt++ {
+		result, err := w.atomic.ApplyBatch(ctx, batch, expectedSequence)
+		if err == nil {
+			return result, nil
+		}
+		if errors.Is(err, projectionport.ErrConflict) || errors.Is(err, projectionport.ErrOffsetConflict) {
+			continue
+		}
+		if errors.Is(err, projectionport.ErrDiverged) {
+			return projectionport.BatchResult{}, fmt.Errorf("%w: %v", ErrDiverged, err)
+		}
+		return projectionport.BatchResult{}, err
+	}
+	return projectionport.BatchResult{}, projectionport.ErrOffsetConflict
 }
 
 func (w *Worker) previousDigest(ctx context.Context, after int64) (string, error) {
@@ -495,38 +579,11 @@ func (w *Worker) projectionDigest(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("list projection records for digest: %w", err)
 	}
-	filtered := records[:0]
-	for _, record := range records {
-		if record.SourceStream == w.streamID {
-			filtered = append(filtered, record)
-		}
-	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Key < filtered[j].Key })
-	canonical := make([]digestRecord, 0, len(filtered))
-	for _, record := range filtered {
-		canonical = append(canonical, digestRecord{
-			Key: record.Key, Version: record.Version, SourceStream: record.SourceStream,
-			SourceSequence: record.SourceSequence, Digest: record.Digest, Payload: record.Payload,
-		})
-	}
-	digest, err := coreencoding.Digest(struct {
-		TenantID   string         `json:"tenant_id"`
-		Projection string         `json:"projection"`
-		Records    []digestRecord `json:"records"`
-	}{TenantID: w.tenantID, Projection: w.projectionName, Records: canonical})
+	digest, err := projectionport.ProjectionDigest(w.tenantID, w.projectionName, w.streamID, records)
 	if err != nil {
 		return "", fmt.Errorf("digest projection records: %w", err)
 	}
 	return digest, nil
-}
-
-type digestRecord struct {
-	Key            string `json:"key"`
-	Version        int64  `json:"version"`
-	SourceStream   string `json:"source_stream"`
-	SourceSequence int64  `json:"source_sequence"`
-	Digest         string `json:"digest"`
-	Payload        []byte `json:"payload"`
 }
 
 func (w *Worker) putOffset(ctx context.Context, sequence int64, digest string, expected int64) error {

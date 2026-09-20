@@ -36,7 +36,7 @@ func newWorkerFixture(t *testing.T) workerFixture {
 	t.Cleanup(func() { _ = events.Close() })
 	store := storeprojection.New(clock.Now)
 	worker, err := NewWorker(Config{
-		Events: events, Store: store, Offsets: store, Clock: clock,
+		Events: events, Store: store, Offsets: store, Atomic: store, Clock: clock,
 		TenantID: "tenant-a", StreamID: "stream-a", ProjectionName: "sessions",
 		PageSize: 2, BufferSize: 4, CASRetries: 2,
 	})
@@ -280,4 +280,25 @@ func (s *staticSubscription) Errors() <-chan error              { return s.error
 func (s *staticSubscription) Close() error {
 	s.closeOnce.Do(func() {})
 	return nil
+}
+
+func TestWorkerAtomicBatchFailureRollsBackRecordsAndOffset(t *testing.T) {
+	fixture := newWorkerFixture(t)
+	if err := fixture.store.Put(fixture.ctx, projectionport.Record{
+		TenantID: "tenant-a", Projection: "sessions", Key: "session-2", Version: 1,
+		SourceStream: "stream-b", SourceSequence: 1, Payload: []byte("foreign"),
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
+	appendSessionEvent(t, fixture.events, 0, "session-1", "one")
+	appendSessionEvent(t, fixture.events, 1, "session-2", "two")
+	if err := fixture.worker.Run(fixture.ctx, sessionProjector); !errors.Is(err, ErrDiverged) {
+		t.Fatalf("atomic batch error=%v", err)
+	}
+	if _, err := fixture.store.Get(fixture.ctx, "tenant-a", "sessions", "session-1"); !errors.Is(err, projectionport.ErrNotFound) {
+		t.Fatalf("rolled back record error=%v", err)
+	}
+	if _, err := fixture.store.GetOffset(fixture.ctx, "tenant-a", "sessions", "stream-a"); !errors.Is(err, projectionport.ErrOffsetNotFound) {
+		t.Fatalf("rolled back offset error=%v", err)
+	}
 }
