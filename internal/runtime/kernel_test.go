@@ -70,6 +70,45 @@ func TestJournalRejectsStaleFenceAndEffectIntentConflicts(t *testing.T) {
 	}
 }
 
+func TestJournalLeaseFenceAdvancesAcrossReleaseAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.json")
+	journal := mustJournal(t, path)
+	scope := testScope()
+	first, err := journal.AcquireLease(scope, "same-owner", time.Minute, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.ReleaseLease(scope, first.Owner, first.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := mustJournal(t, path)
+	second, err := restarted.AcquireLease(scope, first.Owner, time.Minute, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.FencingToken != first.FencingToken+1 {
+		t.Fatalf("reacquisition reused fence: first=%d second=%d", first.FencingToken, second.FencingToken)
+	}
+	if _, err := restarted.Append(Input{
+		EventType: EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID,
+		Scope: scope, WriterID: first.Owner, FencingToken: first.FencingToken,
+		Payload: map[string]any{"stale": true},
+	}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("released fence authorized an event: %v", err)
+	}
+	if err := restarted.ReleaseLease(scope, second.Owner, second.FencingToken); err != nil {
+		t.Fatal(err)
+	}
+	third, err := restarted.AcquireLease(scope, "new-owner", time.Minute, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.FencingToken != second.FencingToken+1 {
+		t.Fatalf("subsequent acquisition reused fence: second=%d third=%d", second.FencingToken, third.FencingToken)
+	}
+}
+
 func TestJournalIdempotencyConflictAndRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.json")
 	j := mustJournal(t, path)

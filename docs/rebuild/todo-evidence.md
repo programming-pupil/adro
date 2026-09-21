@@ -798,7 +798,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-EVAL-003` [source:504] [state:unverified] Tool adapter conformance：schema、approval、timeout、ordered result、effect receipt、reconcile。
 
 - [ ] `P0-EVAL-004` [source:505] [state:partial] Store conformance：CAS、atomic batch、lease、tail repair、corruption、migration。
-  - Recorded evidence state: `partial`. Shared suites cover CAS, idempotency, atomic multi-mutation plus offset commit/replay/delete/rollback, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; runtime journal write/rename/directory-sync faults, stale cross-instance fence/idempotency and shadow queue restart tests exist, while generic migration crash/resume and tail repair remain pending
+  - Recorded evidence state: `partial`. Shared suites cover CAS, idempotency, atomic multi-mutation plus offset commit/replay/delete/rollback, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; runtime journal write/rename/directory-sync faults, stale cross-instance fence/idempotency, release/restart monotonic fencing and shadow queue restart tests exist, while generic migration crash/resume and tail repair remain pending
 
 - [ ] `P0-EVAL-005` [source:506] [state:unverified] Sandbox conformance：filesystem、network、process、secret、cross-tenant negative tests。
 

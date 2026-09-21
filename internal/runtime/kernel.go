@@ -551,7 +551,8 @@ func (j *Journal) ReleaseLease(scope Scope, owner string, fencingToken int64) er
 		return ErrLeaseLost
 	}
 	leases := cloneLeases(j.leases)
-	delete(leases, key)
+	// Keep the fence after release so a reacquisition cannot reuse a token.
+	leases[key] = Lease{Key: key, FencingToken: fencingToken, UpdatedAt: j.now()}
 	committed, err := j.persistCandidateLocked(j.events, leases, j.effects, j.shadowPending, j.shadowReports)
 	if err != nil {
 		return err

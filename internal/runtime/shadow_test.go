@@ -506,7 +506,7 @@ func TestJournalStaleInstanceDoesNotResurrectDrainedShadowWork(t *testing.T) {
 	}
 }
 
-func TestJournalStaleInstanceCannotOverwriteLeaseOrEffectFence(t *testing.T) {
+func TestJournalStaleInstanceCannotOverwriteLeaseFence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.json")
 	left := mustJournal(t, path)
 	right := mustJournal(t, path)
