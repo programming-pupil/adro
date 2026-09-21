@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -293,11 +292,13 @@ type Lease struct {
 }
 
 type journalState struct {
-	Version  int               `json:"version"`
-	Revision int64             `json:"revision"`
-	Events   []Event           `json:"events"`
-	Leases   map[string]Lease  `json:"leases,omitempty"`
-	Effects  map[string]string `json:"effects,omitempty"`
+	Version       int                     `json:"version"`
+	Revision      int64                   `json:"revision"`
+	Events        []Event                 `json:"events"`
+	Leases        map[string]Lease        `json:"leases,omitempty"`
+	Effects       map[string]string       `json:"effects,omitempty"`
+	ShadowPending map[string]shadowWork   `json:"shadow_pending,omitempty"`
+	ShadowReports map[string]ShadowReport `json:"shadow_reports,omitempty"`
 }
 
 type Journal struct {
@@ -312,6 +313,12 @@ type Journal struct {
 	shadow        EventShadow
 	shadowTimeout time.Duration
 	shadowReports map[string]ShadowReport
+	shadowPending map[string]shadowWork
+	shadowNotify  chan struct{}
+	shadowChanged chan struct{}
+	shadowCancel  context.CancelFunc
+	shadowDone    chan struct{}
+	shadowClosing bool
 }
 
 // JournalOptions makes the durable execution boundary deterministic in tests
@@ -337,6 +344,7 @@ func NewJournalWithOptions(path string, options JournalOptions) (*Journal, error
 		path: strings.TrimSpace(path), clock: options.Clock, ids: options.IDs,
 		leases: map[string]Lease{}, effects: map[string]string{},
 		shadowTimeout: defaultShadowTimeout, shadowReports: map[string]ShadowReport{},
+		shadowPending: map[string]shadowWork{}, shadowChanged: make(chan struct{}),
 	}
 	if j.path == "" {
 		return j, nil
@@ -355,13 +363,7 @@ func NewJournalWithOptions(path string, options JournalOptions) (*Journal, error
 	if err := validateState(state); err != nil {
 		return nil, err
 	}
-	j.revision, j.events = state.Revision, append([]Event(nil), state.Events...)
-	if state.Leases != nil {
-		j.leases = state.Leases
-	}
-	if state.Effects != nil {
-		j.effects = state.Effects
-	}
+	j.applyStateLocked(state)
 	return j, nil
 }
 
@@ -370,43 +372,6 @@ func (j *Journal) now() time.Time {
 		return j.clock.Now().UTC()
 	}
 	return time.Now().UTC()
-}
-
-// SetShadow enables migration-only dual writes. Existing legacy events are
-// synchronized immediately, while future shadow failures remain diagnostic and
-// never change the result of an authoritative legacy journal commit.
-func (j *Journal) SetShadow(shadow EventShadow, timeout time.Duration) []ShadowReport {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.shadow = shadow
-	if timeout <= 0 {
-		timeout = defaultShadowTimeout
-	}
-	j.shadowTimeout = timeout
-	if j.shadowReports == nil {
-		j.shadowReports = map[string]ShadowReport{}
-	}
-	j.syncShadowScopesLocked(sortedScopes(j.events))
-	return j.shadowReportsLocked()
-}
-
-func (j *Journal) ShadowReports() []ShadowReport {
-	j.mu.RLock()
-	defer j.mu.RUnlock()
-	return j.shadowReportsLocked()
-}
-
-func (j *Journal) shadowReportsLocked() []ShadowReport {
-	keys := make([]string, 0, len(j.shadowReports))
-	for key := range j.shadowReports {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	reports := make([]ShadowReport, 0, len(keys))
-	for _, key := range keys {
-		reports = append(reports, j.shadowReports[key])
-	}
-	return reports
 }
 
 func (j *Journal) List(scope Scope) []Event {
@@ -465,49 +430,21 @@ func (j *Journal) appendBatchLocked(inputs []Input) (Event, error) {
 		}
 		candidate = append(candidate, event)
 	}
-	if err := j.persistCandidateLocked(candidate, j.leases, j.effects); err != nil {
+	committed, err := j.persistCandidateLocked(candidate, j.leases, j.effects, j.shadowPending, j.shadowReports)
+	if err != nil {
 		return Event{}, err
 	}
-	if j.path != "" {
-		if err := j.reloadFromDiskLocked(); err != nil {
-			return Event{}, err
-		}
-	} else {
-		j.events = candidate
-	}
-	scopes := make([]Scope, 0, len(inputs))
-	seenScopes := make(map[string]struct{}, len(inputs))
-	for _, input := range inputs {
-		key := shadowScopeKey(input.Scope)
-		if _, seen := seenScopes[key]; seen {
-			continue
-		}
-		seenScopes[key] = struct{}{}
-		scopes = append(scopes, input.Scope)
-	}
-	j.syncShadowScopesLocked(scopes)
+	j.applyStateLocked(committed)
+	j.signalShadowLocked()
 	if last.EventID == "" {
 		return Event{}, ErrConflict
 	}
-	return cloneEvent(last), nil
-}
-
-func (j *Journal) syncShadowScopesLocked(scopes []Scope) {
-	if j.shadow == nil {
-		return
-	}
-	for _, scope := range scopes {
-		events := make([]Event, 0)
-		for _, item := range j.events {
-			if item.Scope == scope {
-				events = append(events, cloneEvent(item))
-			}
+	for _, event := range j.events {
+		if event.EventID == last.EventID {
+			return cloneEvent(event), nil
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), j.shadowTimeout)
-		report := j.shadow.Mirror(ctx, scope, events)
-		cancel()
-		j.shadowReports[shadowScopeKey(scope)] = report
 	}
+	return Event{}, ErrCorrupt
 }
 
 func (j *Journal) prepareLocked(existing []Event, input Input) (Event, error) {
@@ -593,15 +530,12 @@ func (j *Journal) AcquireLease(scope Scope, owner string, ttl time.Duration, now
 	lease.ExpiresAt, lease.UpdatedAt = now.Add(ttl), now
 	leases := cloneLeases(j.leases)
 	leases[key] = lease
-	if err := j.persistCandidateLocked(j.events, leases, j.effects); err != nil {
+	committed, err := j.persistCandidateLocked(j.events, leases, j.effects, j.shadowPending, j.shadowReports)
+	if err != nil {
 		return Lease{}, err
 	}
-	j.leases = leases
-	if j.path != "" {
-		if err := j.reloadFromDiskLocked(); err != nil {
-			return Lease{}, err
-		}
-	}
+	j.applyStateLocked(committed)
+	j.signalShadowLocked()
 	return lease, nil
 }
 
@@ -618,10 +552,12 @@ func (j *Journal) ReleaseLease(scope Scope, owner string, fencingToken int64) er
 	}
 	leases := cloneLeases(j.leases)
 	delete(leases, key)
-	if err := j.persistCandidateLocked(j.events, leases, j.effects); err != nil {
+	committed, err := j.persistCandidateLocked(j.events, leases, j.effects, j.shadowPending, j.shadowReports)
+	if err != nil {
 		return err
 	}
-	j.leases = leases
+	j.applyStateLocked(committed)
+	j.signalShadowLocked()
 	return nil
 }
 
@@ -685,16 +621,18 @@ func (j *Journal) CommitEffectIntentWithPolicy(scope Scope, effectID, callID, to
 	effects := cloneEffects(j.effects)
 	effects[effectKey] = event.EventID
 	candidate := append(append([]Event(nil), j.events...), event)
-	if err := j.persistCandidateLocked(candidate, j.leases, effects); err != nil {
+	committed, err := j.persistCandidateLocked(candidate, j.leases, effects, j.shadowPending, j.shadowReports)
+	if err != nil {
 		return Event{}, false, err
 	}
-	j.events, j.effects = candidate, effects
-	if j.path != "" {
-		if err := j.reloadFromDiskLocked(); err != nil {
-			return Event{}, false, err
+	j.applyStateLocked(committed)
+	j.signalShadowLocked()
+	for _, item := range j.events {
+		if item.EventID == event.EventID {
+			return cloneEvent(item), true, nil
 		}
 	}
-	return cloneEvent(event), true, nil
+	return Event{}, false, ErrCorrupt
 }
 
 func (j *Journal) effectStateLocked(scope Scope, effectID string) EffectState {
@@ -1442,91 +1380,103 @@ func (j *Journal) reloadLocked() error {
 	if j.path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(j.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	state, err := readJournalState(j.path)
 	if err != nil {
-		return err
-	}
-	var state journalState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("decode runtime journal: %w", err)
-	}
-	if err := validateState(state); err != nil {
 		return err
 	}
 	if state.Revision <= j.revision {
 		return nil
 	}
-	j.revision = state.Revision
-	j.events = append([]Event(nil), state.Events...)
-	if state.Leases != nil {
-		j.leases = cloneLeases(state.Leases)
-	}
-	if state.Effects != nil {
-		j.effects = cloneEffects(state.Effects)
-	}
+	j.applyStateLocked(state)
+	j.signalShadowLocked()
 	return nil
 }
 
-func (j *Journal) reloadFromDiskLocked() error {
-	if j.path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(j.path)
-	if err != nil {
-		return err
-	}
-	var state journalState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
-	if err := validateState(state); err != nil {
-		return err
-	}
+func (j *Journal) applyStateLocked(state journalState) {
 	j.revision = state.Revision
-	j.events = append([]Event(nil), state.Events...)
+	j.events = cloneEvents(state.Events)
 	j.leases = cloneLeases(state.Leases)
 	j.effects = cloneEffects(state.Effects)
-	return nil
+	j.shadowPending = cloneShadowWork(state.ShadowPending)
+	j.shadowReports = cloneShadowReports(state.ShadowReports)
 }
 
-func (j *Journal) persistCandidateLocked(events []Event, leases map[string]Lease, effects map[string]string) error {
+func (j *Journal) persistCandidateLocked(
+	events []Event,
+	leases map[string]Lease,
+	effects map[string]string,
+	shadowPending map[string]shadowWork,
+	shadowReports map[string]ShadowReport,
+) (journalState, error) {
 	if j.path == "" {
-		j.revision++
-		return nil
+		state := journalState{
+			Version: SchemaVersion, Revision: j.revision + 1, Events: cloneEvents(events),
+			Leases: cloneLeases(leases), Effects: cloneEffects(effects),
+			ShadowPending: cloneShadowWork(shadowPending), ShadowReports: cloneShadowReports(shadowReports),
+		}
+		j.enqueueShadowScopesLocked(&state)
+		return state, nil
 	}
-	return durable.WithExclusive(j.path, func() error {
-		diskRevision, err := readRevision(j.path)
+	var committed journalState
+	err := durable.WithExclusive(j.path, func() error {
+		disk, err := readJournalState(j.path)
 		if err != nil {
 			return err
 		}
-		if diskRevision != j.revision {
+		candidateEvents := cloneEvents(events)
+		candidateLeases := cloneLeases(leases)
+		candidateEffects := cloneEffects(effects)
+		pending := cloneShadowWork(shadowPending)
+		reports := cloneShadowReports(shadowReports)
+		baseRevision := j.revision
+		if disk.Revision != j.revision {
+			if disk.Revision < j.revision {
+				return fmt.Errorf("%w: expected revision %d, found %d", ErrConflict, j.revision, disk.Revision)
+			}
 			// A peer may have advanced only lease/effect metadata while this
 			// writer was preparing an event. Reloading is safe when the event
 			// history is unchanged; a divergent history remains fail-closed.
-			data, readErr := os.ReadFile(j.path)
-			if readErr != nil {
-				return readErr
-			}
-			var disk journalState
-			if readErr = json.Unmarshal(data, &disk); readErr != nil {
-				return readErr
-			}
 			if len(disk.Events) < len(j.events) {
-				return fmt.Errorf("%w: expected revision %d, found %d", ErrConflict, j.revision, diskRevision)
+				return fmt.Errorf("%w: expected revision %d, found %d", ErrConflict, j.revision, disk.Revision)
 			}
 			for i := range j.events {
 				if disk.Events[i].EventID != j.events[i].EventID || disk.Events[i].EnvelopeHash != j.events[i].EnvelopeHash {
 					return fmt.Errorf("%w: peer event history diverged", ErrConflict)
 				}
 			}
+			if len(candidateEvents) < len(j.events) {
+				return fmt.Errorf("%w: candidate event history truncated", ErrConflict)
+			}
+			for _, event := range candidateEvents[len(j.events):] {
+				for _, prior := range disk.Events[len(j.events):] {
+					if prior.EventID == event.EventID {
+						return ErrConflict
+					}
+					if event.IdempotencyKey != "" && prior.Scope == event.Scope && prior.IdempotencyKey == event.IdempotencyKey {
+						if prior.PayloadHash != event.PayloadHash || prior.EventType != event.EventType || prior.AggregateID != event.AggregateID {
+							return ErrIdempotencyConflict
+						}
+						return ErrConflict
+					}
+				}
+				if event.FencingToken > 0 {
+					key := event.Scope.TenantID + "\x00" + event.Scope.WorkspaceID + "\x00" + event.Scope.RunID
+					lease, ok := disk.Leases[key]
+					if !ok || lease.Owner != event.WriterID || lease.FencingToken != event.FencingToken || !lease.ExpiresAt.After(j.now()) {
+						return ErrLeaseLost
+					}
+				}
+				if event.EventType == EventEffectIntent {
+					if prior := disk.Effects[scopedKey(event.Scope, event.AggregateID)]; prior != "" && prior != event.EventID {
+						return ErrIdempotencyConflict
+					}
+				}
+			}
 			if len(disk.Events) > len(j.events) {
 				// Keep peer events and append only the candidate suffix. This is
 				// the common case when an executor finishes between reload and
 				// another process renewing its lease.
-				suffix := append([]Event(nil), events[len(j.events):]...)
+				suffix := cloneEvents(candidateEvents[len(j.events):])
 				previous := disk.Events[len(disk.Events)-1].EnvelopeHash
 				for i := range suffix {
 					suffix[i].Sequence = int64(len(disk.Events) + i + 1)
@@ -1534,26 +1484,30 @@ func (j *Journal) persistCandidateLocked(events []Event, leases map[string]Lease
 					suffix[i].EnvelopeHash = envelopeDigest(suffix[i])
 					previous = suffix[i].EnvelopeHash
 				}
-				events = append(append([]Event(nil), disk.Events...), suffix...)
-				j.events = append([]Event(nil), disk.Events...)
+				candidateEvents = append(cloneEvents(disk.Events), suffix...)
+			} else if len(candidateEvents) > len(j.events) {
+				candidateEvents = append(cloneEvents(disk.Events), cloneEvents(candidateEvents[len(j.events):])...)
+			} else {
+				candidateEvents = cloneEvents(disk.Events)
 			}
-			if disk.Leases != nil {
-				mergedLeases := cloneLeases(disk.Leases)
-				for key, lease := range leases {
-					mergedLeases[key] = lease
-				}
-				leases = mergedLeases
+			candidateLeases, err = rebaseLeases(j.leases, candidateLeases, disk.Leases)
+			if err != nil {
+				return err
 			}
-			if disk.Effects != nil {
-				mergedEffects := cloneEffects(disk.Effects)
-				for key, effect := range effects {
-					mergedEffects[key] = effect
-				}
-				effects = mergedEffects
+			candidateEffects, err = rebaseEffects(j.effects, candidateEffects, disk.Effects)
+			if err != nil {
+				return err
 			}
-			j.revision = diskRevision
+			pending = rebaseShadowWork(j.shadowPending, pending, disk.ShadowPending, reports, disk.ShadowReports)
+			reports = rebaseShadowReports(j.shadowReports, reports, disk.ShadowReports)
+			baseRevision = disk.Revision
 		}
-		state := journalState{Version: SchemaVersion, Revision: j.revision + 1, Events: events, Leases: leases, Effects: effects}
+		state := journalState{
+			Version: SchemaVersion, Revision: baseRevision + 1, Events: candidateEvents,
+			Leases: candidateLeases, Effects: candidateEffects,
+			ShadowPending: pending, ShadowReports: reports,
+		}
+		j.enqueueShadowScopesLocked(&state)
 		data, err := json.MarshalIndent(state, "", "  ")
 		if err != nil {
 			return err
@@ -1572,6 +1526,10 @@ func (j *Journal) persistCandidateLocked(events []Event, leases map[string]Lease
 			_ = tmp.Close()
 			return err
 		}
+		if err := durable.Inject("runtime.journal.write"); err != nil {
+			_ = tmp.Close()
+			return err
+		}
 		if _, err := tmp.Write(data); err != nil {
 			_ = tmp.Close()
 			return err
@@ -1583,30 +1541,99 @@ func (j *Journal) persistCandidateLocked(events []Event, leases map[string]Lease
 		if err := tmp.Close(); err != nil {
 			return err
 		}
+		if err := durable.Inject("runtime.journal.rename"); err != nil {
+			return err
+		}
 		if err := os.Rename(name, j.path); err != nil {
 			return err
 		}
-		j.revision = state.Revision
+		if err := durable.Inject("runtime.journal.directory_sync"); err != nil {
+			return err
+		}
+		if err := durable.SyncParent(j.path); err != nil {
+			return err
+		}
+		committed = state
 		return nil
 	})
+	if err != nil {
+		return journalState{}, err
+	}
+	return committed, nil
 }
 
-func readRevision(path string) (int64, error) {
+func readJournalState(path string) (journalState, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
+		return journalState{}, nil
 	}
 	if err != nil {
-		return 0, err
+		return journalState{}, err
 	}
 	var state journalState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return 0, fmt.Errorf("decode runtime revision: %w", err)
+		return journalState{}, fmt.Errorf("decode runtime journal: %w", err)
 	}
 	if err := validateState(state); err != nil {
-		return 0, err
+		return journalState{}, err
 	}
-	return state.Revision, nil
+	return state, nil
+}
+
+func rebaseLeases(base, candidate, disk map[string]Lease) (map[string]Lease, error) {
+	merged := cloneLeases(disk)
+	for key, before := range base {
+		after, exists := candidate[key]
+		if exists && after == before {
+			continue
+		}
+		if current, ok := disk[key]; !ok || current != before {
+			return nil, ErrConflict
+		}
+		if exists {
+			merged[key] = after
+		} else {
+			delete(merged, key)
+		}
+	}
+	for key, after := range candidate {
+		if _, exists := base[key]; exists {
+			continue
+		}
+		if _, exists := disk[key]; exists {
+			return nil, ErrConflict
+		}
+		merged[key] = after
+	}
+	return merged, nil
+}
+
+func rebaseEffects(base, candidate, disk map[string]string) (map[string]string, error) {
+	merged := cloneEffects(disk)
+	for key, before := range base {
+		after, exists := candidate[key]
+		if exists && after == before {
+			continue
+		}
+		if current, ok := disk[key]; !ok || current != before {
+			return nil, ErrConflict
+		}
+		if exists {
+			merged[key] = after
+		} else {
+			delete(merged, key)
+		}
+	}
+	for key, after := range candidate {
+		if _, exists := base[key]; exists {
+			continue
+		}
+		if _, exists := disk[key]; exists {
+			return nil, ErrIdempotencyConflict
+		}
+		merged[key] = after
+	}
+	return merged, nil
 }
 
 func validateState(state journalState) error {

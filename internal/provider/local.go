@@ -215,7 +215,9 @@ func (p *LocalProvider) ConfigureRuntimeEventShadow(store eventstore.Store, time
 	if err != nil {
 		return err
 	}
-	journal.SetShadow(shadow, timeout)
+	if err := journal.SetShadowWithError(shadow, timeout); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2132,6 +2134,14 @@ func (p *LocalProvider) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
+		p.mu.RLock()
+		journal := p.runtime
+		p.mu.RUnlock()
+		if journal != nil {
+			if err := journal.Shutdown(ctx); err != nil {
+				return fmt.Errorf("shutdown runtime journal: %w", err)
+			}
+		}
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("shutdown local provider: %w", ctx.Err())

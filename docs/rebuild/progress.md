@@ -1,6 +1,6 @@
 # Rebuild Progress
 
-Updated: 2026-09-20.
+Updated: 2026-09-21.
 
 The authoritative issue TodoList remains the complete scope. This file records evidence for landed increments; absence from this table means not completed.
 
@@ -13,12 +13,12 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-BASE-004 | complete | `docs/rebuild/decision-log.md` |
 | P0-CORE-001 | complete | `core/ids` typed IDs and validation |
 | P0-CORE-002 | partial | Generic reducer/replay contract exists; legacy handlers are not migrated |
-| P0-CORE-003 | partial | Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode, while other producers remain pending |
-| P0-CORE-004 | partial | Runtime journal mapping and restart backfill exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending |
+| P0-CORE-003 | partial | Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode with durable pending work and restart recovery, while other producers remain pending |
+| P0-CORE-004 | partial | Runtime journal mapping, retry/backoff, shutdown cancellation, restart backfill, stale-writer queue reconciliation, and no-outbox shadow tests exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending |
 | P0-CORE-006 | partial | Canonical JSON v1, golden digest and fuzz smoke |
 | P0-CORE-007 | partial | `core/event/registry.go` provides adjacent explicit upcasters, reject/preserve unknown-field policy, future-version rejection and downgrade blocking; N-2 fixtures and producer migrations remain pending |
 | P0-CORE-008 | partial | Session/Turn/Step transition tables and illegal-transition tests exist in `internal/runtime/lifecycle_state.go`; ModelCall, Approval, Timer and Delegation transition tables remain pending |
-| P0-CORE-009 | partial | `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending |
+| P0-CORE-009 | partial | `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow with durable queue/recovery evidence, while source cutover and the other producers remain pending |
 | P0-CORE-010 | partial | `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; `internal/projection.Worker` replays one tenant/stream partition from sequence zero with a canonical digest-checked offset, and configured `projection.AtomicStore` backends commit each mutation page with its offset atomically; other views and runtime composition remain pending |
 | P0-CORE-013 | partial | Dependency interfaces and deterministic testkit exist; legacy reducers still call system sources |
 | P0-CORE-014 | partial | Manual clock, sequence IDs/random and recording sleeper tests |
@@ -67,7 +67,7 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STORE-009 | partial | `internal/artifact.Lifecycle` and `BlobLifecycle` persist roots, legal holds, two-phase tombstone/purge results, and deletion proofs; artifact/blob inventory and workspace rollback now enforce matching tenant scope; event/snapshot/blob projection roots remain to be wired |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; projection rows and offsets carry tenant boundaries and scoped reads/writes; authenticated scoped read/RLS and full cache/queue/blob/trace composition remain pending |
 | P0-EVAL-023 | partial | `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine |
-| P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending |
+| P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; runtime journal write/rename/directory-sync faults, stale cross-instance fence/idempotency and shadow queue restart tests exist, while generic migration crash/resume and tail repair remain pending |
 | P0-TIMER-001 | partial | Human deadlines, model retries, positive write effect timeouts, sleep, and scheduled resume use versioned durable command intents; provider-wide call-site and database backend scheduling remain pending |
 | P0-TIMER-002 | complete locally | `Timer` persists UTC due time, command digest, stream sequence, generation, owner, state, lease expiry and fencing token in `internal/runtime/timer.go` |
 | P0-TIMER-003 | complete locally | Atomic `ClaimDue`, fencing-token takeover, occurrence-key idempotency and release/ack tests in `internal/runtime/timer_test.go` |

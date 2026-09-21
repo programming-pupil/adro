@@ -115,10 +115,10 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
   - Recorded evidence state: `partial`. Generic reducer/replay contract exists; legacy handlers are not migrated
 
 - [ ] `P0-CORE-003` [source:150] [state:partial] 定义统一 `EventEnvelope`：sequence、schema version、event ID、causation、correlation、actor、tenant、integrity。
-  - Recorded evidence state: `partial`. Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode, while other producers remain pending
+  - Recorded evidence state: `partial`. Canonical envelope v1 exists; the legacy runtime journal now maps into it in shadow mode with a durable pending queue and restart recovery, while other producers remain pending
 
 - [ ] `P0-CORE-004` [source:151] [state:partial] 将 Runtime、Harness、Orchestration、Audit 当前事件映射到统一 envelope。
-  - Recorded evidence state: `partial`. Runtime journal mapping and restart backfill exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending
+  - Recorded evidence state: `partial`. Runtime journal mapping, retry/backoff, shutdown cancellation, restart backfill, stale-writer queue reconciliation, and no-outbox shadow tests exist in `internal/runtime/shadow.go`; Harness, Orchestration and Audit mappings remain pending
 
 - [ ] `P0-CORE-005` [source:152] [state:unverified] 明确哪些事件包含内容，哪些只保存 digest 与外部 blob reference。
 
@@ -134,7 +134,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 ## 3.2 消除多套事实来源
 
 - [ ] `P0-CORE-009` [source:159] [state:partial] 合并/分工现有五套记录：
-  - Recorded evidence state: `partial`. `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow, while source cutover and the other producers remain pending
+  - Recorded evidence state: `partial`. `docs/rebuild/event-source-inventory.md`; the runtime journal has a legacy-authoritative EventStore shadow with durable queue/recovery evidence, while source cutover and the other producers remain pending
 
 - [ ] `P0-CORE-010` [source:166] [state:partial] 所有 projection 支持从 sequence 0 重建并比较 digest。
   - Recorded evidence state: `partial`. `core/event.ValidateChain` and `core/reducer.ReplayVerified` produce verified replay/state-digest evidence; `internal/projection.Worker` replays one tenant/stream partition from sequence zero with a canonical digest-checked offset, and configured `projection.AtomicStore` backends commit mutation pages with their offsets atomically; other views and runtime composition remain pending
@@ -798,7 +798,7 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 - [ ] `P0-EVAL-003` [source:504] [state:unverified] Tool adapter conformance：schema、approval、timeout、ordered result、effect receipt、reconcile。
 
 - [ ] `P0-EVAL-004` [source:505] [state:partial] Store conformance：CAS、atomic batch、lease、tail repair、corruption、migration。
-  - Recorded evidence state: `partial`. Shared suites cover CAS, idempotency, atomic multi-mutation plus offset commit/replay/delete/rollback, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; migration crash/resume and tail repair pending
+  - Recorded evidence state: `partial`. Shared suites cover CAS, idempotency, atomic multi-mutation plus offset commit/replay/delete/rollback, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; runtime journal write/rename/directory-sync faults, stale cross-instance fence/idempotency and shadow queue restart tests exist, while generic migration crash/resume and tail repair remain pending
 
 - [ ] `P0-EVAL-005` [source:506] [state:unverified] Sandbox conformance：filesystem、network、process、secret、cross-tenant negative tests。
 

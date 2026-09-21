@@ -249,11 +249,19 @@ func TestLocalProviderConfiguresAndExposesRuntimeEventShadow(t *testing.T) {
 	if err := p.ConfigureRuntimeEventShadow(store, time.Second); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = p.Shutdown(ctx)
+	})
 	scope := runtimekernel.Scope{TenantID: "local", WorkspaceID: "local", SessionID: "session-1", RunID: "run-1"}
 	if _, err := p.runtime.Append(runtimekernel.Input{
 		EventType: runtimekernel.EventTurnStarted, AggregateType: "run", AggregateID: scope.RunID,
 		Scope: scope, IdempotencyKey: "turn-1", Payload: map[string]any{"input": "shadow"},
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.runtime.WaitShadow(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	reports := p.RuntimeEventShadowReports()
