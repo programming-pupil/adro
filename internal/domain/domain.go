@@ -648,7 +648,7 @@ type Approval struct {
 }
 
 // DiffSnapshot is the provider-neutral changed-files view exposed to the
-// workbench. Content is optional; a runner may publish only the stat first.
+// control plane. Content is optional; a runner may publish only the stat first.
 type DiffSnapshot struct {
 	ID            string         `json:"id"`
 	WorkItemID    string         `json:"work_item_id"`

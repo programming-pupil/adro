@@ -1,12 +1,9 @@
-# Roadmap
+# Development status
 
-1. Local delivery profile: control API, domain state, seven-stage pipeline,
-   same-session repair, filesystem artifacts, verified uploads, cursor events,
-   WebSocket streams, repository graph, runner registration, capability
-   governance, audit chain, and multilingual local workbench.
-2. Production adapters: PostgreSQL persistence with RLS, OIDC/RBAC, NATS /
-   Temporal, Git/CI/deployment integrations, isolated runners and cloud
-   ArtifactStore drivers. Every adapter is optional and installed through the
-   provider-neutral SPI.
-3. Hardening: local workspace observer, HA, online migration workers,
-   plugin conformance, upgrade/rollback matrix, and public ADRO Bench results.
+Stage zero of the v2 rebuild is in progress. Retained libraries, asset
+preservation, and deletion of retired code are being verified incrementally.
+The new executable, complete static gates, and milestone acceptance are pending.
+
+PostgreSQL persistence, execution supervision, security, orchestration, and
+release qualification belong to subsequent tasks. They are not completed
+capabilities of this branch.

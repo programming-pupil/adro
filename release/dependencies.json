@@ -880,31 +880,5 @@
       "source": "https://modernc.org/token",
       "supplier": "modernc.org"
     }
-  ],
-  "npm": [
-    {
-      "name": "@playwright/test",
-      "version": "1.63.0",
-      "license": "Apache-2.0",
-      "scope": "development",
-      "source": "https://github.com/microsoft/playwright",
-      "supplier": "Microsoft Corporation"
-    },
-    {
-      "name": "playwright",
-      "version": "1.63.0",
-      "license": "Apache-2.0",
-      "scope": "development",
-      "source": "https://github.com/microsoft/playwright",
-      "supplier": "Microsoft Corporation"
-    },
-    {
-      "name": "playwright-core",
-      "version": "1.63.0",
-      "license": "Apache-2.0",
-      "scope": "development",
-      "source": "https://github.com/microsoft/playwright",
-      "supplier": "Microsoft Corporation"
-    }
   ]
 }

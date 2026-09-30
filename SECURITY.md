@@ -4,4 +4,6 @@ Please do not open a public issue for a suspected vulnerability. Use [GitHub's p
 
 Security reports are acknowledged privately, triaged by severity, and fixed through a reviewed change. Reporters should allow maintainers reasonable time to reproduce and release a fix before public disclosure.
 
-The control-plane threat model and required production controls are documented in [docs/architecture/production-deployment.md](docs/architecture/production-deployment.md). The local profile is intentionally not a production identity, runner or secret-management boundary.
+The v2 rebuild is not ready for production deployment. Security controls and
+acceptance evidence are tracked by the active implementation tasks; preserved
+code does not imply that the new runtime has passed security acceptance.

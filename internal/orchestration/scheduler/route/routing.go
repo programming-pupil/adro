@@ -27,7 +27,7 @@ func ValidNativeID(value string) bool { return uuidPattern.MatchString(value) }
 
 // AgentRouteConfig is the immutable, workspace-scoped routing snapshot read
 // at process startup. The native IDs are never returned by diagnostics or the
-// browser workbench; they are used only while materializing a provider issue.
+// control-plane views; they are used only while materializing a provider issue.
 type AgentRouteConfig struct {
 	Workspaces map[string]WorkspaceAgentRoutes `json:"workspaces"`
 }

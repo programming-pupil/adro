@@ -24,7 +24,8 @@ store-conformance:
 	$(GO) test ./adapters/eventstore/... -count=1
 
 supply-chain:
-	node scripts/release-assets.mjs verify
+	python3 scripts/test_release_assets.py
+	python3 scripts/release-assets.py verify
 	./scripts/test-release-signing.sh
 
 postgres-conformance:

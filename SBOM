@@ -3,11 +3,11 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "adro-0.1.0",
-  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-c25f1287ce368baae92b23fb8b882987c268cd9620ecd5c2249bbae19f7b487c",
+  "documentNamespace": "https://adro.dev/spdx/adro-0.1.0-b53b1e7c68e847d12e923cf2f45447af6a83010d0f7054d785263bb2fdcfef4d",
   "creationInfo": {
     "created": "1970-01-01T00:00:00Z",
     "creators": [
-      "Tool: scripts/release-assets.mjs"
+      "Tool: scripts/release-assets.py"
     ]
   },
   "documentDescribes": [
@@ -76,6 +76,24 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/cloud.google.com/go/compute/metadata@v0.9.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-GoogleCloudPlatform-opentelemetry-operations-go-detectors-gcp-v1.33.0",
+      "name": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp",
+      "versionInfo": "v1.33.0",
+      "downloadLocation": "https://proxy.golang.org/github.com/!google!cloud!platform/opentelemetry-operations-go/detectors/gcp/@v/v1.33.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp@v1.33.0"
         }
       ]
     },
@@ -188,24 +206,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-go-github.com-envoyproxy-go-control-plane-v0.14.0",
-      "name": "github.com/envoyproxy/go-control-plane",
-      "versionInfo": "v0.14.0",
-      "downloadLocation": "https://proxy.golang.org/github.com/envoyproxy/go-control-plane/@v/v0.14.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/envoyproxy/go-control-plane@v0.14.0"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-go-github.com-envoyproxy-go-control-plane-envoy-v1.37.0",
       "name": "github.com/envoyproxy/go-control-plane/envoy",
       "versionInfo": "v1.37.0",
@@ -238,6 +238,24 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/envoyproxy/go-control-plane/ratelimit@v0.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-envoyproxy-go-control-plane-v0.14.0",
+      "name": "github.com/envoyproxy/go-control-plane",
+      "versionInfo": "v0.14.0",
+      "downloadLocation": "https://proxy.golang.org/github.com/envoyproxy/go-control-plane/@v/v0.14.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/envoyproxy/go-control-plane@v0.14.0"
         }
       ]
     },
@@ -422,24 +440,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-go-github.com-go-openapi-runtime-v0.33.0",
-      "name": "github.com/go-openapi/runtime",
-      "versionInfo": "v0.33.0",
-      "downloadLocation": "https://proxy.golang.org/github.com/go-openapi/runtime/@v/v0.33.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/go-openapi/runtime@v0.33.0"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-go-github.com-go-openapi-runtime-server-middleware-v0.30.0",
       "name": "github.com/go-openapi/runtime/server-middleware",
       "versionInfo": "v0.30.0",
@@ -454,6 +454,24 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/go-openapi/runtime/server-middleware@v0.30.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-github.com-go-openapi-runtime-v0.33.0",
+      "name": "github.com/go-openapi/runtime",
+      "versionInfo": "v0.33.0",
+      "downloadLocation": "https://proxy.golang.org/github.com/go-openapi/runtime/@v/v0.33.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-openapi/runtime@v0.33.0"
         }
       ]
     },
@@ -490,24 +508,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/go-openapi/strfmt@v0.27.0"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-go-github.com-go-openapi-swag-v0.28.0",
-      "name": "github.com/go-openapi/swag",
-      "versionInfo": "v0.28.0",
-      "downloadLocation": "https://proxy.golang.org/github.com/go-openapi/swag/@v/v0.28.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/go-openapi/swag@v0.28.0"
         }
       ]
     },
@@ -710,6 +710,24 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-go-github.com-go-openapi-swag-v0.28.0",
+      "name": "github.com/go-openapi/swag",
+      "versionInfo": "v0.28.0",
+      "downloadLocation": "https://proxy.golang.org/github.com/go-openapi/swag/@v/v0.28.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-openapi/swag@v0.28.0"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-go-github.com-go-openapi-validate-v0.26.1",
       "name": "github.com/go-openapi/validate",
       "versionInfo": "v0.26.1",
@@ -886,24 +904,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/googleapis/gax-go/v2@v2.17.0"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-go-github.com-GoogleCloudPlatform-opentelemetry-operations-go-detectors-gcp-v1.33.0",
-      "name": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp",
-      "versionInfo": "v1.33.0",
-      "downloadLocation": "https://proxy.golang.org/github.com/!google!cloud!platform/opentelemetry-operations-go/detectors/gcp/@v/v1.33.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp@v1.33.0"
         }
       ]
     },
@@ -1268,10 +1268,10 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-v1.46.0",
-      "name": "go.opentelemetry.io/otel",
+      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-exporters-otlp-otlptrace-otlptracehttp-v1.46.0",
+      "name": "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp",
       "versionInfo": "v1.46.0",
-      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/@v/v1.46.0.zip",
+      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/@v/v1.46.0.zip",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
       "licenseDeclared": "Apache-2.0",
@@ -1281,7 +1281,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.46.0"
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.46.0"
         }
       ]
     },
@@ -1300,24 +1300,6 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.46.0"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-exporters-otlp-otlptrace-otlptracehttp-v1.46.0",
-      "name": "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp",
-      "versionInfo": "v1.46.0",
-      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/@v/v1.46.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.46.0"
         }
       ]
     },
@@ -1358,24 +1340,6 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-sdk-v1.46.0",
-      "name": "go.opentelemetry.io/otel/sdk",
-      "versionInfo": "v1.46.0",
-      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/sdk/@v/v1.46.0.zip",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.46.0"
-        }
-      ]
-    },
-    {
       "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-sdk-metric-v1.46.0",
       "name": "go.opentelemetry.io/otel/sdk/metric",
       "versionInfo": "v1.46.0",
@@ -1394,6 +1358,24 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-sdk-v1.46.0",
+      "name": "go.opentelemetry.io/otel/sdk",
+      "versionInfo": "v1.46.0",
+      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/sdk/@v/v1.46.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/sdk@v1.46.0"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-trace-v1.46.0",
       "name": "go.opentelemetry.io/otel/trace",
       "versionInfo": "v1.46.0",
@@ -1408,6 +1390,24 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/go.opentelemetry.io/otel/trace@v1.46.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-go-go.opentelemetry.io-otel-v1.46.0",
+      "name": "go.opentelemetry.io/otel",
+      "versionInfo": "v1.46.0",
+      "downloadLocation": "https://proxy.golang.org/go.opentelemetry.io/otel/@v/v1.46.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/go.opentelemetry.io/otel@v1.46.0"
         }
       ]
     },
@@ -2004,60 +2004,6 @@
           "referenceLocator": "pkg:golang/modernc.org/token@v1.1.0"
         }
       ]
-    },
-    {
-      "SPDXID": "SPDXRef-npm--playwright-test-1.63.0",
-      "name": "@playwright/test",
-      "versionInfo": "1.63.0",
-      "downloadLocation": "https://github.com/microsoft/playwright",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "Organization: Microsoft Corporation",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:npm/%40playwright/test@1.63.0"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-npm-playwright-core-1.63.0",
-      "name": "playwright-core",
-      "versionInfo": "1.63.0",
-      "downloadLocation": "https://github.com/microsoft/playwright",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "Organization: Microsoft Corporation",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:npm/playwright-core@1.63.0"
-        }
-      ]
-    },
-    {
-      "SPDXID": "SPDXRef-npm-playwright-1.63.0",
-      "name": "playwright",
-      "versionInfo": "1.63.0",
-      "downloadLocation": "https://github.com/microsoft/playwright",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "copyrightText": "NOASSERTION",
-      "supplier": "Organization: Microsoft Corporation",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:npm/playwright@1.63.0"
-        }
-      ]
     }
   ],
   "relationships": [
@@ -2075,6 +2021,11 @@
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-cloud.google.com-go-compute-metadata-v0.9.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-GoogleCloudPlatform-opentelemetry-operations-go-detectors-gcp-v1.33.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2109,17 +2060,17 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-github.com-envoyproxy-go-control-plane-v0.14.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-Package-ADRO",
-      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-envoyproxy-go-control-plane-envoy-v1.37.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-envoyproxy-go-control-plane-ratelimit-v0.1.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-envoyproxy-go-control-plane-v0.14.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2174,12 +2125,12 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-runtime-v0.33.0"
+      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-runtime-server-middleware-v0.30.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-runtime-server-middleware-v0.30.0"
+      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-runtime-v0.33.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2190,11 +2141,6 @@
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-strfmt-v0.27.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-Package-ADRO",
-      "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-swag-v0.28.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2254,6 +2200,11 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-swag-v0.28.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-go-openapi-validate-v0.26.1"
     },
     {
@@ -2300,11 +2251,6 @@
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-github.com-googleapis-gax-go-v2-v2.17.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-Package-ADRO",
-      "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-github.com-GoogleCloudPlatform-opentelemetry-operations-go-detectors-gcp-v1.33.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2409,17 +2355,12 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-v1.46.0"
+      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-exporters-otlp-otlptrace-otlptracehttp-v1.46.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-exporters-otlp-otlptrace-v1.46.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-Package-ADRO",
-      "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-exporters-otlp-otlptrace-otlptracehttp-v1.46.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2434,17 +2375,22 @@
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-sdk-v1.46.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-Package-ADRO",
-      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-sdk-metric-v1.46.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-sdk-v1.46.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-trace-v1.46.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-ADRO",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-go-go.opentelemetry.io-otel-v1.46.0"
     },
     {
       "spdxElementId": "SPDXRef-Package-ADRO",
@@ -2610,21 +2556,6 @@
       "spdxElementId": "SPDXRef-Package-ADRO",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-go-modernc.org-token-v1.1.0"
-    },
-    {
-      "spdxElementId": "SPDXRef-npm--playwright-test-1.63.0",
-      "relationshipType": "DEV_DEPENDENCY_OF",
-      "relatedSpdxElement": "SPDXRef-Package-ADRO"
-    },
-    {
-      "spdxElementId": "SPDXRef-npm-playwright-core-1.63.0",
-      "relationshipType": "DEV_DEPENDENCY_OF",
-      "relatedSpdxElement": "SPDXRef-Package-ADRO"
-    },
-    {
-      "spdxElementId": "SPDXRef-npm-playwright-1.63.0",
-      "relationshipType": "DEV_DEPENDENCY_OF",
-      "relatedSpdxElement": "SPDXRef-Package-ADRO"
     }
   ]
 }

@@ -1,5 +1,5 @@
 ADRO Third-Party Notices
-Generated from go.mod, go.sum, package-lock.json, and release/dependencies.json for ADRO 0.1.0.
+Generated from Go manifests and release/dependencies.json for ADRO 0.1.0.
 The release verifier fails when a manifest dependency is absent from this list.
 
 cel.dev/expr v0.25.2
@@ -24,6 +24,14 @@ cloud.google.com/go/compute/metadata v0.9.0
   license: Apache-2.0
   source: https://proxy.golang.org/cloud.google.com/go/compute/metadata/@v/v0.9.0.zip
   license-file: THIRD_PARTY_LICENSES/go-cloud.google.com_go_compute_metadata@v0.9.0.txt
+  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.33.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/github.com/!google!cloud!platform/opentelemetry-operations-go/detectors/gcp/@v/v1.33.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-github.com_GoogleCloudPlatform_opentelemetry-operations-go_detectors_gcp@v1.33.0.txt
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
 github.com/apapsch/go-jsonmerge/v2 v2.0.0
@@ -74,14 +82,6 @@ github.com/dustin/go-humanize v1.0.1
   license-file: THIRD_PARTY_LICENSES/go-github.com_dustin_go-humanize@v1.0.1.txt
   license-sha256: a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71
 
-github.com/envoyproxy/go-control-plane v0.14.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/github.com/envoyproxy/go-control-plane/@v/v0.14.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-github.com_envoyproxy_go-control-plane@v0.14.0.txt
-  license-sha256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
-
 github.com/envoyproxy/go-control-plane/envoy v1.37.0
   ecosystem: go
   scope: runtime
@@ -96,6 +96,14 @@ github.com/envoyproxy/go-control-plane/ratelimit v0.1.0
   license: Apache-2.0
   source: https://proxy.golang.org/github.com/envoyproxy/go-control-plane/ratelimit/@v/v0.1.0.zip
   license-file: THIRD_PARTY_LICENSES/go-github.com_envoyproxy_go-control-plane_ratelimit@v0.1.0.txt
+  license-sha256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
+
+github.com/envoyproxy/go-control-plane v0.14.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/github.com/envoyproxy/go-control-plane/@v/v0.14.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-github.com_envoyproxy_go-control-plane@v0.14.0.txt
   license-sha256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
 
 github.com/envoyproxy/protoc-gen-validate v1.3.3
@@ -178,20 +186,20 @@ github.com/go-openapi/loads v0.25.0
   license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_loads@v0.25.0.txt
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
-github.com/go-openapi/runtime v0.33.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/github.com/go-openapi/runtime/@v/v0.33.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_runtime@v0.33.0.txt
-  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
-
 github.com/go-openapi/runtime/server-middleware v0.30.0
   ecosystem: go
   scope: runtime
   license: Apache-2.0
   source: https://proxy.golang.org/github.com/go-openapi/runtime/server-middleware/@v/v0.30.0.zip
   license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_runtime_server-middleware@v0.30.0.txt
+  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+github.com/go-openapi/runtime v0.33.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/github.com/go-openapi/runtime/@v/v0.33.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_runtime@v0.33.0.txt
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
 github.com/go-openapi/spec v0.22.9
@@ -208,14 +216,6 @@ github.com/go-openapi/strfmt v0.27.0
   license: Apache-2.0
   source: https://proxy.golang.org/github.com/go-openapi/strfmt/@v/v0.27.0.zip
   license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_strfmt@v0.27.0.txt
-  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
-
-github.com/go-openapi/swag v0.28.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/github.com/go-openapi/swag/@v/v0.28.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_swag@v0.28.0.txt
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
 github.com/go-openapi/swag/cmdutils v0.28.0
@@ -306,6 +306,14 @@ github.com/go-openapi/swag/yamlutils v0.28.0
   license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_swag_yamlutils@v0.28.0.txt
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
+github.com/go-openapi/swag v0.28.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/github.com/go-openapi/swag/@v/v0.28.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-github.com_go-openapi_swag@v0.28.0.txt
+  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
 github.com/go-openapi/validate v0.26.1
   ecosystem: go
   scope: runtime
@@ -385,14 +393,6 @@ github.com/googleapis/gax-go/v2 v2.17.0
   source: https://proxy.golang.org/github.com/googleapis/gax-go/v2/@v/v2.17.0.zip
   license-file: THIRD_PARTY_LICENSES/go-github.com_googleapis_gax-go_v2@v2.17.0.txt
   license-sha256: b95218cd9607855a6536384c0262922b30a0c2bf56e4ced790240f3a3bac4722
-
-github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.33.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/github.com/!google!cloud!platform/opentelemetry-operations-go/detectors/gcp/@v/v1.33.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-github.com_GoogleCloudPlatform_opentelemetry-operations-go_detectors_gcp@v1.33.0.txt
-  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 
 github.com/gorilla/websocket v1.5.3
   ecosystem: go
@@ -554,12 +554,12 @@ go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
   license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_contrib_instrumentation_net_http_otelhttp@v0.70.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
-go.opentelemetry.io/otel v1.46.0
+go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
   ecosystem: go
   scope: runtime
   license: Apache-2.0
-  source: https://proxy.golang.org/go.opentelemetry.io/otel/@v/v1.46.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel@v1.46.0.txt
+  source: https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/@v/v1.46.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_exporters_otlp_otlptrace_otlptracehttp@v1.46.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
 go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0
@@ -568,14 +568,6 @@ go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0
   license: Apache-2.0
   source: https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/@v/v1.46.0.zip
   license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_exporters_otlp_otlptrace@v1.46.0.txt
-  license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
-
-go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp/@v/v1.46.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_exporters_otlp_otlptrace_otlptracehttp@v1.46.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
 go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.45.0
@@ -594,14 +586,6 @@ go.opentelemetry.io/otel/metric v1.46.0
   license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_metric@v1.46.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
-go.opentelemetry.io/otel/sdk v1.46.0
-  ecosystem: go
-  scope: runtime
-  license: Apache-2.0
-  source: https://proxy.golang.org/go.opentelemetry.io/otel/sdk/@v/v1.46.0.zip
-  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_sdk@v1.46.0.txt
-  license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
-
 go.opentelemetry.io/otel/sdk/metric v1.46.0
   ecosystem: go
   scope: runtime
@@ -610,12 +594,28 @@ go.opentelemetry.io/otel/sdk/metric v1.46.0
   license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_sdk_metric@v1.46.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
+go.opentelemetry.io/otel/sdk v1.46.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/go.opentelemetry.io/otel/sdk/@v/v1.46.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_sdk@v1.46.0.txt
+  license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
+
 go.opentelemetry.io/otel/trace v1.46.0
   ecosystem: go
   scope: runtime
   license: Apache-2.0
   source: https://proxy.golang.org/go.opentelemetry.io/otel/trace/@v/v1.46.0.zip
   license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel_trace@v1.46.0.txt
+  license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
+
+go.opentelemetry.io/otel v1.46.0
+  ecosystem: go
+  scope: runtime
+  license: Apache-2.0
+  source: https://proxy.golang.org/go.opentelemetry.io/otel/@v/v1.46.0.zip
+  license-file: THIRD_PARTY_LICENSES/go-go.opentelemetry.io_otel@v1.46.0.txt
   license-sha256: 6b747bfc5952d5d71d5d384dfe2131b0d3bccd7a90c6b3c280bc28d539963e2f
 
 go.opentelemetry.io/proto/otlp v1.11.0
@@ -881,27 +881,3 @@ modernc.org/token v1.1.0
   source: https://modernc.org/token
   license-file: THIRD_PARTY_LICENSES/go-modernc.org_token@v1.1.0.txt
   license-sha256: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
-
-@playwright/test 1.63.0
-  ecosystem: npm
-  scope: development
-  license: Apache-2.0
-  source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-@playwright_test@1.63.0.txt
-  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
-
-playwright-core 1.63.0
-  ecosystem: npm
-  scope: development
-  license: Apache-2.0
-  source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-playwright-core@1.63.0.txt
-  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9
-
-playwright 1.63.0
-  ecosystem: npm
-  scope: development
-  license: Apache-2.0
-  source: https://github.com/microsoft/playwright
-  license-file: THIRD_PARTY_LICENSES/npm-playwright@1.63.0.txt
-  license-sha256: 7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9

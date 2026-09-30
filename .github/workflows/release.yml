@@ -21,24 +21,19 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
       - name: Check version and tag
         run: |
-          version="$(node -p "require('./package.json').version")"
+          version="$(cat VERSION)"
           test "$GITHUB_REF_NAME" = "v$version"
       - run: make test test-race vet build architecture fuzz-smoke store-conformance supply-chain
       - name: Build source archive
         run: |
-          version="$(node -p "require('./package.json').version")"
+          version="$(cat VERSION)"
           mkdir -p dist
           git archive --format=tar.gz --prefix="adro-$version/" "$GITHUB_REF_NAME" -o "dist/adro-$version.tar.gz"
-          node scripts/release-assets.mjs manifest --output dist/release-manifest.json
+          python3 scripts/release-assets.py manifest --output dist/release-manifest.json
       - name: Sign and verify release manifest
         env:
           ADRO_RELEASE_SIGNING_KEY_B64: ${{ secrets.ADRO_RELEASE_SIGNING_KEY_B64 }}
@@ -46,12 +41,12 @@ jobs:
           test -n "$ADRO_RELEASE_SIGNING_KEY_B64"
           umask 077
           printf '%s' "$ADRO_RELEASE_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/adro-release-key"
-          node scripts/release-assets.mjs sign-manifest dist/release-manifest.json \
+          python3 scripts/release-assets.py sign-manifest dist/release-manifest.json \
             --key "$RUNNER_TEMP/adro-release-key" \
             --signature dist/release-manifest.json.sig \
             --allowed-signers dist/release-allowed-signers
-          node scripts/release-assets.mjs verify-manifest dist/release-manifest.json
-          node scripts/release-assets.mjs verify-signature dist/release-manifest.json \
+          python3 scripts/release-assets.py verify-manifest dist/release-manifest.json
+          python3 scripts/release-assets.py verify-signature dist/release-manifest.json \
             --signature dist/release-manifest.json.sig \
             --allowed-signers dist/release-allowed-signers
       - name: Publish GitHub release

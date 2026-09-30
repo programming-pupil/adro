@@ -1,19 +1,12 @@
 # Changelog
 
-## Unreleased
+## Unreleased v2 rebuild
 
-- Added CodeQL, dependency review, automated dependency updates, and OpenSSF
-  Scorecard workflows; refreshed public documentation and removed internal
-  prompt notes from the published tree.
-- Corrected CodeQL build-mode selection for Go, moved security analysis to
-  CodeQL v4, switched Scorecard to its GHCR-backed release, and pinned all
-  workflow actions to Node 24-compatible commits.
-- Added the provider-independent local control-plane reference profile, HTTP
-  API, event cursor, artifact driver, runner supervisor, capability registry,
-  multilingual workbench, migrations, OpenAPI and deployment scaffolding.
-- Hardened requirement repository relations so a registered repository from a
-  different workspace cannot be cloned into an execution workdir; added a
-  regression test for the cross-workspace rejection.
-- Clarified that Git/CI and DingTalk/Feishu production connectors are external
-  SPI plugins and release prerequisites, not built-in adapters of the local
-  single-node profile.
+- Preserved selected contracts, algorithms, and regression inputs from the
+  read-only `v1-final` tag.
+- Removed retired executables, pipeline APIs, file-based control storage,
+  browser assets, and obsolete test scripts.
+- Added classified errors, atomic file publication, and strict hashed naming
+  checks. Repository-wide acceptance is still incomplete.
+- Removed the Node toolchain requirement while retaining release signature
+  verification and dependency notices.
