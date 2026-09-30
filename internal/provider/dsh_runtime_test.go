@@ -1,12 +1,13 @@
 package provider
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
 	"fmt"
+	"github.com/adro-project/adro/testkit/fakecli/framed"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,58 +21,16 @@ func TestDSHRuntimeHelperProcess(t *testing.T) {
 	if os.Getenv("ADRO_TEST_DSH_HELPER") != "1" {
 		return
 	}
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	code, err := framed.Run(ctx, os.Stdin, os.Stdout, framed.Options{
+		Mode: os.Getenv("ADRO_TEST_DSH_MODE"), SessionID: "dsh-session", Runtime: "dsh",
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	requestLine := scanner.Text()
-	if logPath := os.Getenv("ADRO_TEST_DSH_LOG"); logPath != "" {
-		file, _ := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if file != nil {
-			_, _ = fmt.Fprintln(file, requestLine)
-			_ = file.Close()
-		}
-	}
-	var request map[string]any
-	if json.Unmarshal([]byte(requestLine), &request) != nil {
-		os.Exit(3)
-	}
-	requestID, _ := request["request_id"].(string)
-	mode := os.Getenv("ADRO_TEST_DSH_MODE")
-	if mode == "cancel" {
-		if scanner.Scan() {
-			if logPath := os.Getenv("ADRO_TEST_DSH_LOG"); logPath != "" {
-				file, _ := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600)
-				if file != nil {
-					_, _ = fmt.Fprintln(file, scanner.Text())
-					_ = file.Close()
-				}
-			}
-		}
-		time.Sleep(time.Hour)
-	}
-	version := 1
-	if mode == "version" {
-		version = 2
-	}
-	encoder := json.NewEncoder(os.Stdout)
-	_ = encoder.Encode(map[string]any{"v": version, "type": "ready", "runtime": "dsh", "protocol_version": version})
-	sessionID := "dsh-session"
-	if mode == "session-mismatch" {
-		sessionID = "different-session"
-	}
-	_ = encoder.Encode(map[string]any{"v": version, "type": "session", "request_id": requestID, "session_id": sessionID})
-	_ = encoder.Encode(map[string]any{"v": version, "type": "tool_call", "request_id": requestID, "call_id": "tool-1", "name": "shell", "arguments": `{"command":"pwd"}`})
-	_ = encoder.Encode(map[string]any{"v": version, "type": "tool_result", "request_id": requestID, "call_id": "tool-1", "name": "shell", "output": "ok"})
-	_ = encoder.Encode(map[string]any{"v": version, "type": "usage", "request_id": requestID, "provider": "provider", "model": "model", "input_tokens": 13, "output_tokens": 6})
-	_ = encoder.Encode(map[string]any{"v": version, "type": "result", "request_id": requestID, "session_id": sessionID, "status": "completed", "output": "done", "resume_rejected": mode == "resume-rejected"})
-	if mode == "linger" {
-		time.Sleep(time.Hour)
-	}
-	if mode == "exit-after-result" {
-		os.Exit(1)
-	}
-	os.Exit(0)
+	os.Exit(code)
 }
 
 func runDSHHelper(t *testing.T, mode string, timeout time.Duration) ([]byte, string, error) {
