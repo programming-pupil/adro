@@ -1,6 +1,6 @@
 // Package secretstore defines opaque secret references and short-lived,
 // revocable leases. Secret material is never part of a serializable lease.
-package secretstore
+package secret
 
 import (
 	"context"

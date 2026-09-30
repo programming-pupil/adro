@@ -15,3 +15,11 @@ legacy:
     target: internal/ctx
     retained_tests:
       - FuzzCompilerPreservesMandatoryBoundaries
+  adapters/blob/postgres:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg
+  adapters/snapshot/postgres:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg

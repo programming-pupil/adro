@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 const defaultMaxTTL = 15 * time.Minute
@@ -36,13 +36,13 @@ type storedSecret struct {
 }
 
 type storedLease struct {
-	lease    secretstore.SecretLease
+	lease    secret.SecretLease
 	material []byte
 }
 
 type Broker struct {
 	mu      sync.Mutex
-	secrets map[secretstore.SecretRef]storedSecret
+	secrets map[secret.SecretRef]storedSecret
 	leases  map[string]storedLease
 	now     func() time.Time
 	maxTTL  time.Duration
@@ -50,7 +50,7 @@ type Broker struct {
 
 func New() *Broker {
 	return &Broker{
-		secrets: make(map[secretstore.SecretRef]storedSecret),
+		secrets: make(map[secret.SecretRef]storedSecret),
 		leases:  make(map[string]storedLease),
 		now:     func() time.Time { return time.Now().UTC() },
 		maxTTL:  defaultMaxTTL,
@@ -63,7 +63,7 @@ func NewWithClock(now func() time.Time, maxTTL time.Duration) (*Broker, error) {
 		return nil, errors.New("clock and positive max ttl are required")
 	}
 	return &Broker{
-		secrets: make(map[secretstore.SecretRef]storedSecret),
+		secrets: make(map[secret.SecretRef]storedSecret),
 		leases:  make(map[string]storedLease),
 		now:     now,
 		maxTTL:  maxTTL,
@@ -71,20 +71,20 @@ func NewWithClock(now func() time.Time, maxTTL time.Duration) (*Broker, error) {
 }
 
 // Put registers copied material under a newly generated opaque reference.
-func (b *Broker) Put(request PutRequest) (secretstore.SecretRef, error) {
+func (b *Broker) Put(request PutRequest) (secret.SecretRef, error) {
 	tenantID := strings.TrimSpace(request.TenantID)
 	if tenantID == "" || len(request.Value) == 0 {
-		return "", fmt.Errorf("%w: tenant and secret value are required", secretstore.ErrInvalidRequest)
+		return "", fmt.Errorf("%w: tenant and secret value are required", secret.ErrInvalidRequest)
 	}
 	destinations, err := normalizedSet(request.Destinations)
 	if err != nil {
-		return "", fmt.Errorf("%w: destinations: %v", secretstore.ErrInvalidRequest, err)
+		return "", fmt.Errorf("%w: destinations: %v", secret.ErrInvalidRequest, err)
 	}
 	purposes, err := normalizedSet(request.Purposes)
 	if err != nil {
-		return "", fmt.Errorf("%w: purposes: %v", secretstore.ErrInvalidRequest, err)
+		return "", fmt.Errorf("%w: purposes: %v", secret.ErrInvalidRequest, err)
 	}
-	ref, err := secretstore.NewRef()
+	ref, err := secret.NewRef()
 	if err != nil {
 		return "", err
 	}
@@ -97,28 +97,28 @@ func (b *Broker) Put(request PutRequest) (secretstore.SecretRef, error) {
 	return ref, nil
 }
 
-func (b *Broker) Resolve(ctx context.Context, request secretstore.SecretRequest) (secretstore.SecretLease, error) {
+func (b *Broker) Resolve(ctx context.Context, request secret.SecretRequest) (secret.SecretLease, error) {
 	if err := contextErr(ctx); err != nil {
-		return secretstore.SecretLease{}, err
+		return secret.SecretLease{}, err
 	}
 	if err := request.Validate(b.maxTTL); err != nil {
-		return secretstore.SecretLease{}, err
+		return secret.SecretLease{}, err
 	}
 	now := b.now().UTC()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	stored, ok := b.secrets[request.Ref]
 	if !ok {
-		return secretstore.SecretLease{}, secretstore.ErrNotFound
+		return secret.SecretLease{}, secret.ErrNotFound
 	}
 	if stored.tenantID != request.TenantID || !setContains(stored.destinations, request.Destination) || !setContains(stored.purposes, request.Purpose) {
-		return secretstore.SecretLease{}, secretstore.ErrScopeMismatch
+		return secret.SecretLease{}, secret.ErrScopeMismatch
 	}
 	id, err := leaseID()
 	if err != nil {
-		return secretstore.SecretLease{}, err
+		return secret.SecretLease{}, err
 	}
-	lease := secretstore.SecretLease{
+	lease := secret.SecretLease{
 		ID: id, Ref: request.Ref, TenantID: request.TenantID, SessionID: request.SessionID,
 		EffectID: request.EffectID, Destination: request.Destination, Purpose: request.Purpose,
 		IssuedAt: now, ExpiresAt: now.Add(request.TTL),
@@ -127,7 +127,7 @@ func (b *Broker) Resolve(ctx context.Context, request secretstore.SecretRequest)
 	return lease, nil
 }
 
-func (b *Broker) Material(ctx context.Context, request secretstore.MaterialRequest) ([]byte, error) {
+func (b *Broker) Material(ctx context.Context, request secret.MaterialRequest) ([]byte, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
@@ -138,24 +138,24 @@ func (b *Broker) Material(ctx context.Context, request secretstore.MaterialReque
 	defer b.mu.Unlock()
 	stored, ok := b.leases[request.LeaseID]
 	if !ok {
-		return nil, secretstore.ErrNotFound
+		return nil, secret.ErrNotFound
 	}
 	if stored.lease.Revoked {
-		return nil, secretstore.ErrLeaseRevoked
+		return nil, secret.ErrLeaseRevoked
 	}
 	if !b.now().UTC().Before(stored.lease.ExpiresAt) {
 		stored.lease.Revoked = true
 		clear(stored.material)
 		stored.material = nil
 		b.leases[request.LeaseID] = stored
-		return nil, secretstore.ErrLeaseExpired
+		return nil, secret.ErrLeaseExpired
 	}
 	lease := stored.lease
 	if lease.TenantID != request.TenantID || lease.SessionID != request.SessionID || lease.EffectID != request.EffectID || lease.Destination != request.Destination || lease.Purpose != request.Purpose {
-		return nil, secretstore.ErrScopeMismatch
+		return nil, secret.ErrScopeMismatch
 	}
 	if len(stored.material) == 0 {
-		return nil, secretstore.ErrInvalidLease
+		return nil, secret.ErrInvalidLease
 	}
 	return append([]byte(nil), stored.material...), nil
 }
@@ -165,13 +165,13 @@ func (b *Broker) Revoke(ctx context.Context, id string) error {
 		return err
 	}
 	if strings.TrimSpace(id) == "" {
-		return fmt.Errorf("%w: lease id is required", secretstore.ErrInvalidRequest)
+		return fmt.Errorf("%w: lease id is required", secret.ErrInvalidRequest)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	stored, ok := b.leases[id]
 	if !ok {
-		return secretstore.ErrNotFound
+		return secret.ErrNotFound
 	}
 	stored.lease.Revoked = true
 	clear(stored.material)
@@ -182,18 +182,18 @@ func (b *Broker) Revoke(ctx context.Context, id string) error {
 
 // PublicLease returns serializable metadata without material. Revoked and
 // expired leases remain visible for audit, with Revoked set to true.
-func (b *Broker) PublicLease(ctx context.Context, leaseID string) (secretstore.SecretLease, error) {
+func (b *Broker) PublicLease(ctx context.Context, leaseID string) (secret.SecretLease, error) {
 	if err := contextErr(ctx); err != nil {
-		return secretstore.SecretLease{}, err
+		return secret.SecretLease{}, err
 	}
 	if strings.TrimSpace(leaseID) == "" {
-		return secretstore.SecretLease{}, fmt.Errorf("%w: lease id is required", secretstore.ErrInvalidRequest)
+		return secret.SecretLease{}, fmt.Errorf("%w: lease id is required", secret.ErrInvalidRequest)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	stored, ok := b.leases[leaseID]
 	if !ok {
-		return secretstore.SecretLease{}, secretstore.ErrNotFound
+		return secret.SecretLease{}, secret.ErrNotFound
 	}
 	if !stored.lease.Revoked && !b.now().UTC().Before(stored.lease.ExpiresAt) {
 		stored.lease.Revoked = true
@@ -245,7 +245,7 @@ func leaseID() (string, error) {
 }
 
 // SortedScope is a diagnostics helper that never returns material.
-func (b *Broker) SortedScope(ref secretstore.SecretRef) (destinations, purposes []string, ok bool) {
+func (b *Broker) SortedScope(ref secret.SecretRef) (destinations, purposes []string, ok bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	stored, ok := b.secrets[ref]
@@ -263,4 +263,4 @@ func (b *Broker) SortedScope(ref secretstore.SecretRef) (destinations, purposes 
 	return destinations, purposes, true
 }
 
-var _ secretstore.SecretBroker = (*Broker)(nil)
+var _ secret.SecretBroker = (*Broker)(nil)

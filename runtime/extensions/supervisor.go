@@ -20,7 +20,7 @@ import (
 	extensionport "github.com/adro-project/adro/ports/extensions"
 	policyport "github.com/adro-project/adro/ports/policy"
 	"github.com/adro-project/adro/ports/sandbox"
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 const (
@@ -132,7 +132,7 @@ type StartRequest struct {
 	RequiredLevel sandbox.EnforcementLevel
 	Limits        sandbox.ResourceBudget
 	Environment   map[string]string
-	SecretRefs    []secretstore.SecretRef
+	SecretRefs    []secret.SecretRef
 }
 
 // EgressRequest classifies one outbound adapter call. The runtime records the
@@ -489,7 +489,7 @@ func (i *Instance) startExternal(ctx context.Context) error {
 		TenantID: tenantID, SessionID: sessionID, EffectID: effectID,
 		RequiredLevel: request.RequiredLevel, Command: append([]string(nil), request.Command...),
 		WorkingDir: request.WorkingDir, FileGrants: fileGrants, NetworkGrants: networkGrants,
-		SecretRefs: append([]secretstore.SecretRef(nil), request.SecretRefs...), Limits: limits, Environment: environment,
+		SecretRefs: append([]secret.SecretRef(nil), request.SecretRefs...), Limits: limits, Environment: environment,
 	})
 	if err != nil {
 		return err
@@ -1077,7 +1077,7 @@ func cloneStartRequest(request StartRequest) StartRequest {
 	for key, value := range environment {
 		request.Environment[key] = value
 	}
-	request.SecretRefs = append([]secretstore.SecretRef(nil), request.SecretRefs...)
+	request.SecretRefs = append([]secret.SecretRef(nil), request.SecretRefs...)
 	request.Installation = cloneInstallation(request.Installation)
 	return request
 }

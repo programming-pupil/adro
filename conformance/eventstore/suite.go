@@ -14,12 +14,12 @@ import (
 
 	"github.com/adro-project/adro/core/event"
 	storeport "github.com/adro-project/adro/ports/eventstore"
-	"github.com/adro-project/adro/ports/leasestore"
+	leaseport "github.com/adro-project/adro/ports/lease"
 )
 
 type Backend interface {
 	storeport.Store
-	leasestore.Store
+	leaseport.Store
 	Close() error
 }
 
@@ -145,7 +145,7 @@ func Run(t *testing.T, factory Factory) {
 		if err != nil || lease.FencingToken != 1 {
 			t.Fatalf("lease=%+v err=%v", lease, err)
 		}
-		if _, err := fixture.Backend.Acquire(context.Background(), "tenant-1", "stream-lease", "worker-b", time.Minute); !errors.Is(err, leasestore.ErrBusy) {
+		if _, err := fixture.Backend.Acquire(context.Background(), "tenant-1", "stream-lease", "worker-b", time.Minute); !errors.Is(err, leaseport.ErrBusy) {
 			t.Fatalf("competing acquire error=%v", err)
 		}
 		request := appendRequest("stream-lease", 0, uncommitted("stream-lease", "lease-1", `{"value":1}`))
@@ -168,7 +168,7 @@ func Run(t *testing.T, factory Factory) {
 		if _, err := fixture.Backend.Append(context.Background(), fresh); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.Backend.Renew(context.Background(), lease, time.Minute); !errors.Is(err, leasestore.ErrLost) {
+		if _, err := fixture.Backend.Renew(context.Background(), lease, time.Minute); !errors.Is(err, leaseport.ErrLost) {
 			t.Fatalf("stale renew error=%v", err)
 		}
 		if err := fixture.Backend.Release(context.Background(), newLease); err != nil {
@@ -178,7 +178,7 @@ func Run(t *testing.T, factory Factory) {
 		if err != nil || reacquired.FencingToken <= newLease.FencingToken {
 			t.Fatalf("reacquired lease=%+v err=%v", reacquired, err)
 		}
-		if _, err := fixture.Backend.Renew(context.Background(), newLease, time.Minute); !errors.Is(err, leasestore.ErrLost) {
+		if _, err := fixture.Backend.Renew(context.Background(), newLease, time.Minute); !errors.Is(err, leaseport.ErrLost) {
 			t.Fatalf("released lease renewed with error=%v", err)
 		}
 	})

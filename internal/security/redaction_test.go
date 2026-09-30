@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 func TestSensitivityAndSurfaceVocabulary(t *testing.T) {
@@ -33,7 +33,7 @@ func TestPromptAndToolPayloadsRedactByDefault(t *testing.T) {
 		if got := Redact(surface, "canary-plaintext"); got != Redacted {
 			t.Fatalf("%s scalar = %#v, want redacted", surface, got)
 		}
-		if got := Redact(surface, secretstore.SecretRef("secret:vault/item")); got != "secret:vault/item" {
+		if got := Redact(surface, secret.SecretRef("secret:vault/item")); got != "secret:vault/item" {
 			t.Fatalf("%s secret ref = %#v", surface, got)
 		}
 	}

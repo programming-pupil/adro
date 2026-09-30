@@ -1,4 +1,4 @@
-package secretstore
+package secret
 
 import (
 	"encoding/json"

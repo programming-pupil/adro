@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 type EnforcementLevel string
@@ -174,17 +174,17 @@ func (b ResourceBudget) Validate() error {
 }
 
 type SandboxRequest struct {
-	TenantID      string                  `json:"tenant_id"`
-	SessionID     string                  `json:"session_id"`
-	EffectID      string                  `json:"effect_id"`
-	RequiredLevel EnforcementLevel        `json:"required_level"`
-	Command       []string                `json:"command"`
-	WorkingDir    string                  `json:"working_dir"`
-	FileGrants    []FileGrant             `json:"file_grants,omitempty"`
-	NetworkGrants []NetworkGrant          `json:"network_grants,omitempty"`
-	SecretRefs    []secretstore.SecretRef `json:"secret_refs,omitempty"`
-	Limits        ResourceBudget          `json:"limits"`
-	Environment   map[string]string       `json:"environment,omitempty"`
+	TenantID      string             `json:"tenant_id"`
+	SessionID     string             `json:"session_id"`
+	EffectID      string             `json:"effect_id"`
+	RequiredLevel EnforcementLevel   `json:"required_level"`
+	Command       []string           `json:"command"`
+	WorkingDir    string             `json:"working_dir"`
+	FileGrants    []FileGrant        `json:"file_grants,omitempty"`
+	NetworkGrants []NetworkGrant     `json:"network_grants,omitempty"`
+	SecretRefs    []secret.SecretRef `json:"secret_refs,omitempty"`
+	Limits        ResourceBudget     `json:"limits"`
+	Environment   map[string]string  `json:"environment,omitempty"`
 }
 
 func (r SandboxRequest) Validate(now time.Time) error {

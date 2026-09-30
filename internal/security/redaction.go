@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 const Redacted = "[redacted]"
@@ -99,7 +99,7 @@ func RedactAttribute(key, value string) (string, bool) {
 		return "", false
 	}
 	value = strings.TrimSpace(value)
-	if ref := secretstore.SecretRef(value); ref.Valid() {
+	if ref := secret.SecretRef(value); ref.Valid() {
 		return ref.String(), true
 	}
 	if sensitiveKey(key) || credentialShaped(value) {
@@ -224,12 +224,12 @@ func redactReflected(surface Surface, value any, key string, sensitivity Sensiti
 
 func opaqueSecretRef(value any) (string, bool) {
 	switch typed := value.(type) {
-	case secretstore.SecretRef:
+	case secret.SecretRef:
 		if typed.Valid() {
 			return typed.String(), true
 		}
 	case string:
-		candidate := secretstore.SecretRef(typed)
+		candidate := secret.SecretRef(typed)
 		if candidate.Valid() {
 			return candidate.String(), true
 		}

@@ -10,19 +10,19 @@ import (
 
 	"github.com/adro-project/adro/core/ids"
 	"github.com/adro-project/adro/ports/eventstore"
-	"github.com/adro-project/adro/ports/leasestore"
+	leaseport "github.com/adro-project/adro/ports/lease"
 )
 
-func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, ttl time.Duration) (leasestore.Lease, error) {
+func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, ttl time.Duration) (leaseport.Lease, error) {
 	if err := s.checkOpen(); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if err := validateLeaseInput(tenantID, streamID, owner, ttl); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("begin PostgreSQL lease acquire: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("begin PostgreSQL lease acquire: %w", err)
 	}
 	defer tx.Rollback()
 	var token, expiresAt int64
@@ -33,7 +33,7 @@ func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, t
 		ON CONFLICT (tenant_id, stream_id) DO NOTHING
 		RETURNING fencing_token, expires_at_us`, tenantID, streamID, owner, ttl.Microseconds()).Scan(&token, &expiresAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return leasestore.Lease{}, fmt.Errorf("insert PostgreSQL lease: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("insert PostgreSQL lease: %w", err)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		var currentOwner string
@@ -41,42 +41,42 @@ func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, t
 		if err := tx.QueryRowContext(ctx, `SELECT owner, fencing_token, expires_at_us FROM event_leases
 			WHERE tenant_id=$1 AND stream_id=$2 FOR UPDATE`, tenantID, streamID).
 			Scan(&currentOwner, &token, &currentExpires); err != nil {
-			return leasestore.Lease{}, fmt.Errorf("lock PostgreSQL lease: %w", err)
+			return leaseport.Lease{}, fmt.Errorf("lock PostgreSQL lease: %w", err)
 		}
 		now, err := databaseNowMicros(ctx, tx)
 		if err != nil {
-			return leasestore.Lease{}, err
+			return leaseport.Lease{}, err
 		}
 		if currentOwner != owner && currentExpires > now {
-			return leasestore.Lease{}, leasestore.ErrBusy
+			return leaseport.Lease{}, leaseport.ErrBusy
 		}
 		token++
 		expiresAt = now + ttl.Microseconds()
 		if _, err := tx.ExecContext(ctx, `UPDATE event_leases SET owner=$1, fencing_token=$2,
 			expires_at_us=$3, updated_at_us=$4 WHERE tenant_id=$5 AND stream_id=$6`,
 			owner, token, expiresAt, now, tenantID, streamID); err != nil {
-			return leasestore.Lease{}, fmt.Errorf("take over PostgreSQL lease: %w", err)
+			return leaseport.Lease{}, fmt.Errorf("take over PostgreSQL lease: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return leasestore.Lease{}, fmt.Errorf("commit PostgreSQL lease acquire: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("commit PostgreSQL lease acquire: %w", err)
 	}
-	return leasestore.Lease{TenantID: tenantID, StreamID: streamID, Owner: owner, FencingToken: token, ExpiresAt: time.UnixMicro(expiresAt).UTC()}, nil
+	return leaseport.Lease{TenantID: tenantID, StreamID: streamID, Owner: owner, FencingToken: token, ExpiresAt: time.UnixMicro(expiresAt).UTC()}, nil
 }
 
-func (s *Store) Renew(ctx context.Context, lease leasestore.Lease, ttl time.Duration) (leasestore.Lease, error) {
+func (s *Store) Renew(ctx context.Context, lease leaseport.Lease, ttl time.Duration) (leaseport.Lease, error) {
 	if err := s.checkOpen(); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if err := validateLeaseInput(lease.TenantID, lease.StreamID, lease.Owner, ttl); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if lease.FencingToken <= 0 {
-		return leasestore.Lease{}, errors.New("positive lease fencing token is required")
+		return leaseport.Lease{}, errors.New("positive lease fencing token is required")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("begin PostgreSQL lease renew: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("begin PostgreSQL lease renew: %w", err)
 	}
 	defer tx.Rollback()
 	var currentOwner string
@@ -85,37 +85,37 @@ func (s *Store) Renew(ctx context.Context, lease leasestore.Lease, ttl time.Dura
 		WHERE tenant_id=$1 AND stream_id=$2 FOR UPDATE`, lease.TenantID, lease.StreamID).
 		Scan(&currentOwner, &currentToken, &currentExpires)
 	if errors.Is(err, sql.ErrNoRows) {
-		return leasestore.Lease{}, leasestore.ErrLost
+		return leaseport.Lease{}, leaseport.ErrLost
 	}
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("lock PostgreSQL lease for renewal: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("lock PostgreSQL lease for renewal: %w", err)
 	}
 	now, err := databaseNowMicros(ctx, tx)
 	if err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if currentOwner != lease.Owner || currentToken != lease.FencingToken || currentExpires <= now {
-		return leasestore.Lease{}, leasestore.ErrLost
+		return leaseport.Lease{}, leaseport.ErrLost
 	}
 	expiresAt := now + ttl.Microseconds()
 	result, err := tx.ExecContext(ctx, `UPDATE event_leases SET expires_at_us=$1, updated_at_us=$2
 		WHERE tenant_id=$3 AND stream_id=$4 AND owner=$5 AND fencing_token=$6`,
 		expiresAt, now, lease.TenantID, lease.StreamID, lease.Owner, lease.FencingToken)
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("renew PostgreSQL lease: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("renew PostgreSQL lease: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return leasestore.Lease{}, leasestore.ErrLost
+		return leaseport.Lease{}, leaseport.ErrLost
 	}
 	if err := tx.Commit(); err != nil {
-		return leasestore.Lease{}, fmt.Errorf("commit PostgreSQL lease renew: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("commit PostgreSQL lease renew: %w", err)
 	}
 	lease.ExpiresAt = time.UnixMicro(expiresAt).UTC()
 	return lease, nil
 }
 
-func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
+func (s *Store) Release(ctx context.Context, lease leaseport.Lease) error {
 	if err := s.checkOpen(); err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
 		WHERE tenant_id=$1 AND stream_id=$2 FOR UPDATE`, lease.TenantID, lease.StreamID).
 		Scan(&currentOwner, &currentToken, &currentExpires)
 	if errors.Is(err, sql.ErrNoRows) {
-		return leasestore.ErrLost
+		return leaseport.ErrLost
 	}
 	if err != nil {
 		return fmt.Errorf("lock PostgreSQL lease for release: %w", err)
@@ -146,7 +146,7 @@ func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
 		return err
 	}
 	if currentOwner != lease.Owner || currentToken != lease.FencingToken || currentExpires <= now {
-		return leasestore.ErrLost
+		return leaseport.ErrLost
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE event_leases SET expires_at_us=0, updated_at_us=$1
 		WHERE tenant_id=$2 AND stream_id=$3 AND owner=$4 AND fencing_token=$5`,
@@ -156,7 +156,7 @@ func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return leasestore.ErrLost
+		return leaseport.ErrLost
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit PostgreSQL lease release: %w", err)

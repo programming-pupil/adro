@@ -10,19 +10,19 @@ import (
 
 	"github.com/adro-project/adro/core/ids"
 	"github.com/adro-project/adro/ports/eventstore"
-	"github.com/adro-project/adro/ports/leasestore"
+	leaseport "github.com/adro-project/adro/ports/lease"
 )
 
-func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, ttl time.Duration) (leasestore.Lease, error) {
+func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, ttl time.Duration) (leaseport.Lease, error) {
 	if err := s.checkOpen(); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if err := validateLeaseInput(tenantID, streamID, owner, ttl); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	tx, err := beginImmediate(ctx, s.db)
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("begin sqlite lease acquire: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("begin sqlite lease acquire: %w", err)
 	}
 	defer tx.rollback()
 
@@ -35,9 +35,9 @@ func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, t
 	case errors.Is(err, sql.ErrNoRows):
 		token = 1
 	case err != nil:
-		return leasestore.Lease{}, fmt.Errorf("read sqlite lease: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("read sqlite lease: %w", err)
 	case currentOwner != owner && expiresAtMicros > now.UnixMicro():
-		return leasestore.Lease{}, leasestore.ErrBusy
+		return leaseport.Lease{}, leaseport.ErrBusy
 	default:
 		token++
 	}
@@ -49,23 +49,23 @@ func (s *Store) Acquire(ctx context.Context, tenantID, streamID, owner string, t
 		owner=excluded.owner, fencing_token=excluded.fencing_token,
 		expires_at_us=excluded.expires_at_us, updated_at_us=excluded.updated_at_us`,
 		tenantID, streamID, owner, token, expiresAt.UnixMicro(), now.UnixMicro()); err != nil {
-		return leasestore.Lease{}, fmt.Errorf("write sqlite lease: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("write sqlite lease: %w", err)
 	}
 	if err := tx.commit(ctx); err != nil {
-		return leasestore.Lease{}, fmt.Errorf("commit sqlite lease acquire: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("commit sqlite lease acquire: %w", err)
 	}
-	return leasestore.Lease{TenantID: tenantID, StreamID: streamID, Owner: owner, FencingToken: token, ExpiresAt: expiresAt}, nil
+	return leaseport.Lease{TenantID: tenantID, StreamID: streamID, Owner: owner, FencingToken: token, ExpiresAt: expiresAt}, nil
 }
 
-func (s *Store) Renew(ctx context.Context, lease leasestore.Lease, ttl time.Duration) (leasestore.Lease, error) {
+func (s *Store) Renew(ctx context.Context, lease leaseport.Lease, ttl time.Duration) (leaseport.Lease, error) {
 	if err := s.checkOpen(); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if err := validateLeaseInput(lease.TenantID, lease.StreamID, lease.Owner, ttl); err != nil {
-		return leasestore.Lease{}, err
+		return leaseport.Lease{}, err
 	}
 	if lease.FencingToken <= 0 {
-		return leasestore.Lease{}, errors.New("positive lease fencing token is required")
+		return leaseport.Lease{}, errors.New("positive lease fencing token is required")
 	}
 	now := s.clock.Now().UTC().Truncate(time.Microsecond)
 	expiresAt := now.Add(ttl).Truncate(time.Microsecond)
@@ -75,17 +75,17 @@ func (s *Store) Renew(ctx context.Context, lease leasestore.Lease, ttl time.Dura
 		expiresAt.UnixMicro(), now.UnixMicro(), lease.TenantID, lease.StreamID, lease.Owner,
 		lease.FencingToken, now.UnixMicro())
 	if err != nil {
-		return leasestore.Lease{}, fmt.Errorf("renew sqlite lease: %w", err)
+		return leaseport.Lease{}, fmt.Errorf("renew sqlite lease: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return leasestore.Lease{}, leasestore.ErrLost
+		return leaseport.Lease{}, leaseport.ErrLost
 	}
 	lease.ExpiresAt = expiresAt
 	return lease, nil
 }
 
-func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
+func (s *Store) Release(ctx context.Context, lease leaseport.Lease) error {
 	if err := s.checkOpen(); err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (s *Store) Release(ctx context.Context, lease leasestore.Lease) error {
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return leasestore.ErrLost
+		return leaseport.ErrLost
 	}
 	return nil
 }

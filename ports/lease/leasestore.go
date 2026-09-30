@@ -1,5 +1,5 @@
 // Package leasestore defines write ownership and fencing for durable streams.
-package leasestore
+package lease
 
 import (
 	"context"

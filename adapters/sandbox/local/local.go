@@ -21,7 +21,7 @@ import (
 
 	coreencoding "github.com/adro-project/adro/core/encoding"
 	"github.com/adro-project/adro/ports/sandbox"
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 const (
@@ -665,7 +665,7 @@ func cloneRequest(request sandbox.SandboxRequest) sandbox.SandboxRequest {
 	for index := range request.NetworkGrants {
 		request.NetworkGrants[index].Ports = append([]int(nil), request.NetworkGrants[index].Ports...)
 	}
-	request.SecretRefs = append([]secretstore.SecretRef(nil), request.SecretRefs...)
+	request.SecretRefs = append([]secret.SecretRef(nil), request.SecretRefs...)
 	if request.Environment != nil {
 		environment := request.Environment
 		request.Environment = make(map[string]string, len(environment))

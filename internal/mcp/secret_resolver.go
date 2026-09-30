@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 // BrokerSecretResolver binds MCP secret material to one durable effect scope.
@@ -13,7 +13,7 @@ import (
 // connection; the reference, lease and scope never enter a JSON-RPC payload.
 // A missing scope is rejected rather than treated as a wildcard.
 type BrokerSecretResolver struct {
-	Broker      secretstore.SecretBroker
+	Broker      secret.SecretBroker
 	TenantID    string
 	SessionID   string
 	EffectID    string
@@ -23,18 +23,18 @@ type BrokerSecretResolver struct {
 }
 
 func (r BrokerSecretResolver) Resolve(ctx context.Context, reference string) (string, error) {
-	ref := secretstore.SecretRef(strings.TrimSpace(reference))
+	ref := secret.SecretRef(strings.TrimSpace(reference))
 	if r.Broker == nil || !ref.Valid() || strings.TrimSpace(r.TenantID) == "" || strings.TrimSpace(r.SessionID) == "" || strings.TrimSpace(r.EffectID) == "" || strings.TrimSpace(r.Destination) == "" || strings.TrimSpace(r.Purpose) == "" || r.TTL <= 0 {
 		return "", ErrSecretUnavailable
 	}
-	lease, err := r.Broker.Resolve(ctx, secretstore.SecretRequest{
+	lease, err := r.Broker.Resolve(ctx, secret.SecretRequest{
 		Ref: ref, TenantID: r.TenantID, SessionID: r.SessionID, EffectID: r.EffectID,
 		Destination: r.Destination, Purpose: r.Purpose, TTL: r.TTL,
 	})
 	if err != nil {
 		return "", ErrSecretUnavailable
 	}
-	material, err := r.Broker.Material(ctx, secretstore.MaterialRequest{
+	material, err := r.Broker.Material(ctx, secret.MaterialRequest{
 		LeaseID: lease.ID, TenantID: r.TenantID, SessionID: r.SessionID, EffectID: r.EffectID,
 		Destination: r.Destination, Purpose: r.Purpose,
 	})

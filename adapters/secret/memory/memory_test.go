@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 func TestBrokerCopiesStoredAndReturnedMaterial(t *testing.T) {
@@ -52,19 +52,19 @@ func TestBrokerRejectsUnauthorizedSecretScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	base := secretstore.SecretRequest{
+	base := secret.SecretRequest{
 		Ref: ref, TenantID: "tenant", SessionID: "session", EffectID: "effect",
 		Destination: "tool:fetch", Purpose: "authorization", TTL: time.Minute,
 	}
-	for name, mutate := range map[string]func(*secretstore.SecretRequest){
-		"tenant":      func(r *secretstore.SecretRequest) { r.TenantID = "other" },
-		"destination": func(r *secretstore.SecretRequest) { r.Destination = "tool:send" },
-		"purpose":     func(r *secretstore.SecretRequest) { r.Purpose = "exfiltration" },
+	for name, mutate := range map[string]func(*secret.SecretRequest){
+		"tenant":      func(r *secret.SecretRequest) { r.TenantID = "other" },
+		"destination": func(r *secret.SecretRequest) { r.Destination = "tool:send" },
+		"purpose":     func(r *secret.SecretRequest) { r.Purpose = "exfiltration" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			request := base
 			mutate(&request)
-			if _, err := broker.Resolve(context.Background(), request); !errors.Is(err, secretstore.ErrScopeMismatch) {
+			if _, err := broker.Resolve(context.Background(), request); !errors.Is(err, secret.ErrScopeMismatch) {
 				t.Fatalf("unauthorized scope returned %v", err)
 			}
 		})
@@ -83,17 +83,17 @@ func TestLeaseMaterialIsBoundToCompleteScope(t *testing.T) {
 	}
 	lease := resolveTestLease(t, broker, ref, time.Minute)
 	base := materialRequest(lease)
-	for name, mutate := range map[string]func(*secretstore.MaterialRequest){
-		"tenant":      func(r *secretstore.MaterialRequest) { r.TenantID = "other" },
-		"session":     func(r *secretstore.MaterialRequest) { r.SessionID = "other" },
-		"effect":      func(r *secretstore.MaterialRequest) { r.EffectID = "other" },
-		"destination": func(r *secretstore.MaterialRequest) { r.Destination = "other" },
-		"purpose":     func(r *secretstore.MaterialRequest) { r.Purpose = "other" },
+	for name, mutate := range map[string]func(*secret.MaterialRequest){
+		"tenant":      func(r *secret.MaterialRequest) { r.TenantID = "other" },
+		"session":     func(r *secret.MaterialRequest) { r.SessionID = "other" },
+		"effect":      func(r *secret.MaterialRequest) { r.EffectID = "other" },
+		"destination": func(r *secret.MaterialRequest) { r.Destination = "other" },
+		"purpose":     func(r *secret.MaterialRequest) { r.Purpose = "other" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			request := base
 			mutate(&request)
-			if _, err := broker.Material(context.Background(), request); !errors.Is(err, secretstore.ErrScopeMismatch) {
+			if _, err := broker.Material(context.Background(), request); !errors.Is(err, secret.ErrScopeMismatch) {
 				t.Fatalf("scope mismatch returned %v", err)
 			}
 		})
@@ -114,7 +114,7 @@ func TestLeaseExpiryAndRevocationEraseMaterial(t *testing.T) {
 
 	expired := resolveTestLease(t, broker, ref, time.Minute)
 	current = now.Add(time.Minute)
-	if _, err := broker.Material(context.Background(), materialRequest(expired)); !errors.Is(err, secretstore.ErrLeaseExpired) {
+	if _, err := broker.Material(context.Background(), materialRequest(expired)); !errors.Is(err, secret.ErrLeaseExpired) {
 		t.Fatalf("expired material returned %v", err)
 	}
 	assertLeaseErased(t, broker, expired.ID)
@@ -134,7 +134,7 @@ func TestLeaseExpiryAndRevocationEraseMaterial(t *testing.T) {
 	if err := broker.Revoke(context.Background(), revoked.ID); err != nil {
 		t.Fatalf("idempotent revoke: %v", err)
 	}
-	if _, err := broker.Material(context.Background(), materialRequest(revoked)); !errors.Is(err, secretstore.ErrLeaseRevoked) {
+	if _, err := broker.Material(context.Background(), materialRequest(revoked)); !errors.Is(err, secret.ErrLeaseRevoked) {
 		t.Fatalf("revoked material returned %v", err)
 	}
 	assertLeaseErased(t, broker, revoked.ID)
@@ -175,17 +175,17 @@ func TestPutAndContextValidation(t *testing.T) {
 		"purposes":     {TenantID: "tenant", Value: []byte("value"), Destinations: []string{"tool"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := broker.Put(request); !errors.Is(err, secretstore.ErrInvalidRequest) {
+			if _, err := broker.Put(request); !errors.Is(err, secret.ErrInvalidRequest) {
 				t.Fatalf("invalid put returned %v", err)
 			}
 		})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := broker.Resolve(ctx, secretstore.SecretRequest{}); !errors.Is(err, context.Canceled) {
+	if _, err := broker.Resolve(ctx, secret.SecretRequest{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled resolve returned %v", err)
 	}
-	if _, err := broker.Material(ctx, secretstore.MaterialRequest{}); !errors.Is(err, context.Canceled) {
+	if _, err := broker.Material(ctx, secret.MaterialRequest{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled material returned %v", err)
 	}
 	if err := broker.Revoke(ctx, "lease:1"); !errors.Is(err, context.Canceled) {
@@ -202,9 +202,9 @@ func newTestBroker(t *testing.T, now func() time.Time) *Broker {
 	return broker
 }
 
-func resolveTestLease(t *testing.T, broker *Broker, ref secretstore.SecretRef, ttl time.Duration) secretstore.SecretLease {
+func resolveTestLease(t *testing.T, broker *Broker, ref secret.SecretRef, ttl time.Duration) secret.SecretLease {
 	t.Helper()
-	lease, err := broker.Resolve(context.Background(), secretstore.SecretRequest{
+	lease, err := broker.Resolve(context.Background(), secret.SecretRequest{
 		Ref: ref, TenantID: "tenant", SessionID: "session", EffectID: "effect",
 		Destination: "tool:fetch", Purpose: "authorization", TTL: ttl,
 	})
@@ -214,8 +214,8 @@ func resolveTestLease(t *testing.T, broker *Broker, ref secretstore.SecretRef, t
 	return lease
 }
 
-func materialRequest(lease secretstore.SecretLease) secretstore.MaterialRequest {
-	return secretstore.MaterialRequest{
+func materialRequest(lease secret.SecretLease) secret.MaterialRequest {
+	return secret.MaterialRequest{
 		LeaseID: lease.ID, TenantID: lease.TenantID, SessionID: lease.SessionID, EffectID: lease.EffectID,
 		Destination: lease.Destination, Purpose: lease.Purpose,
 	}

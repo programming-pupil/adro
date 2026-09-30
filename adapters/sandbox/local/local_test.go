@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/ports/sandbox"
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 func TestSandboxHelperProcess(t *testing.T) {
@@ -110,7 +110,7 @@ func TestPrepareRejectsUnsupportedCapabilitiesAndResources(t *testing.T) {
 		"CPU":            func(r *sandbox.SandboxRequest) { r.Limits.CPUTime = time.Second },
 		"memory":         func(r *sandbox.SandboxRequest) { r.Limits.MemoryBytes = 1024 },
 		"disk":           func(r *sandbox.SandboxRequest) { r.Limits.DiskBytes = 1024 },
-		"secrets":        func(r *sandbox.SandboxRequest) { r.SecretRefs = []secretstore.SecretRef{"secret:credential"} },
+		"secrets":        func(r *sandbox.SandboxRequest) { r.SecretRefs = []secret.SecretRef{"secret:credential"} },
 		"output maximum": func(r *sandbox.SandboxRequest) { r.Limits.MaxOutputBytes = maxOutputLimit + 1 },
 	} {
 		t.Run(name, func(t *testing.T) {

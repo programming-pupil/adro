@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adro-project/adro/ports/secretstore"
+	"github.com/adro-project/adro/ports/secret"
 )
 
 func TestEnforcementLevelOrdering(t *testing.T) {
@@ -79,7 +79,7 @@ func TestSandboxRequestValidation(t *testing.T) {
 		Command:       []string{"tool", "arg"},
 		WorkingDir:    ".",
 		FileGrants:    []FileGrant{{Path: "input", Read: true}},
-		SecretRefs:    []secretstore.SecretRef{"secret:credential"},
+		SecretRefs:    []secret.SecretRef{"secret:credential"},
 		Environment:   map[string]string{"LANG": "C"},
 		Limits:        ResourceBudget{WallTimeout: time.Second, MaxOutputBytes: 1024},
 	}
@@ -97,7 +97,7 @@ func TestSandboxRequestValidation(t *testing.T) {
 		"working directory": func(r *SandboxRequest) { r.WorkingDir = "" },
 		"file path":         func(r *SandboxRequest) { r.FileGrants = []FileGrant{{Read: true}} },
 		"file operation":    func(r *SandboxRequest) { r.FileGrants = []FileGrant{{Path: "input"}} },
-		"secret ref":        func(r *SandboxRequest) { r.SecretRefs = []secretstore.SecretRef{"plaintext"} },
+		"secret ref":        func(r *SandboxRequest) { r.SecretRefs = []secret.SecretRef{"plaintext"} },
 		"environment key":   func(r *SandboxRequest) { r.Environment = map[string]string{"BAD=KEY": "value"} },
 		"environment value": func(r *SandboxRequest) { r.Environment = map[string]string{"KEY": "bad\x00value"} },
 		"negative limit":    func(r *SandboxRequest) { r.Limits.MemoryBytes = -1 },
@@ -107,7 +107,7 @@ func TestSandboxRequestValidation(t *testing.T) {
 			candidate := valid
 			candidate.Command = append([]string(nil), valid.Command...)
 			candidate.FileGrants = append([]FileGrant(nil), valid.FileGrants...)
-			candidate.SecretRefs = append([]secretstore.SecretRef(nil), valid.SecretRefs...)
+			candidate.SecretRefs = append([]secret.SecretRef(nil), valid.SecretRefs...)
 			candidate.Environment = map[string]string{"LANG": "C"}
 			mutate(&candidate)
 			if err := candidate.Validate(now); !errors.Is(err, ErrInvalidRequest) {
