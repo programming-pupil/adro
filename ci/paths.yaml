@@ -23,3 +23,76 @@ legacy:
     owner: V2-02
     chapter: "4"
     target: adapters/pg
+  # Recheck every retained compilation closure after the final deletion batch.
+  core/reducer:
+    owner: V2-02
+    chapter: "4"
+    target: internal/kernel/journal
+  adapters/eventstore/postgres:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg
+  adapters/eventstore/internal/contract:
+    owner: V2-02
+    chapter: "4"
+    target: testkit/conformance
+  ports/eventstore:
+    owner: V2-02
+    chapter: "4"
+    target: ports/eventlog
+  conformance/eventstore:
+    owner: V2-02
+    chapter: "4"
+    target: testkit/conformance
+  adapters/projection/internal/contract:
+    owner: V2-02
+    chapter: "4"
+    target: testkit/conformance
+  adapters/projection/postgres:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg
+  adapters/projection/memory:
+    owner: V2-02
+    chapter: "4"
+    target: testkit/projectionfake
+  conformance/projection:
+    owner: V2-02
+    chapter: "4"
+    target: testkit/conformance
+  internal/projection:
+    owner: V2-02
+    chapter: "4"
+    target: internal/kernel/projector
+  adapters/policy/eventstore:
+    owner: V2-03
+    chapter: "5"
+    target: adapters/pg
+  internal/memory:
+    owner: V2-09
+    chapter: "10"
+    target: internal/memory
+  internal/mcp:
+    owner: V2-10
+    chapter: "12"
+    target: internal/mcp/client
+  runtime/extensions:
+    owner: V2-04
+    chapter: "14"
+    target: internal/upstream/supervisor
+  adapters/sandbox/local:
+    owner: V2-05
+    chapter: "15"
+    target: adapters/sandbox/seatbelt
+  adapters/secret/memory:
+    owner: V2-05
+    chapter: "15"
+    target: testkit/secretfake
+  internal/artifact:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg
+  adapters/blob/filesystem:
+    owner: V2-02
+    chapter: "4"
+    target: adapters/pg
