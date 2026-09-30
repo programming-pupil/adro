@@ -2,3 +2,4 @@
 /internal/provider/ @adro-provider-maintainers
 /internal/artifact/ @adro-storage-maintainers
 /internal/api/ @adro-control-plane-maintainers
+/testkit/golden/naming/denylist.sha256 @adro-maintainers
