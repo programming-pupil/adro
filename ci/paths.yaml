@@ -1,0 +1,17 @@
+version: 1
+
+# Only algorithm ports which still compile belong here. Each row has an owner
+# and an exit destination; reconstruction is read from the frozen tag.
+legacy:
+  core/encoding:
+    owner: V2-02
+    chapter: "4"
+    target: core/canon
+    retained_tests:
+      - FuzzCanonicalizeIsIdempotent
+  internal/context:
+    owner: V2-08
+    chapter: "8,9"
+    target: internal/ctx
+    retained_tests:
+      - FuzzCompilerPreservesMandatoryBoundaries
