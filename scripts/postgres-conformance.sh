@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_BIN="${ADRO_GO_BIN:-$ROOT_DIR/scripts/e2e-go.sh}"
+GO_BIN="${ADRO_GO_BIN:-go}"
 REPORT_DIR="${ADRO_POSTGRES_EVIDENCE_DIR:-$ROOT_DIR/var/test-report/postgres}"
 
 run_conformance() {
