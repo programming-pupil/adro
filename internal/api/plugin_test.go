@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/adro-project/adro/internal/plugins"
+	"github.com/adro-project/adro/internal/security/plugins"
 )
 
 func TestPluginTrustInstallRollbackRotationAndRevocationAPI(t *testing.T) {

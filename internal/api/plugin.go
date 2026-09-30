@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adro-project/adro/internal/plugins"
+	"github.com/adro-project/adro/internal/security/plugins"
 )
 
 func (s *Server) pluginRoute(w http.ResponseWriter, r *http.Request, tail string) {
