@@ -1,4 +1,7 @@
 <p align="center">
+
+> v2 reconstruction is in progress on `agent/architect/adro-v2`.
+> v1 is frozen at the `v1-final` tag (f681488): read-only reference, no further fixes.
   <img src="docs/branding/adro-cover.svg" alt="ADRO - auditable agents, recoverable workflows, provable releases" width="100%">
 </p>
 
