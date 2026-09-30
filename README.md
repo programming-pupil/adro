@@ -1,174 +1,23 @@
-<p align="center">
+# adro
 
-> v2 reconstruction is in progress on `agent/architect/adro-v2`.
-> v1 is frozen at the `v1-final` tag (f681488): read-only reference, no further fixes.
-  <img src="docs/branding/adro-cover.svg" alt="ADRO - auditable agents, recoverable workflows, provable releases" width="100%">
-</p>
+adro is undergoing a v2 rebuild. This branch contains retained Go libraries,
+asset migrations, and the first static checks. Stage zero is incomplete.
+The new single executable and its server command are not available yet.
 
-<p align="center">
-  <a href="README.zh-CN.md">中文入口</a> ·
-  <a href="docs/product-requirements.en.md">Product requirements</a> ·
-  <a href="docs/architecture/adro-technical-design.en.md">Technical design</a> ·
-  <a href="ABOUT.md">About</a>
-</p>
+The frozen `v1-final` tag is a read-only reference. This branch does not maintain
+v1 compatibility. Historical deployment and launch instructions have been removed.
 
-<p align="center">
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/ci.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/ci.yml/badge.svg" alt="Quality CI"></a>
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/contracts.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/contracts.yml/badge.svg" alt="Contracts"></a>
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/browser.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/browser.yml/badge.svg" alt="Browser matrix"></a>
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/license.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/license.yml/badge.svg" alt="License and SBOM"></a>
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
-  <a href="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml"><img src="https://github.com/programming-pupil/adro/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c9aff.svg" alt="Apache 2.0 license"></a>
-</p>
+## Local verification
 
-# ADRO
+Use the Go version declared in `go.mod`:
 
-ADRO is an open-source control plane for auditable software delivery. It
-connects goal intake, freely composed Agent/Squad workflows, durable context,
-quality gates, repair, and release evidence in one recoverable graph. Agents can
-move forward or send work back through explicit feedback edges; the session
-harness keeps context, attempts, and evidence connected across that loop.
-
-The local profile is a real Go service with an owned browser workbench. It
-persists requirements, bugs, sessions, transcripts, checkpoints, memory,
-leases, outbox records, artifacts, and audit facts. External Git, CI, deploy,
-identity, and notification systems are replaceable SPI adapters rather than
-hidden core dependencies.
-
-## Why ADRO
-
-| Capability | What ADRO guarantees |
-| --- | --- |
-| Composable delivery graphs | Typed nodes, conditions, parallel joins, and explicit feedback edges instead of a fixed pipeline |
-| Recoverable execution | Durable transcripts, checkpoints, memory, leases, and attempt lineage across restart and repair |
-| Governed automation | Tenant-scoped authorization, immutable run plans, bounded retries, approvals, and idempotent side effects |
-| Verifiable outcomes | Hash-linked events, artifacts, test evidence, SBOMs, and release manifests |
-| Replaceable integrations | Versioned SPIs for executors, Git, CI, deployment, identity, notifications, and artifact storage |
-
-## How ADRO fits together
-
-The layered architecture separates the user-facing composition surface, the
-orchestration and session-harness runtime, and the durable storage/integration
-substrate. The harness belongs in the middle layer because it carries the
-recoverable execution context between graph decisions and side effects.
-
-![ADRO layered architecture](docs/architecture/adro-layered-architecture.svg)
-
-The architecture view is complemented by a delivery-flow view and a capability
-map. The flow is intentionally not the architecture: it shows how a run moves
-from intent to proof, including the bidirectional repair loop.
-
-![ADRO delivery flow](docs/architecture/adro-architecture.svg)
-
-![ADRO capability map](docs/architecture/adro-capability-map.svg)
-
-## Quick start
-
-Requirements: Go 1.25+, Git, curl, and an installed coding client. Docker is
-not required for the local profile.
-
-```bash
-ADRO_ADMIN_PASSWORD='change-this-password' \
-./start.sh --no-docker --no-open
+```sh
+go build ./...
+go test -race ./core/errs ./internal/upstream/scan ./internal/upstream/supervisor
+go test -race ./tools/namingdeny/...
 ```
 
-The initial administrator password must contain at least 10 characters. The
-variable is used only when the local profile has no `auth.json`; restarting
-with a different value does not replace an existing password. For a local
-profile where the password is unknown, stop ADRO, back up and remove its
-`auth.json`, then start once with a new password of at least 10 characters.
-
-Machine callers use short-lived, audience-bound service credentials; the old
-shared `ADRO_API_TOKEN` setting is rejected. Initialize and issue credentials
-with `adroctl service-credential`, then set `ADRO_SERVICE_CREDENTIAL_FILE`.
-Rotation, revocation, file permissions, and failure semantics are documented in
-`docs/operations/identity-and-service-credentials.md`.
-
-Open `http://127.0.0.1:8081`. The API readiness endpoint is
-`http://127.0.0.1:8080/readyz`.
-
-On a clean profile the workbench opens the first-Agent setup automatically.
-It discovers every installed runtime with a supported adapter and lets the
-administrator choose the runtime, model, thinking level, service tier,
-runtime arguments, Skills, MCP servers, access policy, and execution budget.
-An existing workspace ZIP can be preflighted and imported from the same setup
-before creating an Agent.
-
-```bash
-./start.sh --status
-./start.sh --stop
-```
-
-`--status` reports every discovered coding client, including the Codex binary
-bundled inside ChatGPT on macOS. Set `ADRO_EXECUTOR` when the API should use a
-specific client as its default executor.
-
-Set `ADRO_HOME`, `ADRO_API_PORT`, and `ADRO_WEB_PORT` to isolate state or run
-multiple local profiles. Use `ADRO_EXECUTOR` to pin one executable;
-`ADRO_EXECUTOR_COMMAND` accepts an argv-style command with `{input}` as the
-stage prompt placeholder.
-
-### Bring an existing workspace
-
-The setup screen can preflight and import an ADRO workspace ZIP before the
-first Agent is created. Operators can also convert a compatible PostgreSQL
-workspace directly with the CLI:
-
-```bash
-go run ./cmd/adroctl workspace preflight-postgres \
-  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
-  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local
-
-go run ./cmd/adroctl workspace import-postgres \
-  --source-dsn "$SOURCE_DSN" --source-workspace "$SOURCE_WORKSPACE" \
-  --source-upload-root "$SOURCE_UPLOAD_ROOT" --workspace local --conflict rename
-```
-
-The source transaction is read-only and repeatable-read. Credentials, custom
-environment variables, live tasks, queues, execution sessions, and local paths
-are excluded. See [workspace migration](docs/operations/workspace-migration.md)
-for ZIP export/import, conflict modes, attachment handling, and rollback.
-
-## Development
-
-```bash
-go test ./...
-make verify
-make real-e2e   # requires an authenticated real coding client
-```
-
-`make verify` runs unit and race tests, vet, build, API/HTML/OpenAPI contracts,
-startup checks, the SPDX license/SBOM verifier, and the Playwright browser
-suite. Browser tests use the checked-in no-op executor fixture so CI does not
-depend on a developer workstation; `make real-e2e` is the model-backed path.
-
-## Documentation
-
-| Start here | Purpose |
-| --- | --- |
-| [Product requirements](docs/product-requirements.en.md) | Scope, personas, behavior, and acceptance criteria |
-| [Technical design](docs/architecture/adro-technical-design.en.md) | Runtime boundaries, persistence, security, and extension contracts |
-| [Production deployment](docs/architecture/production-deployment.md) | Controls required beyond the local reference profile |
-| [Workspace migration](docs/operations/workspace-migration.md) | Portable export, preflight, import, exclusions, and recovery |
-| [Compatibility](docs/compatibility.md) | Supported runtime, browser, and adapter surfaces |
-| [Contributing](CONTRIBUTING.md) | Change and review expectations |
-| [Security policy](SECURITY.md) | Private vulnerability reporting and threat-model links |
-| [Release process](RELEASE.md) | Reproducible gates and real-runtime acceptance |
-
-## Repository map
-
-- `internal/`: domain, workflow, provider, harness, storage, API, and audit
-  packages.
-- `apps/web/`: the owned Chinese/English workbench.
-- `docs/`: product, architecture, operations, compatibility, and release docs.
-- `sdk/`: provider, harness, integration, and artifact extension contracts.
-- `migrations/`: versioned persistence schema boundaries.
-
-Core highlights: free-form graph composition, Agent/Squad routing, typed
-session-harness continuity, explicit bidirectional feedback, bounded retries,
-and evidence-backed completion.
-
-Release and security policy are in `RELEASE.md` and `SECURITY.md`. The full
-About-panel copy is in `ABOUT.md`; the Chinese project entry is
-`README.zh-CN.md`.
+These commands cover existing components; they do not constitute stage-zero or
+storage acceptance. The repository-wide naming check currently fails on retained
+legacy content and unresolved naming-policy conflicts. The remaining gates,
+production assembly, and PostgreSQL integration are still under development.

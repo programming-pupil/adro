@@ -2,7 +2,6 @@
 /var/
 /bin/
 /dist/
-/adroctl
 /coverage/
 /test-results/
 /playwright-report/
