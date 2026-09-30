@@ -1,4 +1,4 @@
-.PHONY: test test-race vet build architecture fuzz-smoke store-conformance contracts supply-chain postgres-conformance
+.PHONY: test test-race vet build architecture fuzz-smoke store-conformance supply-chain postgres-conformance
 
 GO ?= go
 
@@ -22,10 +22,6 @@ fuzz-smoke:
 
 store-conformance:
 	$(GO) test ./adapters/eventstore/... -count=1
-
-contracts:
-	ruby scripts/openapi-contract.rb
-	node scripts/check-html.mjs
 
 supply-chain:
 	node scripts/release-assets.mjs verify

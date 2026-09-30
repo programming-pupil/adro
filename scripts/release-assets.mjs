@@ -252,7 +252,7 @@ function createManifest(output) {
   if (tag !== expectedTag) fail(`release tag ${tag} does not match package version ${expectedTag}`);
   if (git(['status', '--porcelain', '--untracked-files=no']) !== '') fail('tracked worktree changes prevent a traceable release manifest');
   verifyGenerated();
-  const paths = ['SBOM', 'THIRD_PARTY_NOTICES', 'openapi/openapi.yaml', 'go.sum', 'package-lock.json'];
+  const paths = ['SBOM', 'THIRD_PARTY_NOTICES', 'go.sum', 'package-lock.json'];
   const manifest = {
     schema_version: 1,
     product: 'ADRO',

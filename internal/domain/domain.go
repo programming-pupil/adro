@@ -116,8 +116,6 @@ type Requirement struct {
 	DueDate             *time.Time        `json:"due_date,omitempty"`
 	Metadata            map[string]any    `json:"metadata,omitempty"`
 	Properties          map[string]any    `json:"properties,omitempty"`
-	WorkflowTemplateID  string            `json:"workflow_template_id,omitempty"`
-	WorkflowMode        WorkflowMode      `json:"workflow_mode,omitempty"`
 	Version             int64             `json:"version"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`

@@ -1,13 +1,9 @@
-## ADRO release acceptance
+# Release status
 
-The checked-in release is a single-node reference profile. A release candidate
-must pass `go test ./...`, `go test -race ./...`, `go vet ./...`, `go build
-./...`, `make contracts`, and the browser matrix. The real end-to-end report
-must use an installed coding client and record session, worktree, git, check,
-repair, attachment, and report evidence. Test doubles may cover unit contracts,
-but cannot be used as runtime proof.
+The v2 rebuild has not reached a release milestone. The frozen `v1-final` tag
+is for reference only. Existing signature and dependency verification assets
+are retained during migration; they do not establish v2 release readiness.
 
-Run the model-backed acceptance path with `make real-e2e`. It is intentionally
-outside the default `verify` target because it requires an authenticated local
-Claude Code/Codex installation and can take several minutes. The script starts
-the native profile only; Docker is neither required nor started.
+Release acceptance requires the implemented stage gates, real PostgreSQL and
+process tests, and the task ledger to be complete. Record each command actually
+run and its result. Missing or skipped checks are not successful acceptance.

@@ -32,7 +32,7 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           test "$GITHUB_REF_NAME" = "v$version"
-      - run: make test test-race vet build architecture fuzz-smoke store-conformance contracts supply-chain
+      - run: make test test-race vet build architecture fuzz-smoke store-conformance supply-chain
       - name: Build source archive
         run: |
           version="$(node -p "require('./package.json').version")"
