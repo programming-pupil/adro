@@ -35,13 +35,6 @@ and are rejected by the inventory boundary until they are rewritten. The
 encryption key is a reference only; key material never enters events or
 database metadata.
 
-`internal/artifact.BlobLifecycle` performs two-phase collection: an unrooted
-object is tombstoned on the first pass and physically purged only after its
-marker is observed on a later pass. Roots, legal holds, failed operations, and
-a content-addressed deletion proof are durable and reloadable. A key-manager
-integration must separately record destruction; deleting bytes alone is not
-reported as key destruction.
-
 The PostgreSQL migrations are `migrations/016_runtime_snapshot_blob.sql` and
 `migrations/017_runtime_blob_stored_digest.sql`.
 Production object-storage adapters, cross-process lifecycle leases, backup/

@@ -76,9 +76,6 @@ for any of these controls.
 
 ## Migration and recovery gate
 
-The SQL files in `migrations/` and `artifact.Migrator.Copy` are boundaries, not
-a wired online migration system. A production rollout needs a tested sequence:
-
 1. Back up the source state and verify restore in an isolated environment.
 2. Apply expand-only schema changes and verify RLS policies with two tenants.
 3. Start idempotent backfill workers with checkpoints and digest comparison.

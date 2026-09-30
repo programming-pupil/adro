@@ -708,9 +708,6 @@ This ledger mirrors every top-level checkbox in the authoritative rebuild TodoLi
 
 - [ ] `P0-STORE-008` [source:448] [state:unverified] BlobStore 支持流式 put/get、digest 校验、大小上限、去重和租户隔离。
 
-- [ ] `P0-STORE-009` [source:449] [state:partial] blob 引用由 retained event、snapshot、artifact 和 legal hold 形成 GC root；GC 必须 mark-and-sweep 且可恢复。
-  - Recorded evidence state: `partial`. `internal/artifact.Lifecycle` persists roots, legal holds and mark/sweep deletion proofs; inventory, deletion and workspace rollback are tenant-scoped, while event/snapshot/blob projection roots remain to be wired
-
 - [ ] `P0-STORE-010` [source:450] [state:unverified] event 在线保留期与 authoritative archive 分离；删除 read model 不得破坏完整 replay。
 
 - [ ] `P0-STORE-011` [source:451] [state:unverified] 敏感大内容使用 envelope encryption；事件保存 blob digest、key reference 和 classification，不保存明文。

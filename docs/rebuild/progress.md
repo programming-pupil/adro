@@ -64,7 +64,6 @@ The authoritative issue TodoList remains the complete scope. This file records e
 | P0-STORE-004 | complete for EventStore/LeaseStore | SQLite and PostgreSQL run `conformance/eventstore` |
 | P0-STORE-005 | complete for both backends | Expected-sequence CAS, concurrent single-winner and concurrent same-key replay evidence |
 | P0-STORE-006 | complete for both EventStores | Event, outbox and terminal snapshot share one rollback-tested transaction |
-| P0-STORE-009 | partial | `internal/artifact.Lifecycle` and `BlobLifecycle` persist roots, legal holds, two-phase tombstone/purge results, and deletion proofs; artifact/blob inventory and workspace rollback now enforce matching tenant scope; event/snapshot/blob projection roots remain to be wired |
 | P0-STORE-015 | partial | Composite tenant/stream foreign keys reject cross-tenant EventStore rows; projection rows and offsets carry tenant boundaries and scoped reads/writes; authenticated scoped read/RLS and full cache/queue/blob/trace composition remain pending |
 | P0-EVAL-023 | partial | `internal/eval` defines versioned Evaluator, immutable SessionBundle and EvalRun state machine |
 | P0-EVAL-004 | partial | Shared suite covers CAS, idempotency, atomicity, lease fencing, concurrency, restart, subscription, tenant isolation and corruption; runtime journal write/rename/directory-sync faults, stale cross-instance fence/idempotency, release/restart monotonic fencing and shadow queue restart tests exist, while generic migration crash/resume and tail repair remain pending |
