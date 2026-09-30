@@ -20,6 +20,7 @@ import (
 	"github.com/adro-project/adro/core"
 	coreencoding "github.com/adro-project/adro/core/encoding"
 	"github.com/adro-project/adro/internal/durable"
+	"github.com/adro-project/adro/internal/upstream/scan"
 )
 
 const (
@@ -1551,7 +1552,7 @@ func (j *Journal) persistCandidateLocked(
 		if err := durable.Inject("runtime.journal.directory_sync"); err != nil {
 			return err
 		}
-		if err := durable.SyncParent(j.path); err != nil {
+		if err := scan.SyncParent(j.path); err != nil {
 			return err
 		}
 		committed = state
