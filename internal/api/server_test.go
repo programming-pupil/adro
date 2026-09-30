@@ -19,12 +19,12 @@ import (
 
 	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
-	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
+	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
 
@@ -44,18 +44,18 @@ func testServer(t *testing.T) *Server {
 func testServiceToken(t *testing.T, server *Server, actorType coreidentity.ActorType, actorID, tenantID, workspaceID string) string {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	state, err := adroauth.GenerateServiceCredentialState("test-service-key", now)
+	state, err := authn.GenerateServiceCredentialState("test-service-key", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return time.Now().UTC() }, 15*time.Minute)
+	authority, err := authn.NewServiceCredentialAuthority(state, func() time.Time { return time.Now().UTC() }, 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	server.ServiceCredentials = authority
-	token, _, err := authority.Issue(adroauth.ServiceTokenIssueRequest{
+	token, _, err := authority.Issue(authn.ServiceTokenIssueRequest{
 		Type: actorType, ID: actorID, TenantID: tenantID, WorkspaceID: workspaceID,
-		Audience: adroauth.ServiceTokenAudienceAPI, TTL: 5 * time.Minute,
+		Audience: authn.ServiceTokenAudienceAPI, TTL: 5 * time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)

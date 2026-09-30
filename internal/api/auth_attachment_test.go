@@ -14,11 +14,11 @@ import (
 	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/audit"
-	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
+	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/ports/scope"
 	"github.com/gorilla/websocket"
 )
@@ -61,7 +61,7 @@ func TestServiceCredentialRejectsScopeSpoofingAndBindsActor(t *testing.T) {
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first tenant mutation status=%d body=%s", first.Code, first.Body.String())
 	}
-	secondToken, _, err := s.ServiceCredentials.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorWorker, ID: "worker-2", TenantID: "tenant-2", WorkspaceID: "workspace-1", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute})
+	secondToken, _, err := s.ServiceCredentials.Issue(authn.ServiceTokenIssueRequest{Type: coreidentity.ActorWorker, ID: "worker-2", TenantID: "tenant-2", WorkspaceID: "workspace-1", Audience: authn.ServiceTokenAudienceAPI, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,18 +96,18 @@ func TestRevokedAndExpiredServiceCredentialsAreRejected(t *testing.T) {
 	t.Setenv("ADRO_ADMIN_PASSWORD", "")
 	s := testServer(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	state, err := adroauth.GenerateServiceCredentialState("key-1", now)
+	state, err := authn.GenerateServiceCredentialState("key-1", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
+	authority, err := authn.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.ServiceCredentials = authority
 	issue := func(id string) (string, coreidentity.Actor) {
 		t.Helper()
-		token, actor, issueErr := authority.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorService, ID: id, TenantID: "tenant", WorkspaceID: "workspace", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute})
+		token, actor, issueErr := authority.Issue(authn.ServiceTokenIssueRequest{Type: coreidentity.ActorService, ID: id, TenantID: "tenant", WorkspaceID: "workspace", Audience: authn.ServiceTokenAudienceAPI, TTL: time.Minute})
 		if issueErr != nil {
 			t.Fatal(issueErr)
 		}
@@ -144,11 +144,11 @@ func TestAuditPreservesOriginalActorAndDelegationChain(t *testing.T) {
 	t.Setenv("ADRO_ADMIN_PASSWORD", "")
 	s := testServer(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	state, err := adroauth.GenerateServiceCredentialState("key-1", now)
+	state, err := authn.GenerateServiceCredentialState("key-1", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := adroauth.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
+	authority, err := authn.NewServiceCredentialAuthority(state, func() time.Time { return now }, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestAuditPreservesOriginalActorAndDelegationChain(t *testing.T) {
 		From: coreidentity.ActorRef{Type: coreidentity.ActorHuman, ID: "human-owner"},
 		Mode: coreidentity.TransitionDelegation, Reason: "execute approved runtime action", At: now,
 	}}
-	token, actor, err := authority.Issue(adroauth.ServiceTokenIssueRequest{Type: coreidentity.ActorAgent, ID: "agent-1", TenantID: "tenant-1", WorkspaceID: "workspace-1", Audience: adroauth.ServiceTokenAudienceAPI, TTL: time.Minute, Delegation: delegation})
+	token, actor, err := authority.Issue(authn.ServiceTokenIssueRequest{Type: coreidentity.ActorAgent, ID: "agent-1", TenantID: "tenant-1", WorkspaceID: "workspace-1", Audience: authn.ServiceTokenAudienceAPI, TTL: time.Minute, Delegation: delegation})
 	if err != nil {
 		t.Fatal(err)
 	}

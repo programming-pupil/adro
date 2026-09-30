@@ -14,9 +14,9 @@ import (
 	"time"
 
 	coreidentity "github.com/adro-project/adro/core/identity"
-	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 )
 
@@ -40,11 +40,11 @@ func TestServiceCredentialCommandLifecycle(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &issued); err != nil {
 		t.Fatal(err)
 	}
-	authority, err := adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	authority, err := authn.LoadServiceCredentialAuthority(path, nil, authn.DefaultServiceTokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actor, err := authority.Verify(issued.Token, adroauth.ServiceTokenAudienceAPI); err != nil || actor.ID != "worker-1" || actor.CredentialID != issued.Actor.CredentialID {
+	if actor, err := authority.Verify(issued.Token, authn.ServiceTokenAudienceAPI); err != nil || actor.ID != "worker-1" || actor.CredentialID != issued.Actor.CredentialID {
 		t.Fatalf("verified actor=%+v err=%v", actor, err)
 	}
 
@@ -52,11 +52,11 @@ func TestServiceCredentialCommandLifecycle(t *testing.T) {
 	if err := serviceCredentialCommand([]string{"revoke-credential", "--file", path, "--credential-id", issued.Actor.CredentialID}, &output); err != nil {
 		t.Fatal(err)
 	}
-	authority, err = adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	authority, err = authn.LoadServiceCredentialAuthority(path, nil, authn.DefaultServiceTokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authority.Verify(issued.Token, adroauth.ServiceTokenAudienceAPI); !errors.Is(err, adroauth.ErrServiceTokenRevoked) {
+	if _, err := authority.Verify(issued.Token, authn.ServiceTokenAudienceAPI); !errors.Is(err, authn.ErrServiceTokenRevoked) {
 		t.Fatalf("revoked credential returned %v", err)
 	}
 
@@ -73,21 +73,21 @@ func TestServiceCredentialCommandLifecycle(t *testing.T) {
 	if err := serviceCredentialCommand([]string{"rotate", "--file", path, "--current-key", "key-1", "--new-key", "key-2"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	authority, err = adroauth.LoadServiceCredentialAuthority(path, func() time.Time { return time.Now().UTC() }, adroauth.DefaultServiceTokenTTL)
+	authority, err = authn.LoadServiceCredentialAuthority(path, func() time.Time { return time.Now().UTC() }, authn.DefaultServiceTokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authority.Verify(oldKeyIssue.Token, adroauth.ServiceTokenAudienceAPI); err != nil {
+	if _, err := authority.Verify(oldKeyIssue.Token, authn.ServiceTokenAudienceAPI); err != nil {
 		t.Fatalf("retired key rejected live credential: %v", err)
 	}
 	if err := serviceCredentialCommand([]string{"revoke-key", "--file", path, "--key-id", "key-1"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	authority, err = adroauth.LoadServiceCredentialAuthority(path, nil, adroauth.DefaultServiceTokenTTL)
+	authority, err = authn.LoadServiceCredentialAuthority(path, nil, authn.DefaultServiceTokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authority.Verify(oldKeyIssue.Token, adroauth.ServiceTokenAudienceAPI); !errors.Is(err, adroauth.ErrServiceTokenRevoked) {
+	if _, err := authority.Verify(oldKeyIssue.Token, authn.ServiceTokenAudienceAPI); !errors.Is(err, authn.ErrServiceTokenRevoked) {
 		t.Fatalf("revoked key returned %v", err)
 	}
 	if err := serviceCredentialCommand([]string{"init", "--file", path, "--key-id", "overwrite"}, io.Discard); err == nil {

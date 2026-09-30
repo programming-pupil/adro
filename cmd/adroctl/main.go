@@ -20,9 +20,9 @@ import (
 
 	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/artifact"
-	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/workspacebundle"
 )
@@ -91,7 +91,7 @@ func serviceCredentialCommand(args []string, output io.Writer) error {
 	actorID := fs.String("id", "", "actor ID")
 	tenantID := fs.String("tenant", envDefault("ADRO_TENANT_ID", "local"), "tenant ID")
 	workspaceID := fs.String("workspace", envDefault("ADRO_WORKSPACE_ID", "local"), "workspace ID")
-	audience := fs.String("audience", adroauth.ServiceTokenAudienceAPI, "credential audience")
+	audience := fs.String("audience", authn.ServiceTokenAudienceAPI, "credential audience")
 	ttl := fs.Duration("ttl", 5*time.Minute, "credential lifetime")
 	credentialID := fs.String("credential-id", "", "credential ID to revoke")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -106,11 +106,11 @@ func serviceCredentialCommand(args []string, output io.Writer) error {
 		if strings.TrimSpace(*keyID) == "" {
 			return errors.New("--key-id is required")
 		}
-		state, err := adroauth.GenerateServiceCredentialState(*keyID, now)
+		state, err := authn.GenerateServiceCredentialState(*keyID, now)
 		if err != nil {
 			return err
 		}
-		authority, err := adroauth.NewServiceCredentialAuthority(state, nil, adroauth.DefaultServiceTokenTTL)
+		authority, err := authn.NewServiceCredentialAuthority(state, nil, authn.DefaultServiceTokenTTL)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func serviceCredentialCommand(args []string, output io.Writer) error {
 		return writeJSONOutput(output, map[string]any{"file": *path, "active_key_id": strings.TrimSpace(*keyID), "created_at": now})
 	}
 
-	authority, err := adroauth.LoadServiceCredentialAuthority(*path, nil, adroauth.DefaultServiceTokenTTL)
+	authority, err := authn.LoadServiceCredentialAuthority(*path, nil, authn.DefaultServiceTokenTTL)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func serviceCredentialCommand(args []string, output io.Writer) error {
 		if strings.TrimSpace(*actorID) == "" {
 			return errors.New("--id is required")
 		}
-		token, actor, issueErr := authority.Issue(adroauth.ServiceTokenIssueRequest{
+		token, actor, issueErr := authority.Issue(authn.ServiceTokenIssueRequest{
 			Type: coreidentity.ActorType(strings.TrimSpace(*actorType)), ID: strings.TrimSpace(*actorID),
 			TenantID: strings.TrimSpace(*tenantID), WorkspaceID: strings.TrimSpace(*workspaceID),
 			Audience: strings.TrimSpace(*audience), TTL: *ttl,

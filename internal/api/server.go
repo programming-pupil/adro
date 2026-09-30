@@ -38,6 +38,7 @@ import (
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
 	runtimepkg "github.com/adro-project/adro/internal/runtime"
+	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
@@ -59,7 +60,7 @@ type Server struct {
 	Logger             *slog.Logger
 	Router             *provider.AgentRouteResolver
 	Auth               *adroauth.Service
-	ServiceCredentials *adroauth.ServiceCredentialAuthority
+	ServiceCredentials *authn.ServiceCredentialAuthority
 	Orchestration      orchestration.ControlRepository
 	ResourceLedger     *orchestration.ResourceLedger
 	Admission          *orchestration.AdmissionController
@@ -194,14 +195,14 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 		startupErr = fmt.Errorf("load authentication state: %w", err)
 		authService, _ = adroauth.NewService("", os.Getenv("ADRO_ADMIN_USERNAME"), os.Getenv("ADRO_ADMIN_PASSWORD"))
 	}
-	var serviceCredentials *adroauth.ServiceCredentialAuthority
+	var serviceCredentials *authn.ServiceCredentialAuthority
 	if strings.TrimSpace(os.Getenv("ADRO_API_TOKEN")) != "" {
 		legacyErr := errors.New("ADRO_API_TOKEN is not supported; use short-lived audience-bound service credentials")
 		logger.Error("reject legacy machine credential", "error", legacyErr)
 		startupErr = errors.Join(startupErr, legacyErr)
 	}
 	if path := strings.TrimSpace(os.Getenv("ADRO_SERVICE_CREDENTIAL_FILE")); path != "" {
-		loaded, loadErr := adroauth.LoadServiceCredentialAuthority(path, nil, 15*time.Minute)
+		loaded, loadErr := authn.LoadServiceCredentialAuthority(path, nil, 15*time.Minute)
 		if loadErr != nil {
 			logger.Error("load service credential authority", "error", loadErr)
 			startupErr = errors.Join(startupErr, fmt.Errorf("load service credential authority: %w", loadErr))
@@ -444,7 +445,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		verifiedActor = coreidentity.Actor{
 			Type: coreidentity.ActorHuman, ID: user.ID, TenantID: identityTenant, WorkspaceID: user.WorkspaceID,
-			AuthnMethod: "local_session", CredentialID: userSession.CredentialID, Audience: adroauth.ServiceTokenAudienceAPI,
+			AuthnMethod: "local_session", CredentialID: userSession.CredentialID, Audience: authn.ServiceTokenAudienceAPI,
 			IssuedAt: userSession.IssuedAt.UTC().Truncate(time.Microsecond), ExpiresAt: userSession.ExpiresAt.UTC().Truncate(time.Microsecond),
 		}
 		r.Header.Set("X-Member-ID", user.ID)
@@ -473,7 +474,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-Tenant-ID", machineActor.TenantID)
 	}
 	if verifiedActor.ID != "" {
-		ctx, identityErr := coreidentity.WithVerifiedActor(r.Context(), verifiedActor, time.Now().UTC(), adroauth.ServiceTokenAudienceAPI)
+		ctx, identityErr := coreidentity.WithVerifiedActor(r.Context(), verifiedActor, time.Now().UTC(), authn.ServiceTokenAudienceAPI)
 		if identityErr != nil {
 			s.problem(w, r, http.StatusUnauthorized, "identity_invalid", "verified identity is no longer valid", nil)
 			return
@@ -4647,7 +4648,7 @@ func (s *Server) authenticateService(r *http.Request) (coreidentity.Actor, bool)
 	if s == nil || s.ServiceCredentials == nil {
 		return coreidentity.Actor{}, false
 	}
-	actor, err := s.ServiceCredentials.Verify(bearerToken(r), adroauth.ServiceTokenAudienceAPI)
+	actor, err := s.ServiceCredentials.Verify(bearerToken(r), authn.ServiceTokenAudienceAPI)
 	return actor, err == nil
 }
 
