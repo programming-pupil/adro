@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/obs/trace"
@@ -572,7 +573,7 @@ func TestFinishAttemptRejectsExpiredLease(t *testing.T) {
 
 func TestStartAttemptEnforcesPlanDeadlineAndConcurrentBudget(t *testing.T) {
 	now := time.Now().UTC()
-	plan, err := (RequirementExecutionPlan{ID: "budget-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), PolicySnapshot: PolicySnapshot{Budget: Budget{Tokens: 1, Concurrent: 1}}, Deadline: now.Add(time.Second), Status: PlanDraft}).Freeze()
+	plan, err := (RequirementExecutionPlan{ID: "budget-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graphForTest(), PolicySnapshot: PolicySnapshot{Budget: budget.Budget{Tokens: 1, Concurrent: 1}}, Deadline: now.Add(time.Second), Status: PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +595,7 @@ func TestStartAttemptEnforcesPlanDeadlineAndConcurrentBudget(t *testing.T) {
 
 func TestFinishAttemptEnforcesNodeOutputBudget(t *testing.T) {
 	now := time.Now().UTC()
-	graph := WorkflowGraph{ID: "node-budget", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}, Budget: Budget{Tokens: 2}}}}
+	graph := WorkflowGraph{ID: "node-budget", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}, Budget: budget.Budget{Tokens: 2}}}}
 	plan, err := (RequirementExecutionPlan{ID: "node-budget-plan", RequirementID: "r", WorkspaceID: "w", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
@@ -812,8 +813,8 @@ func TestDiagnoseGraphSummarizesExecutionControls(t *testing.T) {
 	graph := WorkflowGraph{
 		ID: "diagnostics", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"review"},
 		Nodes: []WorkflowNode{
-			{ID: "a", Kind: NodeAgent, RetryPolicy: RetryPolicy{MaxAttempts: 3}, Budget: Budget{Tokens: 100, ToolCalls: 2, Concurrent: 2}},
-			{ID: "b", Kind: NodeMerge, JoinPolicy: JoinAll, Budget: Budget{Tokens: 50}},
+			{ID: "a", Kind: NodeAgent, RetryPolicy: RetryPolicy{MaxAttempts: 3}, Budget: budget.Budget{Tokens: 100, ToolCalls: 2, Concurrent: 2}},
+			{ID: "b", Kind: NodeMerge, JoinPolicy: JoinAll, Budget: budget.Budget{Tokens: 50}},
 			{ID: "review", Kind: NodeHuman},
 		},
 		Edges: []WorkflowEdge{{ID: "loop", From: "b", To: "a", On: EdgeFailure, LoopGroup: "repair", MaxTraversals: 2, RequiredEvidence: []string{"test"}}},
@@ -873,7 +874,7 @@ func TestMergeReducerRecordsConflictArtifact(t *testing.T) {
 func TestRepairControllerCreatesBoundedPlanWithLineage(t *testing.T) {
 	graph := WorkflowGraph{ID: "repair-contract", Version: 1, EntryNodeIDs: []string{"test"}, ExitNodeIDs: []string{"done"}, Nodes: []WorkflowNode{
 		{ID: "test", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "tester", Revision: 1}},
-		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "test", Scope: []string{"internal/orchestration"}, VerificationNodeIDs: []string{"test"}, MaxRounds: 2, Budget: Budget{Tokens: 2000, ToolCalls: 5}}},
+		{ID: "repair", Kind: NodeRepair, RepairPolicy: RepairPolicy{TargetNodeID: "test", Scope: []string{"internal/orchestration"}, VerificationNodeIDs: []string{"test"}, MaxRounds: 2, Budget: budget.Budget{Tokens: 2000, ToolCalls: 5}}},
 		{ID: "done", Kind: NodeHuman},
 	}, Edges: []WorkflowEdge{
 		{ID: "test-repair", From: "test", To: "repair", On: EdgeBug, LoopGroup: "repair", MaxTraversals: 2},

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adro-project/adro/internal/orchestration"
+	"github.com/adro-project/adro/core/budget"
 )
 
 // resourceAccountingRoute exposes bounded read models and authenticated quota
@@ -32,7 +32,7 @@ func (s *Server) resourceAccountingRoute(w http.ResponseWriter, r *http.Request,
 		s.problem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "GET is required", nil)
 		return
 	}
-	dashboard, err := s.ResourceLedger.Dashboard(orchestration.ResourceScope{TenantID: tenantID, WorkspaceID: workspaceID}, queryInt(r, "usage_limit", 100))
+	dashboard, err := s.ResourceLedger.Dashboard(budget.ResourceScope{TenantID: tenantID, WorkspaceID: workspaceID}, queryInt(r, "usage_limit", 100))
 	if err != nil {
 		s.problem(w, r, http.StatusInternalServerError, "resource_dashboard_failed", err.Error(), nil)
 		return
@@ -59,11 +59,11 @@ func (s *Server) resourceQuotaRoute(w http.ResponseWriter, r *http.Request, tena
 			return
 		}
 		var input struct {
-			Scope                    orchestration.ResourceScope  `json:"scope"`
-			SoftLimit                orchestration.ResourceVector `json:"soft_limit"`
-			HardLimit                orchestration.ResourceVector `json:"hard_limit"`
-			QueueWeight              int64                        `json:"queue_weight"`
-			EmergencyPriorityCeiling int                          `json:"emergency_priority_ceiling"`
+			Scope                    budget.ResourceScope  `json:"scope"`
+			SoftLimit                budget.ResourceVector `json:"soft_limit"`
+			HardLimit                budget.ResourceVector `json:"hard_limit"`
+			QueueWeight              int64                 `json:"queue_weight"`
+			EmergencyPriorityCeiling int                   `json:"emergency_priority_ceiling"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -79,7 +79,7 @@ func (s *Server) resourceQuotaRoute(w http.ResponseWriter, r *http.Request, tena
 		if input.Scope.AgentID != "" && input.Scope.WorkspaceID == "" {
 			input.Scope.WorkspaceID = workspaceID
 		}
-		quota := orchestration.ResourceQuota{
+		quota := budget.ResourceQuota{
 			Scope: input.Scope, SoftLimit: input.SoftLimit, HardLimit: input.HardLimit,
 			QueueWeight: input.QueueWeight, EmergencyPriorityCeiling: input.EmergencyPriorityCeiling,
 			UpdatedAt: time.Now().UTC(),
@@ -93,7 +93,7 @@ func (s *Server) resourceQuotaRoute(w http.ResponseWriter, r *http.Request, tena
 		if !s.requireOrchestrationManagePermission(w, r) {
 			return
 		}
-		scope := orchestration.ResourceScope{
+		scope := budget.ResourceScope{
 			TenantID: tenantID, WorkspaceID: strings.TrimSpace(r.URL.Query().Get("quota_workspace_id")),
 			AgentID: strings.TrimSpace(r.URL.Query().Get("agent_id")),
 		}
@@ -105,7 +105,7 @@ func (s *Server) resourceQuotaRoute(w http.ResponseWriter, r *http.Request, tena
 			return
 		}
 		if err := s.ResourceLedger.DeleteQuota(scope); err != nil {
-			if errors.Is(err, orchestration.ErrResourceNotFound) {
+			if errors.Is(err, budget.ErrResourceNotFound) {
 				s.problem(w, r, http.StatusNotFound, "resource_quota_not_found", "resource quota not found", nil)
 				return
 			}
@@ -118,12 +118,12 @@ func (s *Server) resourceQuotaRoute(w http.ResponseWriter, r *http.Request, tena
 	}
 }
 
-func (s *Server) scopedResourceQuotas(tenantID, workspaceID string) ([]orchestration.ResourceQuota, error) {
+func (s *Server) scopedResourceQuotas(tenantID, workspaceID string) ([]budget.ResourceQuota, error) {
 	quotas, err := s.ResourceLedger.ListQuotas()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]orchestration.ResourceQuota, 0, len(quotas))
+	result := make([]budget.ResourceQuota, 0, len(quotas))
 	for _, quota := range quotas {
 		if quota.Scope.TenantID != tenantID {
 			continue

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 type AdmissionState string
@@ -20,19 +22,19 @@ const (
 )
 
 type AdmissionRequest struct {
-	ID                  string         `json:"id"`
-	PlanID              string         `json:"plan_id"`
-	NodeID              string         `json:"node_id"`
-	Scope               ResourceScope  `json:"scope"`
-	ParentReservationID string         `json:"parent_reservation_id,omitempty"`
-	Resources           ResourceVector `json:"resources"`
-	Priority            int            `json:"priority"`
-	Emergency           bool           `json:"emergency,omitempty"`
-	Persisted           bool           `json:"persisted"`
-	Recovery            bool           `json:"recovery,omitempty"`
-	SchedulingCost      int64          `json:"scheduling_cost,omitempty"`
-	SubmittedAt         time.Time      `json:"submitted_at"`
-	Deadline            time.Time      `json:"deadline,omitempty"`
+	ID                  string                `json:"id"`
+	PlanID              string                `json:"plan_id"`
+	NodeID              string                `json:"node_id"`
+	Scope               budget.ResourceScope  `json:"scope"`
+	ParentReservationID string                `json:"parent_reservation_id,omitempty"`
+	Resources           budget.ResourceVector `json:"resources"`
+	Priority            int                   `json:"priority"`
+	Emergency           bool                  `json:"emergency,omitempty"`
+	Persisted           bool                  `json:"persisted"`
+	Recovery            bool                  `json:"recovery,omitempty"`
+	SchedulingCost      int64                 `json:"scheduling_cost,omitempty"`
+	SubmittedAt         time.Time             `json:"submitted_at"`
+	Deadline            time.Time             `json:"deadline,omitempty"`
 }
 
 func (r AdmissionRequest) normalized() AdmissionRequest {
@@ -40,7 +42,7 @@ func (r AdmissionRequest) normalized() AdmissionRequest {
 	r.PlanID = strings.TrimSpace(r.PlanID)
 	r.NodeID = strings.TrimSpace(r.NodeID)
 	r.ParentReservationID = strings.TrimSpace(r.ParentReservationID)
-	r.Scope = r.Scope.normalized()
+	r.Scope = r.Scope.Normalized()
 	r.SubmittedAt = r.SubmittedAt.UTC()
 	r.Deadline = r.Deadline.UTC()
 	if r.SchedulingCost <= 0 {
@@ -54,7 +56,7 @@ func (r AdmissionRequest) validate() error {
 	if r.ID == "" || r.PlanID == "" || r.NodeID == "" {
 		return errors.New("admission id, plan_id and node_id are required")
 	}
-	if err := r.Scope.validateHierarchy(); err != nil {
+	if err := r.Scope.ValidateHierarchy(); err != nil {
 		return err
 	}
 	if r.Scope.WorkspaceID == "" {
@@ -79,19 +81,19 @@ func (r AdmissionRequest) validate() error {
 }
 
 type AdmissionDecision struct {
-	RequestID          string                `json:"request_id"`
-	State              AdmissionState        `json:"state"`
-	Reason             string                `json:"reason"`
-	StableKey          string                `json:"stable_key"`
-	EffectivePriority  int                   `json:"effective_priority"`
-	VirtualFinish      int64                 `json:"virtual_finish"`
-	StarvationDeadline time.Time             `json:"starvation_deadline"`
-	ReservationID      string                `json:"reservation_id,omitempty"`
-	SoftActions        []string              `json:"soft_actions,omitempty"`
-	LimitReports       []ResourceLimitReport `json:"limit_reports,omitempty"`
-	PriorityWasCapped  bool                  `json:"priority_was_capped,omitempty"`
-	OriginalPriority   int                   `json:"original_priority,omitempty"`
-	ConfiguredPriority int                   `json:"configured_priority,omitempty"`
+	RequestID          string                       `json:"request_id"`
+	State              AdmissionState               `json:"state"`
+	Reason             string                       `json:"reason"`
+	StableKey          string                       `json:"stable_key"`
+	EffectivePriority  int                          `json:"effective_priority"`
+	VirtualFinish      int64                        `json:"virtual_finish"`
+	StarvationDeadline time.Time                    `json:"starvation_deadline"`
+	ReservationID      string                       `json:"reservation_id,omitempty"`
+	SoftActions        []string                     `json:"soft_actions,omitempty"`
+	LimitReports       []budget.ResourceLimitReport `json:"limit_reports,omitempty"`
+	PriorityWasCapped  bool                         `json:"priority_was_capped,omitempty"`
+	OriginalPriority   int                          `json:"original_priority,omitempty"`
+	ConfiguredPriority int                          `json:"configured_priority,omitempty"`
 }
 
 type FairQueuePolicy struct {
@@ -188,7 +190,7 @@ func (q *FairAdmissionQueue) Submit(request AdmissionRequest) (AdmissionDecision
 	defer q.mu.Unlock()
 	if existing, ok := q.pending[request.ID]; ok {
 		if admissionRequestDigest(existing.Request) != admissionRequestDigest(request) {
-			return AdmissionDecision{}, ErrResourceConflict
+			return AdmissionDecision{}, budget.ErrResourceConflict
 		}
 		return q.decisionLocked(existing, request.SubmittedAt, AdmissionWaiting, "already_queued"), nil
 	}
@@ -203,7 +205,7 @@ func (q *FairAdmissionQueue) Submit(request AdmissionRequest) (AdmissionDecision
 	}
 	increment := weightedIncrement(request.SchedulingCost, weight)
 	if increment > math.MaxInt64-start {
-		return AdmissionDecision{}, ErrResourceOverflow
+		return AdmissionDecision{}, budget.ErrResourceOverflow
 	}
 	finish := start + increment
 	q.flowFinish[request.Scope.TenantID] = finish
@@ -400,7 +402,7 @@ func stableAdmissionKey(request AdmissionRequest) string {
 func admissionRequestDigest(request AdmissionRequest) string {
 	request = request.normalized()
 	return fmt.Sprintf("%s|%s|%s|%s|%+v|%d|%t|%t|%t|%d|%s|%s",
-		request.ID, request.PlanID, request.NodeID, request.Scope.quotaKey(), request.Resources,
+		request.ID, request.PlanID, request.NodeID, request.Scope.QuotaKey(), request.Resources,
 		request.Priority, request.Emergency, request.Persisted, request.Recovery,
 		request.SchedulingCost, request.SubmittedAt.Format(time.RFC3339Nano), request.Deadline.Format(time.RFC3339Nano))
 }
@@ -422,7 +424,7 @@ func (c *AdmissionController) TryAdmit(request AdmissionRequest) (AdmissionDecis
 	if err := request.validate(); err != nil {
 		return AdmissionDecision{}, err
 	}
-	reservation, _, reports, err := c.Ledger.Reserve(ResourceReservationSpec{
+	reservation, _, reports, err := c.Ledger.Reserve(budget.ResourceReservationSpec{
 		ID: request.ID + ":reservation", IdempotencyKey: "admission:" + request.ID,
 		Scope: request.Scope, ParentID: request.ParentReservationID,
 		Requested: request.Resources, ExpiresAt: request.Deadline, CreatedAt: request.SubmittedAt,
@@ -462,7 +464,7 @@ func (c *AdmissionController) TryAdmit(request AdmissionRequest) (AdmissionDecis
 		}
 		return decision, nil
 	}
-	if errors.Is(err, ErrResourceParentExhausted) {
+	if errors.Is(err, budget.ErrResourceParentExhausted) {
 		return AdmissionDecision{RequestID: request.ID, State: AdmissionRejected, Reason: "parent_budget_exhausted", StableKey: stableAdmissionKey(request)}, nil
 	}
 	return AdmissionDecision{}, err

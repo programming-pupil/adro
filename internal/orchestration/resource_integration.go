@@ -8,29 +8,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/provider"
 )
 
-func normalizedProviderResources(snapshot provider.RunSnapshot) (ResourceVector, json.RawMessage, error) {
+func normalizedProviderResources(snapshot provider.RunSnapshot) (budget.ResourceVector, json.RawMessage, error) {
 	tokens, err := safeUsageSum(snapshot.Usage.InputTokens, snapshot.Usage.OutputTokens)
 	if err != nil {
-		return ResourceVector{}, nil, err
+		return budget.ResourceVector{}, nil, err
 	}
 	duration := snapshot.Usage.DurationMS
 	if duration < 0 {
 		duration = 0
 	}
 	if duration > math.MaxInt64/int64(time.Millisecond) {
-		return ResourceVector{}, nil, fmt.Errorf("%w: wall_time_nanos", ErrResourceOverflow)
+		return budget.ResourceVector{}, nil, fmt.Errorf("%w: wall_time_nanos", budget.ErrResourceOverflow)
 	}
-	vector := ResourceVector{
+	vector := budget.ResourceVector{
 		Tokens: tokens, ToolCalls: int64(len(snapshot.ToolEvents)),
 		WallTimeNanos: duration * int64(time.Millisecond), OutputBytes: int64(len([]byte(snapshot.Output))),
 		ConcurrencySlots: 1,
 	}
 	raw, err := json.Marshal(map[string]any{"provider_usage": snapshot.Usage, "tool_event_count": len(snapshot.ToolEvents)})
 	if err != nil {
-		return ResourceVector{}, nil, err
+		return budget.ResourceVector{}, nil, err
 	}
 	return vector, raw, nil
 }
@@ -42,14 +43,14 @@ func safeUsageSum(values ...int64) (int64, error) {
 			continue
 		}
 		if value > math.MaxInt64-total {
-			return 0, fmt.Errorf("%w: tokens", ErrResourceOverflow)
+			return 0, fmt.Errorf("%w: tokens", budget.ErrResourceOverflow)
 		}
 		total += value
 	}
 	return total, nil
 }
 
-func settleAttemptReservation(ledger *ResourceLedger, plan RequirementExecutionPlan, attempt NodeAttempt, raw json.RawMessage, normalized ResourceVector, providerMissing bool, now time.Time) error {
+func settleAttemptReservation(ledger *ResourceLedger, plan RequirementExecutionPlan, attempt NodeAttempt, raw json.RawMessage, normalized budget.ResourceVector, providerMissing bool, now time.Time) error {
 	if ledger == nil || strings.TrimSpace(attempt.ResourceReservationID) == "" {
 		return nil
 	}
@@ -57,7 +58,7 @@ func settleAttemptReservation(ledger *ResourceLedger, plan RequirementExecutionP
 	if err != nil {
 		return err
 	}
-	if !reservation.active() {
+	if !reservation.Active() {
 		return nil
 	}
 	scope := reservation.Scope
@@ -83,15 +84,15 @@ func settleAttemptReservation(ledger *ResourceLedger, plan RequirementExecutionP
 		now = time.Now().UTC()
 	}
 	usageID := "usage:" + attempt.ID
-	reports := []ResourceLimitReport(nil)
+	reports := []budget.ResourceLimitReport(nil)
 	if existing, usageErr := ledger.GetUsage(usageID); usageErr == nil {
 		if existing.ReservationID != reservation.ID {
-			return ErrResourceConflict
+			return budget.ErrResourceConflict
 		}
-	} else if !errors.Is(usageErr, ErrResourceNotFound) {
+	} else if !errors.Is(usageErr, budget.ErrResourceNotFound) {
 		return usageErr
 	} else {
-		record, recordErr := NewUsageRecord(usageID, reservation.ID, scope, raw, normalized, reservation.State.Requested, providerMissing, false, now)
+		record, recordErr := budget.NewUsageRecord(usageID, reservation.ID, scope, raw, normalized, reservation.State.Requested, providerMissing, false, now)
 		if recordErr != nil {
 			return recordErr
 		}

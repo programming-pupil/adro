@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/provider"
@@ -92,7 +93,7 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 					return finished, finishErr
 				}
 				if w.Scheduler.Admission != nil {
-					if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, ResourceVector{}, true, now); settleErr != nil {
+					if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, budget.ResourceVector{}, true, now); settleErr != nil {
 						return finished, settleErr
 					}
 				}
@@ -110,7 +111,7 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 				return finished, err
 			}
 			if w.Scheduler.Admission != nil {
-				if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, ResourceVector{}, true, now); settleErr != nil {
+				if settleErr := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, item, nil, budget.ResourceVector{}, true, now); settleErr != nil {
 					return finished, settleErr
 				}
 			}
@@ -243,7 +244,7 @@ func (w Worker) recoverTerminalReservations(plan RequirementExecutionPlan, proje
 	for _, id := range attemptIDs {
 		attempt := projection.Attempts[id]
 		tokens, tools, _ := resultUsage(attempt.Result)
-		normalized := ResourceVector{Tokens: tokens, ToolCalls: int64(tools), ConcurrencySlots: 1}
+		normalized := budget.ResourceVector{Tokens: tokens, ToolCalls: int64(tools), ConcurrencySlots: 1}
 		if err := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, attempt, nil, normalized, true, now); err != nil {
 			return fmt.Errorf("recover resource reservation for attempt %s: %w", attempt.ID, err)
 		}

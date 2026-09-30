@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/security/redact"
 )
@@ -130,7 +131,7 @@ func (s *Server) runDiagnostics(w http.ResponseWriter, r *http.Request, runID st
 		}
 		diagnostics := orchestrationDiagnostics(runID, plan, projection, events, s.Orchestration.ListOutbox(plan.ID, ""))
 		if s.ResourceLedger != nil {
-			scope := orchestration.ResourceScope{TenantID: tenantForRequest(r, plan.WorkspaceID), WorkspaceID: plan.WorkspaceID}
+			scope := budget.ResourceScope{TenantID: tenantForRequest(r, plan.WorkspaceID), WorkspaceID: plan.WorkspaceID}
 			if resources, resourceErr := s.ResourceLedger.Dashboard(scope, 100); resourceErr == nil {
 				diagnostics["resources"] = resources
 			}

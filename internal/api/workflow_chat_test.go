@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
@@ -208,7 +209,7 @@ func TestChatAgentBindingPinsRuntimeConfiguration(t *testing.T) {
 		Instructions:    "Review the durable conversation.",
 		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "chat-model", RuntimeConfig: map[string]string{"mode": "local"}},
 		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
-		ConcurrencyBudget: orchestration.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
+		ConcurrencyBudget: budget.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
 	}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +226,7 @@ func TestChatAgentBindingPinsRuntimeConfiguration(t *testing.T) {
 		Instructions:    "Use the newer configuration.",
 		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "new-chat-model", RuntimeConfig: map[string]string{"mode": "new"}},
 		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
-		ConcurrencyBudget: orchestration.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
+		ConcurrencyBudget: budget.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
 	}
 	if err := server.Orchestration.SaveAgent(updatedAgent, 1); err != nil {
 		t.Fatal(err)

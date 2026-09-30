@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/core/testkit"
 	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/provider"
 )
 
-func resourceScope(agent string) ResourceScope {
-	return ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: agent, SessionID: "session-a", StepID: "step-a", ModelCallID: "model-call-a", CostCenter: "delivery"}
+func resourceScope(agent string) budget.ResourceScope {
+	return budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: agent, SessionID: "session-a", StepID: "step-a", ModelCallID: "model-call-a", CostCenter: "delivery"}
 }
 
 func newTestLedger(t *testing.T, path string, clock *testkit.ManualClock) *ResourceLedger {
@@ -27,18 +28,9 @@ func newTestLedger(t *testing.T, path string, clock *testkit.ManualClock) *Resou
 	return ledger
 }
 
-func TestResourceVectorRejectsNegativeAndOverflow(t *testing.T) {
-	if err := (ResourceVector{Tokens: -1}).Validate(); err == nil {
-		t.Fatal("negative resource was accepted")
-	}
-	if _, err := (ResourceVector{Tokens: math.MaxInt64}).Add(ResourceVector{Tokens: 1}); !errors.Is(err, ErrResourceOverflow) {
-		t.Fatalf("overflow err=%v", err)
-	}
-	if excess := (ResourceVector{Tokens: 11, ConcurrencySlots: 1}).Excess(ResourceVector{Tokens: 10}); excess.Tokens != 1 || excess.ConcurrencySlots != 0 {
-		t.Fatalf("unexpected excess=%+v", excess)
-	}
+func TestResourceLedgerRejectsUsageOnlyQuotaFields(t *testing.T) {
 	ledger := newTestLedger(t, "", testkit.NewManualClock(time.Date(2026, 9, 19, 7, 0, 0, 0, time.UTC)))
-	if err := ledger.SetQuota(ResourceQuota{Scope: ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", CostCenter: "hidden"}, HardLimit: ResourceVector{Tokens: 10}}); err == nil {
+	if err := ledger.SetQuota(budget.ResourceQuota{Scope: budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", CostCenter: "hidden"}, HardLimit: budget.ResourceVector{Tokens: 10}}); err == nil {
 		t.Fatal("quota accepted usage-only attribution fields")
 	}
 }
@@ -47,39 +39,39 @@ func TestResourceLedgerEnforcesHierarchyAndParentReservation(t *testing.T) {
 	now := time.Date(2026, 9, 19, 8, 0, 0, 0, time.UTC)
 	clock := testkit.NewManualClock(now)
 	ledger := newTestLedger(t, "", clock)
-	quotas := []ResourceQuota{
-		{Scope: ResourceScope{TenantID: "tenant-a"}, HardLimit: ResourceVector{Tokens: 100, ConcurrencySlots: 2}},
-		{Scope: ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: ResourceVector{Tokens: 80, ConcurrencySlots: 2}},
-		{Scope: ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: "child"}, HardLimit: ResourceVector{Tokens: 40, ConcurrencySlots: 1}},
+	quotas := []budget.ResourceQuota{
+		{Scope: budget.ResourceScope{TenantID: "tenant-a"}, HardLimit: budget.ResourceVector{Tokens: 100, ConcurrencySlots: 2}},
+		{Scope: budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: budget.ResourceVector{Tokens: 80, ConcurrencySlots: 2}},
+		{Scope: budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: "child"}, HardLimit: budget.ResourceVector{Tokens: 40, ConcurrencySlots: 1}},
 	}
 	for _, quota := range quotas {
 		if err := ledger.SetQuota(quota); err != nil {
 			t.Fatal(err)
 		}
 	}
-	parent, created, _, err := ledger.Reserve(ResourceReservationSpec{
+	parent, created, _, err := ledger.Reserve(budget.ResourceReservationSpec{
 		ID: "parent", IdempotencyKey: "parent-key", Scope: resourceScope("parent"),
-		Requested: ResourceVector{Tokens: 50, ConcurrencySlots: 1}, ExpiresAt: now.Add(time.Hour), CreatedAt: now,
+		Requested: budget.ResourceVector{Tokens: 50, ConcurrencySlots: 1}, ExpiresAt: now.Add(time.Hour), CreatedAt: now,
 	})
 	if err != nil || !created {
 		t.Fatalf("parent=%+v created=%v err=%v", parent, created, err)
 	}
-	child, created, _, err := ledger.Reserve(ResourceReservationSpec{
+	child, created, _, err := ledger.Reserve(budget.ResourceReservationSpec{
 		ID: "child", IdempotencyKey: "child-key", Scope: resourceScope("child"), ParentID: parent.ID,
-		Requested: ResourceVector{Tokens: 30, ConcurrencySlots: 1}, ExpiresAt: now.Add(30 * time.Minute), CreatedAt: now,
+		Requested: budget.ResourceVector{Tokens: 30, ConcurrencySlots: 1}, ExpiresAt: now.Add(30 * time.Minute), CreatedAt: now,
 	})
 	if err != nil || !created {
 		t.Fatalf("child=%+v created=%v err=%v", child, created, err)
 	}
-	if _, _, _, err := ledger.Reserve(ResourceReservationSpec{
+	if _, _, _, err := ledger.Reserve(budget.ResourceReservationSpec{
 		ID: "oversell", IdempotencyKey: "oversell-key", Scope: resourceScope("other"), ParentID: parent.ID,
-		Requested: ResourceVector{Tokens: 21}, ExpiresAt: now.Add(30 * time.Minute), CreatedAt: now,
-	}); !errors.Is(err, ErrResourceParentExhausted) {
+		Requested: budget.ResourceVector{Tokens: 21}, ExpiresAt: now.Add(30 * time.Minute), CreatedAt: now,
+	}); !errors.Is(err, budget.ErrResourceParentExhausted) {
 		t.Fatalf("recursive oversell err=%v", err)
 	}
 
 	raw := json.RawMessage(`{"input_tokens":12,"output_tokens":8}`)
-	usage, err := NewUsageRecord("usage-child", child.ID, resourceScope("child"), raw, ResourceVector{Tokens: 20, ToolCalls: 2, ConcurrencySlots: 1}, ResourceVector{Tokens: 18, ToolCalls: 1, ConcurrencySlots: 1}, false, false, now.Add(time.Minute))
+	usage, err := budget.NewUsageRecord("usage-child", child.ID, resourceScope("child"), raw, budget.ResourceVector{Tokens: 20, ToolCalls: 2, ConcurrencySlots: 1}, budget.ResourceVector{Tokens: 18, ToolCalls: 1, ConcurrencySlots: 1}, false, false, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +92,7 @@ func TestResourceLedgerEnforcesHierarchyAndParentReservation(t *testing.T) {
 	if parent.State.Released.Tokens != 30 || parent.State.Released.ConcurrencySlots != 1 || parent.State.Consumed.Tokens != 20 {
 		t.Fatalf("settled parent state=%+v", parent.State)
 	}
-	dashboard, err := ledger.Dashboard(ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, 10)
+	dashboard, err := ledger.Dashboard(budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, 10)
 	if err != nil || dashboard.Consumed.Tokens != 20 || dashboard.ChildAgentUsage["child"].Tokens != 20 {
 		t.Fatalf("dashboard=%+v err=%v", dashboard, err)
 	}
@@ -110,10 +102,10 @@ func TestResourceLedgerIdempotencyDelayedBillingMissingUsageAndOverage(t *testin
 	now := time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
 	clock := testkit.NewManualClock(now)
 	ledger := newTestLedger(t, "", clock)
-	if err := ledger.SetQuota(ResourceQuota{Scope: ResourceScope{TenantID: "tenant-a"}, SoftLimit: ResourceVector{Tokens: 8}, HardLimit: ResourceVector{Tokens: 20}}); err != nil {
+	if err := ledger.SetQuota(budget.ResourceQuota{Scope: budget.ResourceScope{TenantID: "tenant-a"}, SoftLimit: budget.ResourceVector{Tokens: 8}, HardLimit: budget.ResourceVector{Tokens: 20}}); err != nil {
 		t.Fatal(err)
 	}
-	spec := ResourceReservationSpec{ID: "reservation", IdempotencyKey: "reserve", Scope: resourceScope("agent"), Requested: ResourceVector{Tokens: 10, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	spec := budget.ResourceReservationSpec{ID: "reservation", IdempotencyKey: "reserve", Scope: resourceScope("agent"), Requested: budget.ResourceVector{Tokens: 10, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	first, created, reports, err := ledger.Reserve(spec)
 	if err != nil || !created || len(reports) != 1 || first.SoftActions[0] != "warning" {
 		t.Fatalf("reserve=%+v created=%v reports=%+v err=%v", first, created, reports, err)
@@ -124,10 +116,10 @@ func TestResourceLedgerIdempotencyDelayedBillingMissingUsageAndOverage(t *testin
 	}
 	changed := spec
 	changed.Requested.Tokens = 9
-	if _, _, _, err := ledger.Reserve(changed); !errors.Is(err, ErrResourceConflict) {
+	if _, _, _, err := ledger.Reserve(changed); !errors.Is(err, budget.ErrResourceConflict) {
 		t.Fatalf("conflicting reserve err=%v", err)
 	}
-	missing, err := NewUsageRecord("missing", first.ID, resourceScope("agent"), nil, ResourceVector{}, ResourceVector{Tokens: 9, ConcurrencySlots: 1}, true, false, now.Add(time.Minute))
+	missing, err := budget.NewUsageRecord("missing", first.ID, resourceScope("agent"), nil, budget.ResourceVector{}, budget.ResourceVector{Tokens: 9, ConcurrencySlots: 1}, true, false, now.Add(time.Minute))
 	if err != nil || missing.Normalized.Tokens != 9 || missing.Discrepancy.Tokens != 0 {
 		t.Fatalf("missing usage=%+v err=%v", missing, err)
 	}
@@ -137,17 +129,17 @@ func TestResourceLedgerIdempotencyDelayedBillingMissingUsageAndOverage(t *testin
 	if _, created, _, err := ledger.RecordUsage(missing); err != nil || created {
 		t.Fatalf("duplicate usage created=%v err=%v", created, err)
 	}
-	conflict, err := NewUsageRecord("missing", first.ID, resourceScope("agent"), nil, ResourceVector{}, ResourceVector{Tokens: 8}, true, false, now.Add(time.Minute))
+	conflict, err := budget.NewUsageRecord("missing", first.ID, resourceScope("agent"), nil, budget.ResourceVector{}, budget.ResourceVector{Tokens: 8}, true, false, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := ledger.RecordUsage(conflict); !errors.Is(err, ErrResourceConflict) {
+	if _, _, _, err := ledger.RecordUsage(conflict); !errors.Is(err, budget.ErrResourceConflict) {
 		t.Fatalf("conflicting usage err=%v", err)
 	}
 	if _, err := ledger.Settle(first.ID, "settle", "provider_finished", now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	late, err := NewUsageRecord("late-bill", first.ID, resourceScope("agent"), json.RawMessage(`{"billed_tokens":4}`), ResourceVector{Tokens: 4}, ResourceVector{Tokens: 3}, false, true, now.Add(24*time.Hour))
+	late, err := budget.NewUsageRecord("late-bill", first.ID, resourceScope("agent"), json.RawMessage(`{"billed_tokens":4}`), budget.ResourceVector{Tokens: 4}, budget.ResourceVector{Tokens: 3}, false, true, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +150,11 @@ func TestResourceLedgerIdempotencyDelayedBillingMissingUsageAndOverage(t *testin
 	if settled.State.Consumed.Tokens != 13 || settled.State.Overage.Tokens != 3 || settled.State.Released.ConcurrencySlots != 1 {
 		t.Fatalf("late settled state=%+v", settled.State)
 	}
-	dashboard, err := ledger.Dashboard(ResourceScope{TenantID: "tenant-a"}, 10)
+	dashboard, err := ledger.Dashboard(budget.ResourceScope{TenantID: "tenant-a"}, 10)
 	if err != nil || dashboard.MissingProviderUsage != 1 || dashboard.DelayedBills != 1 || len(dashboard.OverageReservations) != 1 {
 		t.Fatalf("dashboard=%+v err=%v", dashboard, err)
 	}
-	if _, err := NewUsageRecord("negative", first.ID, resourceScope("agent"), nil, ResourceVector{Tokens: -1}, ResourceVector{}, false, true, now); err == nil {
+	if _, err := budget.NewUsageRecord("negative", first.ID, resourceScope("agent"), nil, budget.ResourceVector{Tokens: -1}, budget.ResourceVector{}, false, true, now); err == nil {
 		t.Fatal("negative usage accepted")
 	}
 }
@@ -172,7 +164,7 @@ func TestResourceLedgerPersistsAndReapsOrphansAtomically(t *testing.T) {
 	clock := testkit.NewManualClock(now)
 	path := filepath.Join(t.TempDir(), "resources.json")
 	ledger := newTestLedger(t, path, clock)
-	spec := ResourceReservationSpec{ID: "orphan", IdempotencyKey: "orphan-key", Scope: resourceScope("agent"), Requested: ResourceVector{Tokens: 5, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
+	spec := budget.ResourceReservationSpec{ID: "orphan", IdempotencyKey: "orphan-key", Scope: resourceScope("agent"), Requested: budget.ResourceVector{Tokens: 5, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Minute)}
 	restore := durable.SetFaultInjector(func(point string) error {
 		if point == "resource.persist.before_rename" {
 			return errors.New("simulated crash")
@@ -184,7 +176,7 @@ func TestResourceLedgerPersistsAndReapsOrphansAtomically(t *testing.T) {
 	if persistErr == nil {
 		t.Fatal("faulted reservation persisted")
 	}
-	if _, err := ledger.GetReservation(spec.ID); !errors.Is(err, ErrResourceNotFound) {
+	if _, err := ledger.GetReservation(spec.ID); !errors.Is(err, budget.ErrResourceNotFound) {
 		t.Fatalf("faulted reservation remained: %v", err)
 	}
 	if _, _, _, err := ledger.Reserve(spec); err != nil {
@@ -192,12 +184,12 @@ func TestResourceLedgerPersistsAndReapsOrphansAtomically(t *testing.T) {
 	}
 	restarted := newTestLedger(t, path, clock)
 	loaded, err := restarted.GetReservation(spec.ID)
-	if err != nil || loaded.Status != ResourceReserved {
+	if err != nil || loaded.Status != budget.ResourceReserved {
 		t.Fatalf("restarted reservation=%+v err=%v", loaded, err)
 	}
 	clock.Advance(2 * time.Minute)
 	expired, err := restarted.ReapOrphans(clock.Now())
-	if err != nil || len(expired) != 1 || expired[0].Status != ResourceExpired || expired[0].State.Released.ConcurrencySlots != 1 {
+	if err != nil || len(expired) != 1 || expired[0].Status != budget.ResourceExpired || expired[0].State.Released.ConcurrencySlots != 1 {
 		t.Fatalf("expired=%+v err=%v", expired, err)
 	}
 	retry, err := restarted.ReapOrphans(clock.Now())
@@ -216,16 +208,16 @@ func TestTerminalReservationRecoverySettlesAfterUsagePersistedBeforeCrash(t *tes
 	scope.StepID = "attempt-recovery"
 	scope.ModelCallID = "provider-run-recovery"
 	scope.CostCenter = "incident-recovery"
-	reservation, _, _, err := ledger.Reserve(ResourceReservationSpec{
+	reservation, _, _, err := ledger.Reserve(budget.ResourceReservationSpec{
 		ID: "reservation-recovery", IdempotencyKey: "reserve-recovery", Scope: scope,
-		Requested: ResourceVector{Tokens: 20, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+		Requested: budget.ResourceVector{Tokens: 20, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	usage, err := NewUsageRecord(
+	usage, err := budget.NewUsageRecord(
 		"usage:attempt-recovery", reservation.ID, scope, json.RawMessage(`{"input_tokens":7,"output_tokens":3}`),
-		ResourceVector{Tokens: 10, ConcurrencySlots: 1}, ResourceVector{Tokens: 20, ConcurrencySlots: 1}, false, false, now.Add(time.Minute),
+		budget.ResourceVector{Tokens: 10, ConcurrencySlots: 1}, budget.ResourceVector{Tokens: 20, ConcurrencySlots: 1}, false, false, now.Add(time.Minute),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +239,7 @@ func TestTerminalReservationRecoverySettlesAfterUsagePersistedBeforeCrash(t *tes
 		t.Fatal(err)
 	}
 	settled, err := restarted.GetReservation(reservation.ID)
-	if err != nil || settled.Status != ResourceSettled || settled.State.Consumed.Tokens != 10 || settled.State.Released.Tokens != 10 || settled.State.Released.ConcurrencySlots != 1 {
+	if err != nil || settled.Status != budget.ResourceSettled || settled.State.Consumed.Tokens != 10 || settled.State.Released.Tokens != 10 || settled.State.Released.ConcurrencySlots != 1 {
 		t.Fatalf("settled=%+v err=%v", settled, err)
 	}
 	replayed, err := restarted.GetUsage(usage.ID)
@@ -257,8 +249,8 @@ func TestTerminalReservationRecoverySettlesAfterUsagePersistedBeforeCrash(t *tes
 	if err := settleAttemptReservation(restarted, plan, attempt, usage.RawProvider, usage.Normalized, false, now.Add(3*time.Minute)); err != nil {
 		t.Fatalf("idempotent terminal recovery: %v", err)
 	}
-	items, err := restarted.ListReservations(ResourceScope{TenantID: scope.TenantID, WorkspaceID: scope.WorkspaceID}, true)
-	if err != nil || len(items) != 1 || items[0].Status != ResourceSettled {
+	items, err := restarted.ListReservations(budget.ResourceScope{TenantID: scope.TenantID, WorkspaceID: scope.WorkspaceID}, true)
+	if err != nil || len(items) != 1 || items[0].Status != budget.ResourceSettled {
 		t.Fatalf("reservations=%+v err=%v", items, err)
 	}
 }
@@ -266,22 +258,22 @@ func TestTerminalReservationRecoverySettlesAfterUsagePersistedBeforeCrash(t *tes
 func TestResourceLedgerRejectsUsageOverflowWithoutPartialMutation(t *testing.T) {
 	now := time.Date(2026, 9, 19, 11, 0, 0, 0, time.UTC)
 	ledger := newTestLedger(t, "", testkit.NewManualClock(now))
-	reservation, _, _, err := ledger.Reserve(ResourceReservationSpec{ID: "max", IdempotencyKey: "max-key", Scope: resourceScope("agent"), Requested: ResourceVector{Tokens: math.MaxInt64}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)})
+	reservation, _, _, err := ledger.Reserve(budget.ResourceReservationSpec{ID: "max", IdempotencyKey: "max-key", Scope: resourceScope("agent"), Requested: budget.ResourceVector{Tokens: math.MaxInt64}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := NewUsageRecord("max-usage", reservation.ID, resourceScope("agent"), nil, ResourceVector{Tokens: math.MaxInt64}, ResourceVector{}, false, false, now.Add(time.Second))
+	first, err := budget.NewUsageRecord("max-usage", reservation.ID, resourceScope("agent"), nil, budget.ResourceVector{Tokens: math.MaxInt64}, budget.ResourceVector{}, false, false, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := ledger.RecordUsage(first); err != nil {
 		t.Fatal(err)
 	}
-	overflow, err := NewUsageRecord("overflow", reservation.ID, resourceScope("agent"), nil, ResourceVector{Tokens: 1}, ResourceVector{}, false, false, now.Add(2*time.Second))
+	overflow, err := budget.NewUsageRecord("overflow", reservation.ID, resourceScope("agent"), nil, budget.ResourceVector{Tokens: 1}, budget.ResourceVector{}, false, false, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := ledger.RecordUsage(overflow); !errors.Is(err, ErrResourceOverflow) {
+	if _, _, _, err := ledger.RecordUsage(overflow); !errors.Is(err, budget.ErrResourceOverflow) {
 		t.Fatalf("overflow err=%v", err)
 	}
 	loaded, _ := ledger.GetReservation(reservation.ID)
@@ -302,7 +294,7 @@ func TestFairAdmissionQueueIsDeterministicWeightedAndAgesPriority(t *testing.T) 
 		t.Fatal(err)
 	}
 	request := func(id, tenant string, priority int, submitted time.Time) AdmissionRequest {
-		return AdmissionRequest{ID: id, PlanID: "plan-" + tenant, NodeID: "node", Scope: ResourceScope{TenantID: tenant, WorkspaceID: "workspace", AgentID: "agent"}, Resources: ResourceVector{Tokens: 1, ConcurrencySlots: 1}, Priority: priority, Persisted: true, SchedulingCost: 1, SubmittedAt: submitted}
+		return AdmissionRequest{ID: id, PlanID: "plan-" + tenant, NodeID: "node", Scope: budget.ResourceScope{TenantID: tenant, WorkspaceID: "workspace", AgentID: "agent"}, Resources: budget.ResourceVector{Tokens: 1, ConcurrencySlots: 1}, Priority: priority, Persisted: true, SchedulingCost: 1, SubmittedAt: submitted}
 	}
 	for _, item := range []AdmissionRequest{
 		request("a-1", "tenant-a", 50, base), request("a-2", "tenant-a", 50, base),
@@ -353,7 +345,7 @@ func TestFairAdmissionQueueBackpressureAndLoadSheddingProtectRecovery(t *testing
 		t.Fatal(err)
 	}
 	makeRequest := func(id string, priority int, persisted, recovery bool) AdmissionRequest {
-		return AdmissionRequest{ID: id, PlanID: "plan", NodeID: id, Scope: ResourceScope{TenantID: "tenant", WorkspaceID: "workspace", AgentID: "agent"}, Resources: ResourceVector{ConcurrencySlots: 1}, Priority: priority, Persisted: persisted, Recovery: recovery, SubmittedAt: base}
+		return AdmissionRequest{ID: id, PlanID: "plan", NodeID: id, Scope: budget.ResourceScope{TenantID: "tenant", WorkspaceID: "workspace", AgentID: "agent"}, Resources: budget.ResourceVector{ConcurrencySlots: 1}, Priority: priority, Persisted: persisted, Recovery: recovery, SubmittedAt: base}
 	}
 	for _, request := range []AdmissionRequest{
 		makeRequest("low-ephemeral", 1, false, false), makeRequest("high-ephemeral", 9, false, false),
@@ -385,12 +377,12 @@ func TestFairAdmissionQueueBackpressureAndLoadSheddingProtectRecovery(t *testing
 func TestAdmissionControllerDistinguishesWaitingFromPermanentRejection(t *testing.T) {
 	now := time.Date(2026, 9, 19, 14, 0, 0, 0, time.UTC)
 	ledger := newTestLedger(t, "", testkit.NewManualClock(now))
-	if err := ledger.SetQuota(ResourceQuota{Scope: ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: ResourceVector{Tokens: 10, ConcurrencySlots: 1}}); err != nil {
+	if err := ledger.SetQuota(budget.ResourceQuota{Scope: budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: budget.ResourceVector{Tokens: 10, ConcurrencySlots: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	queue, _ := NewFairAdmissionQueue(FairQueuePolicy{AgingInterval: time.Minute, MaxPriority: 100, MaxPending: 10})
 	controller := AdmissionController{Ledger: ledger, Queue: queue}
-	request := AdmissionRequest{ID: "first", PlanID: "plan", NodeID: "node-1", Scope: resourceScope("agent"), Resources: ResourceVector{Tokens: 5, ConcurrencySlots: 1}, Priority: 10, Persisted: true, SubmittedAt: now, Deadline: now.Add(time.Hour)}
+	request := AdmissionRequest{ID: "first", PlanID: "plan", NodeID: "node-1", Scope: resourceScope("agent"), Resources: budget.ResourceVector{Tokens: 5, ConcurrencySlots: 1}, Priority: 10, Persisted: true, SubmittedAt: now, Deadline: now.Add(time.Hour)}
 	first, err := controller.TryAdmit(request)
 	if err != nil || first.State != AdmissionAdmitted || first.ReservationID == "" {
 		t.Fatalf("first=%+v err=%v", first, err)
@@ -410,7 +402,7 @@ func TestAdmissionControllerDistinguishesWaitingFromPermanentRejection(t *testin
 	}
 	impossibleRequest := request
 	impossibleRequest.ID, impossibleRequest.NodeID = "impossible", "node-3"
-	impossibleRequest.Resources = ResourceVector{Tokens: 11}
+	impossibleRequest.Resources = budget.ResourceVector{Tokens: 11}
 	impossible, err := controller.TryAdmit(impossibleRequest)
 	if err != nil || impossible.State != AdmissionRejected || impossible.Reason != "request_exceeds_hard_limit" {
 		t.Fatalf("impossible=%+v err=%v", impossible, err)
@@ -435,7 +427,7 @@ func (p *resourceTerminalProvider) GetRun(_ context.Context, runID string) (prov
 func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testing.T) {
 	now := time.Date(2026, 9, 19, 15, 0, 0, 0, time.UTC)
 	ledger := newTestLedger(t, "", testkit.NewManualClock(now))
-	if err := ledger.SetQuota(ResourceQuota{Scope: ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: ResourceVector{Tokens: 30, ToolCalls: 4, ConcurrencySlots: 1}}); err != nil {
+	if err := ledger.SetQuota(budget.ResourceQuota{Scope: budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, HardLimit: budget.ResourceVector{Tokens: 30, ToolCalls: 4, ConcurrencySlots: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	queue, _ := NewFairAdmissionQueue(FairQueuePolicy{AgingInterval: time.Minute, MaxPriority: 100, MaxPending: 10})
@@ -443,8 +435,8 @@ func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testin
 	graph := WorkflowGraph{
 		ID: "admission-graph", Version: 1, EntryNodeIDs: []string{"a", "b"}, ExitNodeIDs: []string{"a", "b"},
 		Nodes: []WorkflowNode{
-			{ID: "a", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-a", Revision: 1}, Budget: Budget{Tokens: 15, ToolCalls: 2}},
-			{ID: "b", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-b", Revision: 1}, Budget: Budget{Tokens: 15, ToolCalls: 2}},
+			{ID: "a", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-a", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
+			{ID: "b", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-b", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
 		},
 	}
 	plan, err := (RequirementExecutionPlan{ID: "admission-plan", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
@@ -472,7 +464,7 @@ func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testin
 		t.Fatalf("attempt/projection reservation missing attempt=%+v node=%+v", attempt, projection.Nodes["a"])
 	}
 	reserved, err := ledger.GetReservation(attempt.ResourceReservationID)
-	if err != nil || reserved.Status != ResourceReserved || reserved.State.Reserved.ConcurrencySlots != 1 {
+	if err != nil || reserved.Status != budget.ResourceReserved || reserved.State.Reserved.ConcurrencySlots != 1 {
 		t.Fatalf("reserved=%+v err=%v", reserved, err)
 	}
 	worker := Worker{Scheduler: scheduler, MaxTicks: 1}
@@ -481,10 +473,10 @@ func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testin
 		t.Fatalf("reconcile finished=%+v err=%v", finished, err)
 	}
 	settled, err := ledger.GetReservation(attempt.ResourceReservationID)
-	if err != nil || settled.Status != ResourceSettled || settled.State.Consumed.Tokens != 10 || settled.State.Consumed.ToolCalls != 2 || settled.State.Consumed.OutputBytes == 0 || settled.State.Released.ConcurrencySlots != 1 {
+	if err != nil || settled.Status != budget.ResourceSettled || settled.State.Consumed.Tokens != 10 || settled.State.Consumed.ToolCalls != 2 || settled.State.Consumed.OutputBytes == 0 || settled.State.Released.ConcurrencySlots != 1 {
 		t.Fatalf("settled=%+v err=%v", settled, err)
 	}
-	dashboard, err := ledger.Dashboard(ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, 10)
+	dashboard, err := ledger.Dashboard(budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, 10)
 	if err != nil || len(dashboard.RecentUsage) != 1 || len(dashboard.RecentUsage[0].RawProvider) == 0 || dashboard.RecentUsage[0].Discrepancy.Tokens != -5 {
 		t.Fatalf("dashboard=%+v err=%v", dashboard, err)
 	}
@@ -494,7 +486,7 @@ func TestSchedulerReleasesAdmissionWhenDispatchFails(t *testing.T) {
 	now := time.Date(2026, 9, 19, 16, 0, 0, 0, time.UTC)
 	ledger := newTestLedger(t, "", testkit.NewManualClock(now))
 	controller := &AdmissionController{Ledger: ledger}
-	graph := WorkflowGraph{ID: "dispatch-failure", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}, Budget: Budget{Tokens: 5}}}}
+	graph := WorkflowGraph{ID: "dispatch-failure", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}, Budget: budget.Budget{Tokens: 5}}}}
 	plan, err := (RequirementExecutionPlan{ID: "dispatch-failure", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +498,7 @@ func TestSchedulerReleasesAdmissionWhenDispatchFails(t *testing.T) {
 		t.Fatalf("dispatch failure report=%+v err=%v", report, err)
 	}
 	released, getErr := ledger.GetReservation(report.Admissions["node"].ReservationID)
-	if getErr != nil || released.Status != ResourceReleased || released.TerminalReason != "dispatch_not_started" {
+	if getErr != nil || released.Status != budget.ResourceReleased || released.TerminalReason != "dispatch_not_started" {
 		t.Fatalf("released=%+v err=%v", released, getErr)
 	}
 }

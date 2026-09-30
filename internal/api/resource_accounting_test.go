@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/orchestration"
 )
 
@@ -19,12 +20,12 @@ func TestResourceAccountingAPIShowsScopedBurnReservationsAndAttribution(t *testi
 		t.Fatalf("quota status=%d body=%s", quotaResponse.Code, quotaResponse.Body.String())
 	}
 	now := time.Date(2026, 9, 19, 10, 0, 0, 0, time.UTC)
-	scope := orchestration.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: "agent-a", SessionID: "session-a", StepID: "step-a", ModelCallID: "model-a", CostCenter: "delivery-a"}
-	reservation, _, _, err := s.ResourceLedger.Reserve(orchestration.ResourceReservationSpec{ID: "reservation-a", IdempotencyKey: "reservation-a", Scope: scope, Requested: orchestration.ResourceVector{Tokens: 10, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)})
+	scope := budget.ResourceScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", AgentID: "agent-a", SessionID: "session-a", StepID: "step-a", ModelCallID: "model-a", CostCenter: "delivery-a"}
+	reservation, _, _, err := s.ResourceLedger.Reserve(budget.ResourceReservationSpec{ID: "reservation-a", IdempotencyKey: "reservation-a", Scope: scope, Requested: budget.ResourceVector{Tokens: 10, ConcurrencySlots: 1}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	usage, err := orchestration.NewUsageRecord("usage-a", reservation.ID, scope, json.RawMessage(`{"input_tokens":6,"output_tokens":3}`), orchestration.ResourceVector{Tokens: 9, ConcurrencySlots: 1}, orchestration.ResourceVector{Tokens: 8, ConcurrencySlots: 1}, false, false, now.Add(time.Minute))
+	usage, err := budget.NewUsageRecord("usage-a", reservation.ID, scope, json.RawMessage(`{"input_tokens":6,"output_tokens":3}`), budget.ResourceVector{Tokens: 9, ConcurrencySlots: 1}, budget.ResourceVector{Tokens: 8, ConcurrencySlots: 1}, false, false, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestResourceAccountingAPIShowsScopedBurnReservationsAndAttribution(t *testi
 	}
 	var result struct {
 		Dashboard orchestration.ResourceDashboard `json:"dashboard"`
-		Quotas    []orchestration.ResourceQuota   `json:"quotas"`
+		Quotas    []budget.ResourceQuota          `json:"quotas"`
 	}
 	if err := json.Unmarshal(dashboardResponse.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)

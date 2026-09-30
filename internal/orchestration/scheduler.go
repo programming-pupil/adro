@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/harness"
 )
 
@@ -208,7 +209,7 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 				return report, err
 			}
 			if s.Admission != nil {
-				if settleErr := settleAttemptReservation(s.Admission.Ledger, plan, finished, nil, ResourceVector{}, true, now); settleErr != nil {
+				if settleErr := settleAttemptReservation(s.Admission.Ledger, plan, finished, nil, budget.ResourceVector{}, true, now); settleErr != nil {
 					return report, settleErr
 				}
 			}
@@ -376,7 +377,7 @@ func (s Scheduler) dispatchAdmissionRequest(plan RequirementExecutionPlan, proje
 	if wallTime <= 0 {
 		wallTime = node.Budget.Duration
 	}
-	resources := ResourceVector{Tokens: requestedTokens, ToolCalls: int64(node.Budget.ToolCalls), WallTimeNanos: int64(wallTime), ConcurrencySlots: 1}
+	resources := budget.ResourceVector{Tokens: requestedTokens, ToolCalls: int64(node.Budget.ToolCalls), WallTimeNanos: int64(wallTime), ConcurrencySlots: 1}
 	deadline := plan.Deadline.UTC()
 	if deadline.IsZero() {
 		ttl := s.Config.ReservationTTL
@@ -404,7 +405,7 @@ func (s Scheduler) dispatchAdmissionRequest(plan RequirementExecutionPlan, proje
 	}
 	return AdmissionRequest{
 		ID: requestID, PlanID: plan.ID, NodeID: node.ID,
-		Scope:               ResourceScope{TenantID: tenantID, WorkspaceID: plan.WorkspaceID, AgentID: agentID, SessionID: envelope.Manifest.SessionID, StepID: requestID, CostCenter: costCenter},
+		Scope:               budget.ResourceScope{TenantID: tenantID, WorkspaceID: plan.WorkspaceID, AgentID: agentID, SessionID: envelope.Manifest.SessionID, StepID: requestID, CostCenter: costCenter},
 		ParentReservationID: s.parentReservationID(plan), Resources: resources,
 		Priority: priority, Emergency: s.Config.EmergencyPriorityThreshold > 0 && priority >= s.Config.EmergencyPriorityThreshold,
 		Persisted: s.Repository != nil, SchedulingCost: cost, SubmittedAt: now, Deadline: deadline,
@@ -434,7 +435,7 @@ func (s Scheduler) releaseUnstartedReservations(selections []DispatchSelection, 
 		if selection.ResourceReservationID == "" || startedReservations[selection.ResourceReservationID] {
 			continue
 		}
-		if _, err := s.Admission.Ledger.Release(selection.ResourceReservationID, "dispatch-release:"+selection.ResourceReservationID, "dispatch_not_started", s.now()); err != nil && !errors.Is(err, ErrResourceReservationTerminal) {
+		if _, err := s.Admission.Ledger.Release(selection.ResourceReservationID, "dispatch-release:"+selection.ResourceReservationID, "dispatch_not_started", s.now()); err != nil && !errors.Is(err, budget.ErrResourceReservationTerminal) {
 			return err
 		}
 	}

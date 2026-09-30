@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 const schedulerBenchmarkRequests = 1024
@@ -11,8 +13,8 @@ const schedulerBenchmarkRequests = 1024
 func benchmarkAdmissionRequest(id, tenant string, priority int, submitted time.Time) AdmissionRequest {
 	return AdmissionRequest{
 		ID: id, PlanID: "benchmark-plan", NodeID: "node-" + id,
-		Scope:     ResourceScope{TenantID: tenant, WorkspaceID: "benchmark-workspace", AgentID: "benchmark-agent"},
-		Resources: ResourceVector{Tokens: 1, ConcurrencySlots: 1}, Priority: priority,
+		Scope:     budget.ResourceScope{TenantID: tenant, WorkspaceID: "benchmark-workspace", AgentID: "benchmark-agent"},
+		Resources: budget.ResourceVector{Tokens: 1, ConcurrencySlots: 1}, Priority: priority,
 		Persisted: true, SchedulingCost: 1, SubmittedAt: submitted,
 	}
 }
@@ -90,9 +92,9 @@ func BenchmarkAdmissionQuotaExhaustion(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := ledger.SetQuota(ResourceQuota{
-			Scope:     ResourceScope{TenantID: "tenant", WorkspaceID: "benchmark-workspace"},
-			HardLimit: ResourceVector{Tokens: 10, ConcurrencySlots: 1},
+		if err := ledger.SetQuota(budget.ResourceQuota{
+			Scope:     budget.ResourceScope{TenantID: "tenant", WorkspaceID: "benchmark-workspace"},
+			HardLimit: budget.ResourceVector{Tokens: 10, ConcurrencySlots: 1},
 		}); err != nil {
 			b.Fatal(err)
 		}
@@ -102,14 +104,14 @@ func BenchmarkAdmissionQuotaExhaustion(b *testing.B) {
 		}
 		controller := AdmissionController{Ledger: ledger, Queue: queue}
 		first := benchmarkAdmissionRequest(fmt.Sprintf("first-%d", iteration), "tenant", 50, base)
-		first.Resources = ResourceVector{Tokens: 5, ConcurrencySlots: 1}
+		first.Resources = budget.ResourceVector{Tokens: 5, ConcurrencySlots: 1}
 		decision, err := controller.TryAdmit(first)
 		if err != nil || decision.State != AdmissionAdmitted {
 			b.Fatalf("initial admission=%+v err=%v", decision, err)
 		}
 		for index := 0; index < waitingRequests; index++ {
 			request := benchmarkAdmissionRequest(fmt.Sprintf("wait-%d-%04d", iteration, index), "tenant", index%100, base)
-			request.Resources = ResourceVector{Tokens: 5, ConcurrencySlots: 1}
+			request.Resources = budget.ResourceVector{Tokens: 5, ConcurrencySlots: 1}
 			decision, err = controller.TryAdmit(request)
 			if err != nil || decision.State != AdmissionWaiting {
 				b.Fatalf("waiting admission=%+v err=%v", decision, err)

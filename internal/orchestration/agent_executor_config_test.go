@@ -1,6 +1,9 @@
 package orchestration
 
-import "testing"
+import (
+	"github.com/adro-project/adro/core/budget"
+	"testing"
+)
 
 func TestAgentExecutorConfigurationValidation(t *testing.T) {
 	base := AgentDefinition{
@@ -28,7 +31,7 @@ func TestAgentHumanConfigurationValidation(t *testing.T) {
 		ID: "agent", WorkspaceID: "workspace", Revision: 1, Name: "Agent", Description: "A useful Agent.", Status: AgentDraft,
 		ConversationStarters: []ConversationStarter{{Label: "Review", Prompt: "Review this change."}},
 		AccessPolicy:         AgentAccessPolicy{Mode: "members", MemberIDs: []string{"member-1"}},
-		ConcurrencyBudget:    Budget{Tokens: 1000, ToolCalls: 20, Concurrent: 2},
+		ConcurrencyBudget:    budget.Budget{Tokens: 1000, ToolCalls: 20, Concurrent: 2},
 	}
 	if err := base.Validate(); err != nil {
 		t.Fatalf("valid human configuration rejected: %v", err)

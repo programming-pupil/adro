@@ -3,6 +3,8 @@ package orchestration
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 func migrationBundle() DefinitionBundle {
@@ -11,7 +13,7 @@ func migrationBundle() DefinitionBundle {
 		ConversationStarters: []ConversationStarter{{Label: "Plan", Prompt: "Plan this delivery."}},
 		AccessPolicy:         AgentAccessPolicy{Mode: "members", MemberIDs: []string{"member-1"}},
 		ExecutorBinding:      ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", CustomArgs: []string{"--ephemeral"}},
-		ConcurrencyBudget:    Budget{Tokens: 120000, ToolCalls: 200, Concurrent: 2},
+		ConcurrencyBudget:    budget.Budget{Tokens: 120000, ToolCalls: 200, Concurrent: 2},
 		InputSchema:          SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1},
 	}
 	graph := WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent-node"}, ExitNodeIDs: []string{"agent-node"}, Nodes: []WorkflowNode{{ID: "agent-node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}}

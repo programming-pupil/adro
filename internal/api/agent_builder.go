@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 )
@@ -488,7 +489,7 @@ func decodeAgentDraft(payload string, requireEOF bool) (agentDraft, error) {
 		ID: "draft", WorkspaceID: "draft", Revision: 1, Name: draft.Name, Description: draft.Description,
 		Role: draft.Role, Instructions: draft.Instructions, ConversationStarters: draft.ConversationStarters,
 		AccessPolicy: draft.AccessPolicy, SkillIDs: draft.SkillIDs, MCPServerIDs: draft.MCPServerIDs, Status: orchestration.AgentDraft,
-		ConcurrencyBudget: orchestration.Budget{Tokens: draft.TokenBudget, ToolCalls: draft.ToolCallBudget, Concurrent: draft.MaxConcurrentTasks},
+		ConcurrencyBudget: budget.Budget{Tokens: draft.TokenBudget, ToolCalls: draft.ToolCallBudget, Concurrent: draft.MaxConcurrentTasks},
 	}
 	if err := candidate.Validate(); err != nil {
 		return agentDraft{}, err

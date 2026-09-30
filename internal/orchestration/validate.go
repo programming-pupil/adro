@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 const (
@@ -95,7 +97,7 @@ func ValidateGraph(g WorkflowGraph) error {
 				return fmt.Errorf("graph.nodes[%d].merge_policy.key_fields[%d].required", i, keyIndex)
 			}
 		}
-		if n.Kind != NodeRepair && (strings.TrimSpace(n.RepairPolicy.TargetNodeID) != "" || len(n.RepairPolicy.Scope) > 0 || len(n.RepairPolicy.VerificationNodeIDs) > 0 || n.RepairPolicy.MaxRounds != 0 || n.RepairPolicy.Budget != (Budget{})) {
+		if n.Kind != NodeRepair && (strings.TrimSpace(n.RepairPolicy.TargetNodeID) != "" || len(n.RepairPolicy.Scope) > 0 || len(n.RepairPolicy.VerificationNodeIDs) > 0 || n.RepairPolicy.MaxRounds != 0 || n.RepairPolicy.Budget != (budget.Budget{})) {
 			return fmt.Errorf("graph.nodes[%d].repair_policy.kind_mismatch", i)
 		}
 		if n.RepairPolicy.MaxRounds < 0 {
@@ -112,7 +114,7 @@ func ValidateGraph(g WorkflowGraph) error {
 				return fmt.Errorf("graph.nodes[%d].repair_policy.max_rounds.required", i)
 			}
 		}
-		if err := validateBudget(n.RepairPolicy.Budget, fmt.Sprintf("graph.nodes[%d].repair_policy.budget", i)); err != nil {
+		if err := budget.Validate(n.RepairPolicy.Budget, fmt.Sprintf("graph.nodes[%d].repair_policy.budget", i)); err != nil {
 			return err
 		}
 		for scopeIndex, scope := range n.RepairPolicy.Scope {

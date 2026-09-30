@@ -18,10 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/store"
+
 	"github.com/lib/pq"
 )
 
@@ -681,7 +683,7 @@ func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTa
 			RuntimeConfig: runtimeConfig,
 			ConfigVersion: "postgres-import-v1",
 		},
-		ConcurrencyBudget: orchestration.Budget{Concurrent: concurrency},
+		ConcurrencyBudget: budget.Budget{Concurrent: concurrency},
 		InputSchema:       orchestration.SchemaRef{ID: "portable.agent.input", Version: 1},
 		OutputSchema:      orchestration.SchemaRef{ID: "portable.agent.output", Version: 1},
 		Status:            status,

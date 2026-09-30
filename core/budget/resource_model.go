@@ -1,4 +1,5 @@
-package orchestration
+// Package budget defines pure resource arithmetic and accounting values.
+package budget
 
 import (
 	"encoding/json"
@@ -168,7 +169,7 @@ type ResourceScope struct {
 	CostCenter   string `json:"cost_center,omitempty"`
 }
 
-func (s ResourceScope) normalized() ResourceScope {
+func (s ResourceScope) Normalized() ResourceScope {
 	s.TenantID = strings.TrimSpace(s.TenantID)
 	s.WorkspaceID = strings.TrimSpace(s.WorkspaceID)
 	s.AgentID = strings.TrimSpace(s.AgentID)
@@ -180,8 +181,8 @@ func (s ResourceScope) normalized() ResourceScope {
 	return s
 }
 
-func (s ResourceScope) validateHierarchy() error {
-	s = s.normalized()
+func (s ResourceScope) ValidateHierarchy() error {
+	s = s.Normalized()
 	if s.TenantID == "" {
 		return errors.New("resource tenant_id is required")
 	}
@@ -191,11 +192,11 @@ func (s ResourceScope) validateHierarchy() error {
 	return nil
 }
 
-func (s ResourceScope) validateUsageAttribution() error {
-	if err := s.validateHierarchy(); err != nil {
+func (s ResourceScope) ValidateUsageAttribution() error {
+	if err := s.ValidateHierarchy(); err != nil {
 		return err
 	}
-	s = s.normalized()
+	s = s.Normalized()
 	if s.WorkspaceID == "" || s.SessionID == "" || s.StepID == "" || s.CostCenter == "" {
 		return errors.New("usage requires workspace_id, session_id, step_id and cost_center")
 	}
@@ -205,13 +206,13 @@ func (s ResourceScope) validateUsageAttribution() error {
 	return nil
 }
 
-func (s ResourceScope) quotaKey() string {
-	s = s.normalized()
+func (s ResourceScope) QuotaKey() string {
+	s = s.Normalized()
 	return strings.Join([]string{s.TenantID, s.WorkspaceID, s.AgentID}, "\x00")
 }
 
-func (s ResourceScope) matches(candidate ResourceScope) bool {
-	s, candidate = s.normalized(), candidate.normalized()
+func (s ResourceScope) Matches(candidate ResourceScope) bool {
+	s, candidate = s.Normalized(), candidate.Normalized()
 	if s.TenantID != candidate.TenantID {
 		return false
 	}
@@ -222,7 +223,7 @@ func (s ResourceScope) matches(candidate ResourceScope) bool {
 }
 
 func (s ResourceScope) String() string {
-	s = s.normalized()
+	s = s.Normalized()
 	parts := []string{"tenant=" + s.TenantID}
 	if s.WorkspaceID != "" {
 		parts = append(parts, "workspace="+s.WorkspaceID)
@@ -245,9 +246,9 @@ type ResourceQuota struct {
 	UpdatedAt                time.Time      `json:"updated_at"`
 }
 
-func (q ResourceQuota) validate() error {
-	q.Scope = q.Scope.normalized()
-	if err := q.Scope.validateHierarchy(); err != nil {
+func (q ResourceQuota) Validate() error {
+	q.Scope = q.Scope.Normalized()
+	if err := q.Scope.ValidateHierarchy(); err != nil {
 		return err
 	}
 	if q.Scope.SessionID != "" || q.Scope.StepID != "" || q.Scope.ModelCallID != "" || q.Scope.ToolEffectID != "" || q.Scope.CostCenter != "" {
@@ -274,8 +275,8 @@ func (q ResourceQuota) validate() error {
 	return nil
 }
 
-func (q ResourceQuota) normalized() ResourceQuota {
-	q.Scope = q.Scope.normalized()
+func (q ResourceQuota) Normalized() ResourceQuota {
+	q.Scope = q.Scope.Normalized()
 	if q.QueueWeight <= 0 {
 		q.QueueWeight = 1
 	}
@@ -332,12 +333,12 @@ type ResourceReservation struct {
 	SoftActions    []string                  `json:"soft_actions,omitempty"`
 }
 
-func (r ResourceReservation) active() bool {
+func (r ResourceReservation) Active() bool {
 	return r.Status == ResourceReserved
 }
 
-func (r ResourceReservation) liability() ResourceVector {
-	if r.active() {
+func (r ResourceReservation) Liability() ResourceVector {
+	if r.Active() {
 		return r.State.Reserved.Max(r.State.Consumed)
 	}
 	consumed := r.State.Consumed
@@ -345,13 +346,13 @@ func (r ResourceReservation) liability() ResourceVector {
 	return consumed
 }
 
-func reservationDigest(spec ResourceReservationSpec) (string, error) {
+func ReservationDigest(spec ResourceReservationSpec) (string, error) {
 	payload := struct {
 		Scope     ResourceScope  `json:"scope"`
 		ParentID  string         `json:"parent_id,omitempty"`
 		Requested ResourceVector `json:"requested"`
 		ExpiresAt time.Time      `json:"expires_at,omitempty"`
-	}{Scope: spec.Scope.normalized(), ParentID: strings.TrimSpace(spec.ParentID), Requested: spec.Requested, ExpiresAt: spec.ExpiresAt.UTC()}
+	}{Scope: spec.Scope.Normalized(), ParentID: strings.TrimSpace(spec.ParentID), Requested: spec.Requested, ExpiresAt: spec.ExpiresAt.UTC()}
 	return coreencoding.Digest(payload)
 }
 
@@ -376,11 +377,11 @@ type UsageRecord struct {
 // falls back to the estimator and records that fact explicitly.
 func NewUsageRecord(id, reservationID string, scope ResourceScope, raw json.RawMessage, normalized, estimated ResourceVector, providerMissing, delayed bool, observedAt time.Time) (UsageRecord, error) {
 	id, reservationID = strings.TrimSpace(id), strings.TrimSpace(reservationID)
-	scope = scope.normalized()
+	scope = scope.Normalized()
 	if id == "" || reservationID == "" {
 		return UsageRecord{}, errors.New("usage id and reservation_id are required")
 	}
-	if err := scope.validateUsageAttribution(); err != nil {
+	if err := scope.ValidateUsageAttribution(); err != nil {
 		return UsageRecord{}, err
 	}
 	if err := normalized.Validate(); err != nil {

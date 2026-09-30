@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 // ExecutionPlan is the neutral Runtime name. RequirementExecutionPlan remains
@@ -33,7 +35,7 @@ type DelegationRequest struct {
 	WorkspaceID     string          `json:"workspace_id"`
 	Capabilities    []CapabilityRef `json:"capabilities,omitempty"`
 	ContextBlockIDs []string        `json:"context_block_ids,omitempty"`
-	Budget          Budget          `json:"budget"`
+	Budget          budget.Budget   `json:"budget"`
 	Deadline        time.Time       `json:"deadline"`
 	RecursionDepth  int             `json:"recursion_depth"`
 	MaxChildDepth   int             `json:"max_child_depth"`
@@ -52,7 +54,7 @@ type DelegationGrant struct {
 	WorkspaceID     string          `json:"workspace_id"`
 	Capabilities    []CapabilityRef `json:"capabilities,omitempty"`
 	ContextBlockIDs []string        `json:"context_block_ids,omitempty"`
-	Budget          Budget          `json:"budget"`
+	Budget          budget.Budget   `json:"budget"`
 	Deadline        time.Time       `json:"deadline"`
 	RecursionDepth  int             `json:"recursion_depth"`
 	MaxChildDepth   int             `json:"max_child_depth"`
@@ -104,7 +106,7 @@ func (g DelegationGrant) Validate() error {
 	if strings.TrimSpace(g.RequestID) == "" || strings.TrimSpace(g.ParentPlanID) == "" || strings.TrimSpace(g.ParentAttemptID) == "" || strings.TrimSpace(g.ChildPlanID) == "" || strings.TrimSpace(g.ChildAgentID) == "" || strings.TrimSpace(g.TenantID) == "" || strings.TrimSpace(g.WorkspaceID) == "" || g.RecursionDepth < 1 || g.MaxChildDepth < g.RecursionDepth || strings.TrimSpace(g.Digest) == "" {
 		return ErrDelegationInvalid
 	}
-	if err := validateBudget(g.Budget, "delegation budget"); err != nil {
+	if err := budget.Validate(g.Budget, "delegation budget"); err != nil {
 		return err
 	}
 	if delegationDigest(g) != g.Digest {
@@ -113,7 +115,7 @@ func (g DelegationGrant) Validate() error {
 	return nil
 }
 
-func budgetWithin(child, parent Budget) bool {
+func budgetWithin(child, parent budget.Budget) bool {
 	return boundedInt64(child.Tokens, parent.Tokens) && boundedInt(child.ToolCalls, parent.ToolCalls) && boundedInt64(child.CostCents, parent.CostCents) && boundedDuration(child.Duration, parent.Duration) && boundedInt(child.Concurrent, parent.Concurrent)
 }
 

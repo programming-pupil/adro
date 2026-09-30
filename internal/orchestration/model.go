@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/harness"
 )
 
@@ -48,13 +49,6 @@ type CapabilityRef struct {
 type SchemaRef struct {
 	ID      string `json:"id"`
 	Version int64  `json:"version,omitempty"`
-}
-type Budget struct {
-	Tokens     int64         `json:"tokens,omitempty"`
-	ToolCalls  int           `json:"tool_calls,omitempty"`
-	CostCents  int64         `json:"cost_cents,omitempty"`
-	Duration   time.Duration `json:"duration,omitempty"`
-	Concurrent int           `json:"concurrent,omitempty"`
 }
 type ToolPolicy struct {
 	Allowed      []string `json:"allowed,omitempty"`
@@ -132,7 +126,7 @@ type AgentDefinition struct {
 	ToolPolicy            ToolPolicy             `json:"tool_policy"`
 	MemoryPolicy          MemoryPolicy           `json:"memory_policy"`
 	ExecutorBinding       ExecutorBinding        `json:"executor_binding"`
-	ConcurrencyBudget     Budget                 `json:"concurrency_budget"`
+	ConcurrencyBudget     budget.Budget          `json:"concurrency_budget"`
 	InputSchema           SchemaRef              `json:"input_schema"`
 	OutputSchema          SchemaRef              `json:"output_schema"`
 	// Graph is an optional revisioned routing graph owned by this Agent. A
@@ -173,14 +167,14 @@ type SquadMember struct {
 	OutputSchema          SchemaRef              `json:"output_schema"`
 	CapabilityConstraints []CapabilityConstraint `json:"capability_constraints,omitempty"`
 	MaxAttempts           int                    `json:"max_attempts,omitempty"`
-	Budget                Budget                 `json:"budget,omitempty"`
+	Budget                budget.Budget          `json:"budget,omitempty"`
 	Optional              bool                   `json:"optional,omitempty"`
 }
 type SquadPolicy struct {
-	MaxNestingDepth   int        `json:"max_nesting_depth,omitempty"`
-	Budget            Budget     `json:"budget,omitempty"`
-	ToolPolicy        ToolPolicy `json:"tool_policy,omitempty"`
-	HumanExitRequired bool       `json:"human_exit_required,omitempty"`
+	MaxNestingDepth   int           `json:"max_nesting_depth,omitempty"`
+	Budget            budget.Budget `json:"budget,omitempty"`
+	ToolPolicy        ToolPolicy    `json:"tool_policy,omitempty"`
+	HumanExitRequired bool          `json:"human_exit_required,omitempty"`
 }
 type SquadDefinition struct {
 	ID               string        `json:"id"`
@@ -247,11 +241,11 @@ type MergePolicy struct {
 // node. The actual patch is performed by the configured downstream agent or
 // squad; this controller records scope, lineage, and verification intent.
 type RepairPolicy struct {
-	TargetNodeID        string   `json:"target_node_id,omitempty"`
-	Scope               []string `json:"scope,omitempty"`
-	VerificationNodeIDs []string `json:"verification_node_ids,omitempty"`
-	MaxRounds           int      `json:"max_rounds,omitempty"`
-	Budget              Budget   `json:"budget,omitempty"`
+	TargetNodeID        string        `json:"target_node_id,omitempty"`
+	Scope               []string      `json:"scope,omitempty"`
+	VerificationNodeIDs []string      `json:"verification_node_ids,omitempty"`
+	MaxRounds           int           `json:"max_rounds,omitempty"`
+	Budget              budget.Budget `json:"budget,omitempty"`
 }
 
 // RepairLifecycle is carried on immutable attempts so a repair cannot be
@@ -325,7 +319,7 @@ type WorkflowNode struct {
 	ToolPolicy     ToolPolicy    `json:"tool_policy,omitempty"`
 	RetryPolicy    RetryPolicy   `json:"retry_policy,omitempty"`
 	Timeout        time.Duration `json:"timeout,omitempty"`
-	Budget         Budget        `json:"budget,omitempty"`
+	Budget         budget.Budget `json:"budget,omitempty"`
 	JoinPolicy     JoinPolicy    `json:"join_policy,omitempty"`
 	// JoinQuorum is the explicit number of successful incoming branches needed
 	// when JoinPolicy is quorum. A zero value uses strict majority.
@@ -362,10 +356,10 @@ type WorkflowGraph struct {
 }
 
 type PolicySnapshot struct {
-	Digest     string     `json:"digest"`
-	ToolPolicy ToolPolicy `json:"tool_policy,omitempty"`
-	Budget     Budget     `json:"budget,omitempty"`
-	CapturedAt time.Time  `json:"captured_at"`
+	Digest     string        `json:"digest"`
+	ToolPolicy ToolPolicy    `json:"tool_policy,omitempty"`
+	Budget     budget.Budget `json:"budget,omitempty"`
+	CapturedAt time.Time     `json:"captured_at"`
 }
 type ContextRef struct {
 	SessionID      string `json:"session_id"`
@@ -619,7 +613,7 @@ func (a AgentDefinition) Validate() error {
 	default:
 		return fmt.Errorf("agent status %q is invalid", a.Status)
 	}
-	if err := validateBudget(a.ConcurrencyBudget, "agent concurrency budget"); err != nil {
+	if err := budget.Validate(a.ConcurrencyBudget, "agent concurrency budget"); err != nil {
 		return err
 	}
 	if a.InputSchema.Version < 0 || a.OutputSchema.Version < 0 {
@@ -737,7 +731,7 @@ func (m SquadMember) Validate() error {
 	if m.MaxAttempts < 0 {
 		return errors.New("max_attempts cannot be negative")
 	}
-	if err := validateBudget(m.Budget, "squad member budget"); err != nil {
+	if err := budget.Validate(m.Budget, "squad member budget"); err != nil {
 		return err
 	}
 	if m.InputSchema.Version < 0 || m.OutputSchema.Version < 0 {
@@ -772,7 +766,7 @@ func (s SquadDefinition) Validate() error {
 	if s.Policy.MaxNestingDepth < 0 || s.Policy.MaxNestingDepth > 8 {
 		return errors.New("squad max_nesting_depth must be between 0 and 8")
 	}
-	if err := validateBudget(s.Policy.Budget, "squad policy budget"); err != nil {
+	if err := budget.Validate(s.Policy.Budget, "squad policy budget"); err != nil {
 		return err
 	}
 	if overlap := policyOverlap(s.Policy.ToolPolicy); overlap != "" {
@@ -799,18 +793,11 @@ func (s SquadDefinition) ValidateDraft() error {
 	if s.Policy.MaxNestingDepth < 0 || s.Policy.MaxNestingDepth > 8 {
 		return errors.New("squad max_nesting_depth must be between 0 and 8")
 	}
-	if err := validateBudget(s.Policy.Budget, "squad policy budget"); err != nil {
+	if err := budget.Validate(s.Policy.Budget, "squad policy budget"); err != nil {
 		return err
 	}
 	if overlap := policyOverlap(s.Policy.ToolPolicy); overlap != "" {
 		return fmt.Errorf("squad tool policy allows and denies %q", overlap)
-	}
-	return nil
-}
-
-func validateBudget(b Budget, label string) error {
-	if b.Tokens < 0 || b.ToolCalls < 0 || b.CostCents < 0 || b.Duration < 0 || b.Concurrent < 0 {
-		return fmt.Errorf("%s cannot contain negative values", label)
 	}
 	return nil
 }

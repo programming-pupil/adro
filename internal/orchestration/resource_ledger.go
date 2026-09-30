@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core"
+	"github.com/adro-project/adro/core/budget"
 	coreencoding "github.com/adro-project/adro/core/encoding"
 	"github.com/adro-project/adro/internal/durable"
 )
@@ -24,12 +25,12 @@ type ResourceLedgerOptions struct {
 }
 
 type resourceLedgerState struct {
-	Version      int                            `json:"version"`
-	Revision     int64                          `json:"revision"`
-	Quotas       map[string]ResourceQuota       `json:"quotas"`
-	Reservations map[string]ResourceReservation `json:"reservations"`
-	Usage        map[string]UsageRecord         `json:"usage"`
-	Operations   map[string]string              `json:"operations"`
+	Version      int                                   `json:"version"`
+	Revision     int64                                 `json:"revision"`
+	Quotas       map[string]budget.ResourceQuota       `json:"quotas"`
+	Reservations map[string]budget.ResourceReservation `json:"reservations"`
+	Usage        map[string]budget.UsageRecord         `json:"usage"`
+	Operations   map[string]string                     `json:"operations"`
 }
 
 // ResourceLedger is the reference durable accounting backend. Mutations are
@@ -40,9 +41,9 @@ type ResourceLedger struct {
 	mu           sync.RWMutex
 	path         string
 	revision     int64
-	quotas       map[string]ResourceQuota
-	reservations map[string]ResourceReservation
-	usage        map[string]UsageRecord
+	quotas       map[string]budget.ResourceQuota
+	reservations map[string]budget.ResourceReservation
+	usage        map[string]budget.UsageRecord
 	operations   map[string]string
 	clock        core.Clock
 	ids          core.IDGenerator
@@ -56,8 +57,8 @@ func NewResourceLedger(path string, options ResourceLedgerOptions) (*ResourceLed
 		options.IDs = &core.CryptoIDs{}
 	}
 	ledger := &ResourceLedger{
-		path: strings.TrimSpace(path), quotas: map[string]ResourceQuota{},
-		reservations: map[string]ResourceReservation{}, usage: map[string]UsageRecord{},
+		path: strings.TrimSpace(path), quotas: map[string]budget.ResourceQuota{},
+		reservations: map[string]budget.ResourceReservation{}, usage: map[string]budget.UsageRecord{},
 		operations: map[string]string{}, clock: options.Clock, ids: options.IDs,
 	}
 	if ledger.path != "" {
@@ -68,52 +69,52 @@ func NewResourceLedger(path string, options ResourceLedgerOptions) (*ResourceLed
 	return ledger, nil
 }
 
-func (l *ResourceLedger) SetQuota(quota ResourceQuota) error {
-	quota = quota.normalized()
+func (l *ResourceLedger) SetQuota(quota budget.ResourceQuota) error {
+	quota = quota.Normalized()
 	if quota.UpdatedAt.IsZero() {
 		quota.UpdatedAt = l.clock.Now().UTC()
 	}
-	if err := quota.validate(); err != nil {
+	if err := quota.Validate(); err != nil {
 		return err
 	}
 	return l.mutate(func() error {
-		l.quotas[quota.Scope.quotaKey()] = quota
+		l.quotas[quota.Scope.QuotaKey()] = quota
 		return nil
 	})
 }
 
-func (l *ResourceLedger) DeleteQuota(scope ResourceScope) error {
-	scope = scope.normalized()
-	if err := scope.validateHierarchy(); err != nil {
+func (l *ResourceLedger) DeleteQuota(scope budget.ResourceScope) error {
+	scope = scope.Normalized()
+	if err := scope.ValidateHierarchy(); err != nil {
 		return err
 	}
 	return l.mutate(func() error {
-		if _, ok := l.quotas[scope.quotaKey()]; !ok {
-			return ErrResourceNotFound
+		if _, ok := l.quotas[scope.QuotaKey()]; !ok {
+			return budget.ErrResourceNotFound
 		}
-		delete(l.quotas, scope.quotaKey())
+		delete(l.quotas, scope.QuotaKey())
 		return nil
 	})
 }
 
-func (l *ResourceLedger) ListQuotas() ([]ResourceQuota, error) {
+func (l *ResourceLedger) ListQuotas() ([]budget.ResourceQuota, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.loadLocked(); err != nil {
 		return nil, err
 	}
-	result := make([]ResourceQuota, 0, len(l.quotas))
+	result := make([]budget.ResourceQuota, 0, len(l.quotas))
 	for _, quota := range l.quotas {
 		result = append(result, quota)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Scope.quotaKey() < result[j].Scope.quotaKey() })
+	sort.Slice(result, func(i, j int) bool { return result[i].Scope.QuotaKey() < result[j].Scope.QuotaKey() })
 	return result, nil
 }
 
 // CheckReservation returns every applicable tenant/workspace/agent limit in
 // deterministic hierarchy order without mutating the ledger.
-func (l *ResourceLedger) CheckReservation(spec ResourceReservationSpec) ([]ResourceLimitReport, error) {
-	spec.Scope = spec.Scope.normalized()
+func (l *ResourceLedger) CheckReservation(spec budget.ResourceReservationSpec) ([]budget.ResourceLimitReport, error) {
+	spec.Scope = spec.Scope.Normalized()
 	if err := validateReservationSpec(spec); err != nil {
 		return nil, err
 	}
@@ -132,27 +133,27 @@ func (l *ResourceLedger) CheckReservation(spec ResourceReservationSpec) ([]Resou
 // quotas before external work is dispatched. Child reservations carve capacity
 // out of their parent's reserved pool and therefore cannot recursively oversell
 // a top-level task budget.
-func (l *ResourceLedger) Reserve(spec ResourceReservationSpec) (ResourceReservation, bool, []ResourceLimitReport, error) {
-	spec.Scope = spec.Scope.normalized()
+func (l *ResourceLedger) Reserve(spec budget.ResourceReservationSpec) (budget.ResourceReservation, bool, []budget.ResourceLimitReport, error) {
+	spec.Scope = spec.Scope.Normalized()
 	spec.ParentID = strings.TrimSpace(spec.ParentID)
 	spec.IdempotencyKey = strings.TrimSpace(spec.IdempotencyKey)
 	if err := validateReservationSpec(spec); err != nil {
-		return ResourceReservation{}, false, nil, err
+		return budget.ResourceReservation{}, false, nil, err
 	}
-	digest, err := reservationDigest(spec)
+	digest, err := budget.ReservationDigest(spec)
 	if err != nil {
-		return ResourceReservation{}, false, nil, err
+		return budget.ResourceReservation{}, false, nil, err
 	}
-	var result ResourceReservation
-	var reports []ResourceLimitReport
+	var result budget.ResourceReservation
+	var reports []budget.ResourceLimitReport
 	created := false
 	err = l.mutate(func() error {
 		if prior, ok := l.findReservationByKeyLocked(spec.IdempotencyKey); ok {
 			if prior.PayloadDigest != digest {
-				return ErrResourceConflict
+				return budget.ErrResourceConflict
 			}
 			result = cloneReservation(prior)
-			reports, _ = l.limitReportsLocked(spec.Scope, ResourceVector{})
+			reports, _ = l.limitReportsLocked(spec.Scope, budget.ResourceVector{})
 			return nil
 		}
 		if err := l.checkParentLocked(spec); err != nil {
@@ -173,17 +174,17 @@ func (l *ResourceLedger) Reserve(spec ResourceReservationSpec) (ResourceReservat
 			id = l.ids.NewID("reservation")
 		}
 		if _, exists := l.reservations[id]; exists {
-			return ErrResourceConflict
+			return budget.ErrResourceConflict
 		}
 		now := spec.CreatedAt.UTC()
 		if now.IsZero() {
 			now = l.clock.Now().UTC()
 		}
-		reservation := ResourceReservation{
+		reservation := budget.ResourceReservation{
 			ID: id, IdempotencyKey: spec.IdempotencyKey, PayloadDigest: digest,
 			Scope: spec.Scope, ParentID: spec.ParentID,
-			State:  ResourceState{Requested: spec.Requested, Reserved: spec.Requested},
-			Status: ResourceReserved, ExpiresAt: spec.ExpiresAt.UTC(), CreatedAt: now, UpdatedAt: now,
+			State:  budget.ResourceState{Requested: spec.Requested, Reserved: spec.Requested},
+			Status: budget.ResourceReserved, ExpiresAt: spec.ExpiresAt.UTC(), CreatedAt: now, UpdatedAt: now,
 		}
 		for _, report := range reports {
 			if !report.SoftExcess.IsZero() {
@@ -198,11 +199,11 @@ func (l *ResourceLedger) Reserve(spec ResourceReservationSpec) (ResourceReservat
 	return result, created, reports, err
 }
 
-func validateReservationSpec(spec ResourceReservationSpec) error {
+func validateReservationSpec(spec budget.ResourceReservationSpec) error {
 	if strings.TrimSpace(spec.IdempotencyKey) == "" {
 		return errors.New("resource reservation idempotency_key is required")
 	}
-	if err := spec.Scope.validateHierarchy(); err != nil {
+	if err := spec.Scope.ValidateHierarchy(); err != nil {
 		return err
 	}
 	if spec.Scope.WorkspaceID == "" {
@@ -221,43 +222,43 @@ func validateReservationSpec(spec ResourceReservationSpec) error {
 }
 
 // ResourceLimitError preserves a machine-readable report while supporting
-// errors.Is(err, ErrResourceHardLimit).
+// errors.Is(err, budget.ErrResourceHardLimit).
 type ResourceLimitError struct {
-	Report ResourceLimitReport
+	Report budget.ResourceLimitReport
 }
 
 func (e *ResourceLimitError) Error() string {
-	return fmt.Sprintf("%v: %s", ErrResourceHardLimit, e.Report.Explanation)
+	return fmt.Sprintf("%v: %s", budget.ErrResourceHardLimit, e.Report.Explanation)
 }
 
-func (e *ResourceLimitError) Unwrap() error { return ErrResourceHardLimit }
+func (e *ResourceLimitError) Unwrap() error { return budget.ErrResourceHardLimit }
 
-func (l *ResourceLedger) GetReservation(id string) (ResourceReservation, error) {
+func (l *ResourceLedger) GetReservation(id string) (budget.ResourceReservation, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.loadLocked(); err != nil {
-		return ResourceReservation{}, err
+		return budget.ResourceReservation{}, err
 	}
 	reservation, ok := l.reservations[strings.TrimSpace(id)]
 	if !ok {
-		return ResourceReservation{}, ErrResourceNotFound
+		return budget.ResourceReservation{}, budget.ErrResourceNotFound
 	}
 	return cloneReservation(reservation), nil
 }
 
-func (l *ResourceLedger) ListReservations(scope ResourceScope, includeTerminal bool) ([]ResourceReservation, error) {
+func (l *ResourceLedger) ListReservations(scope budget.ResourceScope, includeTerminal bool) ([]budget.ResourceReservation, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.loadLocked(); err != nil {
 		return nil, err
 	}
-	scope = scope.normalized()
-	result := make([]ResourceReservation, 0, len(l.reservations))
+	scope = scope.Normalized()
+	result := make([]budget.ResourceReservation, 0, len(l.reservations))
 	for _, reservation := range l.reservations {
-		if scope.TenantID != "" && !scope.matches(reservation.Scope) {
+		if scope.TenantID != "" && !scope.Matches(reservation.Scope) {
 			continue
 		}
-		if !includeTerminal && !reservation.active() {
+		if !includeTerminal && !reservation.Active() {
 			continue
 		}
 		result = append(result, cloneReservation(reservation))
@@ -275,43 +276,43 @@ func (l *ResourceLedger) ListReservations(scope ResourceScope, includeTerminal b
 // IDs with identical payload converge; changed payloads fail closed. Actual
 // usage is always retained, even when it crosses a hard limit, because
 // discarding an overage would turn untrusted telemetry into a budget credit.
-func (l *ResourceLedger) GetUsage(id string) (UsageRecord, error) {
+func (l *ResourceLedger) GetUsage(id string) (budget.UsageRecord, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.loadLocked(); err != nil {
-		return UsageRecord{}, err
+		return budget.UsageRecord{}, err
 	}
 	record, ok := l.usage[strings.TrimSpace(id)]
 	if !ok {
-		return UsageRecord{}, ErrResourceNotFound
+		return budget.UsageRecord{}, budget.ErrResourceNotFound
 	}
 	return cloneUsage(record), nil
 }
 
-func (l *ResourceLedger) RecordUsage(record UsageRecord) (UsageRecord, bool, []ResourceLimitReport, error) {
+func (l *ResourceLedger) RecordUsage(record budget.UsageRecord) (budget.UsageRecord, bool, []budget.ResourceLimitReport, error) {
 	if err := validateUsageRecord(record); err != nil {
-		return UsageRecord{}, false, nil, err
+		return budget.UsageRecord{}, false, nil, err
 	}
-	var result UsageRecord
-	var reports []ResourceLimitReport
+	var result budget.UsageRecord
+	var reports []budget.ResourceLimitReport
 	created := false
 	err := l.mutate(func() error {
 		if prior, ok := l.usage[record.ID]; ok {
 			if prior.PayloadDigest != record.PayloadDigest {
-				return ErrResourceConflict
+				return budget.ErrResourceConflict
 			}
 			result = cloneUsage(prior)
 			return nil
 		}
 		reservation, ok := l.reservations[record.ReservationID]
 		if !ok {
-			return ErrResourceNotFound
+			return budget.ErrResourceNotFound
 		}
 		if !sameAccountingScope(reservation.Scope, record.Scope) {
 			return errors.New("usage scope does not match reservation")
 		}
-		if !reservation.active() && !record.DelayedBilling {
-			return ErrResourceReservationTerminal
+		if !reservation.Active() && !record.DelayedBilling {
+			return budget.ErrResourceReservationTerminal
 		}
 		updatedOwn, err := reservation.OwnConsumed.Add(record.Normalized)
 		if err != nil {
@@ -329,7 +330,7 @@ func (l *ResourceLedger) RecordUsage(record UsageRecord) (UsageRecord, bool, []R
 		l.usage[record.ID] = cloneUsage(record)
 		result, created = cloneUsage(record), true
 		var checkErr error
-		reports, checkErr = l.limitReportsLocked(record.Scope, ResourceVector{})
+		reports, checkErr = l.limitReportsLocked(record.Scope, budget.ResourceVector{})
 		if checkErr != nil {
 			return checkErr
 		}
@@ -348,11 +349,11 @@ func (l *ResourceLedger) RecordUsage(record UsageRecord) (UsageRecord, bool, []R
 	return result, created, reports, err
 }
 
-func validateUsageRecord(record UsageRecord) error {
+func validateUsageRecord(record budget.UsageRecord) error {
 	if strings.TrimSpace(record.ID) == "" || strings.TrimSpace(record.ReservationID) == "" || strings.TrimSpace(record.PayloadDigest) == "" {
 		return errors.New("usage id, reservation_id and payload_digest are required")
 	}
-	if err := record.Scope.validateUsageAttribution(); err != nil {
+	if err := record.Scope.ValidateUsageAttribution(); err != nil {
 		return err
 	}
 	if err := record.Normalized.Validate(); err != nil {
@@ -370,65 +371,65 @@ func validateUsageRecord(record UsageRecord) error {
 	return nil
 }
 
-func sameAccountingScope(reservation, usage ResourceScope) bool {
-	reservation, usage = reservation.normalized(), usage.normalized()
+func sameAccountingScope(reservation, usage budget.ResourceScope) bool {
+	reservation, usage = reservation.Normalized(), usage.Normalized()
 	return reservation.TenantID == usage.TenantID && reservation.WorkspaceID == usage.WorkspaceID && reservation.AgentID == usage.AgentID
 }
 
 // Settle closes a reservation after all children have settled or released.
 // Usage can still receive an explicitly delayed billing adjustment later.
-func (l *ResourceLedger) Settle(id, idempotencyKey, reason string, at time.Time) (ResourceReservation, error) {
-	return l.finishReservation(id, idempotencyKey, reason, at, ResourceSettled)
+func (l *ResourceLedger) Settle(id, idempotencyKey, reason string, at time.Time) (budget.ResourceReservation, error) {
+	return l.finishReservation(id, idempotencyKey, reason, at, budget.ResourceSettled)
 }
 
-func (l *ResourceLedger) Release(id, idempotencyKey, reason string, at time.Time) (ResourceReservation, error) {
-	return l.finishReservation(id, idempotencyKey, reason, at, ResourceReleased)
+func (l *ResourceLedger) Release(id, idempotencyKey, reason string, at time.Time) (budget.ResourceReservation, error) {
+	return l.finishReservation(id, idempotencyKey, reason, at, budget.ResourceReleased)
 }
 
-func (l *ResourceLedger) finishReservation(id, idempotencyKey, reason string, at time.Time, status ResourceReservationStatus) (ResourceReservation, error) {
+func (l *ResourceLedger) finishReservation(id, idempotencyKey, reason string, at time.Time, status budget.ResourceReservationStatus) (budget.ResourceReservation, error) {
 	id, idempotencyKey, reason = strings.TrimSpace(id), strings.TrimSpace(idempotencyKey), strings.TrimSpace(reason)
 	if id == "" || idempotencyKey == "" {
-		return ResourceReservation{}, errors.New("reservation id and operation idempotency key are required")
+		return budget.ResourceReservation{}, errors.New("reservation id and operation idempotency key are required")
 	}
 	if at.IsZero() {
 		at = l.clock.Now()
 	}
 	at = at.UTC()
 	operationDigest, err := coreencoding.Digest(struct {
-		ID     string                    `json:"id"`
-		Status ResourceReservationStatus `json:"status"`
-		Reason string                    `json:"reason"`
+		ID     string                           `json:"id"`
+		Status budget.ResourceReservationStatus `json:"status"`
+		Reason string                           `json:"reason"`
 	}{id, status, reason})
 	if err != nil {
-		return ResourceReservation{}, err
+		return budget.ResourceReservation{}, err
 	}
-	var result ResourceReservation
+	var result budget.ResourceReservation
 	err = l.mutate(func() error {
 		if priorDigest, ok := l.operations[idempotencyKey]; ok {
 			if priorDigest != operationDigest {
-				return ErrResourceConflict
+				return budget.ErrResourceConflict
 			}
 			prior, ok := l.reservations[id]
 			if !ok {
-				return ErrResourceNotFound
+				return budget.ErrResourceNotFound
 			}
 			result = cloneReservation(prior)
 			return nil
 		}
 		reservation, ok := l.reservations[id]
 		if !ok {
-			return ErrResourceNotFound
+			return budget.ErrResourceNotFound
 		}
-		if !reservation.active() {
-			return ErrResourceReservationTerminal
+		if !reservation.Active() {
+			return budget.ErrResourceReservationTerminal
 		}
 		if l.hasActiveChildrenLocked(id) {
-			return ErrResourceActiveChildren
+			return budget.ErrResourceActiveChildren
 		}
 		reservation.Status = status
 		reservation.TerminalAt, reservation.UpdatedAt = at, at
 		if reason == "" {
-			if status == ResourceSettled {
+			if status == budget.ResourceSettled {
 				reason = "completed"
 			} else {
 				reason = "released"
@@ -446,16 +447,16 @@ func (l *ResourceLedger) finishReservation(id, idempotencyKey, reason string, at
 
 // ReapOrphans releases expired reservations deepest-first. This recovers child
 // allocations before parents and is safe to retry after a crash.
-func (l *ResourceLedger) ReapOrphans(now time.Time) ([]ResourceReservation, error) {
+func (l *ResourceLedger) ReapOrphans(now time.Time) ([]budget.ResourceReservation, error) {
 	if now.IsZero() {
 		now = l.clock.Now()
 	}
 	now = now.UTC()
-	var expired []ResourceReservation
+	var expired []budget.ResourceReservation
 	err := l.mutate(func() error {
 		ids := make([]string, 0)
 		for id, reservation := range l.reservations {
-			if reservation.active() && !reservation.ExpiresAt.IsZero() && !reservation.ExpiresAt.After(now) {
+			if reservation.Active() && !reservation.ExpiresAt.IsZero() && !reservation.ExpiresAt.After(now) {
 				ids = append(ids, id)
 			}
 		}
@@ -468,10 +469,10 @@ func (l *ResourceLedger) ReapOrphans(now time.Time) ([]ResourceReservation, erro
 		})
 		for _, id := range ids {
 			reservation := l.reservations[id]
-			if !reservation.active() || l.hasActiveChildrenLocked(id) {
+			if !reservation.Active() || l.hasActiveChildrenLocked(id) {
 				continue
 			}
-			reservation.Status = ResourceExpired
+			reservation.Status = budget.ResourceExpired
 			reservation.TerminalAt, reservation.UpdatedAt = now, now
 			reservation.TerminalReason = "reservation_lease_expired"
 			l.recomputeTerminalStateLocked(&reservation)
@@ -483,16 +484,16 @@ func (l *ResourceLedger) ReapOrphans(now time.Time) ([]ResourceReservation, erro
 	return expired, err
 }
 
-func (l *ResourceLedger) checkParentLocked(spec ResourceReservationSpec) error {
+func (l *ResourceLedger) checkParentLocked(spec budget.ResourceReservationSpec) error {
 	if spec.ParentID == "" {
 		return nil
 	}
 	parent, ok := l.reservations[spec.ParentID]
 	if !ok {
-		return ErrResourceNotFound
+		return budget.ErrResourceNotFound
 	}
-	if !parent.active() {
-		return ErrResourceReservationTerminal
+	if !parent.Active() {
+		return budget.ErrResourceReservationTerminal
 	}
 	if parent.Scope.TenantID != spec.Scope.TenantID || parent.Scope.WorkspaceID != spec.Scope.WorkspaceID {
 		return errors.New("child reservation must remain in the parent tenant and workspace")
@@ -503,7 +504,7 @@ func (l *ResourceLedger) checkParentLocked(spec ResourceReservationSpec) error {
 			continue
 		}
 		var err error
-		allocated, err = allocated.Add(child.liability())
+		allocated, err = allocated.Add(child.Liability())
 		if err != nil {
 			return err
 		}
@@ -513,12 +514,12 @@ func (l *ResourceLedger) checkParentLocked(spec ResourceReservationSpec) error {
 		return err
 	}
 	if excess := projected.Excess(parent.State.Reserved); !excess.IsZero() {
-		return fmt.Errorf("%w: parent=%s excess=%+v", ErrResourceParentExhausted, parent.ID, excess)
+		return fmt.Errorf("%w: parent=%s excess=%+v", budget.ErrResourceParentExhausted, parent.ID, excess)
 	}
 	return nil
 }
 
-func (l *ResourceLedger) addConsumptionLocked(id string, delta ResourceVector) error {
+func (l *ResourceLedger) addConsumptionLocked(id string, delta budget.ResourceVector) error {
 	currentID := id
 	visited := map[string]bool{}
 	for currentID != "" {
@@ -528,7 +529,7 @@ func (l *ResourceLedger) addConsumptionLocked(id string, delta ResourceVector) e
 		visited[currentID] = true
 		reservation, ok := l.reservations[currentID]
 		if !ok {
-			return ErrResourceNotFound
+			return budget.ErrResourceNotFound
 		}
 		consumed, err := reservation.State.Consumed.Add(delta)
 		if err != nil {
@@ -543,8 +544,8 @@ func (l *ResourceLedger) addConsumptionLocked(id string, delta ResourceVector) e
 	return nil
 }
 
-func (l *ResourceLedger) recomputeTerminalStateLocked(reservation *ResourceReservation) {
-	if reservation == nil || reservation.active() {
+func (l *ResourceLedger) recomputeTerminalStateLocked(reservation *budget.ResourceReservation) {
+	if reservation == nil || reservation.Active() {
 		return
 	}
 	reservation.State.Released = reservation.State.Reserved.SubtractFloor(reservation.State.Consumed)
@@ -556,7 +557,7 @@ func (l *ResourceLedger) recomputeTerminalStateLocked(reservation *ResourceReser
 
 func (l *ResourceLedger) hasActiveChildrenLocked(parentID string) bool {
 	for _, reservation := range l.reservations {
-		if reservation.ParentID == parentID && reservation.active() {
+		if reservation.ParentID == parentID && reservation.Active() {
 			return true
 		}
 	}
@@ -578,26 +579,26 @@ func (l *ResourceLedger) reservationDepthLocked(id string) int {
 	return depth
 }
 
-func (l *ResourceLedger) findReservationByKeyLocked(key string) (ResourceReservation, bool) {
+func (l *ResourceLedger) findReservationByKeyLocked(key string) (budget.ResourceReservation, bool) {
 	for _, reservation := range l.reservations {
 		if reservation.IdempotencyKey == key {
 			return reservation, true
 		}
 	}
-	return ResourceReservation{}, false
+	return budget.ResourceReservation{}, false
 }
 
-func (l *ResourceLedger) limitReportsLocked(scope ResourceScope, requested ResourceVector) ([]ResourceLimitReport, error) {
-	quotas := make([]ResourceQuota, 0, 3)
+func (l *ResourceLedger) limitReportsLocked(scope budget.ResourceScope, requested budget.ResourceVector) ([]budget.ResourceLimitReport, error) {
+	quotas := make([]budget.ResourceQuota, 0, 3)
 	for _, quota := range l.quotas {
-		if quota.Scope.matches(scope) {
+		if quota.Scope.Matches(scope) {
 			quotas = append(quotas, quota)
 		}
 	}
 	sort.Slice(quotas, func(i, j int) bool {
 		return quotaSpecificity(quotas[i].Scope) < quotaSpecificity(quotas[j].Scope)
 	})
-	reports := make([]ResourceLimitReport, 0, len(quotas))
+	reports := make([]budget.ResourceLimitReport, 0, len(quotas))
 	for _, quota := range quotas {
 		current, err := l.exposureLocked(quota.Scope)
 		if err != nil {
@@ -607,7 +608,7 @@ func (l *ResourceLedger) limitReportsLocked(scope ResourceScope, requested Resou
 		if err != nil {
 			return nil, err
 		}
-		report := ResourceLimitReport{
+		report := budget.ResourceLimitReport{
 			Scope: quota.Scope, Current: current, Requested: requested, Projected: projected,
 			SoftLimit: quota.SoftLimit, HardLimit: quota.HardLimit,
 			SoftExcess: projected.Excess(quota.SoftLimit), HardExcess: projected.Excess(quota.HardLimit),
@@ -629,7 +630,7 @@ func (l *ResourceLedger) limitReportsLocked(scope ResourceScope, requested Resou
 	return reports, nil
 }
 
-func quotaSpecificity(scope ResourceScope) int {
+func quotaSpecificity(scope budget.ResourceScope) int {
 	if scope.AgentID != "" {
 		return 2
 	}
@@ -639,22 +640,22 @@ func quotaSpecificity(scope ResourceScope) int {
 	return 0
 }
 
-func (l *ResourceLedger) exposureLocked(scope ResourceScope) (ResourceVector, error) {
-	var total ResourceVector
+func (l *ResourceLedger) exposureLocked(scope budget.ResourceScope) (budget.ResourceVector, error) {
+	var total budget.ResourceVector
 	for _, reservation := range l.reservations {
-		if !scope.matches(reservation.Scope) || l.hasMatchingAncestorLocked(reservation, scope) {
+		if !scope.Matches(reservation.Scope) || l.hasMatchingAncestorLocked(reservation, scope) {
 			continue
 		}
 		var err error
-		total, err = total.Add(reservation.liability())
+		total, err = total.Add(reservation.Liability())
 		if err != nil {
-			return ResourceVector{}, err
+			return budget.ResourceVector{}, err
 		}
 	}
 	return total, nil
 }
 
-func (l *ResourceLedger) hasMatchingAncestorLocked(reservation ResourceReservation, scope ResourceScope) bool {
+func (l *ResourceLedger) hasMatchingAncestorLocked(reservation budget.ResourceReservation, scope budget.ResourceScope) bool {
 	seen := map[string]bool{}
 	parentID := reservation.ParentID
 	for parentID != "" && !seen[parentID] {
@@ -663,7 +664,7 @@ func (l *ResourceLedger) hasMatchingAncestorLocked(reservation ResourceReservati
 		if !ok {
 			return false
 		}
-		if scope.matches(parent.Scope) {
+		if scope.Matches(parent.Scope) {
 			return true
 		}
 		parentID = parent.ParentID
@@ -675,26 +676,26 @@ func (l *ResourceLedger) hasMatchingAncestorLocked(reservation ResourceReservati
 // exposes burn, active reservations, overage, delayed bills, missing provider
 // usage, and child-agent attribution without allowing direct row mutation.
 type ResourceDashboard struct {
-	Scope                ResourceScope             `json:"scope"`
-	Exposure             ResourceVector            `json:"exposure"`
-	Consumed             ResourceVector            `json:"consumed"`
-	ActiveReservations   []ResourceReservation     `json:"active_reservations,omitempty"`
-	RecentUsage          []UsageRecord             `json:"recent_usage,omitempty"`
-	OverageReservations  []string                  `json:"overage_reservation_ids,omitempty"`
-	MissingProviderUsage int                       `json:"missing_provider_usage"`
-	DelayedBills         int                       `json:"delayed_bills"`
-	ChildAgentUsage      map[string]ResourceVector `json:"child_agent_usage,omitempty"`
-	GeneratedAt          time.Time                 `json:"generated_at"`
+	Scope                budget.ResourceScope             `json:"scope"`
+	Exposure             budget.ResourceVector            `json:"exposure"`
+	Consumed             budget.ResourceVector            `json:"consumed"`
+	ActiveReservations   []budget.ResourceReservation     `json:"active_reservations,omitempty"`
+	RecentUsage          []budget.UsageRecord             `json:"recent_usage,omitempty"`
+	OverageReservations  []string                         `json:"overage_reservation_ids,omitempty"`
+	MissingProviderUsage int                              `json:"missing_provider_usage"`
+	DelayedBills         int                              `json:"delayed_bills"`
+	ChildAgentUsage      map[string]budget.ResourceVector `json:"child_agent_usage,omitempty"`
+	GeneratedAt          time.Time                        `json:"generated_at"`
 }
 
-func (l *ResourceLedger) Dashboard(scope ResourceScope, usageLimit int) (ResourceDashboard, error) {
+func (l *ResourceLedger) Dashboard(scope budget.ResourceScope, usageLimit int) (ResourceDashboard, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.loadLocked(); err != nil {
 		return ResourceDashboard{}, err
 	}
-	scope = scope.normalized()
-	if err := scope.validateHierarchy(); err != nil {
+	scope = scope.Normalized()
+	if err := scope.ValidateHierarchy(); err != nil {
 		return ResourceDashboard{}, err
 	}
 	if usageLimit <= 0 || usageLimit > 1000 {
@@ -704,12 +705,12 @@ func (l *ResourceLedger) Dashboard(scope ResourceScope, usageLimit int) (Resourc
 	if err != nil {
 		return ResourceDashboard{}, err
 	}
-	dashboard := ResourceDashboard{Scope: scope, Exposure: exposure, ChildAgentUsage: map[string]ResourceVector{}, GeneratedAt: l.clock.Now().UTC()}
+	dashboard := ResourceDashboard{Scope: scope, Exposure: exposure, ChildAgentUsage: map[string]budget.ResourceVector{}, GeneratedAt: l.clock.Now().UTC()}
 	for _, reservation := range l.reservations {
-		if !scope.matches(reservation.Scope) {
+		if !scope.Matches(reservation.Scope) {
 			continue
 		}
-		if reservation.active() {
+		if reservation.Active() {
 			dashboard.ActiveReservations = append(dashboard.ActiveReservations, cloneReservation(reservation))
 		}
 		if !reservation.State.Overage.IsZero() {
@@ -724,9 +725,9 @@ func (l *ResourceLedger) Dashboard(scope ResourceScope, usageLimit int) (Resourc
 			dashboard.ChildAgentUsage[reservation.Scope.AgentID] = current
 		}
 	}
-	usage := make([]UsageRecord, 0)
+	usage := make([]budget.UsageRecord, 0)
 	for _, record := range l.usage {
-		if !scope.matches(record.Scope) {
+		if !scope.Matches(record.Scope) {
 			continue
 		}
 		dashboard.Consumed, err = dashboard.Consumed.Add(record.Normalized)
@@ -793,9 +794,9 @@ func (l *ResourceLedger) loadLocked() error {
 	data, err := os.ReadFile(l.path)
 	if errors.Is(err, os.ErrNotExist) {
 		l.revision = 0
-		l.quotas = map[string]ResourceQuota{}
-		l.reservations = map[string]ResourceReservation{}
-		l.usage = map[string]UsageRecord{}
+		l.quotas = map[string]budget.ResourceQuota{}
+		l.reservations = map[string]budget.ResourceReservation{}
+		l.usage = map[string]budget.UsageRecord{}
 		l.operations = map[string]string{}
 		return nil
 	}
@@ -874,10 +875,10 @@ func validateResourceLedgerState(state resourceLedgerState) error {
 		return errors.New("resource ledger maps are required")
 	}
 	for key, quota := range state.Quotas {
-		if quota.Scope.quotaKey() != key {
+		if quota.Scope.QuotaKey() != key {
 			return fmt.Errorf("resource quota key mismatch %q", key)
 		}
-		if err := quota.validate(); err != nil {
+		if err := quota.Validate(); err != nil {
 			return fmt.Errorf("resource quota %q: %w", key, err)
 		}
 	}
@@ -885,16 +886,16 @@ func validateResourceLedgerState(state resourceLedgerState) error {
 		if reservation.ID != id || reservation.IdempotencyKey == "" || reservation.PayloadDigest == "" {
 			return fmt.Errorf("invalid resource reservation %q", id)
 		}
-		if err := reservation.Scope.validateHierarchy(); err != nil {
+		if err := reservation.Scope.ValidateHierarchy(); err != nil {
 			return fmt.Errorf("resource reservation %q: %w", id, err)
 		}
-		for _, vector := range []ResourceVector{reservation.State.Requested, reservation.State.Reserved, reservation.State.Consumed, reservation.State.Released, reservation.State.Overage, reservation.OwnConsumed} {
+		for _, vector := range []budget.ResourceVector{reservation.State.Requested, reservation.State.Reserved, reservation.State.Consumed, reservation.State.Released, reservation.State.Overage, reservation.OwnConsumed} {
 			if err := vector.Validate(); err != nil {
 				return fmt.Errorf("resource reservation %q: %w", id, err)
 			}
 		}
 		switch reservation.Status {
-		case ResourceReserved, ResourceSettled, ResourceReleased, ResourceExpired:
+		case budget.ResourceReserved, budget.ResourceSettled, budget.ResourceReleased, budget.ResourceExpired:
 		default:
 			return fmt.Errorf("resource reservation %q has invalid status", id)
 		}
@@ -930,34 +931,34 @@ func (l *ResourceLedger) restoreLocked(state resourceLedgerState) {
 	l.operations = cloneStrings(state.Operations)
 }
 
-func cloneReservation(value ResourceReservation) ResourceReservation {
+func cloneReservation(value budget.ResourceReservation) budget.ResourceReservation {
 	value.SoftActions = append([]string(nil), value.SoftActions...)
 	return value
 }
 
-func cloneReservations(values map[string]ResourceReservation) map[string]ResourceReservation {
-	result := make(map[string]ResourceReservation, len(values))
+func cloneReservations(values map[string]budget.ResourceReservation) map[string]budget.ResourceReservation {
+	result := make(map[string]budget.ResourceReservation, len(values))
 	for key, value := range values {
 		result[key] = cloneReservation(value)
 	}
 	return result
 }
 
-func cloneUsage(value UsageRecord) UsageRecord {
+func cloneUsage(value budget.UsageRecord) budget.UsageRecord {
 	value.RawProvider = append(json.RawMessage(nil), value.RawProvider...)
 	return value
 }
 
-func cloneUsageMap(values map[string]UsageRecord) map[string]UsageRecord {
-	result := make(map[string]UsageRecord, len(values))
+func cloneUsageMap(values map[string]budget.UsageRecord) map[string]budget.UsageRecord {
+	result := make(map[string]budget.UsageRecord, len(values))
 	for key, value := range values {
 		result[key] = cloneUsage(value)
 	}
 	return result
 }
 
-func cloneQuotas(values map[string]ResourceQuota) map[string]ResourceQuota {
-	result := make(map[string]ResourceQuota, len(values))
+func cloneQuotas(values map[string]budget.ResourceQuota) map[string]budget.ResourceQuota {
+	result := make(map[string]budget.ResourceQuota, len(values))
 	for key, value := range values {
 		result[key] = value
 	}
