@@ -14,6 +14,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/orchestration"
+	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -21,7 +22,7 @@ import (
 func TestMaterializationRoutesOnceAndPersistsBinding(t *testing.T) {
 	const workspaceID = "00000000-0000-0000-0000-000000000001"
 	const agentID = "00000000-0000-0000-0000-00000000000a"
-	config, err := provider.ParseAgentRouteConfig(`{"workspaces":{"` + workspaceID + `":{"members":{"alice":"` + agentID + `"}}}}`)
+	config, err := schedulerroute.ParseAgentRouteConfig(`{"workspaces":{"` + workspaceID + `":{"members":{"alice":"` + agentID + `"}}}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func TestMaterializationRoutesOnceAndPersistsBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := provider.NewLocalProvider("/usr/bin/true", nil, t.TempDir(), bus)
-	s := NewWithRouting(store.NewMemory(), local, fs, bus, nil, provider.NewAgentRouteResolver(config, ""))
+	s := NewWithRouting(store.NewMemory(), local, fs, bus, nil, schedulerroute.NewAgentRouteResolver(config, ""))
 	requirement := domain.Requirement{ID: "req-1", Key: "REQ-1", WorkspaceID: workspaceID, Description: "route", RepositoryIDs: []string{"repo"}, AssigneeMemberIDs: []string{"alice"}}
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {

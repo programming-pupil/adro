@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"io"
 	"os"
 	"os/exec"
@@ -1160,7 +1161,7 @@ func (p *LocalProvider) commandArgsAt(input, sessionID string, resumed bool, wor
 	switch name {
 	case "claude", "claude-code":
 		args := []string{"-p", input, "--output-format", "json", "--permission-mode", "acceptEdits"}
-		if uuidPattern.MatchString(sessionID) {
+		if schedulerroute.ValidNativeID(sessionID) {
 			if resumed {
 				args = append(args, "--resume", sessionID)
 			} else {
@@ -1583,7 +1584,7 @@ func (p *LocalProvider) withCodexSessionArgs(args []string, _ string, sessionID 
 	if promptIndex < 0 {
 		promptIndex = len(expanded)
 	}
-	if !resumed || !uuidPattern.MatchString(sessionID) {
+	if !resumed || !schedulerroute.ValidNativeID(sessionID) {
 		expanded, _ = ensureCodexJSON(expanded, promptIndex, -1, -1)
 		return expanded
 	}
@@ -1616,7 +1617,7 @@ func (p *LocalProvider) withCodexSessionArgs(args []string, _ string, sessionID 
 	expanded, promptIndex = ensureCodexJSON(expanded, promptIndex, resumeIndex, execIndex)
 
 	for index := resumeIndex + 1; index < promptIndex; index++ {
-		if uuidPattern.MatchString(expanded[index]) {
+		if schedulerroute.ValidNativeID(expanded[index]) {
 			expanded[index] = sessionID
 			return expanded
 		}
@@ -1652,7 +1653,7 @@ func ensureCodexJSON(args []string, promptIndex, resumeIndex, execIndex int) ([]
 // flags themselves; otherwise ADRO appends the appropriate initial or resume
 // flag after replacing {input}.
 func (p *LocalProvider) withClaudeSessionArgs(args []string, sessionID string, resumed bool) []string {
-	if p.executorKind() != "claude" || !uuidPattern.MatchString(sessionID) {
+	if p.executorKind() != "claude" || !schedulerroute.ValidNativeID(sessionID) {
 		return args
 	}
 	for _, arg := range args {

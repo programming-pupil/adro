@@ -29,6 +29,7 @@ import (
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/orchestration"
+	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
@@ -100,9 +101,9 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	router := provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
+	router := schedulerroute.NewAgentRouteResolver(schedulerroute.AgentRouteConfig{}, "")
 	var routeErr error
-	router, routeErr = provider.NewAgentRouteResolverFromEnv()
+	router, routeErr = schedulerroute.NewAgentRouteResolverFromEnv()
 	if routeErr != nil {
 		slog.Error("agent route configuration", "error", routeErr)
 		os.Exit(1)

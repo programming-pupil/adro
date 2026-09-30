@@ -1,4 +1,4 @@
-package provider
+package route
 
 import (
 	"bytes"
@@ -21,6 +21,9 @@ const (
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ValidNativeID reports whether an external route identifier has the accepted shape.
+func ValidNativeID(value string) bool { return uuidPattern.MatchString(value) }
 
 // AgentRouteConfig is the immutable, workspace-scoped routing snapshot read
 // at process startup. The native IDs are never returned by diagnostics or the
@@ -87,14 +90,14 @@ func ParseAgentRouteConfig(raw string) (AgentRouteConfig, error) {
 	routeCount := 0
 	for workspaceID, routes := range config.Workspaces {
 		workspaceID = strings.ToLower(strings.TrimSpace(workspaceID))
-		if !uuidPattern.MatchString(workspaceID) {
+		if !ValidNativeID(workspaceID) {
 			return AgentRouteConfig{}, errors.New("agent route workspace key must be a UUID")
 		}
 		if _, exists := normalizedWorkspaces[workspaceID]; exists {
 			return AgentRouteConfig{}, errors.New("agent route workspaces contain a normalized duplicate")
 		}
 		if routes.DefaultAgentID != "" {
-			if !uuidPattern.MatchString(routes.DefaultAgentID) {
+			if !ValidNativeID(routes.DefaultAgentID) {
 				return AgentRouteConfig{}, errors.New("default agent route must be a UUID")
 			}
 			routes.DefaultAgentID = canonicalUUID(routes.DefaultAgentID)
@@ -104,7 +107,7 @@ func ParseAgentRouteConfig(raw string) (AgentRouteConfig, error) {
 		seenMembers := map[string]struct{}{}
 		for memberID, agentID := range routes.Members {
 			memberID = strings.TrimSpace(memberID)
-			if memberID == "" || !uuidPattern.MatchString(agentID) {
+			if memberID == "" || !ValidNativeID(agentID) {
 				return AgentRouteConfig{}, errors.New("member agent route has an empty key or invalid UUID")
 			}
 			if _, exists := seenMembers[memberID]; exists {
@@ -118,7 +121,7 @@ func ParseAgentRouteConfig(raw string) (AgentRouteConfig, error) {
 		roles := map[string]string{}
 		for role, agentID := range routes.Roles {
 			normalized := strings.ToLower(strings.TrimSpace(role))
-			if normalized == "" || !uuidPattern.MatchString(agentID) {
+			if normalized == "" || !ValidNativeID(agentID) {
 				return AgentRouteConfig{}, errors.New("role agent route has an empty key or invalid UUID")
 			}
 			if _, exists := seenRoles[normalized]; exists {
@@ -244,7 +247,7 @@ func NewAgentRouteResolverFromEnv() (*AgentRouteResolver, error) {
 		return nil, err
 	}
 	legacyID := getenv("ADRO_DEFAULT_AGENT_ID")
-	if legacyID != "" && !uuidPattern.MatchString(legacyID) {
+	if legacyID != "" && !ValidNativeID(legacyID) {
 		return nil, errors.New("ADRO_DEFAULT_AGENT_ID must be a UUID")
 	}
 	return NewAgentRouteResolver(config, canonicalUUID(legacyID)), nil
@@ -320,7 +323,7 @@ func NewProviderBinding(providerName, workspaceID, kind, nativeID, status, sourc
 
 func canonicalUUID(value string) string {
 	value = strings.TrimSpace(value)
-	if uuidPattern.MatchString(value) {
+	if ValidNativeID(value) {
 		return strings.ToLower(value)
 	}
 	return value

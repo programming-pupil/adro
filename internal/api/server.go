@@ -34,6 +34,7 @@ import (
 	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/orchestration"
 	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
+	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
@@ -58,7 +59,7 @@ type Server struct {
 	Harness            *harness.Store
 	Plugins            *plugins.Registry
 	Logger             *slog.Logger
-	Router             *provider.AgentRouteResolver
+	Router             *schedulerroute.AgentRouteResolver
 	Auth               *adroauth.Service
 	ServiceCredentials *authn.ServiceCredentialAuthority
 	Orchestration      orchestration.ControlRepository
@@ -172,15 +173,15 @@ func writeBufferedResponse(dst http.ResponseWriter, response idempotencyResponse
 
 func New(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger) *Server {
 	legacyID := os.Getenv("ADRO_DEFAULT_AGENT_ID")
-	return NewWithRouting(s, p, a, b, logger, provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, legacyID))
+	return NewWithRouting(s, p, a, b, logger, schedulerroute.NewAgentRouteResolver(schedulerroute.AgentRouteConfig{}, legacyID))
 }
 
-func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger, router *provider.AgentRouteResolver) *Server {
+func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger, router *schedulerroute.AgentRouteResolver) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if router == nil {
-		router = provider.NewAgentRouteResolver(provider.AgentRouteConfig{}, "")
+		router = schedulerroute.NewAgentRouteResolver(schedulerroute.AgentRouteConfig{}, "")
 	}
 	var startupErr error
 	tracer, tracerErr := telemetry.NewTracerFromEnvironment(context.Background())
@@ -286,7 +287,7 @@ func NewWithRouting(s *store.Memory, p provider.ExecutionProvider, a artifact.St
 // NewWithRoutingAndOrchestration is the production injection seam for SQL,
 // queue-backed, or other ControlRepository implementations. The default
 // constructor remains the local file/memory profile for backwards compatibility.
-func NewWithRoutingAndOrchestration(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger, router *provider.AgentRouteResolver, repo orchestration.ControlRepository) *Server {
+func NewWithRoutingAndOrchestration(s *store.Memory, p provider.ExecutionProvider, a artifact.Store, b *events.Bus, logger *slog.Logger, router *schedulerroute.AgentRouteResolver, repo orchestration.ControlRepository) *Server {
 	srv := NewWithRouting(s, p, a, b, logger, router)
 	if repo != nil {
 		srv.Orchestration = repo
@@ -806,7 +807,7 @@ func (s *Server) agentRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	providerName := "provider"
 	providerName = "local"
-	binding := provider.NewProviderBinding(providerName, input.WorkspaceID, "agent", nativeID, "configured", "webui", "ui")
+	binding := schedulerroute.NewProviderBinding(providerName, input.WorkspaceID, "agent", nativeID, "configured", "webui", "ui")
 	if _, err := s.Store.SaveProviderBinding(binding); err != nil {
 		s.problem(w, r, http.StatusInternalServerError, "binding_persist_failed", err.Error(), nil)
 		return
@@ -883,7 +884,7 @@ func (s *Server) providerDiagnostics(w http.ResponseWriter, r *http.Request) {
 		providerName = "local"
 	}
 	workspaceID := strings.TrimSpace(r.Header.Get("X-Workspace-ID"))
-	routeDiagnostics := provider.RouteDiagnostics{}
+	routeDiagnostics := schedulerroute.RouteDiagnostics{}
 	if s.Router != nil && workspaceID != "" {
 		routeDiagnostics = s.Router.Diagnostics(workspaceID)
 	}
@@ -3973,17 +3974,17 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 	for _, item := range existing {
 		known[item.RepositoryID] = item
 	}
-	persistedDecision := func(item domain.WorkItem) (provider.RouteDecision, error) {
-		decision := provider.RouteDecision{Source: item.AgentRouteSource, ConfigRevision: item.RoutingConfigRevision}
+	persistedDecision := func(item domain.WorkItem) (schedulerroute.RouteDecision, error) {
+		decision := schedulerroute.RouteDecision{Source: item.AgentRouteSource, ConfigRevision: item.RoutingConfigRevision}
 		if item.DeveloperAgentBindingID == "" {
 			return decision, nil
 		}
 		binding, bindingErr := s.Store.GetProviderBinding(item.DeveloperAgentBindingID)
 		if bindingErr != nil {
-			return provider.RouteDecision{}, fmt.Errorf("work item provider binding unavailable")
+			return schedulerroute.RouteDecision{}, fmt.Errorf("work item provider binding unavailable")
 		}
 		if binding.Provider == "" || binding.Kind != "agent" || binding.ProviderObjectID == "" {
-			return provider.RouteDecision{}, fmt.Errorf("work item provider binding is invalid")
+			return schedulerroute.RouteDecision{}, fmt.Errorf("work item provider binding is invalid")
 		}
 		decision.Binding = binding
 		decision.ProviderAssigneeID = binding.ProviderObjectID
@@ -4002,14 +4003,14 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 			continue
 		}
 		memberID := principals[i%len(principals)]
-		decision := provider.RouteDecision{Source: "unassigned"}
+		decision := schedulerroute.RouteDecision{Source: "unassigned"}
 		if exists {
 			// A previous provider call failed. Retry with the original immutable
 			// route instead of resolving against possibly changed configuration.
 			memberID = item.MemberID
 			var err error
 			if directAgentID != "" && item.DeveloperAgentBindingID == "" {
-				decision = provider.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
+				decision = schedulerroute.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
 			} else {
 				decision, err = persistedDecision(item)
 				if err != nil {
@@ -4019,7 +4020,7 @@ func (s *Server) materializeWorkItems(ctx context.Context, req domain.Requiremen
 		} else {
 			profile := domain.DeveloperProfile{DefaultRole: "developer"}
 			if directAgentID != "" {
-				decision = provider.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
+				decision = schedulerroute.RouteDecision{ProviderAssigneeID: directAgentID, AssigneeType: "agent", Source: routeSource}
 			} else {
 				if storedProfile, profileErr := s.Store.GetDeveloperProfile(req.WorkspaceID, memberID); profileErr == nil {
 					profile = storedProfile
