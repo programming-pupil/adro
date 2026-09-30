@@ -15,7 +15,8 @@ case that assistant text cannot satisfy an execution evidence gate. It is not a
 v2 result envelope and is never interpreted by these fixture packages.
 
 Atomic-write source: `v1-final:internal/provider/local.go` (temporary snapshot
-write), to be used by `supervisor.SaveAtomic` and receipt `Outbox.Put` in V2-04.
+write), now retained by `internal/upstream/supervisor.SaveAtomic`. Process
+record serialization and receipt `Outbox.Put` use it in V2-04.
 Preserve the algorithm, not the old provider's authoritative state file:
 
 1. Encode and validate the complete bounded record before changing the file.
@@ -28,8 +29,10 @@ Preserve the algorithm, not the old provider's authoritative state file:
 7. Remove the temporary file on every pre-rename failure and close all handles.
    A failure after rename must be reported even though new contents may exist.
 
-V2-04 must exercise file and directory sync failures, pre-rename failure,
-replacement, permissions, concurrent readers, process death at each durability
-boundary, and recovery. Merely writing this migration record does not satisfy
-those production tests. The old source remains present until that asset is
-ported; V2-01 item 005 remains incomplete meanwhile.
+The retained function has real-filesystem tests for replacement, permissions,
+concurrent readers, destination failure, temporary-file cleanup and a directory
+sync failure after rename. V2-04 still owns process death at each durability
+boundary, file-sync faults and end-to-end recovery with real process records and
+receipts. Asset preservation does not satisfy those runtime acceptance tests.
+This function is retained for that explicit migration owner; it is not yet a
+server or worker entry point in the stage-zero binary.
