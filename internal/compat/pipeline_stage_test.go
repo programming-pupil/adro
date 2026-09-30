@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 func TestGraphFromPipelineEncodesBoundedFeedbackAndTerminalFallback(t *testing.T) {
@@ -25,7 +25,7 @@ func TestGraphFromPipelineEncodesBoundedFeedbackAndTerminalFallback(t *testing.T
 	arbitration := mapping["5"]
 	foundFeedback := false
 	for _, edge := range graph.Edges {
-		if edge.From == arbitration && edge.To == development && edge.On == orchestration.EdgeSuccess {
+		if edge.From == arbitration && edge.To == development && edge.On == graphmodel.EdgeSuccess {
 			foundFeedback = edge.MaxTraversals == run.MaxRetries+1
 			break
 		}

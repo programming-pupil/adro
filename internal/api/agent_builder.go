@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core/budget"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
@@ -37,18 +37,18 @@ Rules:
 - Do not claim that a resource was created. The user reviews this draft before creation.`
 
 type agentDraft struct {
-	Name                 string                              `json:"name"`
-	Description          string                              `json:"description"`
-	Role                 string                              `json:"role"`
-	Instructions         string                              `json:"instructions"`
-	ConversationStarters []orchestration.ConversationStarter `json:"conversation_starters"`
-	AccessPolicy         orchestration.AgentAccessPolicy     `json:"access_policy"`
-	SkillIDs             []string                            `json:"skill_ids"`
-	MCPServerIDs         []string                            `json:"mcp_server_ids"`
-	NetworkAccess        bool                                `json:"network_access"`
-	MaxConcurrentTasks   int                                 `json:"max_concurrent_tasks"`
-	TokenBudget          int64                               `json:"token_budget"`
-	ToolCallBudget       int                                 `json:"tool_call_budget"`
+	Name                 string                           `json:"name"`
+	Description          string                           `json:"description"`
+	Role                 string                           `json:"role"`
+	Instructions         string                           `json:"instructions"`
+	ConversationStarters []graphmodel.ConversationStarter `json:"conversation_starters"`
+	AccessPolicy         graphmodel.AgentAccessPolicy     `json:"access_policy"`
+	SkillIDs             []string                         `json:"skill_ids"`
+	MCPServerIDs         []string                         `json:"mcp_server_ids"`
+	NetworkAccess        bool                             `json:"network_access"`
+	MaxConcurrentTasks   int                              `json:"max_concurrent_tasks"`
+	TokenBudget          int64                            `json:"token_budget"`
+	ToolCallBudget       int                              `json:"tool_call_budget"`
 }
 
 type composeAgentDraftRequest struct {
@@ -108,7 +108,7 @@ func (s *Server) composeAgentDraft(w http.ResponseWriter, r *http.Request, works
 	}
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
-		key = orchestration.NewID()
+		key = graphmodel.NewID()
 	}
 	workItemID := agentBuilderWorkItemID(workspaceID, key)
 	binding, err := executor.StartRun(r.Context(), provider.StartRunCommand{WorkItemID: workItemID, Input: prompt, IdempotencyKey: "agent-builder:" + key})
@@ -198,7 +198,7 @@ func (s *Server) agentDraftResult(workspaceID string, snapshot provider.RunSnaps
 	if err != nil {
 		return nil, "agent_builder_output_invalid", err.Error()
 	}
-	candidate := orchestration.AgentDefinition{WorkspaceID: workspaceID, SkillIDs: draft.SkillIDs, MCPServerIDs: draft.MCPServerIDs}
+	candidate := graphmodel.AgentDefinition{WorkspaceID: workspaceID, SkillIDs: draft.SkillIDs, MCPServerIDs: draft.MCPServerIDs}
 	if err := s.validateAgentResources(candidate); err != nil {
 		return nil, "agent_builder_resource_invalid", err.Error()
 	}
@@ -485,10 +485,10 @@ func decodeAgentDraft(payload string, requireEOF bool) (agentDraft, error) {
 	if draft.MaxConcurrentTasks < 1 || draft.MaxConcurrentTasks > 16 || draft.TokenBudget < 1 || draft.TokenBudget > 10_000_000 || draft.ToolCallBudget < 1 || draft.ToolCallBudget > 10_000 {
 		return agentDraft{}, errors.New("agent_draft contains an invalid execution budget")
 	}
-	candidate := orchestration.AgentDefinition{
+	candidate := graphmodel.AgentDefinition{
 		ID: "draft", WorkspaceID: "draft", Revision: 1, Name: draft.Name, Description: draft.Description,
 		Role: draft.Role, Instructions: draft.Instructions, ConversationStarters: draft.ConversationStarters,
-		AccessPolicy: draft.AccessPolicy, SkillIDs: draft.SkillIDs, MCPServerIDs: draft.MCPServerIDs, Status: orchestration.AgentDraft,
+		AccessPolicy: draft.AccessPolicy, SkillIDs: draft.SkillIDs, MCPServerIDs: draft.MCPServerIDs, Status: graphmodel.AgentDraft,
 		ConcurrencyBudget: budget.Budget{Tokens: draft.TokenBudget, ToolCalls: draft.ToolCallBudget, Concurrent: draft.MaxConcurrentTasks},
 	}
 	if err := candidate.Validate(); err != nil {

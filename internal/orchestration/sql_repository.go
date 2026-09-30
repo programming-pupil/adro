@@ -1,11 +1,5 @@
 package orchestration
 
-// This file contains the database/sql contract adapter. The repository keeps
-// domain validation and projection semantics in MemoryRepository, while this
-// adapter makes the durable commit boundary a real SQL transaction. A driver
-// is deliberately injected by the application (the core module does not pick
-// a SQLite or PostgreSQL driver on behalf of a deployment).
-
 import (
 	"database/sql"
 	"encoding/json"
@@ -16,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 const orchestrationSQLTable = "adro_orchestration_state"
@@ -307,18 +303,19 @@ func (r *SQLRepository) refreshLocked() error {
 
 // Read methods refresh from SQL first so a second API process observes the
 // committed plan, projection, event and roster without requiring a restart.
-func (r *SQLRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, error) {
+func (r *SQLRepository) GetAgent(ws, id string, rev int64) (graphmodel.AgentDefinition, error) {
 	if err := r.refresh(); err != nil {
-		return AgentDefinition{}, err
+		return graphmodel.AgentDefinition{}, err
 	}
 	if scoped, ok := r.scopedWorkspace(ws); !ok {
-		return AgentDefinition{}, ErrNotFound
+		return graphmodel.AgentDefinition{}, ErrNotFound
 	} else {
 		ws = scoped
 	}
 	return r.MemoryRepository.GetAgent(ws, id, rev)
 }
-func (r *SQLRepository) ListAgents(ws string, status AgentStatus) []AgentDefinition {
+
+func (r *SQLRepository) ListAgents(ws string, status graphmodel.AgentStatus) []graphmodel.AgentDefinition {
 	if err := r.refresh(); err != nil {
 		return nil
 	}
@@ -329,18 +326,20 @@ func (r *SQLRepository) ListAgents(ws string, status AgentStatus) []AgentDefinit
 	}
 	return r.MemoryRepository.ListAgents(ws, status)
 }
-func (r *SQLRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, error) {
+
+func (r *SQLRepository) GetSquad(ws, id string, rev int64) (graphmodel.SquadDefinition, error) {
 	if err := r.refresh(); err != nil {
-		return SquadDefinition{}, err
+		return graphmodel.SquadDefinition{}, err
 	}
 	if scoped, ok := r.scopedWorkspace(ws); !ok {
-		return SquadDefinition{}, ErrNotFound
+		return graphmodel.SquadDefinition{}, ErrNotFound
 	} else {
 		ws = scoped
 	}
 	return r.MemoryRepository.GetSquad(ws, id, rev)
 }
-func (r *SQLRepository) ListSquads(ws string, status SquadStatus) []SquadDefinition {
+
+func (r *SQLRepository) ListSquads(ws string, status graphmodel.SquadStatus) []graphmodel.SquadDefinition {
 	if err := r.refresh(); err != nil {
 		return nil
 	}
@@ -351,29 +350,32 @@ func (r *SQLRepository) ListSquads(ws string, status SquadStatus) []SquadDefinit
 	}
 	return r.MemoryRepository.ListSquads(ws, status)
 }
-func (r *SQLRepository) GetPlanByIdempotency(ws, key string) (RequirementExecutionPlan, error) {
+
+func (r *SQLRepository) GetPlanByIdempotency(ws, key string) (graphmodel.RequirementExecutionPlan, error) {
 	if err := r.refresh(); err != nil {
-		return RequirementExecutionPlan{}, err
+		return graphmodel.RequirementExecutionPlan{}, err
 	}
 	if scoped, ok := r.scopedWorkspace(ws); !ok {
-		return RequirementExecutionPlan{}, ErrNotFound
+		return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 	} else {
 		ws = scoped
 	}
 	return r.MemoryRepository.GetPlanByIdempotency(ws, key)
 }
-func (r *SQLRepository) GetPlan(ws, id string) (RequirementExecutionPlan, error) {
+
+func (r *SQLRepository) GetPlan(ws, id string) (graphmodel.RequirementExecutionPlan, error) {
 	if err := r.refresh(); err != nil {
-		return RequirementExecutionPlan{}, err
+		return graphmodel.RequirementExecutionPlan{}, err
 	}
 	if scoped, ok := r.scopedWorkspace(ws); !ok {
-		return RequirementExecutionPlan{}, ErrNotFound
+		return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 	} else {
 		ws = scoped
 	}
 	return r.MemoryRepository.GetPlan(ws, id)
 }
-func (r *SQLRepository) ListPlans(ws string) []RequirementExecutionPlan {
+
+func (r *SQLRepository) ListPlans(ws string) []graphmodel.RequirementExecutionPlan {
 	if err := r.refresh(); err != nil {
 		return nil
 	}
@@ -384,17 +386,19 @@ func (r *SQLRepository) ListPlans(ws string) []RequirementExecutionPlan {
 	}
 	return r.MemoryRepository.ListPlans(ws)
 }
-func (r *SQLRepository) GetProjection(id string) (PlanProjection, error) {
+
+func (r *SQLRepository) GetProjection(id string) (graphmodel.PlanProjection, error) {
 	if err := r.refresh(); err != nil {
-		return PlanProjection{}, err
+		return graphmodel.PlanProjection{}, err
 	}
 	plan, planErr := r.planForRead(id)
 	if planErr != nil || !r.scopeAllowsRead(plan.WorkspaceID) {
-		return PlanProjection{}, ErrNotFound
+		return graphmodel.PlanProjection{}, ErrNotFound
 	}
 	return r.MemoryRepository.GetProjection(id)
 }
-func (r *SQLRepository) ListEvents(planID string, after int64) []Event {
+
+func (r *SQLRepository) ListEvents(planID string, after int64) []graphmodel.Event {
 	if err := r.refresh(); err != nil {
 		return nil
 	}
@@ -404,6 +408,7 @@ func (r *SQLRepository) ListEvents(planID string, after int64) []Event {
 	}
 	return r.MemoryRepository.ListEvents(planID, after)
 }
+
 func (r *SQLRepository) ListOutbox(planID, status string) []OutboxRecord {
 	if err := r.refresh(); err != nil {
 		return nil
@@ -415,16 +420,16 @@ func (r *SQLRepository) ListOutbox(planID, status string) []OutboxRecord {
 	return r.MemoryRepository.ListOutbox(planID, status)
 }
 
-func (r *SQLRepository) planForRead(id string) (RequirementExecutionPlan, error) {
+func (r *SQLRepository) planForRead(id string) (graphmodel.RequirementExecutionPlan, error) {
 	if r == nil || r.MemoryRepository == nil {
-		return RequirementExecutionPlan{}, ErrNotFound
+		return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 	}
 	for _, plan := range r.MemoryRepository.ListPlans("") {
 		if plan.ID == id {
 			return plan, nil
 		}
 	}
-	return RequirementExecutionPlan{}, ErrNotFound
+	return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 }
 
 func sqlBytes(value any) ([]byte, error) {
@@ -457,22 +462,22 @@ func (r *SQLRepository) restoreSnapshot(state persistedRepository) {
 	r.agents, r.squads, r.plans = state.Agents, state.Squads, state.Plans
 	r.projections, r.keys, r.events, r.outbox = state.Projections, state.Keys, state.Events, state.Outbox
 	if r.agents == nil {
-		r.agents = map[string]AgentDefinition{}
+		r.agents = map[string]graphmodel.AgentDefinition{}
 	}
 	if r.squads == nil {
-		r.squads = map[string]SquadDefinition{}
+		r.squads = map[string]graphmodel.SquadDefinition{}
 	}
 	if r.plans == nil {
-		r.plans = map[string]RequirementExecutionPlan{}
+		r.plans = map[string]graphmodel.RequirementExecutionPlan{}
 	}
 	if r.projections == nil {
-		r.projections = map[string]PlanProjection{}
+		r.projections = map[string]graphmodel.PlanProjection{}
 	}
 	if r.keys == nil {
 		r.keys = map[string]string{}
 	}
 	if r.events == nil {
-		r.events = map[string][]Event{}
+		r.events = map[string][]graphmodel.Event{}
 	}
 	if r.outbox == nil {
 		r.outbox = map[string]OutboxRecord{}
@@ -597,9 +602,9 @@ func replaceLogicalRows(tx *sql.Tx, state persistedRepository, placeholder func(
 		id        string
 		workspace string
 		version   int64
-		graph     WorkflowGraph
+		graph     graphmodel.WorkflowGraph
 	})
-	addGraph := func(graph WorkflowGraph, workspace string) {
+	addGraph := func(graph graphmodel.WorkflowGraph, workspace string) {
 		if strings.TrimSpace(graph.ID) == "" || strings.TrimSpace(workspace) == "" || graph.Version <= 0 {
 			return
 		}
@@ -608,7 +613,7 @@ func replaceLogicalRows(tx *sql.Tx, state persistedRepository, placeholder func(
 			id        string
 			workspace string
 			version   int64
-			graph     WorkflowGraph
+			graph     graphmodel.WorkflowGraph
 		}{id: graph.ID, workspace: workspace, version: graph.Version, graph: graph}
 	}
 	for _, squad := range state.Squads {
@@ -807,9 +812,9 @@ func snapshotWorkspace(state persistedRepository) string {
 func scopedSnapshot(state persistedRepository, workspaceID string) persistedRepository {
 	workspaceID = strings.TrimSpace(workspaceID)
 	out := persistedRepository{Version: state.Version, Revision: state.Revision,
-		Agents: map[string]AgentDefinition{}, Squads: map[string]SquadDefinition{},
-		Plans: map[string]RequirementExecutionPlan{}, Projections: map[string]PlanProjection{},
-		Keys: map[string]string{}, Events: map[string][]Event{}, Outbox: map[string]OutboxRecord{}}
+		Agents: map[string]graphmodel.AgentDefinition{}, Squads: map[string]graphmodel.SquadDefinition{},
+		Plans: map[string]graphmodel.RequirementExecutionPlan{}, Projections: map[string]graphmodel.PlanProjection{},
+		Keys: map[string]string{}, Events: map[string][]graphmodel.Event{}, Outbox: map[string]OutboxRecord{}}
 	for key, agent := range state.Agents {
 		if agent.WorkspaceID == workspaceID {
 			out.Agents[key] = cloneValue(agent)
@@ -881,19 +886,20 @@ func (r *SQLRepository) mutate(fn func() error) error {
 	return fmt.Errorf("%w after 8 retries", errSQLRevisionConflict)
 }
 
-func (r *SQLRepository) SaveAgent(a AgentDefinition, expected int64) error {
+func (r *SQLRepository) SaveAgent(a graphmodel.AgentDefinition, expected int64) error {
 	return r.mutate(func() error { return r.MemoryRepository.SaveAgent(a, expected) })
 }
-func (r *SQLRepository) ImportDefinitionBundle(workspaceID string, bundle DefinitionBundle, dryRun bool) (DefinitionImportReport, error) {
+
+func (r *SQLRepository) ImportDefinitionBundle(workspaceID string, bundle graphmodel.DefinitionBundle, dryRun bool) (graphmodel.DefinitionImportReport, error) {
 	if dryRun {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		if err := r.refreshLocked(); err != nil {
-			return DefinitionImportReport{}, err
+			return graphmodel.DefinitionImportReport{}, err
 		}
 		return r.MemoryRepository.ImportDefinitionBundle(workspaceID, bundle, true)
 	}
-	var report DefinitionImportReport
+	var report graphmodel.DefinitionImportReport
 	err := r.mutate(func() error {
 		var err error
 		report, err = r.MemoryRepository.ImportDefinitionBundle(workspaceID, bundle, dryRun)
@@ -901,24 +907,31 @@ func (r *SQLRepository) ImportDefinitionBundle(workspaceID string, bundle Defini
 	})
 	return report, err
 }
-func (r *SQLRepository) SaveSquad(s SquadDefinition, expected int64) error {
+
+func (r *SQLRepository) SaveSquad(s graphmodel.SquadDefinition, expected int64) error {
 	return r.mutate(func() error { return r.MemoryRepository.SaveSquad(s, expected) })
 }
-func (r *SQLRepository) CreatePlan(p RequirementExecutionPlan) error {
+
+func (r *SQLRepository) CreatePlan(p graphmodel.RequirementExecutionPlan) error {
 	return r.mutate(func() error { return r.MemoryRepository.CreatePlan(p) })
 }
-func (r *SQLRepository) CreatePlanWithEvent(p RequirementExecutionPlan, e Event) error {
+
+func (r *SQLRepository) CreatePlanWithEvent(p graphmodel.RequirementExecutionPlan, e graphmodel.Event) error {
 	return r.mutate(func() error { return r.MemoryRepository.CreatePlanWithEvent(p, e) })
 }
-func (r *SQLRepository) SaveProjection(p PlanProjection) error {
+
+func (r *SQLRepository) SaveProjection(p graphmodel.PlanProjection) error {
 	return r.mutate(func() error { return r.MemoryRepository.SaveProjection(p) })
 }
-func (r *SQLRepository) AppendEvent(e Event) error {
+
+func (r *SQLRepository) AppendEvent(e graphmodel.Event) error {
 	return r.mutate(func() error { return r.MemoryRepository.AppendEvent(e) })
 }
-func (r *SQLRepository) CommitEventProjection(e Event, p PlanProjection) error {
+
+func (r *SQLRepository) CommitEventProjection(e graphmodel.Event, p graphmodel.PlanProjection) error {
 	return r.mutate(func() error { return r.MemoryRepository.CommitEventProjection(e, p) })
 }
+
 func (r *SQLRepository) EnqueueOutbox(o OutboxRecord) (OutboxRecord, bool, error) {
 	var out OutboxRecord
 	var created bool
@@ -929,6 +942,7 @@ func (r *SQLRepository) EnqueueOutbox(o OutboxRecord) (OutboxRecord, bool, error
 	})
 	return out, created, err
 }
+
 func (r *SQLRepository) ClaimOutbox(planID, owner string, ttl time.Duration, now time.Time) (OutboxRecord, error) {
 	var out OutboxRecord
 	err := r.mutate(func() error {
@@ -938,6 +952,7 @@ func (r *SQLRepository) ClaimOutbox(planID, owner string, ttl time.Duration, now
 	})
 	return out, err
 }
+
 func (r *SQLRepository) ClaimOutboxByID(id, owner string, ttl time.Duration, now time.Time) (OutboxRecord, error) {
 	var out OutboxRecord
 	err := r.mutate(func() error {
@@ -947,9 +962,11 @@ func (r *SQLRepository) ClaimOutboxByID(id, owner string, ttl time.Duration, now
 	})
 	return out, err
 }
+
 func (r *SQLRepository) AckOutbox(id, owner string, now time.Time, deliveryErr error) error {
 	return r.mutate(func() error { return r.MemoryRepository.AckOutbox(id, owner, now, deliveryErr) })
 }
+
 func (r *SQLRepository) FailOutbox(id, owner string, now time.Time, reason string) error {
 	return r.mutate(func() error { return r.MemoryRepository.FailOutbox(id, owner, now, reason) })
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/security/redact"
 )
 
@@ -63,7 +64,7 @@ func (s *Server) planReplay(w http.ResponseWriter, r *http.Request, planID, work
 		return
 	}
 	events := s.Orchestration.ListEvents(plan.ID, 0)
-	projection, err := orchestration.ReplayProjection(plan, events)
+	projection, err := graphmodel.ReplayProjection(plan, events)
 	if err != nil {
 		s.problem(w, r, http.StatusConflict, "replay_failed", err.Error(), map[string]any{"plan_id": plan.ID})
 		return
@@ -77,7 +78,7 @@ func (s *Server) runReplay(w http.ResponseWriter, r *http.Request, runID string)
 		return
 	}
 	workspace := requestWorkspace(r, "")
-	var plan orchestration.RequirementExecutionPlan
+	var plan graphmodel.RequirementExecutionPlan
 	var found bool
 	for _, candidate := range s.Orchestration.ListPlans(workspace) {
 		projection, projectionErr := s.Orchestration.GetProjection(candidate.ID)
@@ -99,7 +100,7 @@ func (s *Server) runReplay(w http.ResponseWriter, r *http.Request, runID string)
 		return
 	}
 	events := s.Orchestration.ListEvents(plan.ID, 0)
-	projection, err := orchestration.ReplayProjection(plan, events)
+	projection, err := graphmodel.ReplayProjection(plan, events)
 	if err != nil {
 		s.problem(w, r, http.StatusConflict, "replay_failed", err.Error(), map[string]any{"plan_id": plan.ID})
 		return
@@ -149,7 +150,7 @@ func tenantForRequest(r *http.Request, workspaceID string) string {
 	return strings.TrimSpace(workspaceID)
 }
 
-func planTimelineItems(plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, events []orchestration.Event) []map[string]any {
+func planTimelineItems(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, events []graphmodel.Event) []map[string]any {
 	items := make([]map[string]any, 0)
 	for _, event := range events {
 		items = append(items, map[string]any{"sequence": event.Sequence, "kind": "event", "event_type": event.Type, "event_id": event.ID, "attempt_id": event.AttemptID, "node_id": event.NodeID, "reason_code": eventReasonCode(event)})
@@ -186,7 +187,7 @@ func planTimelineItems(plan orchestration.RequirementExecutionPlan, projection o
 	return items
 }
 
-func eventReasonCode(event orchestration.Event) string {
+func eventReasonCode(event graphmodel.Event) string {
 	var payload map[string]any
 	if json.Unmarshal(event.Payload, &payload) == nil {
 		if value, ok := payload["reason_code"].(string); ok {
@@ -201,7 +202,7 @@ func eventReasonCode(event orchestration.Event) string {
 	return ""
 }
 
-func orchestrationDiagnostics(runID string, plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, events []orchestration.Event, outbox []orchestration.OutboxRecord) map[string]any {
+func orchestrationDiagnostics(runID string, plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, events []graphmodel.Event, outbox []orchestration.OutboxRecord) map[string]any {
 	leases := make([]map[string]any, 0)
 	failures := make([]map[string]any, 0)
 	for _, attempt := range projection.Attempts {
@@ -224,7 +225,7 @@ func orchestrationDiagnostics(runID string, plan orchestration.RequirementExecut
 	}
 }
 
-func evidenceIDs(projection orchestration.PlanProjection) []string {
+func evidenceIDs(projection graphmodel.PlanProjection) []string {
 	seen := map[string]struct{}{}
 	items := make([]string, 0)
 	for _, attempt := range projection.Attempts {
@@ -247,7 +248,7 @@ func evidenceIDs(projection orchestration.PlanProjection) []string {
 // prompt, input, secret and context-block content from provider-facing event
 // payloads. Hashes and sequence remain available for audit without exposing
 // private context through a read-only endpoint.
-func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
+func redactOrchestrationEvents(events []graphmodel.Event) []map[string]any {
 	result := make([]map[string]any, 0, len(events))
 	for _, event := range events {
 		var item any
@@ -270,7 +271,7 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 	return result
 }
 
-func lastSequence(events []orchestration.Event) int64 {
+func lastSequence(events []graphmodel.Event) int64 {
 	if len(events) == 0 {
 		return 0
 	}

@@ -1,4 +1,4 @@
-package orchestration
+package graph
 
 import (
 	"errors"
@@ -401,6 +401,7 @@ func EvaluatePredicate(p Predicate, fields map[string]any) (bool, error) {
 	}
 	return evalPredicate(p, fields), nil
 }
+
 func evalPredicate(p Predicate, f map[string]any) bool {
 	switch p.Kind {
 	case "all":
@@ -461,6 +462,7 @@ func evalPredicate(p Predicate, f map[string]any) bool {
 	}
 	return false
 }
+
 func number(v any) (float64, bool) {
 	switch n := v.(type) {
 	case int:

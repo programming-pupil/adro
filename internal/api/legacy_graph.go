@@ -18,6 +18,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 func (s *Server) startLegacyGraphAttempt(run domain.PipelineRun, scope compat.DispatchScope, envelope harness.ContextEnvelope, now time.Time) error {
@@ -32,7 +33,7 @@ func (s *Server) startLegacyGraphAttempt(run domain.PipelineRun, scope compat.Di
 	}
 	projection, err := s.Orchestration.GetProjection(plan.ID)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		projection, err = orchestration.NewProjection(plan)
+		projection, err = graphmodel.NewProjection(plan)
 		if err == nil {
 			err = s.Orchestration.SaveProjection(projection)
 		}
@@ -49,9 +50,9 @@ func (s *Server) startLegacyGraphAttempt(run domain.PipelineRun, scope compat.Di
 	}
 	step := run.StepFor(run.PipelineStage)
 	attemptNo := projection.Nodes[scope.NodeID].AttemptNo + 1
-	lease := orchestration.Lease{Key: plan.ID + ":" + scope.NodeID, Owner: "legacy-adapter", FencingToken: now.UnixNano(), ExpiresAt: now.Add(30 * time.Minute)}
+	lease := graphmodel.Lease{Key: plan.ID + ":" + scope.NodeID, Owner: "legacy-adapter", FencingToken: now.UnixNano(), ExpiresAt: now.Add(30 * time.Minute)}
 	payloadHash := legacyGraphPayloadHash(scope, envelope)
-	attempt, err := projection.StartAttempt(plan, scope.NodeID, scope.AttemptID, attemptNo, lease, envelope, orchestration.TransitionInput{PlanRevision: plan.Revision, AttemptID: scope.AttemptID, LeaseToken: lease.FencingToken, IdempotencyKey: "legacy:" + scope.AttemptID, PayloadHash: payloadHash, Now: now})
+	attempt, err := projection.StartAttempt(plan, scope.NodeID, scope.AttemptID, attemptNo, lease, envelope, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: scope.AttemptID, LeaseToken: lease.FencingToken, IdempotencyKey: "legacy:" + scope.AttemptID, PayloadHash: payloadHash, Now: now})
 	if err != nil {
 		return fmt.Errorf("start legacy graph attempt for %s: %w", step.Stage, err)
 	}
@@ -89,7 +90,7 @@ func (s *Server) bindLegacyGraphAttempt(run domain.PipelineRun, attemptID string
 	}
 	attempt, ok := projection.Attempts[attemptID]
 	if !ok {
-		return orchestration.ErrStaleAttempt
+		return graphmodel.ErrStaleAttempt
 	}
 	if strings.TrimSpace(bindingID) == "" || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workDir) == "" {
 		return errors.New("legacy graph provider binding requires run_id, session_id and workdir")
@@ -118,7 +119,7 @@ func (s *Server) finishLegacyGraphAttempt(run, next domain.PipelineRun, result d
 	}
 	attempt, ok := projection.Attempts[run.ActiveGraphAttemptID]
 	if !ok {
-		return orchestration.ErrStaleAttempt
+		return graphmodel.ErrStaleAttempt
 	}
 	event := "failure"
 	outcome := strings.ToLower(strings.TrimSpace(result.Outcome))
@@ -151,7 +152,7 @@ func (s *Server) finishLegacyGraphAttempt(run, next domain.PipelineRun, result d
 		digest := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s", result.Stage, result.AgentID, result.Outcome, result.Summary)))
 		filtered = []string{"legacy-result:" + hex.EncodeToString(digest[:])}
 	}
-	structured := orchestration.StructuredResult{Outcome: outcome, Summary: result.Summary, EvidenceIDs: filtered, Fields: map[string]any{
+	structured := graphmodel.StructuredResult{Outcome: outcome, Summary: result.Summary, EvidenceIDs: filtered, Fields: map[string]any{
 		"coverage":          result.Coverage,
 		"provider_task_id":  result.ProviderTaskID,
 		"provider_issue_id": result.ProviderIssueID,
@@ -160,13 +161,13 @@ func (s *Server) finishLegacyGraphAttempt(run, next domain.PipelineRun, result d
 		"continue":          next.Status == domain.PipelineRunning,
 		"pipeline_status":   next.Status,
 	}}
-	var failure *orchestration.FailureReason
+	var failure *graphmodel.FailureReason
 	if event != "success" && event != "approval" {
-		failure = &orchestration.FailureReason{Code: "legacy_pipeline_" + event, Message: result.Summary, Retryable: event == "failure" || event == "bug"}
+		failure = &graphmodel.FailureReason{Code: "legacy_pipeline_" + event, Message: result.Summary, Retryable: event == "failure" || event == "bug"}
 	}
 	now := time.Now().UTC()
 	transitionKey := "legacy:" + attempt.ID + ":finish"
-	finished, err := projection.FinishAttempt(plan, attempt.ID, orchestration.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: structured, Failure: failure, IdempotencyKey: transitionKey, Now: now})
+	finished, err := projection.FinishAttempt(plan, attempt.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: structured, Failure: failure, IdempotencyKey: transitionKey, Now: now})
 	if err != nil {
 		return err
 	}
@@ -210,18 +211,18 @@ func (s *Server) resolveLegacyGraphApproval(run, next domain.PipelineRun, approv
 		return err
 	}
 	attempt, ok := projection.Attempts[run.ActiveGraphAttemptID]
-	if !ok || attempt.Status != orchestration.AttemptWaiting {
-		return orchestration.ErrStaleAttempt
+	if !ok || attempt.Status != graphmodel.AttemptWaiting {
+		return graphmodel.ErrStaleAttempt
 	}
 	transition := "approval_granted"
 	outcome := "approved"
-	var failure *orchestration.FailureReason
+	var failure *graphmodel.FailureReason
 	if approval.Decision == "rejected" {
 		transition = "approval_denied"
 		outcome = "rejected"
-		failure = &orchestration.FailureReason{Code: "legacy_pipeline_approval_denied", Message: approval.Reason, Retryable: false}
+		failure = &graphmodel.FailureReason{Code: "legacy_pipeline_approval_denied", Message: approval.Reason, Retryable: false}
 	}
-	result := orchestration.StructuredResult{
+	result := graphmodel.StructuredResult{
 		Outcome:     outcome,
 		Summary:     approval.Reason,
 		EvidenceIDs: []string{"approval:" + approval.ID},
@@ -235,7 +236,7 @@ func (s *Server) resolveLegacyGraphApproval(run, next domain.PipelineRun, approv
 	}
 	now := time.Now().UTC()
 	key := "legacy:" + attempt.ID + ":approval:" + approval.ID
-	finished, err := projection.FinishAttempt(plan, attempt.ID, orchestration.TransitionInput{
+	finished, err := projection.FinishAttempt(plan, attempt.ID, graphmodel.TransitionInput{
 		PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken,
 		Event: transition, Result: result, Failure: failure, IdempotencyKey: key, Now: now,
 	})
@@ -248,14 +249,14 @@ func (s *Server) resolveLegacyGraphApproval(run, next domain.PipelineRun, approv
 	}, finished.Lease.FencingToken)
 }
 
-func (s *Server) commitLegacyGraphEvent(plan orchestration.RequirementExecutionPlan, projection orchestration.PlanProjection, attempt orchestration.NodeAttempt, eventType, key string, payload map[string]any, fencing int64) error {
+func (s *Server) commitLegacyGraphEvent(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, attempt graphmodel.NodeAttempt, eventType, key string, payload map[string]any, fencing int64) error {
 	items := s.Orchestration.ListEvents(plan.ID, 0)
-	var previous *orchestration.Event
+	var previous *graphmodel.Event
 	if len(items) > 0 {
 		tail := items[len(items)-1]
 		previous = &tail
 	}
-	event, err := orchestration.NewEvent(previous, plan.ID, plan.WorkspaceID, eventType, key, payload)
+	event, err := graphmodel.NewEvent(previous, plan.ID, plan.WorkspaceID, eventType, key, payload)
 	if err != nil {
 		return err
 	}

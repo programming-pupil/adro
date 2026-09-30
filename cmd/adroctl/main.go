@@ -22,6 +22,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/config"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/workspacebundle"
@@ -651,12 +652,12 @@ func graphValidate(args []string) {
 		fmt.Fprintf(os.Stderr, "read graph: %v\n", err)
 		os.Exit(1)
 	}
-	var graph orchestration.WorkflowGraph
+	var graph graphmodel.WorkflowGraph
 	if err := json.Unmarshal(data, &graph); err != nil {
 		fmt.Fprintf(os.Stderr, "decode graph: %v\n", err)
 		os.Exit(1)
 	}
-	if err := orchestration.ValidateGraph(graph); err != nil {
+	if err := graphmodel.ValidateGraph(graph); err != nil {
 		fmt.Fprintf(os.Stderr, "graph invalid: %v\n", err)
 		os.Exit(1)
 	}

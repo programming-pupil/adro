@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 func TestRedactOrchestrationEventsRemovesSensitivePayloads(t *testing.T) {
@@ -25,7 +25,7 @@ func TestRedactOrchestrationEventsRemovesSensitivePayloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	redacted := redactOrchestrationEvents([]orchestration.Event{{
+	redacted := redactOrchestrationEvents([]graphmodel.Event{{
 		ID: "event", PlanID: "plan", WorkspaceID: "workspace", Sequence: 1,
 		Type: "test", Payload: payload, PayloadHash: "payload-hash", EnvelopeHash: "envelope-hash",
 	}})
@@ -43,7 +43,7 @@ func TestRedactOrchestrationEventsRemovesSensitivePayloads(t *testing.T) {
 }
 
 func TestRedactOrchestrationEventsFailsClosedOnMalformedPayload(t *testing.T) {
-	redacted := redactOrchestrationEvents([]orchestration.Event{{
+	redacted := redactOrchestrationEvents([]graphmodel.Event{{
 		ID: "event", PlanID: "plan", WorkspaceID: "workspace", Sequence: 1,
 		Type: "test", Payload: json.RawMessage(`{"secret":`), PayloadHash: "payload-hash", EnvelopeHash: "envelope-hash",
 	}})

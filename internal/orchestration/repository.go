@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/durable"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 var ErrNotFound = errors.New("orchestration record not found")
@@ -20,20 +21,20 @@ var ErrNotFound = errors.New("orchestration record not found")
 // Implementations must keep published plans immutable and compare revisions on
 // mutable definitions.
 type Repository interface {
-	SaveAgent(AgentDefinition, int64) error
-	GetAgent(workspaceID, id string, revision int64) (AgentDefinition, error)
-	ListAgents(workspaceID string, status AgentStatus) []AgentDefinition
-	SaveSquad(SquadDefinition, int64) error
-	GetSquad(workspaceID, id string, revision int64) (SquadDefinition, error)
-	ListSquads(workspaceID string, status SquadStatus) []SquadDefinition
-	CreatePlan(RequirementExecutionPlan) error
-	GetPlanByIdempotency(workspaceID, idempotencyKey string) (RequirementExecutionPlan, error)
-	GetPlan(workspaceID, id string) (RequirementExecutionPlan, error)
-	ListPlans(workspaceID string) []RequirementExecutionPlan
-	SaveProjection(PlanProjection) error
-	GetProjection(planID string) (PlanProjection, error)
-	AppendEvent(Event) error
-	ListEvents(planID string, after int64) []Event
+	SaveAgent(graphmodel.AgentDefinition, int64) error
+	GetAgent(workspaceID, id string, revision int64) (graphmodel.AgentDefinition, error)
+	ListAgents(workspaceID string, status graphmodel.AgentStatus) []graphmodel.AgentDefinition
+	SaveSquad(graphmodel.SquadDefinition, int64) error
+	GetSquad(workspaceID, id string, revision int64) (graphmodel.SquadDefinition, error)
+	ListSquads(workspaceID string, status graphmodel.SquadStatus) []graphmodel.SquadDefinition
+	CreatePlan(graphmodel.RequirementExecutionPlan) error
+	GetPlanByIdempotency(workspaceID, idempotencyKey string) (graphmodel.RequirementExecutionPlan, error)
+	GetPlan(workspaceID, id string) (graphmodel.RequirementExecutionPlan, error)
+	ListPlans(workspaceID string) []graphmodel.RequirementExecutionPlan
+	SaveProjection(graphmodel.PlanProjection) error
+	GetProjection(planID string) (graphmodel.PlanProjection, error)
+	AppendEvent(graphmodel.Event) error
+	ListEvents(planID string, after int64) []graphmodel.Event
 }
 
 // ControlRepository is the complete control-plane persistence contract used by
@@ -42,12 +43,12 @@ type Repository interface {
 // adapters add atomic projection, outbox and flush semantics.
 type ControlRepository interface {
 	Repository
-	ImportDefinitionBundle(workspaceID string, bundle DefinitionBundle, dryRun bool) (DefinitionImportReport, error)
+	ImportDefinitionBundle(workspaceID string, bundle graphmodel.DefinitionBundle, dryRun bool) (graphmodel.DefinitionImportReport, error)
 	// CreatePlanWithEvent commits the immutable plan, its initial projection,
 	// and the lifecycle event in one durable transaction.
-	CreatePlanWithEvent(RequirementExecutionPlan, Event) error
+	CreatePlanWithEvent(graphmodel.RequirementExecutionPlan, graphmodel.Event) error
 	Flush() error
-	CommitEventProjection(Event, PlanProjection) error
+	CommitEventProjection(graphmodel.Event, graphmodel.PlanProjection) error
 	EnqueueOutbox(OutboxRecord) (OutboxRecord, bool, error)
 	ClaimOutbox(planID, owner string, ttl time.Duration, now time.Time) (OutboxRecord, error)
 	ClaimOutboxByID(id, owner string, ttl time.Duration, now time.Time) (OutboxRecord, error)
@@ -92,12 +93,12 @@ type MemoryRepository struct {
 	statePath   string
 	revision    int64
 	dirty       bool
-	agents      map[string]AgentDefinition
-	squads      map[string]SquadDefinition
-	plans       map[string]RequirementExecutionPlan
-	projections map[string]PlanProjection
+	agents      map[string]graphmodel.AgentDefinition
+	squads      map[string]graphmodel.SquadDefinition
+	plans       map[string]graphmodel.RequirementExecutionPlan
+	projections map[string]graphmodel.PlanProjection
 	keys        map[string]string
-	events      map[string][]Event
+	events      map[string][]graphmodel.Event
 	outbox      map[string]OutboxRecord
 }
 
@@ -174,19 +175,19 @@ func (r *MemoryRepository) Profile() string {
 }
 
 func newMemoryRepository(path string) *MemoryRepository {
-	return &MemoryRepository{statePath: path, agents: map[string]AgentDefinition{}, squads: map[string]SquadDefinition{}, plans: map[string]RequirementExecutionPlan{}, projections: map[string]PlanProjection{}, keys: map[string]string{}, events: map[string][]Event{}, outbox: map[string]OutboxRecord{}}
+	return &MemoryRepository{statePath: path, agents: map[string]graphmodel.AgentDefinition{}, squads: map[string]graphmodel.SquadDefinition{}, plans: map[string]graphmodel.RequirementExecutionPlan{}, projections: map[string]graphmodel.PlanProjection{}, keys: map[string]string{}, events: map[string][]graphmodel.Event{}, outbox: map[string]OutboxRecord{}}
 }
 
 type persistedRepository struct {
-	Version     int                                 `json:"version"`
-	Revision    int64                               `json:"revision"`
-	Agents      map[string]AgentDefinition          `json:"agents"`
-	Squads      map[string]SquadDefinition          `json:"squads"`
-	Plans       map[string]RequirementExecutionPlan `json:"plans"`
-	Projections map[string]PlanProjection           `json:"projections"`
-	Keys        map[string]string                   `json:"keys"`
-	Events      map[string][]Event                  `json:"events"`
-	Outbox      map[string]OutboxRecord             `json:"outbox,omitempty"`
+	Version     int                                            `json:"version"`
+	Revision    int64                                          `json:"revision"`
+	Agents      map[string]graphmodel.AgentDefinition          `json:"agents"`
+	Squads      map[string]graphmodel.SquadDefinition          `json:"squads"`
+	Plans       map[string]graphmodel.RequirementExecutionPlan `json:"plans"`
+	Projections map[string]graphmodel.PlanProjection           `json:"projections"`
+	Keys        map[string]string                              `json:"keys"`
+	Events      map[string][]graphmodel.Event                  `json:"events"`
+	Outbox      map[string]OutboxRecord                        `json:"outbox,omitempty"`
 }
 
 func (r *MemoryRepository) load() error {
@@ -227,7 +228,7 @@ func (r *MemoryRepository) load() error {
 		if plan.ID != id {
 			return fmt.Errorf("orchestration plan key mismatch %s", id)
 		}
-		hash, hashErr := canonicalPlanHash(plan)
+		hash, hashErr := graphmodel.CanonicalPlanHash(plan)
 		if hashErr != nil || hash != plan.PlanHash {
 			return fmt.Errorf("orchestration plan %s hash mismatch", id)
 		}
@@ -244,7 +245,7 @@ func (r *MemoryRepository) load() error {
 		if len(events) == 0 {
 			continue
 		}
-		if err := ValidateEventChain(events, planID, events[0].WorkspaceID); err != nil {
+		if err := graphmodel.ValidateEventChain(events, planID, events[0].WorkspaceID); err != nil {
 			// Keep the persisted bytes available in the returned error; callers can
 			// distinguish corruption from a missing optional profile.
 			return fmt.Errorf("orchestration event chain %s: %w", planID, err)
@@ -365,22 +366,22 @@ func (r *MemoryRepository) Restore(path string) error {
 	r.revision, r.agents, r.squads, r.plans = state.Revision, state.Agents, state.Squads, state.Plans
 	r.projections, r.keys, r.events, r.outbox = state.Projections, state.Keys, state.Events, state.Outbox
 	if r.agents == nil {
-		r.agents = map[string]AgentDefinition{}
+		r.agents = map[string]graphmodel.AgentDefinition{}
 	}
 	if r.squads == nil {
-		r.squads = map[string]SquadDefinition{}
+		r.squads = map[string]graphmodel.SquadDefinition{}
 	}
 	if r.plans == nil {
-		r.plans = map[string]RequirementExecutionPlan{}
+		r.plans = map[string]graphmodel.RequirementExecutionPlan{}
 	}
 	if r.projections == nil {
-		r.projections = map[string]PlanProjection{}
+		r.projections = map[string]graphmodel.PlanProjection{}
 	}
 	if r.keys == nil {
 		r.keys = map[string]string{}
 	}
 	if r.events == nil {
-		r.events = map[string][]Event{}
+		r.events = map[string][]graphmodel.Event{}
 	}
 	if r.outbox == nil {
 		r.outbox = map[string]OutboxRecord{}
@@ -402,7 +403,7 @@ func validateRepositoryState(state persistedRepository) error {
 		if plan.ID != id {
 			return fmt.Errorf("orchestration plan key mismatch %s", id)
 		}
-		hash, err := canonicalPlanHash(plan)
+		hash, err := graphmodel.CanonicalPlanHash(plan)
 		if err != nil || hash != plan.PlanHash {
 			return fmt.Errorf("orchestration plan %s hash mismatch", id)
 		}
@@ -419,7 +420,7 @@ func validateRepositoryState(state persistedRepository) error {
 		if len(chain) == 0 {
 			continue
 		}
-		if err := ValidateEventChain(chain, planID, chain[0].WorkspaceID); err != nil {
+		if err := graphmodel.ValidateEventChain(chain, planID, chain[0].WorkspaceID); err != nil {
 			return fmt.Errorf("orchestration event chain %s: %w", planID, err)
 		}
 	}
@@ -493,7 +494,6 @@ func orchestrationRevision(path string) (int64, error) {
 	}
 	return state.Revision, nil
 }
-func key3(ws, id string, rev int64) string { return fmt.Sprintf("%s:%s:%d", ws, id, rev) }
 
 func cloneValue[T any](in T) T {
 	data, err := json.Marshal(in)
@@ -506,7 +506,8 @@ func cloneValue[T any](in T) T {
 	}
 	return out
 }
-func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
+
+func (r *MemoryRepository) SaveAgent(a graphmodel.AgentDefinition, expected int64) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
@@ -528,7 +529,7 @@ func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
 			return fmt.Errorf("agent revision conflict: expected %d, found %d", expected, latest)
 		}
 	}
-	k := key3(a.WorkspaceID, a.ID, a.Revision)
+	k := graphmodel.Key3(a.WorkspaceID, a.ID, a.Revision)
 	old, existed := r.agents[k]
 	oldDirty, oldRevision := r.dirty, r.revision
 	r.agents[k] = a
@@ -544,17 +545,18 @@ func (r *MemoryRepository) SaveAgent(a AgentDefinition, expected int64) error {
 	}
 	return nil
 }
-func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, error) {
+
+func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (graphmodel.AgentDefinition, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if rev > 0 {
-		a, ok := r.agents[key3(ws, id, rev)]
+		a, ok := r.agents[graphmodel.Key3(ws, id, rev)]
 		if !ok {
-			return AgentDefinition{}, ErrNotFound
+			return graphmodel.AgentDefinition{}, ErrNotFound
 		}
 		return cloneValue(a), nil
 	}
-	var out AgentDefinition
+	var out graphmodel.AgentDefinition
 	for _, a := range r.agents {
 		if a.WorkspaceID == ws && a.ID == id && a.Revision > out.Revision {
 			out = a
@@ -565,11 +567,12 @@ func (r *MemoryRepository) GetAgent(ws, id string, rev int64) (AgentDefinition, 
 	}
 	return cloneValue(out), nil
 }
-func (r *MemoryRepository) ListAgents(ws string, status AgentStatus) []AgentDefinition {
+
+func (r *MemoryRepository) ListAgents(ws string, status graphmodel.AgentStatus) []graphmodel.AgentDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]AgentDefinition, 0)
-	latest := map[string]AgentDefinition{}
+	out := make([]graphmodel.AgentDefinition, 0)
+	latest := map[string]graphmodel.AgentDefinition{}
 	for _, a := range r.agents {
 		if ws != "" && a.WorkspaceID != ws {
 			continue
@@ -593,8 +596,9 @@ func (r *MemoryRepository) ListAgents(ws string, status AgentStatus) []AgentDefi
 	})
 	return out
 }
-func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
-	if s.Status == SquadDraft {
+
+func (r *MemoryRepository) SaveSquad(s graphmodel.SquadDefinition, expected int64) error {
+	if s.Status == graphmodel.SquadDraft {
 		if err := s.ValidateDraft(); err != nil {
 			return err
 		}
@@ -603,7 +607,7 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if s.Status == SquadPublished {
+	if s.Status == graphmodel.SquadPublished {
 		if err := r.validatePublishedSquadLocked(s); err != nil {
 			return err
 		}
@@ -624,7 +628,7 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 			return fmt.Errorf("squad revision conflict: expected %d, found %d", expected, latest)
 		}
 	}
-	k := key3(s.WorkspaceID, s.ID, s.Revision)
+	k := graphmodel.Key3(s.WorkspaceID, s.ID, s.Revision)
 	old, existed := r.squads[k]
 	oldDirty, oldRevision := r.dirty, r.revision
 	r.squads[k] = s
@@ -641,7 +645,7 @@ func (r *MemoryRepository) SaveSquad(s SquadDefinition, expected int64) error {
 	return nil
 }
 
-func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error {
+func (r *MemoryRepository) validatePublishedSquadLocked(s graphmodel.SquadDefinition) error {
 	if leaders := countSquadLeaders(s.Members); leaders != 1 {
 		return fmt.Errorf("published squad requires exactly one leader agent")
 	}
@@ -654,7 +658,7 @@ func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error
 			if !ok {
 				return fmt.Errorf("members[%d].agent_id.unavailable", i)
 			}
-			if agent.Status != AgentActive {
+			if agent.Status != graphmodel.AgentActive {
 				return fmt.Errorf("members[%d].agent_id.inactive", i)
 			}
 			for _, required := range member.CapabilityConstraints {
@@ -678,7 +682,7 @@ func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error
 				return fmt.Errorf("members[%d].squad_id.self_reference", i)
 			}
 			nested, ok := r.latestSquadLocked(s.WorkspaceID, member.SquadID)
-			if !ok || nested.Status != SquadPublished {
+			if !ok || nested.Status != graphmodel.SquadPublished {
 				return fmt.Errorf("members[%d].squad_id.unavailable", i)
 			}
 			if s.Policy.MaxNestingDepth > 0 && nested.Policy.MaxNestingDepth >= s.Policy.MaxNestingDepth {
@@ -689,13 +693,13 @@ func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error
 	for i, node := range s.Graph.Nodes {
 		if node.AgentRef != nil {
 			agent, ok := r.agentLocked(s.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
-			if !ok || agent.Status != AgentActive {
+			if !ok || agent.Status != graphmodel.AgentActive {
 				return fmt.Errorf("graph.nodes[%d].agent_ref.unavailable", i)
 			}
 		}
 		if node.SquadRef != nil {
 			nested, ok := r.squadLocked(s.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)
-			if !ok || nested.Status != SquadPublished {
+			if !ok || nested.Status != graphmodel.SquadPublished {
 				return fmt.Errorf("graph.nodes[%d].squad_ref.unavailable", i)
 			}
 		}
@@ -703,7 +707,7 @@ func (r *MemoryRepository) validatePublishedSquadLocked(s SquadDefinition) error
 	return nil
 }
 
-func countSquadLeaders(members []SquadMember) int {
+func countSquadLeaders(members []graphmodel.SquadMember) int {
 	count := 0
 	for _, member := range members {
 		if member.Leader {
@@ -717,7 +721,7 @@ func countSquadLeaders(members []SquadMember) int {
 // reference tree. Comparing only adjacent policy values lets a deeply nested
 // published squad bypass the root's depth limit; this traversal computes the
 // actual depth and rejects cycles before a revision can be published.
-func (r *MemoryRepository) validateSquadGraphRefsLocked(s SquadDefinition, depth int, visiting map[string]bool) error {
+func (r *MemoryRepository) validateSquadGraphRefsLocked(s graphmodel.SquadDefinition, depth int, visiting map[string]bool) error {
 	if s.Policy.MaxNestingDepth > 0 && depth > s.Policy.MaxNestingDepth {
 		return fmt.Errorf("squad %s nesting depth exceeded", s.ID)
 	}
@@ -740,7 +744,7 @@ func (r *MemoryRepository) validateSquadGraphRefsLocked(s SquadDefinition, depth
 	}
 	for _, nestedID := range refs {
 		nested, ok := r.latestSquadLocked(s.WorkspaceID, nestedID)
-		if !ok || nested.Status != SquadPublished {
+		if !ok || nested.Status != graphmodel.SquadPublished {
 			return fmt.Errorf("squad %s nested squad %s unavailable", s.ID, nestedID)
 		}
 		if s.Policy.MaxNestingDepth > 0 && depth+1 > s.Policy.MaxNestingDepth {
@@ -753,15 +757,16 @@ func (r *MemoryRepository) validateSquadGraphRefsLocked(s SquadDefinition, depth
 	return nil
 }
 
-func (r *MemoryRepository) agentLocked(ws, id string, rev int64) (AgentDefinition, bool) {
+func (r *MemoryRepository) agentLocked(ws, id string, rev int64) (graphmodel.AgentDefinition, bool) {
 	if rev > 0 {
-		a, ok := r.agents[key3(ws, id, rev)]
+		a, ok := r.agents[graphmodel.Key3(ws, id, rev)]
 		return a, ok
 	}
 	return r.latestAgentLocked(ws, id)
 }
-func (r *MemoryRepository) latestAgentLocked(ws, id string) (AgentDefinition, bool) {
-	var out AgentDefinition
+
+func (r *MemoryRepository) latestAgentLocked(ws, id string) (graphmodel.AgentDefinition, bool) {
+	var out graphmodel.AgentDefinition
 	for _, a := range r.agents {
 		if a.WorkspaceID == ws && a.ID == id && a.Revision > out.Revision {
 			out = a
@@ -769,15 +774,17 @@ func (r *MemoryRepository) latestAgentLocked(ws, id string) (AgentDefinition, bo
 	}
 	return out, out.ID != ""
 }
-func (r *MemoryRepository) squadLocked(ws, id string, rev int64) (SquadDefinition, bool) {
+
+func (r *MemoryRepository) squadLocked(ws, id string, rev int64) (graphmodel.SquadDefinition, bool) {
 	if rev > 0 {
-		s, ok := r.squads[key3(ws, id, rev)]
+		s, ok := r.squads[graphmodel.Key3(ws, id, rev)]
 		return s, ok
 	}
 	return r.latestSquadLocked(ws, id)
 }
-func (r *MemoryRepository) latestSquadLocked(ws, id string) (SquadDefinition, bool) {
-	var out SquadDefinition
+
+func (r *MemoryRepository) latestSquadLocked(ws, id string) (graphmodel.SquadDefinition, bool) {
+	var out graphmodel.SquadDefinition
 	for _, s := range r.squads {
 		if s.WorkspaceID == ws && s.ID == id && s.Revision > out.Revision {
 			out = s
@@ -785,17 +792,18 @@ func (r *MemoryRepository) latestSquadLocked(ws, id string) (SquadDefinition, bo
 	}
 	return out, out.ID != ""
 }
-func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, error) {
+
+func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (graphmodel.SquadDefinition, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if rev > 0 {
-		s, ok := r.squads[key3(ws, id, rev)]
+		s, ok := r.squads[graphmodel.Key3(ws, id, rev)]
 		if !ok {
-			return SquadDefinition{}, ErrNotFound
+			return graphmodel.SquadDefinition{}, ErrNotFound
 		}
 		return cloneValue(s), nil
 	}
-	var out SquadDefinition
+	var out graphmodel.SquadDefinition
 	for _, s := range r.squads {
 		if s.WorkspaceID == ws && s.ID == id && s.Revision > out.Revision {
 			out = s
@@ -806,11 +814,12 @@ func (r *MemoryRepository) GetSquad(ws, id string, rev int64) (SquadDefinition, 
 	}
 	return cloneValue(out), nil
 }
-func (r *MemoryRepository) ListSquads(ws string, status SquadStatus) []SquadDefinition {
+
+func (r *MemoryRepository) ListSquads(ws string, status graphmodel.SquadStatus) []graphmodel.SquadDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]SquadDefinition, 0)
-	latest := map[string]SquadDefinition{}
+	out := make([]graphmodel.SquadDefinition, 0)
+	latest := map[string]graphmodel.SquadDefinition{}
 	for _, s := range r.squads {
 		if ws != "" && s.WorkspaceID != ws {
 			continue
@@ -834,18 +843,19 @@ func (r *MemoryRepository) ListSquads(ws string, status SquadStatus) []SquadDefi
 	})
 	return out
 }
-func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
+
+func (r *MemoryRepository) CreatePlan(p graphmodel.RequirementExecutionPlan) error {
 	if p.ID == "" || p.WorkspaceID == "" || p.RequirementID == "" || p.PlanHash == "" {
 		return errors.New("plan id, workspace, requirement and hash are required")
 	}
-	if p.Status != PlanReady && p.Status != PlanRunning && p.Status != PlanWaiting && p.Status != PlanTerminal {
+	if p.Status != graphmodel.PlanReady && p.Status != graphmodel.PlanRunning && p.Status != graphmodel.PlanWaiting && p.Status != graphmodel.PlanTerminal {
 		return errors.New("plan must be frozen before persistence")
 	}
-	hash, err := canonicalPlanHash(p)
+	hash, err := graphmodel.CanonicalPlanHash(p)
 	if err != nil || hash != p.PlanHash {
 		return errors.New("plan hash does not match frozen snapshot")
 	}
-	projection, err := NewProjection(p)
+	projection, err := graphmodel.NewProjection(p)
 	if err != nil {
 		return err
 	}
@@ -857,7 +867,7 @@ func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
 		oldKey, hadKey = r.keys[k]
 		if existing := r.keys[k]; existing != "" {
 			if existing != p.PlanHash {
-				return ErrIdempotencyConflict
+				return graphmodel.ErrIdempotencyConflict
 			}
 			for _, existingPlan := range r.plans {
 				if existingPlan.WorkspaceID == p.WorkspaceID && existingPlan.IdempotencyKey == p.IdempotencyKey && existingPlan.PlanHash == p.PlanHash {
@@ -912,18 +922,18 @@ func (r *MemoryRepository) CreatePlan(p RequirementExecutionPlan) error {
 // plan, seeded projection, and lifecycle event under one repository lock
 // prevents a durable plan from becoming visible without the event needed for
 // replay and audit.
-func (r *MemoryRepository) CreatePlanWithEvent(p RequirementExecutionPlan, event Event) error {
+func (r *MemoryRepository) CreatePlanWithEvent(p graphmodel.RequirementExecutionPlan, event graphmodel.Event) error {
 	if p.ID == "" || p.WorkspaceID == "" || p.RequirementID == "" || p.PlanHash == "" {
 		return errors.New("plan id, workspace, requirement and hash are required")
 	}
-	if p.Status != PlanReady && p.Status != PlanRunning && p.Status != PlanWaiting && p.Status != PlanTerminal {
+	if p.Status != graphmodel.PlanReady && p.Status != graphmodel.PlanRunning && p.Status != graphmodel.PlanWaiting && p.Status != graphmodel.PlanTerminal {
 		return errors.New("plan must be frozen before persistence")
 	}
-	hash, err := canonicalPlanHash(p)
+	hash, err := graphmodel.CanonicalPlanHash(p)
 	if err != nil || hash != p.PlanHash {
 		return errors.New("plan hash does not match frozen snapshot")
 	}
-	projection, err := NewProjection(p)
+	projection, err := graphmodel.NewProjection(p)
 	if err != nil {
 		return err
 	}
@@ -932,17 +942,17 @@ func (r *MemoryRepository) CreatePlanWithEvent(p RequirementExecutionPlan, event
 	}
 	if strings.TrimSpace(event.IdempotencyKey) == "" {
 		event.IdempotencyKey = p.ID + ":" + event.Type
-		event.EnvelopeHash = eventDigest(event)
+		event.EnvelopeHash = graphmodel.EventDigest(event)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.plans[p.ID]; ok {
 		if existing.PlanHash != p.PlanHash {
-			return ErrIdempotencyConflict
+			return graphmodel.ErrIdempotencyConflict
 		}
 		// Idempotent retries repair only a missing lifecycle event; an existing
 		// equal event is accepted by appendEventLocked without duplication.
-		oldEvents := append([]Event(nil), r.events[p.ID]...)
+		oldEvents := append([]graphmodel.Event(nil), r.events[p.ID]...)
 		oldDirty, oldRevision := r.dirty, r.revision
 		if err := r.appendEventLocked(event); err != nil {
 			return err
@@ -957,7 +967,7 @@ func (r *MemoryRepository) CreatePlanWithEvent(p RequirementExecutionPlan, event
 	if p.IdempotencyKey != "" {
 		key := p.WorkspaceID + ":" + p.IdempotencyKey
 		if existingHash := r.keys[key]; existingHash != "" && existingHash != p.PlanHash {
-			return ErrIdempotencyConflict
+			return graphmodel.ErrIdempotencyConflict
 		}
 		r.keys[key] = p.PlanHash
 	}
@@ -987,32 +997,32 @@ func (r *MemoryRepository) CreatePlanWithEvent(p RequirementExecutionPlan, event
 	return nil
 }
 
-func (r *MemoryRepository) validatePlanReferencesLocked(p RequirementExecutionPlan) error {
+func (r *MemoryRepository) validatePlanReferencesLocked(p graphmodel.RequirementExecutionPlan) error {
 	for i, node := range p.GraphSnapshot.Nodes {
 		switch node.Kind {
-		case NodeAgent:
+		case graphmodel.NodeAgent:
 			if node.AgentRef == nil {
 				continue
 			}
-			agent, ok := r.agents[key3(p.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)]
+			agent, ok := r.agents[graphmodel.Key3(p.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)]
 			if !ok {
 				return fmt.Errorf("graph.nodes[%d].agent_ref.unavailable", i)
 			}
-			if agent.Status != AgentActive {
+			if agent.Status != graphmodel.AgentActive {
 				return fmt.Errorf("graph.nodes[%d].agent_ref.inactive", i)
 			}
-		case NodeSquad:
+		case graphmodel.NodeSquad:
 			if node.SquadRef == nil {
 				continue
 			}
-			var squad SquadDefinition
+			var squad graphmodel.SquadDefinition
 			var found bool
 			if node.SquadRef.Revision > 0 {
-				squad, found = r.squads[key3(p.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)]
+				squad, found = r.squads[graphmodel.Key3(p.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)]
 			} else {
 				squad, found = r.latestSquadLocked(p.WorkspaceID, node.SquadRef.ID)
 			}
-			if !found || squad.Status != SquadPublished {
+			if !found || squad.Status != graphmodel.SquadPublished {
 				return fmt.Errorf("graph.nodes[%d].squad_ref.unavailable", i)
 			}
 			if node.SquadRef.Version > 0 && squad.PublishedVersion != node.SquadRef.Version {
@@ -1022,12 +1032,13 @@ func (r *MemoryRepository) validatePlanReferencesLocked(p RequirementExecutionPl
 	}
 	return nil
 }
-func (r *MemoryRepository) GetPlan(ws, id string) (RequirementExecutionPlan, error) {
+
+func (r *MemoryRepository) GetPlan(ws, id string) (graphmodel.RequirementExecutionPlan, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	p, ok := r.plans[id]
 	if !ok || p.WorkspaceID != ws {
-		return RequirementExecutionPlan{}, ErrNotFound
+		return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 	}
 	return cloneValue(p), nil
 }
@@ -1035,10 +1046,10 @@ func (r *MemoryRepository) GetPlan(ws, id string) (RequirementExecutionPlan, err
 // GetPlanByIdempotency returns the original frozen plan for a scoped key. The
 // caller can use this before generating a new plan ID so retries return the
 // exact durable result rather than a semantically equivalent duplicate.
-func (r *MemoryRepository) GetPlanByIdempotency(ws, idempotencyKey string) (RequirementExecutionPlan, error) {
+func (r *MemoryRepository) GetPlanByIdempotency(ws, idempotencyKey string) (graphmodel.RequirementExecutionPlan, error) {
 	ws, idempotencyKey = strings.TrimSpace(ws), strings.TrimSpace(idempotencyKey)
 	if ws == "" || idempotencyKey == "" {
-		return RequirementExecutionPlan{}, ErrNotFound
+		return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -1049,13 +1060,13 @@ func (r *MemoryRepository) GetPlanByIdempotency(ws, idempotencyKey string) (Requ
 			}
 		}
 	}
-	return RequirementExecutionPlan{}, ErrNotFound
+	return graphmodel.RequirementExecutionPlan{}, ErrNotFound
 }
 
-func (r *MemoryRepository) ListPlans(ws string) []RequirementExecutionPlan {
+func (r *MemoryRepository) ListPlans(ws string) []graphmodel.RequirementExecutionPlan {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]RequirementExecutionPlan, 0)
+	out := make([]graphmodel.RequirementExecutionPlan, 0)
 	for _, p := range r.plans {
 		if ws == "" || p.WorkspaceID == ws {
 			out = append(out, cloneValue(p))
@@ -1069,7 +1080,8 @@ func (r *MemoryRepository) ListPlans(ws string) []RequirementExecutionPlan {
 	})
 	return out
 }
-func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
+
+func (r *MemoryRepository) SaveProjection(p graphmodel.PlanProjection) error {
 	if p.PlanID == "" {
 		return errors.New("plan id is required")
 	}
@@ -1093,11 +1105,11 @@ func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	// Detach maps/slices from the caller so a projection cannot be mutated after
 	// a successful save without another repository operation.
 	cp := p
-	cp.Nodes = map[string]NodeProjection{}
+	cp.Nodes = map[string]graphmodel.NodeProjection{}
 	for k, v := range p.Nodes {
 		cp.Nodes[k] = cloneValue(v)
 	}
-	cp.Attempts = map[string]NodeAttempt{}
+	cp.Attempts = map[string]graphmodel.NodeAttempt{}
 	for k, v := range p.Attempts {
 		cp.Attempts[k] = cloneValue(v)
 	}
@@ -1109,7 +1121,7 @@ func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	for k, v := range p.Idempotency {
 		cp.Idempotency[k] = v
 	}
-	cp.Decisions = cloneValue(append([]FeedbackDecision(nil), p.Decisions...))
+	cp.Decisions = cloneValue(append([]graphmodel.FeedbackDecision(nil), p.Decisions...))
 	r.projections[p.PlanID] = cp
 	r.dirty = true
 	if err := r.persistLocked(); err != nil {
@@ -1123,19 +1135,20 @@ func (r *MemoryRepository) SaveProjection(p PlanProjection) error {
 	}
 	return nil
 }
-func (r *MemoryRepository) GetProjection(id string) (PlanProjection, error) {
+
+func (r *MemoryRepository) GetProjection(id string) (graphmodel.PlanProjection, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	p, ok := r.projections[id]
 	if !ok {
-		return PlanProjection{}, ErrNotFound
+		return graphmodel.PlanProjection{}, ErrNotFound
 	}
-	return cloneProjection(p), nil
+	return graphmodel.CloneProjection(p), nil
 }
 
 // AppendEvent is the local-profile transaction boundary: sequence, chain hash,
 // idempotency and fencing are checked before the event becomes visible.
-func (r *MemoryRepository) AppendEvent(e Event) error {
+func (r *MemoryRepository) AppendEvent(e graphmodel.Event) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	oldDirty, oldRevision := r.dirty, r.revision
@@ -1158,7 +1171,7 @@ func (r *MemoryRepository) AppendEvent(e Event) error {
 	return nil
 }
 
-func (r *MemoryRepository) appendEventLocked(e Event) error {
+func (r *MemoryRepository) appendEventLocked(e graphmodel.Event) error {
 	plan, ok := r.plans[e.PlanID]
 	if !ok {
 		return ErrNotFound
@@ -1172,7 +1185,7 @@ func (r *MemoryRepository) appendEventLocked(e Event) error {
 			if old.PayloadHash == e.PayloadHash {
 				return nil
 			}
-			return ErrIdempotencyConflict
+			return graphmodel.ErrIdempotencyConflict
 		}
 	}
 	expected := int64(len(events) + 1)
@@ -1184,7 +1197,7 @@ func (r *MemoryRepository) appendEventLocked(e Event) error {
 		if len(events) > 0 {
 			e.PreviousHash = events[len(events)-1].EnvelopeHash
 		}
-		e.EnvelopeHash = eventDigest(e)
+		e.EnvelopeHash = graphmodel.EventDigest(e)
 	}
 	if e.Sequence != expected {
 		return fmt.Errorf("event sequence conflict: got %d", e.Sequence)
@@ -1192,7 +1205,7 @@ func (r *MemoryRepository) appendEventLocked(e Event) error {
 	if len(events) > 0 && e.PreviousHash != events[len(events)-1].EnvelopeHash {
 		return errors.New("event previous hash conflict")
 	}
-	if err := ValidateEventChain(append(append([]Event(nil), events...), e), e.PlanID, e.WorkspaceID); err != nil {
+	if err := graphmodel.ValidateEventChain(append(append([]graphmodel.Event(nil), events...), e), e.PlanID, e.WorkspaceID); err != nil {
 		return err
 	}
 	r.events[e.PlanID] = append(events, e)
@@ -1203,7 +1216,7 @@ func (r *MemoryRepository) appendEventLocked(e Event) error {
 // CommitEventProjection atomically commits a reducer projection and its
 // immutable event. It is the local equivalent of a database transaction and
 // is used by workers at the attempt completion boundary.
-func (r *MemoryRepository) CommitEventProjection(e Event, p PlanProjection) error {
+func (r *MemoryRepository) CommitEventProjection(e graphmodel.Event, p graphmodel.PlanProjection) error {
 	if p.PlanID == "" || e.PlanID != p.PlanID {
 		return errors.New("event and projection plan scope mismatch")
 	}
@@ -1219,13 +1232,13 @@ func (r *MemoryRepository) CommitEventProjection(e Event, p PlanProjection) erro
 	if p.Revision != plan.Revision || e.WorkspaceID != plan.WorkspaceID {
 		return errors.New("event or projection does not match frozen plan scope")
 	}
-	oldEvents := append([]Event(nil), r.events[e.PlanID]...)
+	oldEvents := append([]graphmodel.Event(nil), r.events[e.PlanID]...)
 	oldProjection, hadProjection := r.projections[p.PlanID]
 	oldDirty, oldRevision := r.dirty, r.revision
 	if err := r.appendEventLocked(e); err != nil {
 		return err
 	}
-	r.projections[p.PlanID] = cloneProjection(p)
+	r.projections[p.PlanID] = graphmodel.CloneProjection(p)
 	r.dirty = true
 	if err := r.persistLocked(); err != nil {
 		r.events[e.PlanID] = oldEvents
@@ -1345,7 +1358,7 @@ func (r *MemoryRepository) claimOutboxLocked(id, owner string, ttl time.Duration
 		return OutboxRecord{}, ErrNotFound
 	}
 	if selected.Status == "leased" && selected.LeaseExpiresAt.After(now) {
-		return OutboxRecord{}, ErrLeaseLost
+		return OutboxRecord{}, graphmodel.ErrLeaseLost
 	}
 	selected.Status, selected.Owner = "leased", owner
 	selected.LeaseExpiresAt, selected.UpdatedAt = now.Add(ttl), now
@@ -1371,7 +1384,7 @@ func (r *MemoryRepository) AckOutbox(id, owner string, now time.Time, deliveryEr
 		return ErrNotFound
 	}
 	if item.Status != "leased" || item.Owner != owner || !item.LeaseExpiresAt.After(now) {
-		return ErrLeaseLost
+		return graphmodel.ErrLeaseLost
 	}
 	old := item
 	if deliveryErr == nil {
@@ -1412,7 +1425,7 @@ func (r *MemoryRepository) FailOutbox(id, owner string, now time.Time, reason st
 		return ErrNotFound
 	}
 	if item.Status != "leased" || item.Owner != owner || !item.LeaseExpiresAt.After(now) {
-		return ErrLeaseLost
+		return graphmodel.ErrLeaseLost
 	}
 	old := item
 	item.Status, item.LastError = "failed", reason
@@ -1449,11 +1462,11 @@ func jsonEqual(a, b any) bool {
 	return le == nil && re == nil && string(left) == string(right)
 }
 
-func (r *MemoryRepository) ListEvents(planID string, after int64) []Event {
+func (r *MemoryRepository) ListEvents(planID string, after int64) []graphmodel.Event {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	items := r.events[planID]
-	out := make([]Event, 0, len(items))
+	out := make([]graphmodel.Event, 0, len(items))
 	for _, e := range items {
 		if e.Sequence > after {
 			out = append(out, cloneValue(e))

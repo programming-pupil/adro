@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -116,7 +116,7 @@ func TestAgentExecutionConfigurationResolvesSkillsMCPAndSecretEnvironment(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := orchestration.AgentDefinition{WorkspaceID: "w1", Instructions: "Base instructions.", SkillIDs: []string{skill.ID}, MCPServerIDs: []string{server.ID}}
+	agent := graphmodel.AgentDefinition{WorkspaceID: "w1", Instructions: "Base instructions.", SkillIDs: []string{skill.ID}, MCPServerIDs: []string{server.ID}}
 	instructions, err := s.agentExecutionInstructions(agent)
 	if err != nil || !strings.Contains(instructions, "Base instructions.") || !strings.Contains(instructions, "Run the release checks.") || !strings.Contains(instructions, `id="skill-review"`) {
 		t.Fatalf("instructions=%q err=%v", instructions, err)
@@ -126,11 +126,11 @@ func TestAgentExecutionConfigurationResolvesSkillsMCPAndSecretEnvironment(t *tes
 		t.Fatalf("MCP servers=%+v err=%v", mcpServers, err)
 	}
 	t.Setenv("ADRO_AGENT_SECRET", "secret-value")
-	environment, err := resolveAgentEnvironment([]orchestration.EnvironmentReference{{Name: "TOKEN", SecretRef: "env:ADRO_AGENT_SECRET"}})
+	environment, err := resolveAgentEnvironment([]graphmodel.EnvironmentReference{{Name: "TOKEN", SecretRef: "env:ADRO_AGENT_SECRET"}})
 	if err != nil || environment["TOKEN"] != "secret-value" {
 		t.Fatalf("environment=%v err=%v", environment, err)
 	}
-	if _, err := resolveAgentEnvironment([]orchestration.EnvironmentReference{{Name: "MISSING", SecretRef: "env:ADRO_MISSING_SECRET"}}); err == nil || strings.Contains(err.Error(), "secret-value") {
+	if _, err := resolveAgentEnvironment([]graphmodel.EnvironmentReference{{Name: "MISSING", SecretRef: "env:ADRO_MISSING_SECRET"}}); err == nil || strings.Contains(err.Error(), "secret-value") {
 		t.Fatalf("missing secret error=%v", err)
 	}
 }
@@ -167,25 +167,25 @@ func TestExecutionPlanValidationDryRunResolvesTemporarySquadGraph(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentID := orchestration.NewID()
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	agentID := graphmodel.NewID()
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
-	squad := orchestration.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, PublishedVersion: 1, Status: orchestration.SquadPublished, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: orchestration.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"old"}, ExitNodeIDs: []string{"old"}, Nodes: []orchestration.WorkflowNode{{ID: "old", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}}}}
+	squad := graphmodel.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, PublishedVersion: 1, Status: graphmodel.SquadPublished, Members: []graphmodel.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: graphmodel.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"old"}, ExitNodeIDs: []string{"old"}, Nodes: []graphmodel.WorkflowNode{{ID: "old", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1}}}}}
 	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
 		t.Fatal(err)
 	}
-	graph := orchestration.WorkflowGraph{ID: "edited-graph", Version: 1, EntryNodeIDs: []string{"edited"}, ExitNodeIDs: []string{"edited"}, Nodes: []orchestration.WorkflowNode{{ID: "edited", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}, RetryPolicy: orchestration.RetryPolicy{MaxAttempts: 2}}}}
+	graph := graphmodel.WorkflowGraph{ID: "edited-graph", Version: 1, EntryNodeIDs: []string{"edited"}, ExitNodeIDs: []string{"edited"}, Nodes: []graphmodel.WorkflowNode{{ID: "edited", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1}, RetryPolicy: graphmodel.RetryPolicy{MaxAttempts: 2}}}}
 	body := mustJSON(map[string]any{"squad_id": squad.ID, "squad_version": 1, "graph": graph})
 	r := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/execution-plan/dry-run", body, map[string]string{"X-Workspace-ID": "w1"})
 	if r.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
 	}
 	var response struct {
-		Valid       bool                           `json:"valid"`
-		Graph       orchestration.WorkflowGraph    `json:"graph"`
-		ReadyNodes  []orchestration.WorkflowNode   `json:"ready_nodes"`
-		Diagnostics orchestration.GraphDiagnostics `json:"diagnostics"`
+		Valid       bool                        `json:"valid"`
+		Graph       graphmodel.WorkflowGraph    `json:"graph"`
+		ReadyNodes  []graphmodel.WorkflowNode   `json:"ready_nodes"`
+		Diagnostics graphmodel.GraphDiagnostics `json:"diagnostics"`
 	}
 	if err := json.Unmarshal(r.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
@@ -198,10 +198,10 @@ func TestExecutionPlanValidationDryRunResolvesTemporarySquadGraph(t *testing.T) 
 func TestSquadGraphForkAndImportExportRoutes(t *testing.T) {
 	s := testServer(t)
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
-	squad := orchestration.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, Status: orchestration.SquadDraft, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: orchestration.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"a"}, Nodes: []orchestration.WorkflowNode{{ID: "a", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}}}}
+	squad := graphmodel.SquadDefinition{ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "template", Revision: 1, Status: graphmodel.SquadDraft, Members: []graphmodel.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}}, Graph: graphmodel.WorkflowGraph{ID: "template-graph", Version: 1, EntryNodeIDs: []string{"a"}, ExitNodeIDs: []string{"a"}, Nodes: []graphmodel.WorkflowNode{{ID: "a", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1}}}}}
 	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -214,12 +214,12 @@ func TestSquadGraphForkAndImportExportRoutes(t *testing.T) {
 		t.Fatalf("fork status=%d body=%s", forked.Code, forked.Body.String())
 	}
 	var fork struct {
-		Squad orchestration.SquadDefinition `json:"squad"`
+		Squad graphmodel.SquadDefinition `json:"squad"`
 	}
 	if err := json.Unmarshal(forked.Body.Bytes(), &fork); err != nil {
 		t.Fatal(err)
 	}
-	if fork.Squad.ID == squad.ID || fork.Squad.Status != orchestration.SquadDraft || fork.Squad.Graph.ID == squad.Graph.ID {
+	if fork.Squad.ID == squad.ID || fork.Squad.Status != graphmodel.SquadDraft || fork.Squad.Graph.ID == squad.Graph.ID {
 		t.Fatalf("fork did not create an editable copy: %+v", fork.Squad)
 	}
 	updatedGraph := fork.Squad.Graph
@@ -235,20 +235,20 @@ func TestSquadGraphForkAndImportExportRoutes(t *testing.T) {
 func TestSquadPublishPersistsLatestGraphRevision(t *testing.T) {
 	s := testServer(t)
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{
-		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: orchestration.AgentActive,
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"},
-		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{
+		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "agent", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 	}, 0); err != nil {
 		t.Fatal(err)
 	}
-	squad := orchestration.SquadDefinition{
+	squad := graphmodel.SquadDefinition{
 		ID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", WorkspaceID: "w1", Name: "publish me",
-		Revision: 1, Status: orchestration.SquadDraft,
-		Members: []orchestration.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}},
-		Graph: orchestration.WorkflowGraph{
+		Revision: 1, Status: graphmodel.SquadDraft,
+		Members: []graphmodel.SquadMember{{ID: "leader", AgentID: agentID, Role: "leader", Leader: true}},
+		Graph: graphmodel.WorkflowGraph{
 			ID: "publish-graph", Version: 1, EntryNodeIDs: []string{"agent"}, ExitNodeIDs: []string{"agent"},
-			Nodes: []orchestration.WorkflowNode{{ID: "agent", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}},
+			Nodes: []graphmodel.WorkflowNode{{ID: "agent", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1}}},
 		},
 	}
 	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
@@ -267,30 +267,30 @@ func TestSquadPublishPersistsLatestGraphRevision(t *testing.T) {
 	if published.Code != http.StatusOK {
 		t.Fatalf("publish status=%d body=%s", published.Code, published.Body.String())
 	}
-	var got orchestration.SquadDefinition
+	var got graphmodel.SquadDefinition
 	if err := json.Unmarshal(published.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != orchestration.SquadPublished || got.PublishedVersion != 1 || got.Revision != 3 || got.Graph.ID != "publish-graph-v2" {
+	if got.Status != graphmodel.SquadPublished || got.PublishedVersion != 1 || got.Revision != 3 || got.Graph.ID != "publish-graph-v2" {
 		t.Fatalf("published squad=%+v", got)
 	}
 	latest, err := s.Orchestration.GetSquad("w1", squad.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.Status != orchestration.SquadPublished || latest.PublishedVersion != 1 || latest.Revision != 3 {
+	if latest.Status != graphmodel.SquadPublished || latest.PublishedVersion != 1 || latest.Revision != 3 {
 		t.Fatalf("latest squad=%+v", latest)
 	}
 }
 
 func TestDefinitionBundleImportDryRunAndIdempotency(t *testing.T) {
 	s := testServer(t)
-	agent := orchestration.AgentDefinition{
-		ID: "import-agent", Revision: 1, Name: "Imported agent", Status: orchestration.AgentActive,
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high"},
-		InputSchema:     orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1},
+	agent := graphmodel.AgentDefinition{
+		ID: "import-agent", Revision: 1, Name: "Imported agent", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1},
 	}
-	bundle := orchestration.DefinitionBundle{Format: orchestration.DefinitionBundleFormat, SourceWorkspaceID: "old", Agents: []orchestration.AgentDefinition{agent}}
+	bundle := graphmodel.DefinitionBundle{Format: graphmodel.DefinitionBundleFormat, SourceWorkspaceID: "old", Agents: []graphmodel.AgentDefinition{agent}}
 	body := mustJSON(map[string]any{"bundle": bundle, "dry_run": true})
 	dry := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", body, map[string]string{"X-Workspace-ID": "w1"})
 	if dry.Code != http.StatusOK || len(s.Orchestration.ListAgents("w1", "")) != 0 {
@@ -312,7 +312,7 @@ func TestDefinitionBundleImportDryRunAndIdempotency(t *testing.T) {
 	}
 
 	changed := bundle
-	changed.Agents = append([]orchestration.AgentDefinition(nil), bundle.Agents...)
+	changed.Agents = append([]graphmodel.AgentDefinition(nil), bundle.Agents...)
 	changed.Agents[0].Name = "Different"
 	conflict := request(t, s.Routes(), http.MethodPost, "/api/v1/workspaces/w1/agents/import", mustJSON(map[string]any{"bundle": changed}), headers)
 	if conflict.Code != http.StatusConflict {
@@ -331,18 +331,18 @@ func TestQuickSquadPersistsIncompleteDraftAndReturnsValidationErrors(t *testing.
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
 	}
 	var response struct {
-		Valid      bool                          `json:"valid"`
-		Persisted  bool                          `json:"persisted"`
-		Validation string                        `json:"validation_error"`
-		Squad      orchestration.SquadDefinition `json:"squad"`
+		Valid      bool                       `json:"valid"`
+		Persisted  bool                       `json:"persisted"`
+		Validation string                     `json:"validation_error"`
+		Squad      graphmodel.SquadDefinition `json:"squad"`
 	}
 	if err := json.Unmarshal(r.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Valid || !response.Persisted || response.Validation == "" || response.Squad.Status != orchestration.SquadDraft {
+	if response.Valid || !response.Persisted || response.Validation == "" || response.Squad.Status != graphmodel.SquadDraft {
 		t.Fatalf("incomplete draft was not persisted with diagnostics: %+v", response)
 	}
-	if got := s.Orchestration.ListSquads("w1", orchestration.SquadDraft); len(got) != 1 {
+	if got := s.Orchestration.ListSquads("w1", graphmodel.SquadDraft); len(got) != 1 {
 		t.Fatalf("expected one persisted draft, got %d", len(got))
 	}
 }
@@ -419,7 +419,7 @@ func TestAllAndExplicitAgentMentionOnlyDispatchesAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	content := `公告 [@all](mention://all/all) [@reviewer](mention://agent/` + agentID + `)`
@@ -455,7 +455,7 @@ func TestCommentTriggerRetryRecomputesRosterAndDispatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentID := orchestration.NewID()
+	agentID := graphmodel.NewID()
 	content := "Please retry [@delivery](mention://agent/" + agentID + ")"
 	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/comments", mustJSON(map[string]any{"content": content}), map[string]string{"X-Workspace-ID": "w1", "X-Member-ID": "reviewer"})
 	if created.Code != http.StatusCreated {
@@ -472,10 +472,10 @@ func TestCommentTriggerRetryRecomputesRosterAndDispatches(t *testing.T) {
 		t.Fatalf("initial outcome=%+v body=%s", createdBody.Outcomes, created.Body.String())
 	}
 
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{
-		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "delivery", Status: orchestration.AgentActive,
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"},
-		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{
+		ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "delivery", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 	}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -606,11 +606,11 @@ func TestStructuredSquadMentionPersistsIndependentSquadReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "leader", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "leader", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	squadID := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-	squad := orchestration.SquadDefinition{ID: squadID, WorkspaceID: "w1", Name: "delivery", Revision: 1, PublishedVersion: 1, Status: orchestration.SquadPublished, Members: []orchestration.SquadMember{{ID: "leader-member", AgentID: agentID, Role: "leader", Leader: true}}, Graph: orchestration.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent"}, ExitNodeIDs: []string{"agent"}, Nodes: []orchestration.WorkflowNode{{ID: "agent", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1}}}}}
+	squad := graphmodel.SquadDefinition{ID: squadID, WorkspaceID: "w1", Name: "delivery", Revision: 1, PublishedVersion: 1, Status: graphmodel.SquadPublished, Members: []graphmodel.SquadMember{{ID: "leader-member", AgentID: agentID, Role: "leader", Leader: true}}, Graph: graphmodel.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent"}, ExitNodeIDs: []string{"agent"}, Nodes: []graphmodel.WorkflowNode{{ID: "agent", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1}}}}}
 	if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +640,7 @@ func TestExecutionPlanBodyIdempotencyReturnsOriginalPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "planner", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "planner", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"agent_id":"` + agentID + `","idempotency_key":"plan-create-1"}`
@@ -648,7 +648,7 @@ func TestExecutionPlanBodyIdempotencyReturnsOriginalPlan(t *testing.T) {
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
 	}
-	var firstPlan orchestration.RequirementExecutionPlan
+	var firstPlan graphmodel.RequirementExecutionPlan
 	if err := json.Unmarshal(first.Body.Bytes(), &firstPlan); err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +656,7 @@ func TestExecutionPlanBodyIdempotencyReturnsOriginalPlan(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
 	}
-	var secondPlan orchestration.RequirementExecutionPlan
+	var secondPlan graphmodel.RequirementExecutionPlan
 	if err := json.Unmarshal(second.Body.Bytes(), &secondPlan); err != nil {
 		t.Fatal(err)
 	}
@@ -690,10 +690,10 @@ func TestExecutionPlanInvocationDoesNotRequireManagementPermission(t *testing.T)
 		t.Fatal(err)
 	}
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{
-		ID: agentID, WorkspaceID: "local", Revision: 1, Name: "approved-agent", Status: orchestration.AgentActive,
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock"},
-		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{
+		ID: agentID, WorkspaceID: "local", Revision: 1, Name: "approved-agent", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 	}, 0); err != nil {
 		t.Fatal(err)
 	}

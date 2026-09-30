@@ -1,75 +1,33 @@
 package orchestration
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 	"time"
+
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
-
-const DefinitionBundleFormat = "adro.workspace-definitions.v1"
-
-type DefinitionBundle struct {
-	Format            string            `json:"format"`
-	SourceWorkspaceID string            `json:"source_workspace_id,omitempty"`
-	Agents            []AgentDefinition `json:"agents"`
-	Squads            []SquadDefinition `json:"squads,omitempty"`
-}
-
-type DefinitionImportReport struct {
-	Format        string `json:"format"`
-	Digest        string `json:"digest"`
-	AgentCount    int    `json:"agent_count"`
-	SquadCount    int    `json:"squad_count"`
-	CreatedAgents int    `json:"created_agents"`
-	CreatedSquads int    `json:"created_squads"`
-	SkippedAgents int    `json:"skipped_agents"`
-	SkippedSquads int    `json:"skipped_squads"`
-	DryRun        bool   `json:"dry_run"`
-}
-
-func (b DefinitionBundle) Digest() (string, error) {
-	copy := b
-	copy.Format = DefinitionBundleFormat
-	copy.Agents = append([]AgentDefinition(nil), b.Agents...)
-	copy.Squads = append([]SquadDefinition(nil), b.Squads...)
-	sort.Slice(copy.Agents, func(i, j int) bool {
-		return key3(copy.Agents[i].WorkspaceID, copy.Agents[i].ID, copy.Agents[i].Revision) < key3(copy.Agents[j].WorkspaceID, copy.Agents[j].ID, copy.Agents[j].Revision)
-	})
-	sort.Slice(copy.Squads, func(i, j int) bool {
-		return key3(copy.Squads[i].WorkspaceID, copy.Squads[i].ID, copy.Squads[i].Revision) < key3(copy.Squads[j].WorkspaceID, copy.Squads[j].ID, copy.Squads[j].Revision)
-	})
-	data, err := json.Marshal(copy)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:]), nil
-}
 
 // ImportDefinitionBundle validates the complete candidate snapshot before one
 // durable write. Any conflict or persistence error restores the old maps.
-func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle DefinitionBundle, dryRun bool) (DefinitionImportReport, error) {
+func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle graphmodel.DefinitionBundle, dryRun bool) (graphmodel.DefinitionImportReport, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
-		return DefinitionImportReport{}, errors.New("workspace_id is required")
+		return graphmodel.DefinitionImportReport{}, errors.New("workspace_id is required")
 	}
-	if bundle.Format != DefinitionBundleFormat {
-		return DefinitionImportReport{}, fmt.Errorf("unsupported bundle format %q", bundle.Format)
+	if bundle.Format != graphmodel.DefinitionBundleFormat {
+		return graphmodel.DefinitionImportReport{}, fmt.Errorf("unsupported bundle format %q", bundle.Format)
 	}
 	if len(bundle.Agents) == 0 && len(bundle.Squads) == 0 {
-		return DefinitionImportReport{}, errors.New("bundle must contain at least one definition")
+		return graphmodel.DefinitionImportReport{}, errors.New("bundle must contain at least one definition")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
-		return DefinitionImportReport{}, fmt.Errorf("digest bundle: %w", err)
+		return graphmodel.DefinitionImportReport{}, fmt.Errorf("digest bundle: %w", err)
 	}
-	report := DefinitionImportReport{Format: DefinitionBundleFormat, Digest: digest, AgentCount: len(bundle.Agents), SquadCount: len(bundle.Squads), DryRun: dryRun}
+	report := graphmodel.DefinitionImportReport{Format: graphmodel.DefinitionBundleFormat, Digest: digest, AgentCount: len(bundle.Agents), SquadCount: len(bundle.Squads), DryRun: dryRun}
 	now := time.Now().UTC()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -84,7 +42,7 @@ func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle Def
 			a.Revision = 1
 		}
 		if a.Status == "" {
-			a.Status = AgentActive
+			a.Status = graphmodel.AgentActive
 		}
 		if a.CreatedAt.IsZero() {
 			a.CreatedAt = now
@@ -93,20 +51,20 @@ func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle Def
 			a.UpdatedAt = a.CreatedAt
 		}
 		if err := a.Validate(); err != nil {
-			return DefinitionImportReport{}, fmt.Errorf("agents[%d] %q: %w", i, a.ID, err)
+			return graphmodel.DefinitionImportReport{}, fmt.Errorf("agents[%d] %q: %w", i, a.ID, err)
 		}
-		if err := validatePortableExecutorBinding(a.ExecutorBinding); err != nil {
-			return DefinitionImportReport{}, fmt.Errorf("agents[%d] %q: %w", i, a.ID, err)
+		if err := graphmodel.ValidatePortableExecutorBinding(a.ExecutorBinding); err != nil {
+			return graphmodel.DefinitionImportReport{}, fmt.Errorf("agents[%d] %q: %w", i, a.ID, err)
 		}
-		key := key3(workspaceID, a.ID, a.Revision)
+		key := graphmodel.Key3(workspaceID, a.ID, a.Revision)
 		if _, duplicate := seenAgents[key]; duplicate {
-			return DefinitionImportReport{}, fmt.Errorf("agents[%d]: duplicate agent revision %s", i, key)
+			return graphmodel.DefinitionImportReport{}, fmt.Errorf("agents[%d]: duplicate agent revision %s", i, key)
 		}
 		seenAgents[key] = struct{}{}
 		if existing, exists := candidateAgents[key]; exists {
 			a.CreatedAt, a.UpdatedAt = existing.CreatedAt, existing.UpdatedAt
 			if !reflect.DeepEqual(existing, a) {
-				return DefinitionImportReport{}, fmt.Errorf("agents[%d]: agent revision %s conflicts with existing definition", i, key)
+				return graphmodel.DefinitionImportReport{}, fmt.Errorf("agents[%d]: agent revision %s conflicts with existing definition", i, key)
 			}
 			report.SkippedAgents++
 			continue
@@ -125,24 +83,24 @@ func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle Def
 			s.Revision = 1
 		}
 		if s.Status == "" {
-			s.Status = SquadPublished
+			s.Status = graphmodel.SquadPublished
 		}
 		if err := s.Validate(); err != nil {
-			return DefinitionImportReport{}, fmt.Errorf("squads[%d] %q: %w", i, s.ID, err)
+			return graphmodel.DefinitionImportReport{}, fmt.Errorf("squads[%d] %q: %w", i, s.ID, err)
 		}
-		if s.Status == SquadPublished {
+		if s.Status == graphmodel.SquadPublished {
 			if err := r.validatePublishedSquadLocked(s); err != nil {
-				return DefinitionImportReport{}, fmt.Errorf("squads[%d] %q: %w", i, s.ID, err)
+				return graphmodel.DefinitionImportReport{}, fmt.Errorf("squads[%d] %q: %w", i, s.ID, err)
 			}
 		}
-		key := key3(workspaceID, s.ID, s.Revision)
+		key := graphmodel.Key3(workspaceID, s.ID, s.Revision)
 		if _, duplicate := seenSquads[key]; duplicate {
-			return DefinitionImportReport{}, fmt.Errorf("squads[%d]: duplicate squad revision %s", i, key)
+			return graphmodel.DefinitionImportReport{}, fmt.Errorf("squads[%d]: duplicate squad revision %s", i, key)
 		}
 		seenSquads[key] = struct{}{}
 		if existing, exists := candidateSquads[key]; exists {
 			if !reflect.DeepEqual(existing, s) {
-				return DefinitionImportReport{}, fmt.Errorf("squads[%d]: squad revision %s conflicts with existing definition", i, key)
+				return graphmodel.DefinitionImportReport{}, fmt.Errorf("squads[%d]: squad revision %s conflicts with existing definition", i, key)
 			}
 			report.SkippedSquads++
 			continue
@@ -155,23 +113,8 @@ func (r *MemoryRepository) ImportDefinitionBundle(workspaceID string, bundle Def
 	}
 	r.agents, r.squads, r.dirty = candidateAgents, candidateSquads, true
 	if err := r.persistLocked(); err != nil {
-		return DefinitionImportReport{}, fmt.Errorf("persist definition bundle: %w", err)
+		return graphmodel.DefinitionImportReport{}, fmt.Errorf("persist definition bundle: %w", err)
 	}
 	oldAgents, oldSquads, oldDirty, oldRevision = r.agents, r.squads, r.dirty, r.revision
 	return report, nil
-}
-
-func validatePortableExecutorBinding(binding ExecutorBinding) error {
-	if strings.TrimSpace(binding.ProviderVersion) != "" || strings.TrimSpace(binding.BinaryDigest) != "" {
-		return errors.New("provider_version and binary_digest are machine observations and cannot be imported")
-	}
-	for _, arg := range binding.CustomArgs {
-		name := strings.ToLower(strings.TrimSpace(strings.SplitN(arg, "=", 2)[0]))
-		for _, fragment := range []string{"token", "secret", "password", "passwd", "cookie", "api-key", "apikey", "credential"} {
-			if strings.Contains(name, fragment) {
-				return fmt.Errorf("custom argument %q may contain a credential and cannot be imported", name)
-			}
-		}
-	}
-	return nil
 }

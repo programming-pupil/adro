@@ -1,4 +1,4 @@
-package orchestration
+package graph
 
 import (
 	"context"
@@ -69,7 +69,9 @@ type RepairController interface {
 }
 
 type DefaultGateEvaluator struct{}
+
 type DefaultMergeReducer struct{}
+
 type DefaultRepairController struct{}
 
 func (DefaultGateEvaluator) EvaluateGate(_ context.Context, in StructuralInput) (StructuralDecision, error) {
@@ -206,7 +208,7 @@ func resolveRepairTarget(graph WorkflowGraph, node WorkflowNode) string {
 	return ""
 }
 
-func incomingStructuralSources(plan RequirementExecutionPlan, projection PlanProjection, nodeID string) []StructuralSource {
+func IncomingStructuralSources(plan RequirementExecutionPlan, projection PlanProjection, nodeID string) []StructuralSource {
 	items := make([]StructuralSource, 0)
 	for _, edge := range plan.GraphSnapshot.Edges {
 		if edge.To != nodeID {
@@ -217,7 +219,7 @@ func incomingStructuralSources(plan RequirementExecutionPlan, projection PlanPro
 			continue
 		}
 		attempt, ok := projection.Attempts[node.CurrentAttempt]
-		if !ok || !edgeSatisfied(edge, attempt) {
+		if !ok || !EdgeSatisfied(edge, attempt) {
 			continue
 		}
 		items = append(items, StructuralSource{Edge: edge, Attempt: attempt})

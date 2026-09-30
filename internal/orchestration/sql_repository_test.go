@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 type sqlTestState struct {
@@ -40,6 +42,7 @@ type sqlTestTx struct {
 type sqlTestResult int64
 
 func (r sqlTestResult) LastInsertId() (int64, error) { return 0, nil }
+
 func (r sqlTestResult) RowsAffected() (int64, error) { return int64(r), nil }
 
 type sqlTestRows struct {
@@ -68,9 +71,11 @@ func (d *sqlTestDriver) Open(name string) (driver.Conn, error) {
 }
 
 func (c *sqlTestConn) Close() error { return nil }
+
 func (c *sqlTestConn) Prepare(query string) (driver.Stmt, error) {
 	return &sqlTestStmt{conn: c, query: query}, nil
 }
+
 func (c *sqlTestConn) Begin() (driver.Tx, error) {
 	c.state.mu.Lock()
 	defer c.state.mu.Unlock()
@@ -81,6 +86,7 @@ func (c *sqlTestConn) Begin() (driver.Tx, error) {
 	c.active = tx
 	return tx, nil
 }
+
 func (c *sqlTestConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) { return c.Begin() }
 
 func (c *sqlTestConn) Exec(query string, args []driver.Value) (driver.Result, error) {
@@ -96,6 +102,7 @@ func (c *sqlTestConn) Exec(query string, args []driver.Value) (driver.Result, er
 	}
 	return result, err
 }
+
 func (c *sqlTestConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	values := make([]driver.Value, len(args))
 	for i, arg := range args {
@@ -103,6 +110,7 @@ func (c *sqlTestConn) ExecContext(_ context.Context, query string, args []driver
 	}
 	return c.Exec(query, values)
 }
+
 func (c *sqlTestConn) Query(query string, args []driver.Value) (driver.Rows, error) {
 	if c.active != nil {
 		return c.active.Query(query, args)
@@ -111,6 +119,7 @@ func (c *sqlTestConn) Query(query string, args []driver.Value) (driver.Rows, err
 	defer c.state.mu.Unlock()
 	return querySQLTest(c.state, query, args)
 }
+
 func (c *sqlTestConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	values := make([]driver.Value, len(args))
 	for i, arg := range args {
@@ -118,13 +127,17 @@ func (c *sqlTestConn) QueryContext(_ context.Context, query string, args []drive
 	}
 	return c.Query(query, values)
 }
+
 func (c *sqlTestConn) CheckNamedValue(value *driver.NamedValue) error { return nil }
 
-func (s *sqlTestStmt) Close() error  { return nil }
+func (s *sqlTestStmt) Close() error { return nil }
+
 func (s *sqlTestStmt) NumInput() int { return -1 }
+
 func (s *sqlTestStmt) Exec(args []driver.Value) (driver.Result, error) {
 	return s.conn.Exec(s.query, args)
 }
+
 func (s *sqlTestStmt) Query(args []driver.Value) (driver.Rows, error) {
 	return s.conn.Query(s.query, args)
 }
@@ -140,10 +153,13 @@ func (t *sqlTestTx) Commit() error {
 	t.done = true
 	return nil
 }
+
 func (t *sqlTestTx) Rollback() error { t.done = true; t.conn.active = nil; return nil }
+
 func (t *sqlTestTx) Exec(query string, args []driver.Value) (driver.Result, error) {
 	return execSQLTest(t, query, args)
 }
+
 func (t *sqlTestTx) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	values := make([]driver.Value, len(args))
 	for i, arg := range args {
@@ -151,10 +167,12 @@ func (t *sqlTestTx) ExecContext(_ context.Context, query string, args []driver.N
 	}
 	return t.Exec(query, values)
 }
+
 func (t *sqlTestTx) Query(query string, args []driver.Value) (driver.Rows, error) {
 	state := &sqlTestState{exists: t.exists, revision: t.revision, data: t.data}
 	return querySQLTest(state, query, args)
 }
+
 func (t *sqlTestTx) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	values := make([]driver.Value, len(args))
 	for i, arg := range args {
@@ -220,8 +238,11 @@ func querySQLTest(state *sqlTestState, query string, _ []driver.Value) (driver.R
 	}
 	return nil, errors.New("unsupported SQL test query: " + query)
 }
+
 func (r *sqlTestRows) Columns() []string { return r.columns }
-func (r *sqlTestRows) Close() error      { return nil }
+
+func (r *sqlTestRows) Close() error { return nil }
+
 func (r *sqlTestRows) Next(dest []driver.Value) error {
 	if r.read || len(r.values) == 0 {
 		return io.EOF
@@ -245,21 +266,21 @@ func TestSQLRepositoryTransactionAndRecoveryContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := (RequirementExecutionPlan{ID: "sql-plan", RequirementID: "req", WorkspaceID: "ws", GraphSnapshot: graphForTest(), Status: PlanDraft}).Freeze()
+	plan, err := (graphmodel.RequirementExecutionPlan{ID: "sql-plan", RequirementID: "req", WorkspaceID: "ws", GraphSnapshot: graphForTest(), Status: graphmodel.PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.CreatePlan(plan); err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.SaveProjection(projection); err != nil {
 		t.Fatal(err)
 	}
-	event, err := NewEvent(nil, plan.ID, plan.WorkspaceID, "plan.created", "sql-plan", plan)
+	event, err := graphmodel.NewEvent(nil, plan.ID, plan.WorkspaceID, "plan.created", "sql-plan", plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +320,7 @@ func TestSQLRepositoryMutationsAreDurableWithoutExplicitFlush(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := AgentDefinition{ID: "durable-agent", WorkspaceID: "ws", Revision: 1, Name: "durable", Status: AgentDraft, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	agent := graphmodel.AgentDefinition{ID: "durable-agent", WorkspaceID: "ws", Revision: 1, Name: "durable", Status: graphmodel.AgentDraft, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	if err := repo.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}

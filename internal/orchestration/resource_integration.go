@@ -3,31 +3,18 @@ package orchestration
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/adro-project/adro/core/budget"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
 func normalizedProviderResources(snapshot provider.RunSnapshot) (budget.ResourceVector, json.RawMessage, error) {
-	tokens, err := safeUsageSum(snapshot.Usage.InputTokens, snapshot.Usage.OutputTokens)
+	vector, err := budget.NormalizeUsage(snapshot.Usage.InputTokens, snapshot.Usage.OutputTokens, snapshot.Usage.DurationMS, int64(len(snapshot.ToolEvents)), int64(len([]byte(snapshot.Output))))
 	if err != nil {
 		return budget.ResourceVector{}, nil, err
-	}
-	duration := snapshot.Usage.DurationMS
-	if duration < 0 {
-		duration = 0
-	}
-	if duration > math.MaxInt64/int64(time.Millisecond) {
-		return budget.ResourceVector{}, nil, fmt.Errorf("%w: wall_time_nanos", budget.ErrResourceOverflow)
-	}
-	vector := budget.ResourceVector{
-		Tokens: tokens, ToolCalls: int64(len(snapshot.ToolEvents)),
-		WallTimeNanos: duration * int64(time.Millisecond), OutputBytes: int64(len([]byte(snapshot.Output))),
-		ConcurrencySlots: 1,
 	}
 	raw, err := json.Marshal(map[string]any{"provider_usage": snapshot.Usage, "tool_event_count": len(snapshot.ToolEvents)})
 	if err != nil {
@@ -36,21 +23,7 @@ func normalizedProviderResources(snapshot provider.RunSnapshot) (budget.Resource
 	return vector, raw, nil
 }
 
-func safeUsageSum(values ...int64) (int64, error) {
-	var total int64
-	for _, value := range values {
-		if value < 0 {
-			continue
-		}
-		if value > math.MaxInt64-total {
-			return 0, fmt.Errorf("%w: tokens", budget.ErrResourceOverflow)
-		}
-		total += value
-	}
-	return total, nil
-}
-
-func settleAttemptReservation(ledger *ResourceLedger, plan RequirementExecutionPlan, attempt NodeAttempt, raw json.RawMessage, normalized budget.ResourceVector, providerMissing bool, now time.Time) error {
+func settleAttemptReservation(ledger *ResourceLedger, plan graphmodel.RequirementExecutionPlan, attempt graphmodel.NodeAttempt, raw json.RawMessage, normalized budget.ResourceVector, providerMissing bool, now time.Time) error {
 	if ledger == nil || strings.TrimSpace(attempt.ResourceReservationID) == "" {
 		return nil
 	}

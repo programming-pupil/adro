@@ -14,6 +14,7 @@ import (
 	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/obs/trace"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
@@ -28,10 +29,10 @@ type Worker struct {
 }
 
 type WorkerReport struct {
-	Ticks      int            `json:"ticks"`
-	Started    []NodeAttempt  `json:"started,omitempty"`
-	Finished   []NodeAttempt  `json:"finished,omitempty"`
-	LastStatus ScheduleReport `json:"last_status"`
+	Ticks      int                      `json:"ticks"`
+	Started    []graphmodel.NodeAttempt `json:"started,omitempty"`
+	Finished   []graphmodel.NodeAttempt `json:"finished,omitempty"`
+	LastStatus ScheduleReport           `json:"last_status"`
 }
 
 type outboxRecoveryStore interface {
@@ -43,7 +44,7 @@ type outboxRecoveryStore interface {
 // Reconcile converts provider terminal snapshots into typed graph outcomes.
 // Unknown provider states are left running; an expired lease is timed out
 // locally so a takeover can fence the old worker before retrying.
-func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection) ([]NodeAttempt, error) {
+func (w Worker) Reconcile(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection) ([]graphmodel.NodeAttempt, error) {
 	if projection == nil {
 		return nil, errors.New("projection is required")
 	}
@@ -51,14 +52,14 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		return nil, errors.New("provider is required")
 	}
 	now := w.Scheduler.now()
-	finished := make([]NodeAttempt, 0)
+	finished := make([]graphmodel.NodeAttempt, 0)
 	if w.Scheduler.Admission != nil {
 		if err := w.recoverTerminalReservations(plan, *projection, now); err != nil {
 			return finished, err
 		}
 	}
-	for _, attempt := range cloneProjection(*projection).Attempts {
-		if attempt.Status != AttemptRunning {
+	for _, attempt := range graphmodel.CloneProjection(*projection).Attempts {
+		if attempt.Status != graphmodel.AttemptRunning {
 			continue
 		}
 		// A Squad attempt owns a durable child plan. Advance that child before
@@ -79,16 +80,16 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 			if _, childErr := childWorker.Run(ctx, childPlan, &childProjection, attempt.InputManifest, attempt.RunID, ""); childErr != nil && ctx.Err() != nil {
 				return finished, childErr
 			}
-			if childProjection.Status == PlanTerminal {
+			if childProjection.Status == graphmodel.PlanTerminal {
 				event := "success"
-				result := StructuredResult{Outcome: "pass", Summary: "nested squad plan completed", EvidenceIDs: []string{"child-plan:" + childPlan.ID}}
-				var failure *FailureReason
+				result := graphmodel.StructuredResult{Outcome: "pass", Summary: "nested squad plan completed", EvidenceIDs: []string{"child-plan:" + childPlan.ID}}
+				var failure *graphmodel.FailureReason
 				if childProjection.TerminalOutcome != "succeeded" {
 					event = "failure"
 					result.Outcome = "failure"
-					failure = &FailureReason{Code: "nested_squad_failed", Message: childProjection.TerminalOutcome, Retryable: true}
+					failure = &graphmodel.FailureReason{Code: "nested_squad_failed", Message: childProjection.TerminalOutcome, Retryable: true}
 				}
-				item, finishErr := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, Now: now})
+				item, finishErr := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, Now: now})
 				if finishErr != nil {
 					return finished, finishErr
 				}
@@ -106,7 +107,7 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 			continue
 		}
 		if !attempt.Lease.ExpiresAt.IsZero() && !now.Before(attempt.Lease.ExpiresAt) {
-			item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: "timeout", Result: StructuredResult{Outcome: "timeout", Summary: "provider lease expired", EvidenceIDs: []string{"lease-expired:" + attempt.ID}}, Failure: &FailureReason{Code: "lease_expired", Message: "provider lease expired", Retryable: true}, Now: now})
+			item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: "timeout", Result: graphmodel.StructuredResult{Outcome: "timeout", Summary: "provider lease expired", EvidenceIDs: []string{"lease-expired:" + attempt.ID}}, Failure: &graphmodel.FailureReason{Code: "lease_expired", Message: "provider lease expired", Retryable: true}, Now: now})
 			if err != nil {
 				return finished, err
 			}
@@ -152,8 +153,8 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 			usage["cost_cents"] = int64(snapshot.Usage.EstimatedCost * 100)
 		}
 		var event string
-		var result StructuredResult
-		var failure *FailureReason
+		var result graphmodel.StructuredResult
+		var failure *graphmodel.FailureReason
 		explicitOutcome, outcomeFields := providerOutcome(snapshot.Output)
 		providerReason := providerStringField(outcomeFields, "provider_reason_code")
 		providerSummary := providerStringField(outcomeFields, "provider_summary")
@@ -164,28 +165,28 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 		switch status {
 		case "completed", "passed", "success", "succeeded":
 			if explicitOutcome == "" {
-				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_result_missing", Summary: "provider completed without ADRO_RESULT_JSON evidence", Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":missing-result"}}
+				event, result = "failure", graphmodel.StructuredResult{Outcome: "failure", ReasonCode: "provider_result_missing", Summary: "provider completed without ADRO_RESULT_JSON evidence", Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":missing-result"}}
 				// A completed process without the required structured result is a
 				// provider protocol failure, not a semantic graph result. Retry the
 				// current node so a transient truncated/invalid Codex turn does not
 				// consume a repair round or strand the graph before feedback starts.
-				failure = &FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: true}
+				failure = &graphmodel.FailureReason{Code: "provider_result_missing", Message: result.Summary, Retryable: true}
 			} else if !hasProviderToolEvidence(snapshot) {
 				// A model marker is not proof that the requested work happened. A
 				// malformed or tool-less Codex turn must be retried as a provider
 				// protocol failure; otherwise a fabricated bug/failure marker can
 				// advance a semantic feedback edge and consume a repair round.
-				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: "provider_tool_evidence_missing", Summary: "provider completed without a matched tool before/after pair", Fields: mergeProviderFields(usage, map[string]any{"provider_output_sha256": snapshot.OutputSHA256, "tool_event_count": len(snapshot.ToolEvents)}), EvidenceIDs: []string{"provider-run:" + runID + ":missing-tool-evidence"}}
-				failure = &FailureReason{Code: "provider_tool_evidence_missing", Message: result.Summary, Retryable: true}
+				event, result = "failure", graphmodel.StructuredResult{Outcome: "failure", ReasonCode: "provider_tool_evidence_missing", Summary: "provider completed without a matched tool before/after pair", Fields: mergeProviderFields(usage, map[string]any{"provider_output_sha256": snapshot.OutputSHA256, "tool_event_count": len(snapshot.ToolEvents)}), EvidenceIDs: []string{"provider-run:" + runID + ":missing-tool-evidence"}}
+				failure = &graphmodel.FailureReason{Code: "provider_tool_evidence_missing", Message: result.Summary, Retryable: true}
 				break
 			}
-			event, result = "success", StructuredResult{Outcome: "pass", ReasonCode: providerReason, Summary: providerSummary, Fields: usage, EvidenceIDs: providerEvidence}
+			event, result = "success", graphmodel.StructuredResult{Outcome: "pass", ReasonCode: providerReason, Summary: providerSummary, Fields: usage, EvidenceIDs: providerEvidence}
 			if explicitOutcome == "bug" {
-				event, result = "bug", StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
-				failure = &FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
+				event, result = "bug", graphmodel.StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
+				failure = &graphmodel.FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
 			} else if explicitOutcome == "failure" {
-				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
-				failure = &FailureReason{Code: "provider_reported_failure", Message: providerSummary, Retryable: true}
+				event, result = "failure", graphmodel.StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: providerEvidence}
+				failure = &graphmodel.FailureReason{Code: "provider_reported_failure", Message: providerSummary, Retryable: true}
 			} else if len(outcomeFields) > 0 {
 				result.Fields = mergeProviderFields(usage, outcomeFields)
 			}
@@ -195,26 +196,26 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 			}
 		case "failed", "error", "failure":
 			if explicitOutcome == "bug" {
-				event, result = "bug", StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":bug")}
-				failure = &FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
+				event, result = "bug", graphmodel.StructuredResult{Outcome: "bug", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":bug")}
+				failure = &graphmodel.FailureReason{Code: "provider_reported_bug", Message: providerSummary, Retryable: true}
 			} else {
-				event, result = "failure", StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":failed")}
-				failure = &FailureReason{Code: "provider_failed", Message: providerSummary, Retryable: true}
+				event, result = "failure", graphmodel.StructuredResult{Outcome: "failure", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":failed")}
+				failure = &graphmodel.FailureReason{Code: "provider_failed", Message: providerSummary, Retryable: true}
 			}
 		case "timed_out", "timeout", "timedout":
 			// Provider deadlines are terminal observations, not unknown running
 			// states. Consume them immediately so a graph does not wait for the
 			// server watcher deadline after the child process has already recorded
 			// its timeout evidence.
-			event, result = "timeout", StructuredResult{Outcome: "timeout", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":timeout")}
-			failure = &FailureReason{Code: "provider_timeout", Message: providerSummary, Retryable: true}
+			event, result = "timeout", graphmodel.StructuredResult{Outcome: "timeout", ReasonCode: providerReason, Summary: providerSummary, Fields: mergeProviderFields(usage, outcomeFields), EvidenceIDs: appendProviderEvidence(providerEvidence, "provider-run:"+runID+":timeout")}
+			failure = &graphmodel.FailureReason{Code: "provider_timeout", Message: providerSummary, Retryable: true}
 		case "cancelled", "canceled":
-			event, result = "cancel", StructuredResult{Outcome: "cancelled", Summary: snapshot.Error, Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":cancelled"}}
-			failure = &FailureReason{Code: "cancelled", Message: snapshot.Error}
+			event, result = "cancel", graphmodel.StructuredResult{Outcome: "cancelled", Summary: snapshot.Error, Fields: usage, EvidenceIDs: []string{"provider-run:" + runID + ":cancelled"}}
+			failure = &graphmodel.FailureReason{Code: "cancelled", Message: snapshot.Error}
 		default:
 			continue
 		}
-		item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, OutputArtifacts: providerEvidence, Now: now})
+		item, err := w.Scheduler.Executor.FinishAttempt(ctx, plan, projection, attempt.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, Failure: failure, OutputArtifacts: providerEvidence, Now: now})
 		if err != nil {
 			return finished, err
 		}
@@ -232,10 +233,10 @@ func (w Worker) Reconcile(ctx context.Context, plan RequirementExecutionPlan, pr
 	return finished, nil
 }
 
-func (w Worker) recoverTerminalReservations(plan RequirementExecutionPlan, projection PlanProjection, now time.Time) error {
+func (w Worker) recoverTerminalReservations(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, now time.Time) error {
 	attemptIDs := make([]string, 0, len(projection.Attempts))
 	for id, attempt := range projection.Attempts {
-		if attempt.ResourceReservationID == "" || (attempt.Status != AttemptPassed && attempt.Status != AttemptFailed && attempt.Status != AttemptCancelled && attempt.Status != AttemptTimedOut) {
+		if attempt.ResourceReservationID == "" || (attempt.Status != graphmodel.AttemptPassed && attempt.Status != graphmodel.AttemptFailed && attempt.Status != graphmodel.AttemptCancelled && attempt.Status != graphmodel.AttemptTimedOut) {
 			continue
 		}
 		attemptIDs = append(attemptIDs, id)
@@ -243,7 +244,7 @@ func (w Worker) recoverTerminalReservations(plan RequirementExecutionPlan, proje
 	sort.Strings(attemptIDs)
 	for _, id := range attemptIDs {
 		attempt := projection.Attempts[id]
-		tokens, tools, _ := resultUsage(attempt.Result)
+		tokens, tools, _ := graphmodel.ResultUsage(attempt.Result)
 		normalized := budget.ResourceVector{Tokens: tokens, ToolCalls: int64(tools), ConcurrencySlots: 1}
 		if err := settleAttemptReservation(w.Scheduler.Admission.Ledger, plan, attempt, nil, normalized, true, now); err != nil {
 			return fmt.Errorf("recover resource reservation for attempt %s: %w", attempt.ID, err)
@@ -252,7 +253,7 @@ func (w Worker) recoverTerminalReservations(plan RequirementExecutionPlan, proje
 	return nil
 }
 
-func (w Worker) providerForAttempt(ctx context.Context, plan RequirementExecutionPlan, attempt NodeAttempt) (provider.ExecutionProvider, error) {
+func (w Worker) providerForAttempt(ctx context.Context, plan graphmodel.RequirementExecutionPlan, attempt graphmodel.NodeAttempt) (provider.ExecutionProvider, error) {
 	executor := w.Scheduler.Executor
 	if executor.ProviderResolver == nil {
 		return executor.Provider, nil
@@ -260,7 +261,7 @@ func (w Worker) providerForAttempt(ctx context.Context, plan RequirementExecutio
 	if executor.Repository == nil {
 		return nil, errors.New("repository is required to resolve an attempt provider")
 	}
-	var node *WorkflowNode
+	var node *graphmodel.WorkflowNode
 	for index := range plan.GraphSnapshot.Nodes {
 		if plan.GraphSnapshot.Nodes[index].ID == attempt.NodeID {
 			node = &plan.GraphSnapshot.Nodes[index]
@@ -270,19 +271,19 @@ func (w Worker) providerForAttempt(ctx context.Context, plan RequirementExecutio
 	if node == nil {
 		return nil, fmt.Errorf("attempt %s references unknown node %s", attempt.ID, attempt.NodeID)
 	}
-	var agent AgentDefinition
+	var agent graphmodel.AgentDefinition
 	var err error
 	switch node.Kind {
-	case NodeAgent:
+	case graphmodel.NodeAgent:
 		if node.AgentRef == nil {
 			return nil, fmt.Errorf("agent node %s has no agent_ref", node.ID)
 		}
 		agent, err = executor.Repository.GetAgent(plan.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
-	case NodeSquad:
+	case graphmodel.NodeSquad:
 		if node.SquadRef == nil {
 			return nil, fmt.Errorf("squad node %s has no squad_ref", node.ID)
 		}
-		var squad SquadDefinition
+		var squad graphmodel.SquadDefinition
 		squad, err = executor.Repository.GetSquad(plan.WorkspaceID, node.SquadRef.ID, node.SquadRef.Revision)
 		if err == nil {
 			leaderID := ""
@@ -611,7 +612,7 @@ func mergeProviderFields(base map[string]any, extra map[string]any) map[string]a
 	return merged
 }
 
-func (w Worker) recoverUnboundAttempt(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, attempt NodeAttempt) (NodeAttempt, bool, error) {
+func (w Worker) recoverUnboundAttempt(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, attempt graphmodel.NodeAttempt) (graphmodel.NodeAttempt, bool, error) {
 	if w.Scheduler.Executor.Provider == nil || attempt.ID == "" || attempt.IdempotencyKey == "" {
 		return attempt, false, nil
 	}
@@ -672,13 +673,13 @@ func (w Worker) recoverUnboundAttempt(ctx context.Context, plan RequirementExecu
 	return attempt, true, nil
 }
 
-func workflowNodeFor(plan RequirementExecutionPlan, nodeID string) WorkflowNode {
+func workflowNodeFor(plan graphmodel.RequirementExecutionPlan, nodeID string) graphmodel.WorkflowNode {
 	for _, node := range plan.GraphSnapshot.Nodes {
 		if node.ID == nodeID {
 			return node
 		}
 	}
-	return WorkflowNode{ID: nodeID}
+	return graphmodel.WorkflowNode{ID: nodeID}
 }
 
 func (o OutboxRecord) PayloadString(key string) string {
@@ -693,7 +694,7 @@ func (o OutboxRecord) PayloadString(key string) string {
 // remains, the context is cancelled, or MaxTicks is reached. It never starts
 // an unowned background goroutine, which keeps crash/retry behavior observable
 // to callers and test harnesses.
-func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) (WorkerReport, error) {
+func (w Worker) Run(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) (WorkerReport, error) {
 	if projection == nil {
 		return WorkerReport{}, errors.New("projection is required")
 	}
@@ -715,10 +716,10 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 		// `ready` with a future RetryAt. Non-retryable/structural errors still
 		// surface to the caller below.
 		tickErr := err
-		if err != nil && !errors.Is(err, ErrDeadlineExceeded) {
+		if err != nil && !errors.Is(err, graphmodel.ErrDeadlineExceeded) {
 			_, retryScheduled := nextRetryAt(*projection, w.Scheduler.now())
 			readyAfterFailure := len(ReadyNodesAt(plan, *projection, w.Scheduler.now())) > 0
-			if !retryScheduled && !readyAfterFailure && projection.Status != PlanTerminal {
+			if !retryScheduled && !readyAfterFailure && projection.Status != graphmodel.PlanTerminal {
 				return report, err
 			}
 		}
@@ -732,10 +733,10 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 			return report, reconcileErr
 		}
 		report.Finished = append(report.Finished, finished...)
-		if projection.Status == PlanTerminal {
+		if projection.Status == graphmodel.PlanTerminal {
 			return report, nil
 		}
-		if errors.Is(tickErr, ErrDeadlineExceeded) {
+		if errors.Is(tickErr, graphmodel.ErrDeadlineExceeded) {
 			return report, nil
 		}
 		if w.MaxTicks > 0 && report.Ticks >= w.MaxTicks {
@@ -781,13 +782,13 @@ func (w Worker) Run(ctx context.Context, plan RequirementExecutionPlan, projecti
 // The returned error preserves the caller's cancellation cause for operators,
 // while the projection is left terminal and replayable whenever the reducer
 // can commit the timeout evidence.
-func (w Worker) closeOnContextCancellation(report WorkerReport, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, cause error) (WorkerReport, error) {
-	if projection == nil || projection.Status == PlanTerminal {
+func (w Worker) closeOnContextCancellation(report WorkerReport, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, cause error) (WorkerReport, error) {
+	if projection == nil || projection.Status == graphmodel.PlanTerminal {
 		return report, cause
 	}
 	if provider := w.Scheduler.Executor.Provider; provider != nil {
-		for _, attempt := range cloneProjection(*projection).Attempts {
-			if attempt.Status == AttemptRunning && attempt.RunID != "" {
+		for _, attempt := range graphmodel.CloneProjection(*projection).Attempts {
+			if attempt.Status == graphmodel.AttemptRunning && attempt.RunID != "" {
 				_ = provider.CancelRun(context.Background(), attempt.RunID)
 			}
 		}
@@ -798,19 +799,19 @@ func (w Worker) closeOnContextCancellation(report WorkerReport, plan Requirement
 	report.LastStatus = status
 	report.Finished = append(report.Finished, status.Advanced...)
 	report.Started = append(report.Started, status.Started...)
-	if closeErr != nil && !errors.Is(closeErr, ErrDeadlineExceeded) {
+	if closeErr != nil && !errors.Is(closeErr, graphmodel.ErrDeadlineExceeded) {
 		return report, fmt.Errorf("close cancelled graph: %w (worker cause: %v)", closeErr, cause)
 	}
 	return report, cause
 }
 
-func nextRetryAt(projection PlanProjection, now time.Time) (time.Time, bool) {
+func nextRetryAt(projection graphmodel.PlanProjection, now time.Time) (time.Time, bool) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	var next time.Time
 	for _, node := range projection.Nodes {
-		if node.Status != AttemptReady || node.RetryAt == nil || !node.RetryAt.After(now) {
+		if node.Status != graphmodel.AttemptReady || node.RetryAt == nil || !node.RetryAt.After(now) {
 			continue
 		}
 		if next.IsZero() || node.RetryAt.Before(next) {
@@ -820,9 +821,9 @@ func nextRetryAt(projection PlanProjection, now time.Time) (time.Time, bool) {
 	return next, !next.IsZero()
 }
 
-func hasRunningAttempts(projection PlanProjection) bool {
+func hasRunningAttempts(projection graphmodel.PlanProjection) bool {
 	for _, attempt := range projection.Attempts {
-		if attempt.Status == AttemptRunning {
+		if attempt.Status == graphmodel.AttemptRunning {
 			return true
 		}
 	}

@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core/budget"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 // ExecutionPlan is the neutral Runtime name. RequirementExecutionPlan remains
 // as a wire-compatible migration alias while old application adapters are
 // being moved out of the core orchestration path.
-type ExecutionPlan = RequirementExecutionPlan
+type ExecutionPlan = graphmodel.RequirementExecutionPlan
 
 var (
 	ErrDelegationInvalid    = errors.New("invalid delegation request")
@@ -26,39 +27,39 @@ var (
 // DelegationRequest is an explicit child-session request. Context selection is
 // carried as identifiers, never as an implicit copy of the parent's prompt.
 type DelegationRequest struct {
-	RequestID       string          `json:"request_id"`
-	ParentPlanID    string          `json:"parent_plan_id"`
-	ParentAttemptID string          `json:"parent_attempt_id"`
-	ChildPlanID     string          `json:"child_plan_id"`
-	ChildAgentID    string          `json:"child_agent_id"`
-	TenantID        string          `json:"tenant_id"`
-	WorkspaceID     string          `json:"workspace_id"`
-	Capabilities    []CapabilityRef `json:"capabilities,omitempty"`
-	ContextBlockIDs []string        `json:"context_block_ids,omitempty"`
-	Budget          budget.Budget   `json:"budget"`
-	Deadline        time.Time       `json:"deadline"`
-	RecursionDepth  int             `json:"recursion_depth"`
-	MaxChildDepth   int             `json:"max_child_depth"`
-	IdempotencyKey  string          `json:"idempotency_key"`
+	RequestID       string                     `json:"request_id"`
+	ParentPlanID    string                     `json:"parent_plan_id"`
+	ParentAttemptID string                     `json:"parent_attempt_id"`
+	ChildPlanID     string                     `json:"child_plan_id"`
+	ChildAgentID    string                     `json:"child_agent_id"`
+	TenantID        string                     `json:"tenant_id"`
+	WorkspaceID     string                     `json:"workspace_id"`
+	Capabilities    []graphmodel.CapabilityRef `json:"capabilities,omitempty"`
+	ContextBlockIDs []string                   `json:"context_block_ids,omitempty"`
+	Budget          budget.Budget              `json:"budget"`
+	Deadline        time.Time                  `json:"deadline"`
+	RecursionDepth  int                        `json:"recursion_depth"`
+	MaxChildDepth   int                        `json:"max_child_depth"`
+	IdempotencyKey  string                     `json:"idempotency_key"`
 }
 
 // DelegationGrant is frozen into the child plan and becomes the only authority
 // the child may use. Its digest is an immutable audit identity.
 type DelegationGrant struct {
-	RequestID       string          `json:"request_id"`
-	ParentPlanID    string          `json:"parent_plan_id"`
-	ParentAttemptID string          `json:"parent_attempt_id"`
-	ChildPlanID     string          `json:"child_plan_id"`
-	ChildAgentID    string          `json:"child_agent_id"`
-	TenantID        string          `json:"tenant_id"`
-	WorkspaceID     string          `json:"workspace_id"`
-	Capabilities    []CapabilityRef `json:"capabilities,omitempty"`
-	ContextBlockIDs []string        `json:"context_block_ids,omitempty"`
-	Budget          budget.Budget   `json:"budget"`
-	Deadline        time.Time       `json:"deadline"`
-	RecursionDepth  int             `json:"recursion_depth"`
-	MaxChildDepth   int             `json:"max_child_depth"`
-	Digest          string          `json:"digest"`
+	RequestID       string                     `json:"request_id"`
+	ParentPlanID    string                     `json:"parent_plan_id"`
+	ParentAttemptID string                     `json:"parent_attempt_id"`
+	ChildPlanID     string                     `json:"child_plan_id"`
+	ChildAgentID    string                     `json:"child_agent_id"`
+	TenantID        string                     `json:"tenant_id"`
+	WorkspaceID     string                     `json:"workspace_id"`
+	Capabilities    []graphmodel.CapabilityRef `json:"capabilities,omitempty"`
+	ContextBlockIDs []string                   `json:"context_block_ids,omitempty"`
+	Budget          budget.Budget              `json:"budget"`
+	Deadline        time.Time                  `json:"deadline"`
+	RecursionDepth  int                        `json:"recursion_depth"`
+	MaxChildDepth   int                        `json:"max_child_depth"`
+	Digest          string                     `json:"digest"`
 }
 
 // FreezeDelegation proves that every child grant is a subset of its parent.
@@ -120,12 +121,14 @@ func budgetWithin(child, parent budget.Budget) bool {
 }
 
 func boundedInt64(child, parent int64) bool { return parent <= 0 || child > 0 && child <= parent }
-func boundedInt(child, parent int) bool     { return parent <= 0 || child > 0 && child <= parent }
+
+func boundedInt(child, parent int) bool { return parent <= 0 || child > 0 && child <= parent }
+
 func boundedDuration(child, parent time.Duration) bool {
 	return parent <= 0 || child > 0 && child <= parent
 }
 
-func capabilitySubset(child, parent []CapabilityRef) bool {
+func capabilitySubset(child, parent []graphmodel.CapabilityRef) bool {
 	allowed := make(map[string]struct{}, len(parent))
 	for _, item := range parent {
 		allowed[strings.TrimSpace(item.Name)+"\x00"+strings.TrimSpace(item.Version)] = struct{}{}
@@ -138,8 +141,8 @@ func capabilitySubset(child, parent []CapabilityRef) bool {
 	return true
 }
 
-func cloneCapabilities(items []CapabilityRef) []CapabilityRef {
-	result := append([]CapabilityRef(nil), items...)
+func cloneCapabilities(items []graphmodel.CapabilityRef) []graphmodel.CapabilityRef {
+	result := append([]graphmodel.CapabilityRef(nil), items...)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name+"\x00"+result[i].Version < result[j].Name+"\x00"+result[j].Version
 	})

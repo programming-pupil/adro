@@ -16,6 +16,7 @@ import (
 	coreidentity "github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -169,7 +170,7 @@ func TestWorkspaceCommandExportsPreflightsAndImportsFreshHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := orchestration.AgentDefinition{ID: orchestration.NewID(), WorkspaceID: "source", Revision: 1, Name: "CLI agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: graphmodel.NewID(), WorkspaceID: "source", Revision: 1, Name: "CLI agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 	if err := sourceDefinitions.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +226,7 @@ func TestWorkspaceCommandDefaultsMatchNativeStartupState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := orchestration.AgentDefinition{ID: orchestration.NewID(), WorkspaceID: "local", Revision: 1, Name: "Startup agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: graphmodel.NewID(), WorkspaceID: "local", Revision: 1, Name: "Startup agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 	if err := definitions.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,5 @@
-// Package orchestration contains the provider-neutral, graph based execution
-// contracts.  The package deliberately has no database or HTTP dependencies:
-// facts can be persisted by any repository and projections can be rebuilt from
-// the immutable plan, attempts and decisions.
-package orchestration
+// Package graph contains the retained graph contracts and pure transition rules.
+package graph
 
 import (
 	"crypto/rand"
@@ -46,21 +43,25 @@ type CapabilityRef struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
 }
+
 type SchemaRef struct {
 	ID      string `json:"id"`
 	Version int64  `json:"version,omitempty"`
 }
+
 type ToolPolicy struct {
 	Allowed      []string `json:"allowed,omitempty"`
 	Denied       []string `json:"denied,omitempty"`
 	Network      bool     `json:"network,omitempty"`
 	SecretScopes []string `json:"secret_scopes,omitempty"`
 }
+
 type MemoryPolicy struct {
 	ReadScopes      []string `json:"read_scopes,omitempty"`
 	WriteScopes     []string `json:"write_scopes,omitempty"`
 	RequireEvidence bool     `json:"require_evidence,omitempty"`
 }
+
 type ExecutorBinding struct {
 	ProviderID      string                 `json:"provider_id"`
 	RuntimeID       string                 `json:"runtime_id,omitempty"`
@@ -153,10 +154,12 @@ type VersionedRef struct {
 	Revision int64  `json:"revision,omitempty"`
 	Version  int64  `json:"version,omitempty"`
 }
+
 type CapabilityConstraint struct {
 	Name     string `json:"name"`
 	Required bool   `json:"required,omitempty"`
 }
+
 type SquadMember struct {
 	ID                    string                 `json:"id"`
 	AgentID               string                 `json:"agent_id"`
@@ -170,12 +173,14 @@ type SquadMember struct {
 	Budget                budget.Budget          `json:"budget,omitempty"`
 	Optional              bool                   `json:"optional,omitempty"`
 }
+
 type SquadPolicy struct {
 	MaxNestingDepth   int           `json:"max_nesting_depth,omitempty"`
 	Budget            budget.Budget `json:"budget,omitempty"`
 	ToolPolicy        ToolPolicy    `json:"tool_policy,omitempty"`
 	HumanExitRequired bool          `json:"human_exit_required,omitempty"`
 }
+
 type SquadDefinition struct {
 	ID               string        `json:"id"`
 	WorkspaceID      string        `json:"workspace_id"`
@@ -213,6 +218,7 @@ type ContextPolicy struct {
 	Optional  []string `json:"optional,omitempty"`
 	MaxTokens int64    `json:"max_tokens,omitempty"`
 }
+
 type RetryPolicy struct {
 	MaxAttempts int           `json:"max_attempts,omitempty"`
 	Backoff     time.Duration `json:"backoff,omitempty"`
@@ -297,6 +303,7 @@ type Predicate struct {
 	Value    any         `json:"value,omitempty"`
 	Children []Predicate `json:"children,omitempty"`
 }
+
 type EdgeEvent string
 
 const (
@@ -331,6 +338,7 @@ type WorkflowNode struct {
 	MergePolicy       MergePolicy  `json:"merge_policy,omitempty"`
 	RepairPolicy      RepairPolicy `json:"repair_policy,omitempty"`
 }
+
 type WorkflowEdge struct {
 	ID               string    `json:"id"`
 	From             string    `json:"from"`
@@ -345,6 +353,7 @@ type WorkflowEdge struct {
 	// completion. Without this opt-in an equal-priority match is ambiguous.
 	FanOut bool `json:"fan_out,omitempty"`
 }
+
 type WorkflowGraph struct {
 	ID               string         `json:"id"`
 	Version          int64          `json:"version"`
@@ -361,11 +370,13 @@ type PolicySnapshot struct {
 	Budget     budget.Budget `json:"budget,omitempty"`
 	CapturedAt time.Time     `json:"captured_at"`
 }
+
 type ContextRef struct {
 	SessionID      string `json:"session_id"`
 	ManifestDigest string `json:"manifest_digest"`
 	ReplayKey      string `json:"replay_key,omitempty"`
 }
+
 type PlanStatus string
 
 const (
@@ -404,6 +415,7 @@ type Lease struct {
 	FencingToken int64     `json:"fencing_token"`
 	ExpiresAt    time.Time `json:"expires_at"`
 }
+
 type StructuredResult struct {
 	Outcome     string         `json:"outcome"`
 	ReasonCode  string         `json:"reason_code,omitempty"`
@@ -411,6 +423,7 @@ type StructuredResult struct {
 	Summary     string         `json:"summary,omitempty"`
 	EvidenceIDs []string       `json:"evidence_ids,omitempty"`
 }
+
 type AttemptStatus string
 
 const (
@@ -448,11 +461,13 @@ type NodeAttempt struct {
 	StartedAt             *time.Time              `json:"started_at,omitempty"`
 	FinishedAt            *time.Time              `json:"finished_at,omitempty"`
 }
+
 type FailureReason struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Retryable bool   `json:"retryable,omitempty"`
 }
+
 type FeedbackDecision struct {
 	ID               string           `json:"id"`
 	PlanID           string           `json:"plan_id"`
@@ -475,6 +490,7 @@ func (g WorkflowGraph) CanonicalHash() (string, error) {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
 }
+
 func (p RequirementExecutionPlan) Freeze() (RequirementExecutionPlan, error) {
 	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.RequirementID) == "" || strings.TrimSpace(p.WorkspaceID) == "" {
 		return p, errors.New("plan id, requirement_id and workspace_id are required")
@@ -491,7 +507,7 @@ func (p RequirementExecutionPlan) Freeze() (RequirementExecutionPlan, error) {
 	if p.Status != PlanDraft && p.Status != PlanValidating {
 		return p, errors.New("execution plan is immutable")
 	}
-	h, err := canonicalPlanHash(p)
+	h, err := CanonicalPlanHash(p)
 	if err != nil {
 		return p, err
 	}
@@ -500,7 +516,8 @@ func (p RequirementExecutionPlan) Freeze() (RequirementExecutionPlan, error) {
 	p.Revision = 1
 	return p, nil
 }
-func canonicalPlanHash(p RequirementExecutionPlan) (string, error) {
+
+func CanonicalPlanHash(p RequirementExecutionPlan) (string, error) {
 	cp := p
 	cp.PlanHash = ""
 	cp.Status = ""
@@ -513,6 +530,7 @@ func canonicalPlanHash(p RequirementExecutionPlan) (string, error) {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
 }
+
 func (a AgentDefinition) Validate() error {
 	if strings.TrimSpace(a.ID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || strings.TrimSpace(a.Name) == "" {
 		return errors.New("agent id, workspace_id and name are required")
@@ -692,6 +710,7 @@ func (a AgentDefinition) Validate() error {
 }
 
 var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 var runtimeConfigKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
 // CanInvoke applies the versioned access contract before a provider process is
@@ -721,6 +740,7 @@ func (a AgentDefinition) CanInvoke(memberID string) bool {
 	}
 	return false
 }
+
 func (m SquadMember) Validate() error {
 	if strings.TrimSpace(m.ID) == "" || (strings.TrimSpace(m.AgentID) == "" && strings.TrimSpace(m.SquadID) == "") || strings.TrimSpace(m.Role) == "" {
 		return errors.New("squad member id, exactly one agent_id/squad_id, and role are required")
@@ -742,6 +762,7 @@ func (m SquadMember) Validate() error {
 	}
 	return nil
 }
+
 func (s SquadDefinition) Validate() error {
 	if strings.TrimSpace(s.ID) == "" || strings.TrimSpace(s.WorkspaceID) == "" || strings.TrimSpace(s.Name) == "" {
 		return errors.New("squad id, workspace_id and name are required")
@@ -818,3 +839,5 @@ func policyOverlap(policy ToolPolicy) string {
 	}
 	return ""
 }
+
+type AdmissionState string

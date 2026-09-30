@@ -21,7 +21,7 @@ import (
 	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/store"
 
 	"github.com/lib/pq"
@@ -357,8 +357,8 @@ func buildPostgresArchive(ctx context.Context, data postgresDataset, uploadRoot 
 		SourceWorkspace:  sourceWorkspace,
 		CommentRevisions: map[string][]domain.CommentRevision{},
 	}
-	definitions := orchestration.DefinitionBundle{
-		Format:            orchestration.DefinitionBundleFormat,
+	definitions := graphmodel.DefinitionBundle{
+		Format:            graphmodel.DefinitionBundleFormat,
 		SourceWorkspaceID: sourceWorkspace,
 	}
 
@@ -646,22 +646,22 @@ func buildPostgresArchive(ctx context.Context, data postgresDataset, uploadRoot 
 	return finalizeArchive(manifest, payloads)
 }
 
-func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTargets []sourceRow, workspaceID string) orchestration.AgentDefinition {
+func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTargets []sourceRow, workspaceID string) graphmodel.AgentDefinition {
 	runtime := runtimes[rowString(row, "runtime_id")]
 	runtimeID := normalizeRuntimeID(rowString(runtime, "provider"))
 	if runtimeID == "" {
 		runtimeID = normalizeRuntimeID(mapString(rowMap(row, "runtime_config"), "provider"))
 	}
-	status := orchestration.AgentActive
+	status := graphmodel.AgentActive
 	if rowString(row, "archived_at") != "" {
-		status = orchestration.AgentArchived
+		status = graphmodel.AgentArchived
 	}
 	runtimeConfig := mapPostgresRuntimeConfig(rowMap(row, "runtime_config"), runtimeID)
 	concurrency, ok := int64ToInt(maxInt64(rowInt64(row, "max_concurrent_tasks"), 1))
 	if !ok || concurrency < 1 {
 		concurrency = 1
 	}
-	return orchestration.AgentDefinition{
+	return graphmodel.AgentDefinition{
 		ID:                    rowString(row, "id"),
 		WorkspaceID:           workspaceID,
 		Revision:              maxInt64(rowInt64(row, "revision"), 1),
@@ -673,7 +673,7 @@ func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTa
 		ConversationStarters:  mapPostgresConversationStarters(row),
 		AccessPolicy:          mapPostgresAgentAccess(row, invocationTargets, workspaceID),
 		DisabledRuntimeSkills: mapPostgresDisabledRuntimeSkills(row, runtimeID),
-		ExecutorBinding: orchestration.ExecutorBinding{
+		ExecutorBinding: graphmodel.ExecutorBinding{
 			ProviderID:    "local",
 			RuntimeID:     runtimeID,
 			Model:         rowString(row, "model"),
@@ -684,8 +684,8 @@ func mapPostgresAgent(row sourceRow, runtimes map[string]sourceRow, invocationTa
 			ConfigVersion: "postgres-import-v1",
 		},
 		ConcurrencyBudget: budget.Budget{Concurrent: concurrency},
-		InputSchema:       orchestration.SchemaRef{ID: "portable.agent.input", Version: 1},
-		OutputSchema:      orchestration.SchemaRef{ID: "portable.agent.output", Version: 1},
+		InputSchema:       graphmodel.SchemaRef{ID: "portable.agent.input", Version: 1},
+		OutputSchema:      graphmodel.SchemaRef{ID: "portable.agent.output", Version: 1},
 		Status:            status,
 		CreatedBy:         rowString(row, "owner_id"),
 		CreatedAt:         rowTime(row, "created_at"),
@@ -771,9 +771,9 @@ func portableRuntimeConfigKey(value string) bool {
 	return true
 }
 
-func mapPostgresDisabledRuntimeSkills(row sourceRow, runtimeID string) []orchestration.DisabledRuntimeSkill {
+func mapPostgresDisabledRuntimeSkills(row sourceRow, runtimeID string) []graphmodel.DisabledRuntimeSkill {
 	values, _ := row["disabled_runtime_skills"].([]any)
-	result := make([]orchestration.DisabledRuntimeSkill, 0, len(values))
+	result := make([]graphmodel.DisabledRuntimeSkill, 0, len(values))
 	seen := map[string]bool{}
 	for _, value := range values {
 		entry, ok := value.(map[string]any)
@@ -799,7 +799,7 @@ func mapPostgresDisabledRuntimeSkills(row sourceRow, runtimeID string) []orchest
 			continue
 		}
 		seen[identity] = true
-		result = append(result, orchestration.DisabledRuntimeSkill{RuntimeID: runtimeID, Provider: runtimeID, Root: root, Key: key, Name: mapString(entry, "name"), Plugin: plugin})
+		result = append(result, graphmodel.DisabledRuntimeSkill{RuntimeID: runtimeID, Provider: runtimeID, Root: root, Key: key, Name: mapString(entry, "name"), Plugin: plugin})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return strings.Join([]string{result[i].Root, result[i].Key, result[i].Plugin}, "\x00") < strings.Join([]string{result[j].Root, result[j].Key, result[j].Plugin}, "\x00")
@@ -807,15 +807,15 @@ func mapPostgresDisabledRuntimeSkills(row sourceRow, runtimeID string) []orchest
 	return result
 }
 
-func mapPostgresConversationStarters(row sourceRow) []orchestration.ConversationStarter {
+func mapPostgresConversationStarters(row sourceRow) []graphmodel.ConversationStarter {
 	values, _ := row["conversation_starters"].([]any)
-	result := make([]orchestration.ConversationStarter, 0, len(values))
+	result := make([]graphmodel.ConversationStarter, 0, len(values))
 	for _, value := range values {
 		entry, ok := value.(map[string]any)
 		if !ok {
 			continue
 		}
-		starter := orchestration.ConversationStarter{Label: mapString(entry, "label"), Prompt: mapString(entry, "prompt")}
+		starter := graphmodel.ConversationStarter{Label: mapString(entry, "label"), Prompt: mapString(entry, "prompt")}
 		if starter.Label != "" && starter.Prompt != "" && len(result) < 3 {
 			result = append(result, starter)
 		}
@@ -823,23 +823,23 @@ func mapPostgresConversationStarters(row sourceRow) []orchestration.Conversation
 	return result
 }
 
-func mapPostgresAgentAccess(row sourceRow, targets []sourceRow, workspaceID string) orchestration.AgentAccessPolicy {
+func mapPostgresAgentAccess(row sourceRow, targets []sourceRow, workspaceID string) graphmodel.AgentAccessPolicy {
 	mode := rowString(row, "permission_mode")
 	if mode == "" {
 		if rowString(row, "visibility") == "workspace" {
-			return orchestration.AgentAccessPolicy{Mode: "workspace"}
+			return graphmodel.AgentAccessPolicy{Mode: "workspace"}
 		}
-		return orchestration.AgentAccessPolicy{Mode: "private"}
+		return graphmodel.AgentAccessPolicy{Mode: "private"}
 	}
 	if mode != "public_to" {
-		return orchestration.AgentAccessPolicy{Mode: "private"}
+		return graphmodel.AgentAccessPolicy{Mode: "private"}
 	}
 	members := make([]string, 0)
 	for _, target := range targets {
 		switch rowString(target, "target_type") {
 		case "workspace":
 			if rowString(target, "target_id") == workspaceID {
-				return orchestration.AgentAccessPolicy{Mode: "workspace"}
+				return graphmodel.AgentAccessPolicy{Mode: "workspace"}
 			}
 		case "member":
 			if targetID := rowString(target, "target_id"); targetID != "" {
@@ -848,10 +848,10 @@ func mapPostgresAgentAccess(row sourceRow, targets []sourceRow, workspaceID stri
 		}
 	}
 	if len(members) == 0 {
-		return orchestration.AgentAccessPolicy{Mode: "private"}
+		return graphmodel.AgentAccessPolicy{Mode: "private"}
 	}
 	sort.Strings(members)
-	return orchestration.AgentAccessPolicy{Mode: "members", MemberIDs: members}
+	return graphmodel.AgentAccessPolicy{Mode: "members", MemberIDs: members}
 }
 
 func mapPostgresMCPServer(row sourceRow, workspaceID string) domain.MCPServer {
@@ -1025,11 +1025,11 @@ func mapPostgresSkill(row sourceRow, files []sourceRow, workspaceID string) doma
 	}
 }
 
-func mapPostgresSquad(row sourceRow, rows []sourceRow, workspaceID string, agents map[string]bool) (orchestration.SquadDefinition, bool) {
+func mapPostgresSquad(row sourceRow, rows []sourceRow, workspaceID string, agents map[string]bool) (graphmodel.SquadDefinition, bool) {
 	squadID := rowString(row, "id")
 	leaderID := rowString(row, "leader_id")
-	members := make([]orchestration.SquadMember, 0, len(rows))
-	nodes := make([]orchestration.WorkflowNode, 0, len(rows))
+	members := make([]graphmodel.SquadMember, 0, len(rows))
+	nodes := make([]graphmodel.WorkflowNode, 0, len(rows))
 	entryIDs := make([]string, 0, len(rows))
 	seenLeader := false
 	for _, memberRow := range rows {
@@ -1053,7 +1053,7 @@ func mapPostgresSquad(row sourceRow, rows []sourceRow, workspaceID string, agent
 				role = "leader"
 			}
 		}
-		members = append(members, orchestration.SquadMember{
+		members = append(members, graphmodel.SquadMember{
 			ID:          memberID,
 			AgentID:     agentID,
 			Role:        role,
@@ -1061,17 +1061,17 @@ func mapPostgresSquad(row sourceRow, rows []sourceRow, workspaceID string, agent
 			MaxAttempts: 1,
 		})
 		nodeID := "node-" + memberID
-		nodes = append(nodes, orchestration.WorkflowNode{
+		nodes = append(nodes, graphmodel.WorkflowNode{
 			ID:       nodeID,
-			Kind:     orchestration.NodeAgent,
-			AgentRef: &orchestration.VersionedRef{ID: agentID, Revision: 1},
+			Kind:     graphmodel.NodeAgent,
+			AgentRef: &graphmodel.VersionedRef{ID: agentID, Revision: 1},
 		})
 		entryIDs = append(entryIDs, nodeID)
 	}
 	if squadID == "" || !seenLeader || len(members) == 0 {
-		return orchestration.SquadDefinition{}, false
+		return graphmodel.SquadDefinition{}, false
 	}
-	return orchestration.SquadDefinition{
+	return graphmodel.SquadDefinition{
 		ID:               squadID,
 		WorkspaceID:      workspaceID,
 		Name:             rowString(row, "name"),
@@ -1079,15 +1079,15 @@ func mapPostgresSquad(row sourceRow, rows []sourceRow, workspaceID string, agent
 		Revision:         maxInt64(rowInt64(row, "revision"), 1),
 		PublishedVersion: 1,
 		Members:          members,
-		Graph: orchestration.WorkflowGraph{
+		Graph: graphmodel.WorkflowGraph{
 			ID:           "graph-" + squadID,
 			Version:      1,
 			EntryNodeIDs: append([]string(nil), entryIDs...),
 			ExitNodeIDs:  append([]string(nil), entryIDs...),
 			Nodes:        nodes,
 		},
-		Policy: orchestration.SquadPolicy{MaxNestingDepth: 1},
-		Status: orchestration.SquadPublished,
+		Policy: graphmodel.SquadPolicy{MaxNestingDepth: 1},
+		Status: graphmodel.SquadPublished,
 	}, true
 }
 

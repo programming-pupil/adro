@@ -19,7 +19,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -216,7 +216,7 @@ func TestPipelineResultRetryIsIdempotentAfterDurableAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projectionAfter.Nodes[advanced.ActiveGraphNodeID].CurrentAttempt != activeAttemptBefore || projectionAfter.Attempts[activeAttemptBefore].Status != orchestration.AttemptRunning {
+	if projectionAfter.Nodes[advanced.ActiveGraphNodeID].CurrentAttempt != activeAttemptBefore || projectionAfter.Attempts[activeAttemptBefore].Status != graphmodel.AttemptRunning {
 		t.Fatalf("late duplicate altered the new graph attempt: before=%+v after=%+v", projectionBefore, projectionAfter)
 	}
 }
@@ -296,7 +296,7 @@ func TestPipelineConcurrentDuplicateResultHasOneTransition(t *testing.T) {
 	}
 	finished := 0
 	for _, attempt := range projection.Attempts {
-		if attempt.Status == orchestration.AttemptPassed {
+		if attempt.Status == graphmodel.AttemptPassed {
 			finished++
 		}
 	}
@@ -345,11 +345,11 @@ func TestPipelineProviderDispatchFailureClosesCompatibilityAttempt(t *testing.T)
 		t.Fatal(err)
 	}
 	attempt := projection.Attempts[run.ActiveGraphAttemptID]
-	if attempt.Status != orchestration.AttemptFailed || attempt.FinishedAt == nil || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_failure" {
+	if attempt.Status != graphmodel.AttemptFailed || attempt.FinishedAt == nil || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_failure" {
 		t.Fatalf("failed attempt=%+v projection=%+v", attempt, projection)
 	}
-	replayed, err := orchestration.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
-	if err != nil || replayed.Attempts[attempt.ID].Status != orchestration.AttemptFailed {
+	replayed, err := graphmodel.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
+	if err != nil || replayed.Attempts[attempt.ID].Status != graphmodel.AttemptFailed {
 		t.Fatalf("replay=%+v err=%v", replayed, err)
 	}
 }
@@ -463,10 +463,10 @@ func TestPipelineLocalCollectorCompletesRealProcessRepairLoop(t *testing.T) {
 		t.Fatalf("load compatibility projection: %v", err)
 	}
 	eventChain := server.Orchestration.ListEvents(plan.ID, 0)
-	if projection.Status != orchestration.PlanTerminal || projection.TerminalOutcome != "succeeded" || len(projection.Attempts) != len(final.History) {
+	if projection.Status != graphmodel.PlanTerminal || projection.TerminalOutcome != "succeeded" || len(projection.Attempts) != len(final.History) {
 		t.Fatalf("compatibility graph did not mirror the repair loop: status=%s outcome=%q attempts=%d history=%d nodes=%+v events=%d last_event=%+v", projection.Status, projection.TerminalOutcome, len(projection.Attempts), len(final.History), projection.Nodes, len(eventChain), eventChain[len(eventChain)-1])
 	}
-	replayed, err := orchestration.ReplayProjection(plan, eventChain)
+	replayed, err := graphmodel.ReplayProjection(plan, eventChain)
 	if err != nil {
 		t.Fatalf("replay compatibility graph: %v", err)
 	}

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/workspacebundle"
 )
 
@@ -18,7 +18,7 @@ func TestWorkspaceMigrationHTTPExportPreflightImportAndReplay(t *testing.T) {
 	if _, err := source.Store.CreateRequirement(domain.Requirement{ID: "requirement-http", WorkspaceID: "source", Title: "Migrated requirement", Description: "portable", AcceptanceCriteria: []string{"retained"}, AssigneeMemberIDs: []string{"member"}}); err != nil {
 		t.Fatal(err)
 	}
-	agent := orchestration.AgentDefinition{ID: orchestration.NewID(), WorkspaceID: "source", Revision: 1, Name: "Portable agent", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: graphmodel.NewID(), WorkspaceID: "source", Revision: 1, Name: "Portable agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 	if err := source.Orchestration.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}

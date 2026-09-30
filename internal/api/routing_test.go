@@ -13,7 +13,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -75,17 +75,17 @@ func TestMaterializationUsesNativeAgentAndSquadAssignments(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := New(store.NewMemory(), provider.NewLocalProvider("/usr/bin/true", nil, t.TempDir(), bus), fs, bus, nil)
-			agent := orchestration.AgentDefinition{
-				ID: "agent-1", WorkspaceID: "workspace", Revision: 1, Name: "Builder", Status: orchestration.AgentActive,
-				ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
-				InputSchema:     orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1},
+			agent := graphmodel.AgentDefinition{
+				ID: "agent-1", WorkspaceID: "workspace", Revision: 1, Name: "Builder", Status: graphmodel.AgentActive,
+				ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
+				InputSchema:     graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1},
 			}
 			if err := s.Orchestration.SaveAgent(agent, 0); err != nil {
 				t.Fatal(err)
 			}
 			if test.targetType == "squad" {
-				graph := orchestration.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"node-1"}, ExitNodeIDs: []string{"node-1"}, Nodes: []orchestration.WorkflowNode{{ID: "node-1", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agent.ID, Revision: 1}}}}
-				squad := orchestration.SquadDefinition{ID: "squad-1", WorkspaceID: "workspace", Name: "Delivery", Revision: 1, PublishedVersion: 1, Members: []orchestration.SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph, Policy: orchestration.SquadPolicy{MaxNestingDepth: 1}, Status: orchestration.SquadPublished}
+				graph := graphmodel.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"node-1"}, ExitNodeIDs: []string{"node-1"}, Nodes: []graphmodel.WorkflowNode{{ID: "node-1", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agent.ID, Revision: 1}}}}
+				squad := graphmodel.SquadDefinition{ID: "squad-1", WorkspaceID: "workspace", Name: "Delivery", Revision: 1, PublishedVersion: 1, Members: []graphmodel.SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph, Policy: graphmodel.SquadPolicy{MaxNestingDepth: 1}, Status: graphmodel.SquadPublished}
 				if err := s.Orchestration.SaveSquad(squad, 0); err != nil {
 					t.Fatal(err)
 				}

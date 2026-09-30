@@ -1,6 +1,8 @@
-package orchestration
+package graph
 
-import "time"
+import (
+	"time"
+)
 
 // GraphDiagnostics is the bounded, side-effect-free summary shown by the
 // control plane before a graph is published or executed. It deliberately

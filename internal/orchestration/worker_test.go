@@ -3,49 +3,13 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"github.com/adro-project/adro/internal/events"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
+	"github.com/adro-project/adro/internal/provider"
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/adro-project/adro/internal/events"
-	"github.com/adro-project/adro/internal/provider"
 )
-
-func TestCloneProjectionPreservesRepairLineageMaps(t *testing.T) {
-	original := PlanProjection{RepairPlans: map[string]RepairPlan{
-		"repair-1": {
-			ID:                  "repair-1",
-			PlanID:              "plan-1",
-			RepairNodeID:        "repair",
-			RepairAttemptID:     "repair-attempt-1",
-			TargetNodeID:        "developer",
-			VerificationNodeIDs: []string{"unit", "qa"},
-			MaxRounds:           2,
-			Round:               1,
-			State:               RepairVerifying,
-			StateHistory:        []RepairLifecycle{RepairPlanned, RepairDispatched, RepairPatched, RepairVerifying},
-			TargetAttemptID:     "developer-attempt-2",
-			VerificationAttempts: map[string]string{
-				"unit": "unit-attempt-2",
-			},
-			VerifiedNodes: map[string]bool{"unit": true},
-		},
-	}}
-
-	cloned := cloneProjection(original)
-	got := cloned.RepairPlans["repair-1"]
-	if got.VerificationAttempts["unit"] != "unit-attempt-2" || !got.VerifiedNodes["unit"] {
-		t.Fatalf("repair lineage maps were lost while cloning: %+v", got)
-	}
-	got.VerificationAttempts["qa"] = "unit-test-only"
-	got.VerifiedNodes["qa"] = true
-	if _, ok := original.RepairPlans["repair-1"].VerificationAttempts["qa"]; ok {
-		t.Fatal("clone shares verification attempts map with original")
-	}
-	if original.RepairPlans["repair-1"].VerifiedNodes["qa"] {
-		t.Fatal("clone shares verified nodes map with original")
-	}
-}
 
 func TestProviderOutcomeRequiresExplicitStructuredMarker(t *testing.T) {
 	if outcome, fields := providerOutcome("the QA report says this is a bug"); outcome != "" || fields != nil {
@@ -147,35 +111,22 @@ func TestProviderOutcomeReadsDSHTerminalResult(t *testing.T) {
 	}
 }
 
-func TestMissingProviderResultIsRetryableForRepairLifecycle(t *testing.T) {
-	attempt := NodeAttempt{
-		Status: AttemptFailed,
-		FailureReason: &FailureReason{
-			Code:      "provider_result_missing",
-			Retryable: true,
-		},
-	}
-	if !isRetryableRepairProviderFailure(attempt) {
-		t.Fatal("missing structured provider result must be retryable")
-	}
-}
-
 func TestWorkerCancellationClosesRunningAttemptAndLeavesTerminalProjection(t *testing.T) {
-	plan, err := (RequirementExecutionPlan{
+	plan, err := (graphmodel.RequirementExecutionPlan{
 		ID: "cancel-plan", RequirementID: "req", WorkspaceID: "w",
-		GraphSnapshot: WorkflowGraph{ID: "cancel-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}}}},
-		Status:        PlanDraft,
+		GraphSnapshot: graphmodel.WorkflowGraph{ID: "cancel-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: "agent", Revision: 1}}}},
+		Status:        graphmodel.PlanDraft,
 	}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	lease := Lease{Key: "cancel-plan:node", Owner: "worker", FencingToken: now.UnixNano(), ExpiresAt: now.Add(time.Minute)}
-	attempt, err := projection.StartAttempt(plan, "node", "attempt-1", 1, lease, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: "cancel-dispatch", PayloadHash: "payload", Now: now})
+	lease := graphmodel.Lease{Key: "cancel-plan:node", Owner: "worker", FencingToken: now.UnixNano(), ExpiresAt: now.Add(time.Minute)}
+	attempt, err := projection.StartAttempt(plan, "node", "attempt-1", 1, lease, testEnvelope(), graphmodel.TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: "cancel-dispatch", PayloadHash: "payload", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,40 +140,40 @@ func TestWorkerCancellationClosesRunningAttemptAndLeavesTerminalProjection(t *te
 	if !errors.Is(runErr, context.Canceled) {
 		t.Fatalf("worker error=%v, want context cancellation", runErr)
 	}
-	if projection.Status != PlanTerminal || projection.TerminalOutcome != "timed_out" {
+	if projection.Status != graphmodel.PlanTerminal || projection.TerminalOutcome != "timed_out" {
 		t.Fatalf("cancelled graph was not terminalized: status=%s outcome=%q", projection.Status, projection.TerminalOutcome)
 	}
-	if got := projection.Attempts[attempt.ID].Status; got != AttemptTimedOut {
+	if got := projection.Attempts[attempt.ID].Status; got != graphmodel.AttemptTimedOut {
 		t.Fatalf("active attempt status=%s, want timed_out", got)
 	}
 }
 
 func TestWorkerReconcileResolvesProviderFromFrozenAgent(t *testing.T) {
 	repo := NewMemoryRepository()
-	agent := AgentDefinition{
-		ID: "selected-agent", WorkspaceID: "w", Revision: 1, Name: "selected", Status: AgentActive,
-		ExecutorBinding: ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
-		InputSchema:     SchemaRef{ID: "input", Version: 1},
-		OutputSchema:    SchemaRef{ID: "output", Version: 1},
+	agent := graphmodel.AgentDefinition{
+		ID: "selected-agent", WorkspaceID: "w", Revision: 1, Name: "selected", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input", Version: 1},
+		OutputSchema:    graphmodel.SchemaRef{ID: "output", Version: 1},
 	}
 	if err := repo.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := (RequirementExecutionPlan{
+	plan, err := (graphmodel.RequirementExecutionPlan{
 		ID: "selected-provider-plan", RequirementID: "req", WorkspaceID: "w",
-		GraphSnapshot: WorkflowGraph{ID: "selected-provider-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}},
-		Status:        PlanDraft,
+		GraphSnapshot: graphmodel.WorkflowGraph{ID: "selected-provider-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agent.ID, Revision: 1}}}},
+		Status:        graphmodel.PlanDraft,
 	}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	lease := Lease{Key: "selected-provider-plan:node", Owner: "worker", FencingToken: now.UnixNano(), ExpiresAt: now.Add(time.Minute)}
-	attempt, err := projection.StartAttempt(plan, "node", "selected-attempt", 1, lease, testEnvelope(), TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: "selected-dispatch", PayloadHash: "payload", Now: now})
+	lease := graphmodel.Lease{Key: "selected-provider-plan:node", Owner: "worker", FencingToken: now.UnixNano(), ExpiresAt: now.Add(time.Minute)}
+	attempt, err := projection.StartAttempt(plan, "node", "selected-attempt", 1, lease, testEnvelope(), graphmodel.TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: "selected-dispatch", PayloadHash: "payload", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +183,7 @@ func TestWorkerReconcileResolvesProviderFromFrozenAgent(t *testing.T) {
 	fallback := provider.NewMockProvider(events.NewBus())
 	worker := Worker{Scheduler: Scheduler{Repository: repo, Executor: Executor{
 		Provider: fallback, Repository: repo,
-		ProviderResolver: func(_ context.Context, resolved AgentDefinition) (provider.ExecutionProvider, error) {
+		ProviderResolver: func(_ context.Context, resolved graphmodel.AgentDefinition) (provider.ExecutionProvider, error) {
 			if resolved.ID != agent.ID || resolved.Revision != agent.Revision {
 				t.Fatalf("resolved agent=%+v", resolved)
 			}

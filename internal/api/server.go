@@ -33,6 +33,7 @@ import (
 	"github.com/adro-project/adro/internal/memory"
 	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	schedulerroute "github.com/adro-project/adro/internal/orchestration/scheduler/route"
 	"github.com/adro-project/adro/internal/provider"
@@ -668,7 +669,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if rest == "" {
 			if r.Method == http.MethodGet && s.Orchestration != nil {
-				agents := s.Orchestration.ListAgents(workspaceID, orchestration.AgentStatus(r.URL.Query().Get("status")))
+				agents := s.Orchestration.ListAgents(workspaceID, graphmodel.AgentStatus(r.URL.Query().Get("status")))
 				if capability := strings.TrimSpace(r.URL.Query().Get("capability")); capability != "" {
 					agents = filterAgentsByCapability(agents, capability)
 				}
@@ -983,7 +984,7 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	var transitionSeconds float64
 	var tokenUsage, costCents int64
 	toolCalls := 0
-	repairStates := map[orchestration.RepairLifecycle]int{}
+	repairStates := map[graphmodel.RepairLifecycle]int{}
 	if s.Orchestration != nil {
 		for _, plan := range s.Orchestration.ListPlans("") {
 			projection, err := s.Orchestration.GetProjection(plan.ID)
@@ -992,11 +993,11 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 			}
 			for _, node := range projection.Nodes {
 				switch node.Status {
-				case orchestration.AttemptReady:
+				case graphmodel.AttemptReady:
 					ready++
-				case orchestration.AttemptRunning:
+				case graphmodel.AttemptRunning:
 					running++
-				case orchestration.AttemptWaiting:
+				case graphmodel.AttemptWaiting:
 					waiting++
 				}
 				if node.RetryCount > 0 {
@@ -1051,7 +1052,7 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "# HELP adro_orchestration_usage_total Aggregated plan usage by unit.\n# TYPE adro_orchestration_usage_total counter\nadro_orchestration_usage_total{unit=\"tokens\"} %d\nadro_orchestration_usage_total{unit=\"tool_calls\"} %d\nadro_orchestration_usage_total{unit=\"cost_cents\"} %d\n", tokenUsage, toolCalls, costCents)
 	fmt.Fprintln(w, "# HELP adro_repair_plans_total Repair plans by lifecycle state.")
 	fmt.Fprintln(w, "# TYPE adro_repair_plans_total gauge")
-	for _, state := range []orchestration.RepairLifecycle{orchestration.RepairPlanned, orchestration.RepairDispatched, orchestration.RepairPatched, orchestration.RepairVerifying, orchestration.RepairVerified, orchestration.RepairFailed, orchestration.RepairExhausted} {
+	for _, state := range []graphmodel.RepairLifecycle{graphmodel.RepairPlanned, graphmodel.RepairDispatched, graphmodel.RepairPatched, graphmodel.RepairVerifying, graphmodel.RepairVerified, graphmodel.RepairFailed, graphmodel.RepairExhausted} {
 		fmt.Fprintf(w, "adro_repair_plans_total{state=%q} %d\n", state, repairStates[state])
 	}
 }
@@ -4118,7 +4119,7 @@ func (s *Server) requirementExecutionPrincipals(req domain.Requirement) ([]strin
 			return nil, "", "", errors.New("Agent definitions are unavailable")
 		}
 		agent, err := s.Orchestration.GetAgent(req.WorkspaceID, targetID, 0)
-		if err != nil || agent.Status != orchestration.AgentActive {
+		if err != nil || agent.Status != graphmodel.AgentActive {
 			return nil, "", "", fmt.Errorf("assigned Agent %q is not active in workspace %q", targetID, req.WorkspaceID)
 		}
 		return []string{targetID}, targetID, "requirement-agent", nil
@@ -4127,7 +4128,7 @@ func (s *Server) requirementExecutionPrincipals(req domain.Requirement) ([]strin
 			return nil, "", "", errors.New("Squad definitions are unavailable")
 		}
 		squad, err := s.Orchestration.GetSquad(req.WorkspaceID, targetID, 0)
-		if err != nil || squad.Status != orchestration.SquadPublished {
+		if err != nil || squad.Status != graphmodel.SquadPublished {
 			return nil, "", "", fmt.Errorf("assigned Squad %q is not published in workspace %q", targetID, req.WorkspaceID)
 		}
 		for _, member := range squad.Members {

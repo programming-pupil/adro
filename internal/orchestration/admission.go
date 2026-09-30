@@ -10,15 +10,14 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core/budget"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
-type AdmissionState string
-
 const (
-	AdmissionAdmitted AdmissionState = "admitted"
-	AdmissionWaiting  AdmissionState = "waiting"
-	AdmissionRejected AdmissionState = "rejected"
-	AdmissionShed     AdmissionState = "shed"
+	AdmissionAdmitted graphmodel.AdmissionState = "admitted"
+	AdmissionWaiting  graphmodel.AdmissionState = "waiting"
+	AdmissionRejected graphmodel.AdmissionState = "rejected"
+	AdmissionShed     graphmodel.AdmissionState = "shed"
 )
 
 type AdmissionRequest struct {
@@ -82,7 +81,7 @@ func (r AdmissionRequest) validate() error {
 
 type AdmissionDecision struct {
 	RequestID          string                       `json:"request_id"`
-	State              AdmissionState               `json:"state"`
+	State              graphmodel.AdmissionState    `json:"state"`
 	Reason             string                       `json:"reason"`
 	StableKey          string                       `json:"stable_key"`
 	EffectivePriority  int                          `json:"effective_priority"`
@@ -365,7 +364,7 @@ func (q *FairAdmissionQueue) starvationDeadlineLocked(item queuedAdmission) time
 	return item.Request.SubmittedAt.Add(time.Duration(agingRounds) * q.policy.AgingInterval).Add(time.Duration(queueRounds) * q.policy.StarvationRoundPenalty)
 }
 
-func (q *FairAdmissionQueue) decisionLocked(item queuedAdmission, now time.Time, state AdmissionState, reason string) AdmissionDecision {
+func (q *FairAdmissionQueue) decisionLocked(item queuedAdmission, now time.Time, state graphmodel.AdmissionState, reason string) AdmissionDecision {
 	return AdmissionDecision{
 		RequestID: item.Request.ID, State: state, Reason: reason, StableKey: item.StableKey,
 		EffectivePriority: q.effectivePriorityLocked(item, now), VirtualFinish: item.VirtualFinish,
@@ -374,7 +373,7 @@ func (q *FairAdmissionQueue) decisionLocked(item queuedAdmission, now time.Time,
 	}
 }
 
-func (q *FairAdmissionQueue) rejectedDecisionLocked(request AdmissionRequest, state AdmissionState, reason string) AdmissionDecision {
+func (q *FairAdmissionQueue) rejectedDecisionLocked(request AdmissionRequest, state graphmodel.AdmissionState, reason string) AdmissionDecision {
 	priority, capped := q.cappedPriorityLocked(request)
 	item := queuedAdmission{Request: request, StableKey: stableAdmissionKey(request), BasePriority: priority, Capped: capped}
 	return q.decisionLocked(item, request.SubmittedAt, state, reason)

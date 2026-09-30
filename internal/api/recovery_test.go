@@ -12,7 +12,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 	"log/slog"
@@ -156,16 +156,16 @@ func TestRecoveryWorkerStartsAndBindsLegacyGraphAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	attempt := projection.Attempts[scope.AttemptID]
-	if attempt.Status != orchestration.AttemptRunning || attempt.RunID == "" || attempt.SessionID == "" || attempt.WorkDir == "" {
+	if attempt.Status != graphmodel.AttemptRunning || attempt.RunID == "" || attempt.SessionID == "" || attempt.WorkDir == "" {
 		t.Fatalf("recovered graph attempt=%+v", attempt)
 	}
-	replayed, err := orchestration.ReplayProjection(mustPlan(t, server, run.WorkspaceID, scope.PlanID), server.Orchestration.ListEvents(scope.PlanID, 0))
+	replayed, err := graphmodel.ReplayProjection(mustPlan(t, server, run.WorkspaceID, scope.PlanID), server.Orchestration.ListEvents(scope.PlanID, 0))
 	if err != nil || replayed.Attempts[scope.AttemptID].RunID != attempt.RunID {
 		t.Fatalf("replay=%+v err=%v", replayed, err)
 	}
 }
 
-func mustPlan(t *testing.T, server *Server, workspaceID, planID string) orchestration.RequirementExecutionPlan {
+func mustPlan(t *testing.T, server *Server, workspaceID, planID string) graphmodel.RequirementExecutionPlan {
 	t.Helper()
 	plan, err := server.Orchestration.GetPlan(workspaceID, planID)
 	if err != nil {

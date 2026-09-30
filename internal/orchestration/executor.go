@@ -14,6 +14,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/obs/trace"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/telemetry"
 )
@@ -24,13 +25,13 @@ import (
 // this adapter with a queue consumer without changing the contracts.
 type Executor struct {
 	Provider             provider.ExecutionProvider
-	ProviderResolver     func(context.Context, AgentDefinition) (provider.ExecutionProvider, error)
-	InstructionsResolver func(context.Context, AgentDefinition) (string, error)
+	ProviderResolver     func(context.Context, graphmodel.AgentDefinition) (provider.ExecutionProvider, error)
+	InstructionsResolver func(context.Context, graphmodel.AgentDefinition) (string, error)
 	Repository           Repository
-	Events               interface{ AppendEvent(Event) error }
-	GateEvaluator        GateEvaluator
-	MergeReducer         MergeReducer
-	RepairController     RepairController
+	Events               interface{ AppendEvent(graphmodel.Event) error }
+	GateEvaluator        graphmodel.GateEvaluator
+	MergeReducer         graphmodel.MergeReducer
+	RepairController     graphmodel.RepairController
 	Tracer               telemetry.Tracer
 	Owner                string
 	InvokerID            string
@@ -45,7 +46,7 @@ func (e Executor) now() time.Time {
 	return time.Now().UTC()
 }
 
-func (e Executor) leaseTTL(node WorkflowNode) time.Duration {
+func (e Executor) leaseTTL(node graphmodel.WorkflowNode) time.Duration {
 	if node.Timeout > 0 {
 		return node.Timeout
 	}
@@ -63,13 +64,16 @@ func (e Executor) tracer() telemetry.Tracer {
 }
 
 type eventAppender interface {
-	AppendEvent(Event) error
-	ListEvents(planID string, after int64) []Event
+	AppendEvent(graphmodel.Event) error
+	ListEvents(planID string, after int64) []graphmodel.Event
 }
 
-type projectionSaver interface{ SaveProjection(PlanProjection) error }
+type projectionSaver interface {
+	SaveProjection(graphmodel.PlanProjection) error
+}
+
 type projectionEventCommitter interface {
-	CommitEventProjection(Event, PlanProjection) error
+	CommitEventProjection(graphmodel.Event, graphmodel.PlanProjection) error
 }
 
 type outboxStore interface {
@@ -82,26 +86,26 @@ type outboxStore interface {
 // provider. Merge/gate nodes complete with explicit evidence; human nodes enter
 // waiting and can only leave through an approval transition. Keeping this in
 // the executor preserves the same attempt/event transaction as agent nodes.
-func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, limit int) ([]NodeAttempt, error) {
+func (e Executor) AdvanceStructural(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, limit int) ([]graphmodel.NodeAttempt, error) {
 	if projection == nil {
 		return nil, fmt.Errorf("projection is required")
 	}
 	if err := envelope.Validate(); err != nil {
 		return nil, fmt.Errorf("context envelope: %w", err)
 	}
-	started := make([]NodeAttempt, 0)
+	started := make([]graphmodel.NodeAttempt, 0)
 	for _, node := range ReadyNodesAt(plan, *projection, e.now()) {
-		if node.Kind == NodeAgent || node.Kind == NodeSquad || (limit > 0 && len(started) >= limit) {
+		if node.Kind == graphmodel.NodeAgent || node.Kind == graphmodel.NodeSquad || (limit > 0 && len(started) >= limit) {
 			continue
 		}
-		before := cloneProjection(*projection)
+		before := graphmodel.CloneProjection(*projection)
 		attemptNo := projection.Nodes[node.ID].AttemptNo + 1
 		attemptID := domain.NewID()
 		now := e.now()
-		lease := Lease{Key: plan.ID + ":" + node.ID, Owner: e.Owner, FencingToken: now.UnixNano(), ExpiresAt: now.Add(e.leaseTTL(node))}
+		lease := graphmodel.Lease{Key: plan.ID + ":" + node.ID, Owner: e.Owner, FencingToken: now.UnixNano(), ExpiresAt: now.Add(e.leaseTTL(node))}
 		key := plan.ID + ":" + node.ID + ":" + fmt.Sprint(attemptNo)
 		h := sha256.Sum256([]byte(key + envelope.ReplayKey))
-		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, envelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: hex.EncodeToString(h[:]), Now: now})
+		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, envelope, graphmodel.TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: hex.EncodeToString(h[:]), Now: now})
 		if err != nil {
 			return started, err
 		}
@@ -109,8 +113,8 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 			*projection = before
 			return started, err
 		}
-		if node.Kind == NodeHuman {
-			waiting, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: "waiting", Result: StructuredResult{Outcome: "approval_pending", Summary: "human approval required"}, IdempotencyKey: key + ":waiting", Now: now})
+		if node.Kind == graphmodel.NodeHuman {
+			waiting, err := projection.FinishAttempt(plan, a.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: "waiting", Result: graphmodel.StructuredResult{Outcome: "approval_pending", Summary: "human approval required"}, IdempotencyKey: key + ":waiting", Now: now})
 			if err != nil {
 				*projection = before
 				return started, err
@@ -122,7 +126,7 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 			started = append(started, waiting)
 			continue
 		}
-		input := StructuralInput{Plan: plan, Projection: cloneProjection(*projection), Node: node, Attempt: a, Envelope: envelope, Incoming: incomingStructuralSources(plan, *projection, node.ID)}
+		input := graphmodel.StructuralInput{Plan: plan, Projection: graphmodel.CloneProjection(*projection), Node: node, Attempt: a, Envelope: envelope, Incoming: graphmodel.IncomingStructuralSources(plan, *projection, node.ID)}
 		decision, err := e.evaluateStructural(ctx, input)
 		if err != nil {
 			*projection = before
@@ -133,7 +137,7 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 			return started, fmt.Errorf("%s node %s returned an incomplete structural decision", node.Kind, node.ID)
 		}
 		finishKey := key + ":" + decision.Result.ReasonCode
-		finished, err := projection.FinishAttempt(plan, a.ID, TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: decision.Event, Result: decision.Result, Failure: decision.Failure, OutputArtifacts: decision.ArtifactIDs, IdempotencyKey: finishKey, Now: now})
+		finished, err := projection.FinishAttempt(plan, a.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: a.ID, LeaseToken: lease.FencingToken, Event: decision.Event, Result: decision.Result, Failure: decision.Failure, OutputArtifacts: decision.ArtifactIDs, IdempotencyKey: finishKey, Now: now})
 		if err != nil {
 			*projection = before
 			return started, err
@@ -147,32 +151,32 @@ func (e Executor) AdvanceStructural(ctx context.Context, plan RequirementExecuti
 	return started, nil
 }
 
-func (e Executor) evaluateStructural(ctx context.Context, input StructuralInput) (StructuralDecision, error) {
+func (e Executor) evaluateStructural(ctx context.Context, input graphmodel.StructuralInput) (graphmodel.StructuralDecision, error) {
 	switch input.Node.Kind {
-	case NodeGate:
+	case graphmodel.NodeGate:
 		evaluator := e.GateEvaluator
 		if evaluator == nil {
-			evaluator = DefaultGateEvaluator{}
+			evaluator = graphmodel.DefaultGateEvaluator{}
 		}
 		return evaluator.EvaluateGate(ctx, input)
-	case NodeMerge:
+	case graphmodel.NodeMerge:
 		reducer := e.MergeReducer
 		if reducer == nil {
-			reducer = DefaultMergeReducer{}
+			reducer = graphmodel.DefaultMergeReducer{}
 		}
 		return reducer.ReduceMerge(ctx, input)
-	case NodeRepair:
+	case graphmodel.NodeRepair:
 		controller := e.RepairController
 		if controller == nil {
-			controller = DefaultRepairController{}
+			controller = graphmodel.DefaultRepairController{}
 		}
 		return controller.PlanRepair(ctx, input)
 	default:
-		return StructuralDecision{}, fmt.Errorf("unsupported structural node kind %q", input.Node.Kind)
+		return graphmodel.StructuralDecision{}, fmt.Errorf("unsupported structural node kind %q", input.Node.Kind)
 	}
 }
 
-func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, attempt NodeAttempt, typ, key string, payload map[string]any, fencing ...int64) error {
+func (e Executor) commitAttemptEvent(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, attempt graphmodel.NodeAttempt, typ, key string, payload map[string]any, fencing ...int64) error {
 	if e.Events == nil {
 		if saver, ok := e.Repository.(projectionSaver); ok && e.Repository != nil {
 			if _, err := e.Repository.GetPlan(plan.WorkspaceID, plan.ID); err != nil {
@@ -193,12 +197,12 @@ func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecut
 		return fmt.Errorf("event store must support append and tail reads")
 	}
 	tail := store.ListEvents(plan.ID, 0)
-	var previous *Event
+	var previous *graphmodel.Event
 	if len(tail) > 0 {
 		p := tail[len(tail)-1]
 		previous = &p
 	}
-	ev, err := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, typ, key, payload)
+	ev, err := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, typ, key, payload)
 	if err != nil {
 		return err
 	}
@@ -209,7 +213,7 @@ func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecut
 	} else {
 		ev.FencingToken = attempt.Lease.FencingToken
 	}
-	ev.EnvelopeHash = eventDigest(ev)
+	ev.EnvelopeHash = graphmodel.EventDigest(ev)
 	if committer, ok := e.Events.(projectionEventCommitter); ok {
 		return committer.CommitEventProjection(ev, *projection)
 	}
@@ -222,13 +226,13 @@ func (e Executor) commitAttemptEvent(ctx context.Context, plan RequirementExecut
 	return nil
 }
 
-func (e Executor) DispatchReady(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) ([]NodeAttempt, error) {
+func (e Executor) DispatchReady(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) ([]graphmodel.NodeAttempt, error) {
 	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, 0, nil)
 }
 
 // DispatchReadyLimited is used by bounded workers to preserve the projection
 // and event ordering while enforcing a per-tick concurrency ceiling.
-func (e Executor) DispatchReadyLimited(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int) ([]NodeAttempt, error) {
+func (e Executor) DispatchReadyLimited(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int) ([]graphmodel.NodeAttempt, error) {
 	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, limit, nil)
 }
 
@@ -242,11 +246,11 @@ type DispatchSelection struct {
 // DispatchSelectedLimited dispatches exactly the admitted nodes in the supplied
 // deterministic order. A selection that is no longer ready fails closed so a
 // stale admission cannot consume a different graph snapshot.
-func (e Executor) DispatchSelectedLimited(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, selections []DispatchSelection, limit int) ([]NodeAttempt, error) {
+func (e Executor) DispatchSelectedLimited(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, selections []DispatchSelection, limit int) ([]graphmodel.NodeAttempt, error) {
 	return e.dispatchReady(ctx, plan, projection, envelope, workItemID, agentBindingID, limit, selections)
 }
 
-func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int, selections []DispatchSelection) ([]NodeAttempt, error) {
+func (e Executor) dispatchReady(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string, limit int, selections []DispatchSelection) ([]graphmodel.NodeAttempt, error) {
 	if projection == nil {
 		return nil, fmt.Errorf("projection is required")
 	}
@@ -260,11 +264,11 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 	ready := ReadyNodesAt(plan, *projection, e.now())
 	reservationByNode := map[string]string{}
 	if len(selections) > 0 {
-		readyByID := make(map[string]WorkflowNode, len(ready))
+		readyByID := make(map[string]graphmodel.WorkflowNode, len(ready))
 		for _, node := range ready {
 			readyByID[node.ID] = node
 		}
-		selected := make([]WorkflowNode, 0, len(selections))
+		selected := make([]graphmodel.WorkflowNode, 0, len(selections))
 		seen := map[string]bool{}
 		for _, selection := range selections {
 			nodeID := strings.TrimSpace(selection.NodeID)
@@ -283,7 +287,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 	}
 	hasProviderNode := false
 	for _, node := range ready {
-		if node.Kind == NodeAgent || node.Kind == NodeSquad {
+		if node.Kind == graphmodel.NodeAgent || node.Kind == graphmodel.NodeSquad {
 			hasProviderNode = true
 			break
 		}
@@ -291,7 +295,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 	if hasProviderNode && e.Provider == nil && e.ProviderResolver == nil {
 		return nil, fmt.Errorf("provider is required for ready agent nodes")
 	}
-	started := make([]NodeAttempt, 0, len(ready))
+	started := make([]graphmodel.NodeAttempt, 0, len(ready))
 	var eventStore eventAppender
 	if e.Events != nil {
 		var ok bool
@@ -314,22 +318,22 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		// caller still receives the updated projection directly.
 	}
 	for _, node := range ready {
-		if node.Kind != NodeAgent && node.Kind != NodeSquad {
+		if node.Kind != graphmodel.NodeAgent && node.Kind != graphmodel.NodeSquad {
 			continue
 		}
 		if limit > 0 && len(started) >= limit {
 			break
 		}
-		before := cloneProjection(*projection)
+		before := graphmodel.CloneProjection(*projection)
 		agentInstructions := ""
 		runProvider := e.Provider
-		var resolvedAgent *AgentDefinition
-		if node.Kind == NodeAgent && e.Repository != nil && node.AgentRef != nil {
+		var resolvedAgent *graphmodel.AgentDefinition
+		if node.Kind == graphmodel.NodeAgent && e.Repository != nil && node.AgentRef != nil {
 			agent, lookupErr := e.Repository.GetAgent(plan.WorkspaceID, node.AgentRef.ID, node.AgentRef.Revision)
 			if lookupErr != nil {
 				return started, fmt.Errorf("resolve agent node %s: %w", node.ID, lookupErr)
 			}
-			if agent.Status != AgentActive {
+			if agent.Status != graphmodel.AgentActive {
 				return started, fmt.Errorf("agent node %s references non-active agent", node.ID)
 			}
 			if !agent.CanInvoke(e.InvokerID) {
@@ -348,8 +352,8 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			}
 			resolvedAgent = &agent
 		}
-		var squadDefinition *SquadDefinition
-		if node.Kind == NodeSquad {
+		var squadDefinition *graphmodel.SquadDefinition
+		if node.Kind == graphmodel.NodeSquad {
 			if e.Repository == nil || node.SquadRef == nil {
 				return started, fmt.Errorf("squad node %s requires a repository and squad_ref", node.ID)
 			}
@@ -357,7 +361,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			if squadErr != nil {
 				return started, fmt.Errorf("resolve squad node %s: %w", node.ID, squadErr)
 			}
-			if squad.Status != SquadPublished {
+			if squad.Status != graphmodel.SquadPublished {
 				return started, fmt.Errorf("squad node %s references non-published squad", node.ID)
 			}
 			leaderCount := 0
@@ -372,7 +376,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			squadDefinition = &squad
 		}
 		nodeEnvelope := envelope
-		if e.Repository != nil || node.Kind == NodeSquad {
+		if e.Repository != nil || node.Kind == graphmodel.NodeSquad {
 			// Keep the frozen node contract inside the same immutable context
 			// envelope as the user objective and tool transaction. The textual
 			// prompt remains a compatibility projection, never the source of truth.
@@ -398,14 +402,14 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		attemptNo := projection.Nodes[node.ID].AttemptNo + 1
 		attemptID := domain.NewID()
 		now := e.now()
-		lease := Lease{Key: plan.ID + ":" + node.ID, Owner: e.Owner, FencingToken: now.UnixNano(), ExpiresAt: now.Add(e.leaseTTL(node))}
+		lease := graphmodel.Lease{Key: plan.ID + ":" + node.ID, Owner: e.Owner, FencingToken: now.UnixNano(), ExpiresAt: now.Add(e.leaseTTL(node))}
 		if !plan.Deadline.IsZero() && plan.Deadline.Before(lease.ExpiresAt) {
 			lease.ExpiresAt = plan.Deadline
 		}
 		key := plan.ID + ":" + node.ID + ":" + fmt.Sprint(attemptNo)
 		h := sha256.Sum256([]byte(key + nodeEnvelope.ReplayKey))
 		payloadHash := hex.EncodeToString(h[:])
-		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, nodeEnvelope, TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, ResourceReservationID: reservationByNode[node.ID], Now: now})
+		a, err := projection.StartAttempt(plan, node.ID, attemptID, attemptNo, lease, nodeEnvelope, graphmodel.TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, IdempotencyKey: key, PayloadHash: payloadHash, ResourceReservationID: reservationByNode[node.ID], Now: now})
 		if err != nil {
 			return started, err
 		}
@@ -423,18 +427,18 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		}
 		if eventStore != nil {
 			tail := eventStore.ListEvents(plan.ID, 0)
-			var previous *Event
+			var previous *graphmodel.Event
 			if len(tail) > 0 {
 				p := tail[len(tail)-1]
 				previous = &p
 			}
-			ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": nodeEnvelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID, "resource_reservation_id": a.ResourceReservationID})
+			ev, evErr := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.started", key, map[string]any{"node_id": node.ID, "attempt_id": a.ID, "attempt_no": a.AttemptNo, "lease": lease, "context": nodeEnvelope, "dispatch_payload_hash": payloadHash, "started_at": now, "child_plan_id": a.ChildPlanID, "resource_reservation_id": a.ResourceReservationID})
 			if evErr != nil {
 				*projection = before
 				return started, evErr
 			}
 			ev.FencingToken = lease.FencingToken
-			ev.EnvelopeHash = eventDigest(ev)
+			ev.EnvelopeHash = graphmodel.EventDigest(ev)
 			if committer, ok := e.Events.(projectionEventCommitter); ok {
 				if commitErr := committer.CommitEventProjection(ev, *projection); commitErr != nil {
 					*projection = before
@@ -475,7 +479,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		if node.AgentRef != nil && binding == "" {
 			binding = node.AgentRef.ID
 		}
-		if node.Kind == NodeSquad {
+		if node.Kind == graphmodel.NodeSquad {
 			// A Squad is a provider execution boundary. The leader owns routing
 			// and aggregation; the nested graph remains pinned by the published
 			// Squad revision. Never silently auto-complete this node.
@@ -483,7 +487,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				return started, fmt.Errorf("squad node %s has no resolved squad", node.ID)
 			}
 			squad := *squadDefinition
-			var leader *SquadMember
+			var leader *graphmodel.SquadMember
 			for i := range squad.Members {
 				if squad.Members[i].Leader {
 					leader = &squad.Members[i]
@@ -535,7 +539,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		})
 		traceParent, traceState := trace.Carrier(providerCtx)
 		input := envelopeInput(nodeEnvelope)
-		if e.Repository != nil || node.Kind == NodeSquad {
+		if e.Repository != nil || node.Kind == graphmodel.NodeSquad {
 			input = nodeInput(nodeEnvelope, node, a.AttemptNo, binding, agentInstructions)
 		}
 		bindingResult, runErr := runProvider.StartRun(providerCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: node.ID, AttemptID: a.ID, WorkItemID: workItemID, AgentBindingID: binding, Input: input, SessionID: nodeEnvelope.Manifest.SessionID, ContextEnvelope: nodeEnvelope, IdempotencyKey: key, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
@@ -545,7 +549,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			_ = finishProviderSpan("ok", "")
 		}
 		if runErr != nil {
-			failure := TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, Event: "failure", Failure: &FailureReason{Code: string(provider.ErrorCodeOf(runErr)), Message: runErr.Error(), Retryable: true}, Result: StructuredResult{Outcome: "failure", EvidenceIDs: []string{"provider-dispatch:" + a.ID}}}
+			failure := graphmodel.TransitionInput{PlanRevision: plan.Revision, LeaseToken: lease.FencingToken, Event: "failure", Failure: &graphmodel.FailureReason{Code: string(provider.ErrorCodeOf(runErr)), Message: runErr.Error(), Retryable: true}, Result: graphmodel.StructuredResult{Outcome: "failure", EvidenceIDs: []string{"provider-dispatch:" + a.ID}}}
 			if _, finishErr := e.FinishAttempt(ctx, plan, projection, a.ID, failure); finishErr != nil {
 				return started, fmt.Errorf("provider failed (%v), finish failed: %w", runErr, finishErr)
 			}
@@ -569,17 +573,17 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 		a = bound
 		if eventStore != nil {
 			tail := eventStore.ListEvents(plan.ID, 0)
-			var previous *Event
+			var previous *graphmodel.Event
 			if len(tail) > 0 {
 				p := tail[len(tail)-1]
 				previous = &p
 			}
-			boundEvent, eventErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.bound", key+":bound", map[string]any{"attempt_id": a.ID, "run_id": a.RunID, "session_id": a.SessionID, "workdir": a.WorkDir, "child_plan_id": a.ChildPlanID})
+			boundEvent, eventErr := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.bound", key+":bound", map[string]any{"attempt_id": a.ID, "run_id": a.RunID, "session_id": a.SessionID, "workdir": a.WorkDir, "child_plan_id": a.ChildPlanID})
 			if eventErr != nil {
 				return started, eventErr
 			}
 			boundEvent.AttemptID, boundEvent.NodeID, boundEvent.FencingToken = a.ID, a.NodeID, a.Lease.FencingToken
-			boundEvent.EnvelopeHash = eventDigest(boundEvent)
+			boundEvent.EnvelopeHash = graphmodel.EventDigest(boundEvent)
 			if committer, ok := e.Events.(projectionEventCommitter); ok {
 				if commitErr := committer.CommitEventProjection(boundEvent, *projection); commitErr != nil {
 					return started, fmt.Errorf("commit attempt.bound projection: %w", commitErr)
@@ -612,7 +616,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 	return started, nil
 }
 
-func (e Executor) requireAgentCapabilities(ctx context.Context, agent AgentDefinition) error {
+func (e Executor) requireAgentCapabilities(ctx context.Context, agent graphmodel.AgentDefinition) error {
 	providerForAgent := e.Provider
 	if e.ProviderResolver != nil {
 		var err error
@@ -624,7 +628,7 @@ func (e Executor) requireAgentCapabilities(ctx context.Context, agent AgentDefin
 	return requireProviderCapabilities(ctx, providerForAgent, agent)
 }
 
-func requireProviderCapabilities(ctx context.Context, providerForAgent provider.ExecutionProvider, agent AgentDefinition) error {
+func requireProviderCapabilities(ctx context.Context, providerForAgent provider.ExecutionProvider, agent graphmodel.AgentDefinition) error {
 	if len(agent.ExecutorBinding.RequiredCaps) == 0 {
 		return nil
 	}
@@ -651,7 +655,7 @@ func requireProviderCapabilities(ctx context.Context, providerForAgent provider.
 // independent immutable child plan. The parent attempt keeps the child ID so
 // recovery workers can resume the child after a process restart and replay can
 // prove exactly which Squad revision ran.
-func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementExecutionPlan, node WorkflowNode, attempt NodeAttempt, squad SquadDefinition) (string, error) {
+func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent graphmodel.RequirementExecutionPlan, node graphmodel.WorkflowNode, attempt graphmodel.NodeAttempt, squad graphmodel.SquadDefinition) (string, error) {
 	if e.Repository == nil {
 		return "", errors.New("repository is required for nested squad execution")
 	}
@@ -662,13 +666,13 @@ func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementE
 		}
 		return childID, nil
 	}
-	selected := VersionedRef{ID: squad.ID, Revision: squad.Revision, Version: squad.PublishedVersion}
+	selected := graphmodel.VersionedRef{ID: squad.ID, Revision: squad.Revision, Version: squad.PublishedVersion}
 	created := e.now()
-	child := RequirementExecutionPlan{
+	child := graphmodel.RequirementExecutionPlan{
 		ID: childID, RequirementID: parent.RequirementID, WorkspaceID: parent.WorkspaceID,
 		GraphSnapshot: squad.Graph, SelectedRef: selected,
-		PolicySnapshot: PolicySnapshot{Digest: parent.PolicySnapshot.Digest, ToolPolicy: squad.Policy.ToolPolicy, Budget: squad.Policy.Budget, CapturedAt: created},
-		ContextRoot:    parent.ContextRoot, Status: PlanDraft, CreatedAt: created,
+		PolicySnapshot: graphmodel.PolicySnapshot{Digest: parent.PolicySnapshot.Digest, ToolPolicy: squad.Policy.ToolPolicy, Budget: squad.Policy.Budget, CapturedAt: created},
+		ContextRoot:    parent.ContextRoot, Status: graphmodel.PlanDraft, CreatedAt: created,
 		Deadline: parent.Deadline, ParentPlanID: parent.ID, ParentAttemptID: attempt.ID,
 		IdempotencyKey: parent.ID + ":" + attempt.ID + ":nested",
 	}
@@ -676,12 +680,12 @@ func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementE
 	if err != nil {
 		return "", fmt.Errorf("freeze nested squad plan %s: %w", node.ID, err)
 	}
-	event, err := NewEventWithContext(ctx, nil, frozen.ID, frozen.WorkspaceID, "plan.created", frozen.IdempotencyKey, frozen)
+	event, err := graphmodel.NewEventWithContext(ctx, nil, frozen.ID, frozen.WorkspaceID, "plan.created", frozen.IdempotencyKey, frozen)
 	if err != nil {
 		return "", err
 	}
 	if control, ok := e.Repository.(interface {
-		CreatePlanWithEvent(RequirementExecutionPlan, Event) error
+		CreatePlanWithEvent(graphmodel.RequirementExecutionPlan, graphmodel.Event) error
 	}); ok {
 		if err := control.CreatePlanWithEvent(frozen, event); err != nil {
 			if existing, getErr := e.Repository.GetPlan(parent.WorkspaceID, childID); getErr == nil && existing.ParentPlanID == parent.ID && existing.ParentAttemptID == attempt.ID {
@@ -696,7 +700,7 @@ func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementE
 			}
 			return "", fmt.Errorf("persist nested squad plan: %w", err)
 		}
-		childProjection, err := NewProjection(frozen)
+		childProjection, err := graphmodel.NewProjection(frozen)
 		if err != nil {
 			return "", err
 		}
@@ -719,7 +723,7 @@ func (e Executor) ensureNestedSquadPlan(ctx context.Context, parent RequirementE
 // is only the textual adapter payload consumed by legacy executables. Keeping
 // the node contract in-band prevents a provider from confusing a feedback
 // attempt with the original task when a plan has several active agents.
-func nodeInput(envelope harness.ContextEnvelope, node WorkflowNode, attemptNo int, binding, instructions string) string {
+func nodeInput(envelope harness.ContextEnvelope, node graphmodel.WorkflowNode, attemptNo int, binding, instructions string) string {
 	metadata := map[string]any{
 		"node_id": node.ID, "node_kind": node.Kind, "attempt_no": attemptNo,
 		"agent_binding_id": strings.TrimSpace(binding), "session_id": envelope.Manifest.SessionID,
@@ -782,21 +786,21 @@ func envelopeInput(envelope harness.ContextEnvelope) string {
 // FinishAttempt applies a provider outcome and appends the matching immutable
 // event. The projection is only retained when both reducer and event commit
 // succeed; this is the local transaction boundary used by recovery workers.
-func (e Executor) FinishAttempt(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, attemptID string, input TransitionInput) (NodeAttempt, error) {
+func (e Executor) FinishAttempt(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, attemptID string, input graphmodel.TransitionInput) (graphmodel.NodeAttempt, error) {
 	if projection == nil {
-		return NodeAttempt{}, fmt.Errorf("projection is required")
+		return graphmodel.NodeAttempt{}, fmt.Errorf("projection is required")
 	}
 	if input.Now.IsZero() {
 		input.Now = e.now()
 	}
-	old := cloneProjection(*projection)
+	old := graphmodel.CloneProjection(*projection)
 	a, err := projection.FinishAttempt(plan, attemptID, input)
 	if err != nil {
-		return NodeAttempt{}, err
+		return graphmodel.NodeAttempt{}, err
 	}
 	if store, ok := e.Events.(eventAppender); ok {
 		tail := store.ListEvents(plan.ID, 0)
-		var previous *Event
+		var previous *graphmodel.Event
 		if len(tail) > 0 {
 			p := tail[len(tail)-1]
 			previous = &p
@@ -808,21 +812,21 @@ func (e Executor) FinishAttempt(ctx context.Context, plan RequirementExecutionPl
 			idempotency = a.IdempotencyKey
 		}
 		idempotency += ":finished"
-		ev, evErr := NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.finished", idempotency, payload)
+		ev, evErr := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.finished", idempotency, payload)
 		if evErr != nil {
 			*projection = old
-			return NodeAttempt{}, evErr
+			return graphmodel.NodeAttempt{}, evErr
 		}
 		ev.FencingToken = input.LeaseToken
-		ev.EnvelopeHash = eventDigest(ev)
+		ev.EnvelopeHash = graphmodel.EventDigest(ev)
 		if committer, ok := e.Events.(projectionEventCommitter); ok {
 			if commitErr := committer.CommitEventProjection(ev, *projection); commitErr != nil {
 				*projection = old
-				return NodeAttempt{}, commitErr
+				return graphmodel.NodeAttempt{}, commitErr
 			}
 		} else if appendErr := appendWithTail(store, ev); appendErr != nil {
 			*projection = old
-			return NodeAttempt{}, appendErr
+			return graphmodel.NodeAttempt{}, appendErr
 		}
 	} else {
 		var saver projectionSaver
@@ -836,14 +840,14 @@ func (e Executor) FinishAttempt(ctx context.Context, plan RequirementExecutionPl
 		if saver != nil {
 			if saveErr := saver.SaveProjection(*projection); saveErr != nil {
 				*projection = old
-				return NodeAttempt{}, saveErr
+				return graphmodel.NodeAttempt{}, saveErr
 			}
 		}
 	}
 	return a, nil
 }
 
-func appendWithTail(store eventAppender, ev Event) error {
+func appendWithTail(store eventAppender, ev graphmodel.Event) error {
 	if err := store.AppendEvent(ev); err == nil {
 		return nil
 	}
@@ -851,12 +855,12 @@ func appendWithTail(store eventAppender, ev Event) error {
 	// predecessor/sequence from the new tail once, retaining the same event ID
 	// and payload/idempotency key.
 	tail := store.ListEvents(ev.PlanID, 0)
-	var previous *Event
+	var previous *graphmodel.Event
 	if len(tail) > 0 {
 		p := tail[len(tail)-1]
 		previous = &p
 	}
-	retry, err := NewEvent(previous, ev.PlanID, ev.WorkspaceID, ev.Type, ev.IdempotencyKey, json.RawMessage(ev.Payload))
+	retry, err := graphmodel.NewEvent(previous, ev.PlanID, ev.WorkspaceID, ev.Type, ev.IdempotencyKey, json.RawMessage(ev.Payload))
 	if err != nil {
 		return err
 	}
@@ -864,48 +868,4 @@ func appendWithTail(store eventAppender, ev Event) error {
 	retry.TraceParent, retry.TraceState = ev.TraceParent, ev.TraceState
 	retry.Seal()
 	return store.AppendEvent(retry)
-}
-
-func cloneProjection(p PlanProjection) PlanProjection {
-	cp := p
-	cp.Nodes = map[string]NodeProjection{}
-	for k, v := range p.Nodes {
-		v.ReadyEdgeIDs = append([]string(nil), v.ReadyEdgeIDs...)
-		cp.Nodes[k] = v
-	}
-	cp.Attempts = map[string]NodeAttempt{}
-	for k, v := range p.Attempts {
-		cp.Attempts[k] = v
-	}
-	cp.Traversals = map[string]int{}
-	for k, v := range p.Traversals {
-		cp.Traversals[k] = v
-	}
-	cp.Idempotency = map[string]string{}
-	for k, v := range p.Idempotency {
-		cp.Idempotency[k] = v
-	}
-	cp.Decisions = append([]FeedbackDecision(nil), p.Decisions...)
-	cp.RepairPlans = map[string]RepairPlan{}
-	for id, repair := range p.RepairPlans {
-		repair.VerificationNodeIDs = append([]string(nil), repair.VerificationNodeIDs...)
-		repair.StateHistory = append([]RepairLifecycle(nil), repair.StateHistory...)
-		repair.RepairAttemptIDs = append([]string(nil), repair.RepairAttemptIDs...)
-		repair.SourceAttemptIDs = append([]string(nil), repair.SourceAttemptIDs...)
-		repair.Scope = append([]string(nil), repair.Scope...)
-		repair.PatchArtifactIDs = append([]string(nil), repair.PatchArtifactIDs...)
-		repair.VerificationArtifactIDs = append([]string(nil), repair.VerificationArtifactIDs...)
-		verificationAttempts := repair.VerificationAttempts
-		repair.VerificationAttempts = map[string]string{}
-		for nodeID, attemptID := range verificationAttempts {
-			repair.VerificationAttempts[nodeID] = attemptID
-		}
-		verifiedNodes := repair.VerifiedNodes
-		repair.VerifiedNodes = map[string]bool{}
-		for nodeID, verified := range verifiedNodes {
-			repair.VerifiedNodes[nodeID] = verified
-		}
-		cp.RepairPlans[id] = repair
-	}
-	return cp
 }

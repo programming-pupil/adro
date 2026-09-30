@@ -12,6 +12,7 @@ import (
 	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/core/testkit"
 	"github.com/adro-project/adro/internal/durable"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
@@ -230,11 +231,11 @@ func TestTerminalReservationRecoverySettlesAfterUsagePersistedBeforeCrash(t *tes
 	// terminal settlement operation. Recovery must reuse the existing usage
 	// event and close the reservation exactly once.
 	restarted := newTestLedger(t, path, clock)
-	attempt := NodeAttempt{
+	attempt := graphmodel.NodeAttempt{
 		ID: "attempt-recovery", RunID: "provider-run-recovery", SessionID: "session-recovery",
-		ResourceReservationID: reservation.ID, Status: AttemptPassed,
+		ResourceReservationID: reservation.ID, Status: graphmodel.AttemptPassed,
 	}
-	plan := RequirementExecutionPlan{ID: "plan-recovery", RequirementID: "incident-recovery", WorkspaceID: "workspace-a"}
+	plan := graphmodel.RequirementExecutionPlan{ID: "plan-recovery", RequirementID: "incident-recovery", WorkspaceID: "workspace-a"}
 	if err := settleAttemptReservation(restarted, plan, attempt, usage.RawProvider, usage.Normalized, false, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -432,18 +433,18 @@ func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testin
 	}
 	queue, _ := NewFairAdmissionQueue(FairQueuePolicy{AgingInterval: time.Minute, MaxPriority: 100, MaxPending: 10})
 	providerRuntime := &resourceTerminalProvider{testProvider: newTestProvider(), now: now}
-	graph := WorkflowGraph{
+	graph := graphmodel.WorkflowGraph{
 		ID: "admission-graph", Version: 1, EntryNodeIDs: []string{"a", "b"}, ExitNodeIDs: []string{"a", "b"},
-		Nodes: []WorkflowNode{
-			{ID: "a", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-a", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
-			{ID: "b", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent-b", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
+		Nodes: []graphmodel.WorkflowNode{
+			{ID: "a", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: "agent-a", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
+			{ID: "b", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: "agent-b", Revision: 1}, Budget: budget.Budget{Tokens: 15, ToolCalls: 2}},
 		},
 	}
-	plan, err := (RequirementExecutionPlan{ID: "admission-plan", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	plan, err := (graphmodel.RequirementExecutionPlan{ID: "admission-plan", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: graphmodel.PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +470,7 @@ func TestSchedulerAdmissionReservesBeforeDispatchAndWorkerSettlesUsage(t *testin
 	}
 	worker := Worker{Scheduler: scheduler, MaxTicks: 1}
 	finished, err := worker.Reconcile(context.Background(), plan, &projection)
-	if err != nil || len(finished) != 1 || finished[0].Status != AttemptPassed {
+	if err != nil || len(finished) != 1 || finished[0].Status != graphmodel.AttemptPassed {
 		t.Fatalf("reconcile finished=%+v err=%v", finished, err)
 	}
 	settled, err := ledger.GetReservation(attempt.ResourceReservationID)
@@ -486,12 +487,12 @@ func TestSchedulerReleasesAdmissionWhenDispatchFails(t *testing.T) {
 	now := time.Date(2026, 9, 19, 16, 0, 0, 0, time.UTC)
 	ledger := newTestLedger(t, "", testkit.NewManualClock(now))
 	controller := &AdmissionController{Ledger: ledger}
-	graph := WorkflowGraph{ID: "dispatch-failure", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: "agent", Revision: 1}, Budget: budget.Budget{Tokens: 5}}}}
-	plan, err := (RequirementExecutionPlan{ID: "dispatch-failure", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+	graph := graphmodel.WorkflowGraph{ID: "dispatch-failure", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: "agent", Revision: 1}, Budget: budget.Budget{Tokens: 5}}}}
+	plan, err := (graphmodel.RequirementExecutionPlan{ID: "dispatch-failure", RequirementID: "requirement", WorkspaceID: "workspace-a", GraphSnapshot: graph, Status: graphmodel.PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, _ := NewProjection(plan)
+	projection, _ := graphmodel.NewProjection(plan)
 	scheduler := Scheduler{Admission: controller, Config: SchedulerConfig{TenantID: "tenant-a", Now: func() time.Time { return now }}}
 	report, err := scheduler.Tick(context.Background(), plan, &projection, testEnvelope(), "cost-center", "")
 	if err == nil || report.Admissions["node"].ReservationID == "" {

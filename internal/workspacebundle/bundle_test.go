@@ -14,6 +14,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/ports/scope"
 )
@@ -62,7 +63,7 @@ func TestWorkspaceArchiveRoundTripRedactionRemapAndReplay(t *testing.T) {
 	}
 
 	sourceDefinitions := orchestration.NewMemoryRepository()
-	agent := orchestration.AgentDefinition{ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "General", SkillIDs: []string{"skill-1"}, MCPServerIDs: []string{"mcp-1"}, Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", ProviderVersion: "machine-only", BinaryDigest: "machine-only", CustomArgs: []string{"--ephemeral", "--api-key=never-export"}, RuntimeConfig: map[string]string{"sandbox_mode": "workspace-write"}, Environment: []orchestration.EnvironmentReference{{Name: "TOKEN", SecretRef: "env:NEVER_EXPORT"}}}, InputSchema: orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "General", SkillIDs: []string{"skill-1"}, MCPServerIDs: []string{"mcp-1"}, Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", ProviderVersion: "machine-only", BinaryDigest: "machine-only", CustomArgs: []string{"--ephemeral", "--api-key=never-export"}, RuntimeConfig: map[string]string{"sandbox_mode": "workspace-write"}, Environment: []graphmodel.EnvironmentReference{{Name: "TOKEN", SecretRef: "env:NEVER_EXPORT"}}}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 	if err := sourceDefinitions.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -204,24 +205,24 @@ func TestWorkspaceImportRollsBackControlAndArtifacts(t *testing.T) {
 }
 
 func TestTargetPreflightEnforcesDefinitionConflictPolicies(t *testing.T) {
-	agent := orchestration.AgentDefinition{
-		ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "Builder", Status: orchestration.AgentActive,
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
-		InputSchema:     orchestration.SchemaRef{ID: "input", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "output", Version: 1},
+	agent := graphmodel.AgentDefinition{
+		ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "Builder", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1},
 	}
-	squad := orchestration.SquadDefinition{
-		ID: "squad-1", WorkspaceID: "source", Revision: 1, Name: "Delivery", Status: orchestration.SquadPublished, PublishedVersion: 1,
-		Members: []orchestration.SquadMember{{ID: "member-1", AgentID: agent.ID, Role: "leader", Leader: true, MaxAttempts: 1}},
-		Graph: orchestration.WorkflowGraph{
+	squad := graphmodel.SquadDefinition{
+		ID: "squad-1", WorkspaceID: "source", Revision: 1, Name: "Delivery", Status: graphmodel.SquadPublished, PublishedVersion: 1,
+		Members: []graphmodel.SquadMember{{ID: "member-1", AgentID: agent.ID, Role: "leader", Leader: true, MaxAttempts: 1}},
+		Graph: graphmodel.WorkflowGraph{
 			ID: "graph-1", Version: 1, EntryNodeIDs: []string{"node-1"}, ExitNodeIDs: []string{"node-1"},
-			Nodes: []orchestration.WorkflowNode{{ID: "node-1", Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: agent.ID, Revision: 1}}},
+			Nodes: []graphmodel.WorkflowNode{{ID: "node-1", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agent.ID, Revision: 1}}},
 		},
-		Policy: orchestration.SquadPolicy{MaxNestingDepth: 1},
+		Policy: graphmodel.SquadPolicy{MaxNestingDepth: 1},
 	}
 	archive, _, err := finalizeArchive(Manifest{
 		Format: Format, Version: 1, SourceWorkspaceID: "source",
 		Control:     store.WorkspaceSnapshot{Format: store.WorkspaceSnapshotFormat, SourceWorkspace: "source"},
-		Definitions: orchestration.DefinitionBundle{Format: orchestration.DefinitionBundleFormat, SourceWorkspaceID: "source", Agents: []orchestration.AgentDefinition{agent}, Squads: []orchestration.SquadDefinition{squad}},
+		Definitions: graphmodel.DefinitionBundle{Format: graphmodel.DefinitionBundleFormat, SourceWorkspaceID: "source", Agents: []graphmodel.AgentDefinition{agent}, Squads: []graphmodel.SquadDefinition{squad}},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -253,9 +254,9 @@ type failingDefinitions struct {
 	*orchestration.MemoryRepository
 }
 
-func (f *failingDefinitions) ImportDefinitionBundle(workspace string, bundle orchestration.DefinitionBundle, dry bool) (orchestration.DefinitionImportReport, error) {
+func (f *failingDefinitions) ImportDefinitionBundle(workspace string, bundle graphmodel.DefinitionBundle, dry bool) (graphmodel.DefinitionImportReport, error) {
 	if !dry {
-		return orchestration.DefinitionImportReport{}, errors.New("injected definition commit failure")
+		return graphmodel.DefinitionImportReport{}, errors.New("injected definition commit failure")
 	}
 	return f.MemoryRepository.ImportDefinitionBundle(workspace, bundle, true)
 }
@@ -281,7 +282,7 @@ func minimalArchive(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	definitions := orchestration.NewMemoryRepository()
-	agent := orchestration.AgentDefinition{ID: "agent", WorkspaceID: "source", Revision: 1, Name: "General", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: orchestration.SchemaRef{ID: "in", Version: 1}, OutputSchema: orchestration.SchemaRef{ID: "out", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: "agent", WorkspaceID: "source", Revision: 1, Name: "General", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex"}, InputSchema: graphmodel.SchemaRef{ID: "in", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "out", Version: 1}}
 	if err := definitions.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}

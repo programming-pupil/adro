@@ -17,7 +17,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	pipelineengine "github.com/adro-project/adro/internal/pipeline"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -187,13 +187,13 @@ func (s *Server) persistLegacyExecutionPlan(run domain.PipelineRun) error {
 				continue
 			}
 			now := time.Now().UTC()
-			agent := orchestration.AgentDefinition{
+			agent := graphmodel.AgentDefinition{
 				ID: step.AgentID, WorkspaceID: run.WorkspaceID, Revision: 1,
 				Name: "legacy-" + step.AgentID, Role: step.Stage.String(),
-				Status: orchestration.AgentActive, CreatedBy: "legacy-adapter",
-				ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local", RequiredCaps: []string{"run.snapshot.v1"}},
-				InputSchema:     orchestration.SchemaRef{ID: "legacy-input", Version: 1},
-				OutputSchema:    orchestration.SchemaRef{ID: "legacy-output", Version: 1},
+				Status: graphmodel.AgentActive, CreatedBy: "legacy-adapter",
+				ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local", RequiredCaps: []string{"run.snapshot.v1"}},
+				InputSchema:     graphmodel.SchemaRef{ID: "legacy-input", Version: 1},
+				OutputSchema:    graphmodel.SchemaRef{ID: "legacy-output", Version: 1},
 				CreatedAt:       now, UpdatedAt: now,
 			}
 			if saveErr := s.Orchestration.SaveAgent(agent, 0); saveErr != nil {
@@ -201,7 +201,7 @@ func (s *Server) persistLegacyExecutionPlan(run domain.PipelineRun) error {
 			}
 		}
 	}
-	event, err := orchestration.NewEvent(nil, migrated.Plan.ID, migrated.Plan.WorkspaceID, "plan.created", migrated.Plan.IdempotencyKey, migrated.Plan)
+	event, err := graphmodel.NewEvent(nil, migrated.Plan.ID, migrated.Plan.WorkspaceID, "plan.created", migrated.Plan.IdempotencyKey, migrated.Plan)
 	if err != nil {
 		return err
 	}

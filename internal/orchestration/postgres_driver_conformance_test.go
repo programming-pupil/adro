@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	_ "github.com/lib/pq"
 )
 
@@ -39,11 +40,11 @@ func TestPostgresDriverConformance(t *testing.T) {
 	}
 	repo.SetScope(tenant, workspace)
 
-	agent := AgentDefinition{
+	agent := graphmodel.AgentDefinition{
 		ID: "agent-" + workspace, WorkspaceID: workspace, Revision: 1,
-		Name: "Postgres conformance", Status: AgentActive,
-		ExecutorBinding: ExecutorBinding{ProviderID: "local"},
-		InputSchema:     SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1},
+		Name: "Postgres conformance", Status: graphmodel.AgentActive,
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local"},
+		InputSchema:     graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1},
 	}
 	if err := repo.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
@@ -58,10 +59,10 @@ func TestPostgresDriverConformance(t *testing.T) {
 		t.Fatalf("cross-connection agent=%+v err=%v", got, err)
 	}
 
-	plan, err := (RequirementExecutionPlan{
+	plan, err := (graphmodel.RequirementExecutionPlan{
 		ID: "plan-" + workspace, RequirementID: "req-" + workspace, WorkspaceID: workspace,
-		GraphSnapshot: WorkflowGraph{ID: "graph-" + workspace, Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeGate}}},
-		Status:        PlanDraft, IdempotencyKey: "idempotency-" + workspace,
+		GraphSnapshot: graphmodel.WorkflowGraph{ID: "graph-" + workspace, Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeGate}}},
+		Status:        graphmodel.PlanDraft, IdempotencyKey: "idempotency-" + workspace,
 	}).Freeze()
 	if err != nil {
 		t.Fatal(err)
@@ -69,14 +70,14 @@ func TestPostgresDriverConformance(t *testing.T) {
 	if err := repo.CreatePlan(plan); err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.SaveProjection(projection); err != nil {
 		t.Fatal(err)
 	}
-	event, err := NewEvent(nil, plan.ID, workspace, "plan.created", "event-"+workspace, map[string]any{"source": "postgres"})
+	event, err := graphmodel.NewEvent(nil, plan.ID, workspace, "plan.created", "event-"+workspace, map[string]any{"source": "postgres"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	_ "modernc.org/sqlite"
 )
 
@@ -37,7 +38,7 @@ func TestSQLiteDriverConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agent := AgentDefinition{ID: "sqlite-agent", WorkspaceID: "ws", Revision: 1, Name: "SQLite agent", Status: AgentActive, ExecutorBinding: ExecutorBinding{ProviderID: "local"}, InputSchema: SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1}}
+	agent := graphmodel.AgentDefinition{ID: "sqlite-agent", WorkspaceID: "ws", Revision: 1, Name: "SQLite agent", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local"}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 	if err := r1.SaveAgent(agent, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +46,14 @@ func TestSQLiteDriverConformance(t *testing.T) {
 		t.Fatalf("cross-handle agent refresh got=%+v err=%v", got, err)
 	}
 
-	plan, err := (RequirementExecutionPlan{ID: "sqlite-plan", RequirementID: "req", WorkspaceID: "ws", GraphSnapshot: WorkflowGraph{ID: "sqlite-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeGate}}}, Status: PlanDraft}).Freeze()
+	plan, err := (graphmodel.RequirementExecutionPlan{ID: "sqlite-plan", RequirementID: "req", WorkspaceID: "ws", GraphSnapshot: graphmodel.WorkflowGraph{ID: "sqlite-graph", Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeGate}}}, Status: graphmodel.PlanDraft}).Freeze()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := r1.CreatePlan(plan); err != nil {
 		t.Fatal(err)
 	}
-	projection, err := NewProjection(plan)
+	projection, err := graphmodel.NewProjection(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestSQLiteDriverConformance(t *testing.T) {
 		t.Fatalf("cross-handle plan refresh got=%+v err=%v", got, err)
 	}
 
-	event, err := NewEvent(nil, plan.ID, plan.WorkspaceID, "plan.created", "sqlite-plan-created", map[string]any{"source": "real-sqlite"})
+	event, err := graphmodel.NewEvent(nil, plan.ID, plan.WorkspaceID, "plan.created", "sqlite-plan-created", map[string]any{"source": "real-sqlite"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,19 +109,19 @@ func TestSQLiteMaterializationKeepsWorkspaceRowsAndGraphFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, workspace := range []string{"workspace-a", "workspace-b"} {
-		agent := AgentDefinition{ID: "agent-" + workspace, WorkspaceID: workspace, Revision: 1, Name: workspace, Status: AgentActive, ExecutorBinding: ExecutorBinding{ProviderID: "local"}, InputSchema: SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1}}
+		agent := graphmodel.AgentDefinition{ID: "agent-" + workspace, WorkspaceID: workspace, Revision: 1, Name: workspace, Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local"}, InputSchema: graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1}}
 		if err := repo.SaveAgent(agent, 0); err != nil {
 			t.Fatal(err)
 		}
-		graph := WorkflowGraph{ID: "graph-" + workspace, Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []WorkflowNode{{ID: "node", Kind: NodeGate}}}
-		plan, freezeErr := (RequirementExecutionPlan{ID: "plan-" + workspace, RequirementID: "req-" + workspace, WorkspaceID: workspace, GraphSnapshot: graph, Status: PlanDraft}).Freeze()
+		graph := graphmodel.WorkflowGraph{ID: "graph-" + workspace, Version: 1, EntryNodeIDs: []string{"node"}, ExitNodeIDs: []string{"node"}, Nodes: []graphmodel.WorkflowNode{{ID: "node", Kind: graphmodel.NodeGate}}}
+		plan, freezeErr := (graphmodel.RequirementExecutionPlan{ID: "plan-" + workspace, RequirementID: "req-" + workspace, WorkspaceID: workspace, GraphSnapshot: graph, Status: graphmodel.PlanDraft}).Freeze()
 		if freezeErr != nil {
 			t.Fatal(freezeErr)
 		}
 		if err := repo.CreatePlan(plan); err != nil {
 			t.Fatal(err)
 		}
-		projection, projectionErr := NewProjection(plan)
+		projection, projectionErr := graphmodel.NewProjection(plan)
 		if projectionErr != nil {
 			t.Fatal(projectionErr)
 		}

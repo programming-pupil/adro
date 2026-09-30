@@ -22,7 +22,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/obs/trace"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/security/authn"
 	"github.com/adro-project/adro/internal/store"
@@ -398,7 +398,7 @@ func TestStructuredCommentEditUsesNewRevisionDispatchIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentID := "550e8400-e29b-41d4-a716-446655440000"
-	if err := s.Orchestration.SaveAgent(orchestration.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: orchestration.AgentActive, ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock-agent"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"}}, 0); err != nil {
+	if err := s.Orchestration.SaveAgent(graphmodel.AgentDefinition{ID: agentID, WorkspaceID: "w1", Revision: 1, Name: "reviewer", Status: graphmodel.AgentActive, ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock-agent"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	content := "please review [@reviewer](mention://agent/" + agentID + ")"

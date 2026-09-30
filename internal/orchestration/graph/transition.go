@@ -1,11 +1,9 @@
-package orchestration
+package graph
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+
 	"strings"
 	"time"
 
@@ -41,6 +39,7 @@ type NodeProjection struct {
 	AdmissionReason       string         `json:"admission_reason,omitempty"`
 	ResourceReservationID string         `json:"resource_reservation_id,omitempty"`
 }
+
 type PlanProjection struct {
 	PlanID   string     `json:"plan_id"`
 	Revision int64      `json:"revision"`
@@ -120,7 +119,7 @@ func (p PlanProjection) Validate() error {
 			}
 			seenVerification[nodeID] = struct{}{}
 		}
-		if len(repair.RepairAttemptIDs) == 0 || !contains(repair.RepairAttemptIDs, repair.RepairAttemptID) {
+		if len(repair.RepairAttemptIDs) == 0 || !Contains(repair.RepairAttemptIDs, repair.RepairAttemptID) {
 			return fmt.Errorf("repair plan %s has incomplete attempt lineage", id)
 		}
 		repairAttempt, ok := p.Attempts[repair.RepairAttemptID]
@@ -501,7 +500,7 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 	if !wasWaiting && a.Status == AttemptRunning && !a.Lease.ExpiresAt.IsZero() && !now.Before(a.Lease.ExpiresAt) && input.Event != "timeout" {
 		return NodeAttempt{}, ErrLeaseLost
 	}
-	outputTokens, outputTools, outputCost := resultUsage(input.Result)
+	outputTokens, outputTools, outputCost := ResultUsage(input.Result)
 	if input.Event != "waiting" && input.Event != "approval" {
 		if len(input.Result.EvidenceIDs) == 0 {
 			return NodeAttempt{}, ErrEvidenceRequired
@@ -528,7 +527,7 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 		if existing.NodeID != a.NodeID {
 			continue
 		}
-		inTokens, inTools, inCost := resultUsage(existing.Result)
+		inTokens, inTools, inCost := ResultUsage(existing.Result)
 		nodeTokens += existing.InputManifest.Manifest.TokenEstimate + inTokens
 		nodeTools += inTools
 		nodeCost += inCost
@@ -658,7 +657,7 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 		previousTraversals[key] = value
 	}
 	previousDecisionCount := len(p.Decisions)
-	previousRepairPlans := cloneProjection(*p).RepairPlans
+	previousRepairPlans := CloneProjection(*p).RepairPlans
 	previousFinishHash, hadFinishHash := p.Idempotency[finishKey]
 	p.Attempts[attemptID] = a
 	n.Status = a.Status
@@ -678,7 +677,7 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 				continue
 			}
 			for _, edge := range plan.GraphSnapshot.Edges {
-				if edge.From == a.NodeID && edge.To == candidate.ID && edgeSatisfied(edge, a) {
+				if edge.From == a.NodeID && edge.To == candidate.ID && EdgeSatisfied(edge, a) {
 					join := p.Nodes[candidate.ID]
 					if join.Status != AttemptRunning && join.Status != AttemptPassed {
 						join.Status = AttemptReady
@@ -718,724 +717,46 @@ func (p *PlanProjection) FinishAttempt(plan RequirementExecutionPlan, attemptID 
 
 // repairLifecycleAtStart links target and verification attempts to the latest
 // immutable repair plan without mutating the historical repair attempt.
-func repairLifecycleAtStart(projection PlanProjection, graph WorkflowGraph, nodeID string) RepairLifecycle {
-	if repairID, state := repairPlanForDispatch(projection, graph, nodeID); repairID != "" {
-		return state
+func CloneProjection(p PlanProjection) PlanProjection {
+	cp := p
+	cp.Nodes = map[string]NodeProjection{}
+	for k, v := range p.Nodes {
+		v.ReadyEdgeIDs = append([]string(nil), v.ReadyEdgeIDs...)
+		cp.Nodes[k] = v
 	}
-	return ""
-}
-
-func validRepairLifecycle(state RepairLifecycle) bool {
-	switch state {
-	case RepairPlanned, RepairDispatched, RepairPatched, RepairVerifying, RepairVerified, RepairFailed, RepairExhausted:
-		return true
-	default:
-		return false
+	cp.Attempts = map[string]NodeAttempt{}
+	for k, v := range p.Attempts {
+		cp.Attempts[k] = v
 	}
-}
-
-func repairPlanForDispatch(projection PlanProjection, graph WorkflowGraph, nodeID string) (string, RepairLifecycle) {
-	ids := make([]string, 0, len(projection.RepairPlans))
-	for id := range projection.RepairPlans {
-		ids = append(ids, id)
+	cp.Traversals = map[string]int{}
+	for k, v := range p.Traversals {
+		cp.Traversals[k] = v
 	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		repair := projection.RepairPlans[id]
-		targetRetry := repair.TargetNodeID == nodeID && repair.State == RepairDispatched && retryableRepairProviderAttempt(projection, repair.TargetAttemptID)
-		if repair.TargetNodeID == nodeID && ((repair.State == RepairPlanned && repair.TargetAttemptID == "") || targetRetry) && (targetRetry || repairReadyFrom(projection, graph, nodeID, repair.RepairNodeID, repair.ID, false)) {
-			return id, RepairDispatched
+	cp.Idempotency = map[string]string{}
+	for k, v := range p.Idempotency {
+		cp.Idempotency[k] = v
+	}
+	cp.Decisions = append([]FeedbackDecision(nil), p.Decisions...)
+	cp.RepairPlans = map[string]RepairPlan{}
+	for id, repair := range p.RepairPlans {
+		repair.VerificationNodeIDs = append([]string(nil), repair.VerificationNodeIDs...)
+		repair.StateHistory = append([]RepairLifecycle(nil), repair.StateHistory...)
+		repair.RepairAttemptIDs = append([]string(nil), repair.RepairAttemptIDs...)
+		repair.SourceAttemptIDs = append([]string(nil), repair.SourceAttemptIDs...)
+		repair.Scope = append([]string(nil), repair.Scope...)
+		repair.PatchArtifactIDs = append([]string(nil), repair.PatchArtifactIDs...)
+		repair.VerificationArtifactIDs = append([]string(nil), repair.VerificationArtifactIDs...)
+		verificationAttempts := repair.VerificationAttempts
+		repair.VerificationAttempts = map[string]string{}
+		for nodeID, attemptID := range verificationAttempts {
+			repair.VerificationAttempts[nodeID] = attemptID
 		}
-		verificationAttemptID := ""
-		if repair.VerificationAttempts != nil {
-			verificationAttemptID = repair.VerificationAttempts[nodeID]
+		verifiedNodes := repair.VerifiedNodes
+		repair.VerifiedNodes = map[string]bool{}
+		for nodeID, verified := range verifiedNodes {
+			repair.VerifiedNodes[nodeID] = verified
 		}
-		verificationRetry := contains(repair.VerificationNodeIDs, nodeID) && (repair.State == RepairPatched || repair.State == RepairVerifying) && repair.TargetAttemptID != "" && retryableRepairProviderAttempt(projection, verificationAttemptID)
-		if contains(repair.VerificationNodeIDs, nodeID) && (repair.State == RepairPatched || repair.State == RepairVerifying) && repair.TargetAttemptID != "" && repairReadyFrom(projection, graph, nodeID, repair.TargetNodeID, repair.ID, true) {
-			if verificationAttemptID == "" || verificationRetry {
-				return id, RepairVerifying
-			}
-		}
-		if verificationRetry {
-			return id, RepairVerifying
-		}
+		cp.RepairPlans[id] = repair
 	}
-	return "", ""
-}
-
-// A transient provider failure should consume the node retry budget, not a
-// repair round. The latter represents a new semantic patch/verification
-// cycle; advancing it for an unavailable upstream provider can strand the
-// repair plan in a live-but-unverifiable state.
-func isRetryableRepairProviderFailure(attempt NodeAttempt) bool {
-	if (attempt.Status != AttemptFailed && attempt.Status != AttemptTimedOut) || attempt.FailureReason == nil || !attempt.FailureReason.Retryable {
-		return false
-	}
-	switch attempt.FailureReason.Code {
-	case "provider_failed", "provider_timeout", "provider_result_missing", "provider_tool_evidence_missing", "upstream_error", "timeout", "lease_expired":
-		return true
-	default:
-		return false
-	}
-}
-
-func retryableRepairProviderAttempt(projection PlanProjection, attemptID string) bool {
-	if attemptID == "" {
-		return false
-	}
-	attempt, ok := projection.Attempts[attemptID]
-	return ok && isRetryableRepairProviderFailure(attempt)
-}
-
-// repairReadyFrom proves that the node was opened by the repair contract's
-// committed edge. The virtual marker is used only when a bounded retry round
-// reopens the target after a failed patch; ordinary dispatches must name an
-// actual success edge in the frozen graph.
-func repairReadyFrom(projection PlanProjection, graph WorkflowGraph, nodeID, from, repairID string, verification bool) bool {
-	node, ok := projection.Nodes[nodeID]
-	if !ok {
-		return false
-	}
-	virtual := "repair:" + repairID + ":target"
-	if !verification && contains(node.ReadyEdgeIDs, virtual) {
-		return true
-	}
-	for _, readyID := range node.ReadyEdgeIDs {
-		for _, edge := range graph.Edges {
-			if edge.ID == readyID && edge.From == from && edge.To == nodeID && edge.On == EdgeSuccess {
-				return true
-			}
-		}
-	}
-	if verification {
-		// Verification may be a chain (target -> unit -> QA), not only a
-		// direct fan-out from the patched target. The node still must have a
-		// committed ready edge, and the frozen graph must prove that the edge's
-		// source lies on a success-only path from the target. This prevents an
-		// unrelated entry or feedback edge from satisfying the verification
-		// contract while allowing ordinary graph composition between checks.
-		for _, readyID := range node.ReadyEdgeIDs {
-			for _, edge := range graph.Edges {
-				if edge.ID != readyID || edge.To != nodeID || edge.On != EdgeSuccess {
-					continue
-				}
-				if repairPathExists(graph, from, edge.From, EdgeSuccess) {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func createRepairPlan(projection *PlanProjection, plan RequirementExecutionPlan, attempt NodeAttempt) (RepairPlan, error) {
-	if projection == nil {
-		return RepairPlan{}, errors.New("nil projection")
-	}
-	fields := attempt.Result.Fields
-	target, _ := fields["target_node_id"].(string)
-	target = strings.TrimSpace(target)
-	verification := repairVerificationNodes(attempt)
-	maxRounds := intValue(fields["max_rounds"])
-	if target == "" || len(verification) == 0 || maxRounds < 1 {
-		return RepairPlan{}, fmt.Errorf("%w: repair decision is incomplete", ErrInvalidTransition)
-	}
-	if _, ok := projection.Nodes[target]; !ok {
-		return RepairPlan{}, fmt.Errorf("%w: repair target %s is unknown", ErrInvalidTransition, target)
-	}
-	for _, id := range verification {
-		if _, ok := projection.Nodes[id]; !ok {
-			return RepairPlan{}, fmt.Errorf("%w: repair verification node %s is unknown", ErrInvalidTransition, id)
-		}
-	}
-	if !repairPathExists(plan.GraphSnapshot, attempt.NodeID, target, EdgeSuccess) {
-		return RepairPlan{}, fmt.Errorf("%w: repair target %s is not on a success edge", ErrInvalidTransition, target)
-	}
-	for _, id := range verification {
-		if !repairPathExists(plan.GraphSnapshot, target, id, EdgeSuccess) {
-			return RepairPlan{}, fmt.Errorf("%w: verification node %s is not reachable from target", ErrInvalidTransition, id)
-		}
-	}
-	return RepairPlan{ID: plan.ID + ":repair:" + attempt.ID, PlanID: plan.ID, RepairNodeID: attempt.NodeID, RepairAttemptID: attempt.ID, RepairAttemptIDs: []string{attempt.ID}, TargetNodeID: target, VerificationNodeIDs: append([]string(nil), verification...), SourceAttemptIDs: stringSliceValue(fields["source_attempt_ids"]), Scope: stringSliceValue(fields["scope"]), MaxRounds: maxRounds, Round: 1, State: RepairPlanned, StateHistory: []RepairLifecycle{RepairPlanned}, VerifiedNodes: map[string]bool{}}, nil
-}
-
-func advanceRepairAttemptState(projection *PlanProjection, attempt NodeAttempt) (RepairLifecycle, error) {
-	if projection == nil || attempt.RepairPlanID == "" {
-		return attempt.RepairState, nil
-	}
-	repair, ok := projection.RepairPlans[attempt.RepairPlanID]
-	if !ok {
-		return attempt.RepairState, fmt.Errorf("%w: repair plan %s is missing", ErrInvalidTransition, attempt.RepairPlanID)
-	}
-	if isRetryableRepairProviderFailure(attempt) {
-		// Keep the active repair lifecycle in place. The ordinary node retry path
-		// will reopen this exact target or verification attempt with new lineage.
-		projection.RepairPlans[repair.ID] = repair
-		return attempt.RepairState, nil
-	}
-	switch attempt.RepairState {
-	case RepairDispatched:
-		if attempt.Status == AttemptPassed {
-			if !setRepairState(&repair, RepairPatched) {
-				return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to patched", ErrInvalidTransition, repair.ID)
-			}
-			repair.PatchArtifactIDs = appendUnique(repair.PatchArtifactIDs, attempt.OutputArtifacts...)
-			projection.RepairPlans[repair.ID] = repair
-			return RepairPatched, nil
-		}
-		if attempt.Status == AttemptFailed || attempt.Status == AttemptTimedOut || attempt.Status == AttemptCancelled {
-			state := RepairFailed
-			if !setRepairState(&repair, RepairFailed) {
-				return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to failed", ErrInvalidTransition, repair.ID)
-			}
-			if repair.Round < repair.MaxRounds {
-				repair.Round++
-				repair.TargetAttemptID = ""
-				repair.VerificationAttempts = map[string]string{}
-				repair.VerifiedNodes = map[string]bool{}
-				resetRepairRound(projection, repair)
-				if !setRepairState(&repair, RepairPlanned) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot reopen after failure", ErrInvalidTransition, repair.ID)
-				}
-			} else {
-				if !setRepairState(&repair, RepairExhausted) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to exhausted", ErrInvalidTransition, repair.ID)
-				}
-				state = RepairExhausted
-			}
-			projection.RepairPlans[repair.ID] = repair
-			return state, nil
-		}
-	case RepairVerifying:
-		if attempt.Status == AttemptPassed {
-			if repair.VerifiedNodes == nil {
-				repair.VerifiedNodes = map[string]bool{}
-			}
-			repair.VerifiedNodes[attempt.NodeID] = true
-			repair.VerificationArtifactIDs = appendUnique(repair.VerificationArtifactIDs, attempt.OutputArtifacts...)
-			if len(repair.VerifiedNodes) == len(repair.VerificationNodeIDs) {
-				if !setRepairState(&repair, RepairVerified) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to verified", ErrInvalidTransition, repair.ID)
-				}
-			} else {
-				if !setRepairState(&repair, RepairVerifying) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot remain verifying", ErrInvalidTransition, repair.ID)
-				}
-			}
-			projection.RepairPlans[repair.ID] = repair
-			if repair.State == RepairVerified {
-				return RepairVerified, nil
-			}
-			return RepairVerifying, nil
-		}
-		if attempt.Status == AttemptFailed || attempt.Status == AttemptTimedOut || attempt.Status == AttemptCancelled {
-			state := RepairFailed
-			if !setRepairState(&repair, RepairFailed) {
-				return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to failed", ErrInvalidTransition, repair.ID)
-			}
-			if repair.Round < repair.MaxRounds {
-				repair.Round++
-				repair.TargetAttemptID = ""
-				repair.VerificationAttempts = map[string]string{}
-				repair.VerifiedNodes = map[string]bool{}
-				resetRepairRound(projection, repair)
-				if !setRepairState(&repair, RepairPlanned) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot reopen after verification failure", ErrInvalidTransition, repair.ID)
-				}
-			} else {
-				if !setRepairState(&repair, RepairExhausted) {
-					return attempt.RepairState, fmt.Errorf("%w: repair %s cannot transition to exhausted", ErrInvalidTransition, repair.ID)
-				}
-				state = RepairExhausted
-			}
-			projection.RepairPlans[repair.ID] = repair
-			return state, nil
-		}
-	}
-	return attempt.RepairState, nil
-}
-
-func repairLifecycleTransitionAllowed(from, to RepairLifecycle) bool {
-	if from == to {
-		return true
-	}
-	switch from {
-	case RepairPlanned:
-		return to == RepairDispatched || to == RepairFailed || to == RepairExhausted
-	case RepairDispatched:
-		return to == RepairPatched || to == RepairFailed || to == RepairExhausted
-	case RepairPatched:
-		return to == RepairVerifying || to == RepairFailed || to == RepairExhausted
-	case RepairVerifying:
-		return to == RepairVerified || to == RepairFailed || to == RepairExhausted
-	case RepairFailed:
-		return to == RepairPlanned || to == RepairExhausted
-	case RepairVerified, RepairExhausted:
-		return false
-	default:
-		return false
-	}
-}
-
-func setRepairState(repair *RepairPlan, next RepairLifecycle) bool {
-	if repair == nil || !validRepairLifecycle(next) {
-		return false
-	}
-	if repair.State == "" {
-		repair.State = next
-		repair.StateHistory = append(repair.StateHistory, next)
-		return true
-	}
-	if !repairLifecycleTransitionAllowed(repair.State, next) {
-		return false
-	}
-	if len(repair.StateHistory) == 0 {
-		repair.StateHistory = []RepairLifecycle{repair.State}
-	}
-	if repair.StateHistory[len(repair.StateHistory)-1] != repair.State {
-		repair.StateHistory = append(repair.StateHistory, repair.State)
-	}
-	if repair.State != next {
-		repair.State = next
-		repair.StateHistory = append(repair.StateHistory, next)
-	}
-	return true
-}
-
-// resetRepairRound reopens the target and clears all verification nodes. The
-// historical attempts stay immutable; only the node readiness projection is
-// changed so the next scheduler tick must create a new attempt for the round.
-func resetRepairRound(projection *PlanProjection, repair RepairPlan) {
-	if projection == nil {
-		return
-	}
-	for _, nodeID := range append([]string{repair.TargetNodeID}, repair.VerificationNodeIDs...) {
-		node, ok := projection.Nodes[nodeID]
-		if !ok || node.Status == AttemptRunning {
-			continue
-		}
-		node.RetryAt = nil
-		if nodeID == repair.TargetNodeID {
-			node.Status = AttemptReady
-			node.ReadyEdgeIDs = []string{"repair:" + repair.ID + ":target"}
-		} else {
-			node.Status = AttemptPending
-			node.ReadyEdgeIDs = nil
-		}
-		projection.Nodes[nodeID] = node
-	}
-}
-
-func repairPathExists(graph WorkflowGraph, from, to string, on EdgeEvent) bool {
-	if from == to {
-		return true
-	}
-	queue := []string{from}
-	seen := map[string]bool{from: true}
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		for _, edge := range graph.Edges {
-			if edge.From != current || edge.On != on || edge.MaxTraversals == 0 && edge.LoopGroup != "" {
-				continue
-			}
-			if edge.To == to {
-				return true
-			}
-			if !seen[edge.To] {
-				seen[edge.To] = true
-				queue = append(queue, edge.To)
-			}
-		}
-	}
-	return false
-}
-
-func stringSliceValue(value any) []string {
-	if values, ok := value.([]string); ok {
-		return append([]string(nil), values...)
-	}
-	values, _ := value.([]any)
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if item, ok := value.(string); ok && strings.TrimSpace(item) != "" {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
-func intValue(value any) int {
-	switch n := value.(type) {
-	case int:
-		return n
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	default:
-		return 0
-	}
-}
-
-func appendUnique(values []string, additions ...string) []string {
-	seen := make(map[string]bool)
-	result := make([]string, 0)
-	for _, value := range append(append([]string(nil), values...), additions...) {
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		result = append(result, value)
-	}
-	return result
-}
-
-func repairVerificationNodes(attempt NodeAttempt) []string {
-	if attempt.Result.Fields == nil {
-		return nil
-	}
-	if values, ok := attempt.Result.Fields["verification_node_ids"].([]string); ok {
-		return values
-	}
-	values, _ := attempt.Result.Fields["verification_node_ids"].([]any)
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if item, ok := value.(string); ok {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
-func (p *PlanProjection) route(plan RequirementExecutionPlan, a NodeAttempt, input TransitionInput) error {
-	now := input.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	// A plan deadline is a hard execution boundary. Once the reducer records
-	// the timeout, do not follow a retry/feedback edge or leave ready nodes
-	// behind for an unbounded worker loop.
-	if a.Status == AttemptTimedOut && a.FailureReason != nil && a.FailureReason.Code == "plan_deadline_exceeded" {
-		p.Status = PlanTerminal
-		p.TerminalOutcome = "timed_out"
-		return nil
-	}
-	var matched []WorkflowEdge
-	for _, e := range plan.GraphSnapshot.Edges {
-		if e.From != a.NodeID || !eventMatches(e.On, a.Status, input.Event, a.Result.Outcome) {
-			continue
-		}
-		ok, err := EvaluatePredicate(e.Predicate, resultFields(a.Result))
-		if err != nil {
-			return err
-		}
-		if ok {
-			for _, required := range e.RequiredEvidence {
-				if !contains(a.Result.EvidenceIDs, required) {
-					return fmt.Errorf("edge %s requires evidence %s", e.ID, required)
-				}
-			}
-			matched = append(matched, e)
-		}
-	}
-	if len(matched) > 1 {
-		allFanOut := true
-		for _, edge := range matched {
-			if !edge.FanOut {
-				allFanOut = false
-				break
-			}
-		}
-		if allFanOut {
-			for _, edge := range matched {
-				if edge.MaxTraversals > 0 {
-					p.Traversals[edge.ID]++
-					if p.Traversals[edge.ID] > edge.MaxTraversals {
-						return ErrLoopExhausted
-					}
-				}
-				target := p.Nodes[edge.To]
-				if target.Status != AttemptRunning {
-					target.Status = AttemptReady
-					target.RetryAt = nil
-					target.ReadyEdgeIDs = appendUnique(target.ReadyEdgeIDs, edge.ID)
-					p.Nodes[edge.To] = target
-				}
-				if input.IdempotencyKey != "" {
-					p.Decisions = append(p.Decisions, FeedbackDecision{PlanID: plan.ID, SourceAttempt: a.ID, SourceNode: a.NodeID, TargetNode: edge.To, EdgeID: edge.ID, StructuredResult: a.Result, EvidenceIDs: a.Result.EvidenceIDs, Reason: "fan-out predicate matched", LoopCount: p.Traversals[edge.ID], IdempotencyKey: input.IdempotencyKey + ":" + edge.ID})
-				}
-			}
-			return nil
-		}
-		best := matched[0]
-		for _, e := range matched[1:] {
-			if e.Priority > best.Priority {
-				best = e
-			}
-		}
-		count := 0
-		for _, e := range matched {
-			if e.Priority == best.Priority {
-				count++
-			}
-		}
-		if count > 1 {
-			return ErrAmbiguousTransition
-		}
-		matched = []WorkflowEdge{best}
-	}
-	if len(matched) == 0 {
-		var node WorkflowNode
-		for _, candidate := range plan.GraphSnapshot.Nodes {
-			if candidate.ID == a.NodeID {
-				node = candidate
-				break
-			}
-		}
-		if (a.Status == AttemptFailed || a.Status == AttemptTimedOut) && a.FailureReason != nil && retryAllowed(node, a, input) {
-			n := p.Nodes[a.NodeID]
-			if node.RetryPolicy.MaxAttempts > a.AttemptNo && node.RetryPolicy.MaxAttempts > 1 {
-				n.RetryCount++
-				backoff := node.RetryPolicy.Backoff
-				for i := 1; i < n.RetryCount && backoff > 0 && backoff < 24*time.Hour; i++ {
-					if backoff > 12*time.Hour {
-						backoff = 24 * time.Hour
-						break
-					}
-					backoff += backoff
-				}
-				retryAt := now.Add(backoff)
-				n.RetryAt = &retryAt
-				n.Status = AttemptReady
-				p.Nodes[a.NodeID] = n
-				p.Status = PlanRunning
-				return nil
-			}
-		}
-		if contains(plan.GraphSnapshot.ExitNodeIDs, a.NodeID) {
-			if len(a.Result.EvidenceIDs) == 0 {
-				return ErrEvidenceRequired
-			}
-			if !allRepairsVerified(*p) {
-				// A successful exit may be observed before every declared
-				// verification branch has completed, so keep the plan live in
-				// that case. A failed/timed-out/cancelled exit is different: if
-				// there is no matching failure edge, the graph has exhausted its
-				// configured recovery path and must fail closed. Leaving it in
-				// running merely because an older repair plan is still planned
-				// strands the watcher forever after provider retry exhaustion.
-				if a.Status == AttemptPassed && repairVerificationPending(*p) {
-					// Multiple verification nodes may be exits in a fan-out graph.
-					// Keep the plan live until every declared verification attempt has
-					// completed instead of failing at the first passing exit.
-					p.Status = PlanRunning
-					return nil
-				}
-				// A graph may contain a shortcut edge to an exit after a patch.
-				// Never let that shortcut turn a repair plan into a successful
-				// terminal outcome before every declared verification node has
-				// produced a passing immutable attempt.
-				p.Status = PlanTerminal
-				p.TerminalOutcome = "failed"
-				return nil
-			}
-			p.Status = PlanTerminal
-			switch a.Status {
-			case AttemptPassed:
-				p.TerminalOutcome = "succeeded"
-			case AttemptCancelled:
-				p.TerminalOutcome = "cancelled"
-			case AttemptTimedOut:
-				p.TerminalOutcome = "timed_out"
-			default:
-				p.TerminalOutcome = "failed"
-			}
-			return nil
-		}
-		// A terminal failure without a configured retry or failure/timeout/cancel
-		// edge is a fail-closed graph outcome. Leaving the failed node in place
-		// would make the worker appear healthy while the plan remains running
-		// forever, with no durable route that could make progress.
-		if a.Status == AttemptFailed || a.Status == AttemptTimedOut || a.Status == AttemptCancelled {
-			p.Status = PlanTerminal
-			switch a.Status {
-			case AttemptTimedOut:
-				p.TerminalOutcome = "timed_out"
-			case AttemptCancelled:
-				p.TerminalOutcome = "cancelled"
-			default:
-				p.TerminalOutcome = "failed"
-			}
-			return nil
-		}
-		return nil
-	}
-	e := matched[0]
-	if e.MaxTraversals > 0 {
-		p.Traversals[e.ID]++
-		if p.Traversals[e.ID] > e.MaxTraversals {
-			return ErrLoopExhausted
-		}
-	}
-	target := p.Nodes[e.To]
-	// A feedback edge deliberately re-opens its target with a new attempt. The
-	// previous attempt remains immutable in Attempts, even when the node had
-	// already reached a terminal status.
-	if target.Status != AttemptRunning {
-		target.Status = AttemptReady
-		target.ReadyEdgeIDs = appendUnique(target.ReadyEdgeIDs, e.ID)
-		p.Nodes[e.To] = target
-	}
-	if input.IdempotencyKey != "" {
-		p.Decisions = append(p.Decisions, FeedbackDecision{PlanID: plan.ID, SourceAttempt: a.ID, SourceNode: a.NodeID, TargetNode: e.To, EdgeID: e.ID, StructuredResult: a.Result, EvidenceIDs: a.Result.EvidenceIDs, Reason: "predicate matched", LoopCount: p.Traversals[e.ID], IdempotencyKey: input.IdempotencyKey})
-	}
-	return nil
-}
-
-func allRepairsVerified(projection PlanProjection) bool {
-	for _, repair := range projection.RepairPlans {
-		if repair.State != RepairVerified {
-			return false
-		}
-		if len(repair.VerificationNodeIDs) == 0 || len(repair.VerifiedNodes) < len(repair.VerificationNodeIDs) {
-			return false
-		}
-		for _, nodeID := range repair.VerificationNodeIDs {
-			if !repair.VerifiedNodes[nodeID] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func repairVerificationPending(projection PlanProjection) bool {
-	for _, repair := range projection.RepairPlans {
-		switch repair.State {
-		case RepairPlanned, RepairDispatched, RepairPatched, RepairVerifying:
-			return true
-		}
-	}
-	return false
-}
-func eventMatches(e EdgeEvent, s AttemptStatus, event, outcome string) bool {
-	switch e {
-	case EdgeSuccess:
-		return s == AttemptPassed && event != "approval_granted" && event != "approved" && outcome != "approved"
-	case EdgeFailure:
-		return s == AttemptFailed && event != "bug" && outcome != "bug"
-	case EdgeBug:
-		return s == AttemptFailed && (event == "bug" || outcome == "bug")
-	case EdgeTimeout:
-		return s == AttemptTimedOut
-	case EdgeCancel:
-		return s == AttemptCancelled
-	case EdgeApproval:
-		return event == "approval_granted" || event == "approved" || outcome == "approved"
-	default:
-		return false
-	}
-}
-
-func retryAllowed(node WorkflowNode, a NodeAttempt, input TransitionInput) bool {
-	if a.FailureReason == nil || !a.FailureReason.Retryable {
-		return false
-	}
-	if len(node.RetryPolicy.RetryOn) == 0 {
-		return true
-	}
-	values := []string{a.FailureReason.Code, input.Event, a.Result.Outcome}
-	for _, configured := range node.RetryPolicy.RetryOn {
-		configured = strings.TrimSpace(configured)
-		for _, value := range values {
-			if configured != "" && strings.EqualFold(configured, value) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func transitionPayloadHash(input TransitionInput) string {
-	payload := struct {
-		Event   string           `json:"event"`
-		Result  StructuredResult `json:"result"`
-		Failure *FailureReason   `json:"failure,omitempty"`
-	}{input.Event, input.Result, input.Failure}
-	b, _ := json.Marshal(payload)
-	h := sha256.Sum256(b)
-	return fmt.Sprintf("%x", h[:])
-}
-
-// resultUsage reads provider-neutral usage fields from a structured result.
-// Providers may encode JSON numbers as int, int64 or float64; invalid or
-// negative values are ignored so malformed telemetry cannot grant budget.
-func resultUsage(result StructuredResult) (int64, int, int64) {
-	return usageInt64(result.Fields, "tokens"), usageInt(result.Fields, "tool_calls"), usageInt64(result.Fields, "cost_cents")
-}
-
-func usageInt64(fields map[string]any, key string) int64 {
-	if fields == nil {
-		return 0
-	}
-	var value int64
-	switch n := fields[key].(type) {
-	case int:
-		value = int64(n)
-	case int8:
-		value = int64(n)
-	case int16:
-		value = int64(n)
-	case int32:
-		value = int64(n)
-	case int64:
-		value = n
-	case uint:
-		if uint64(n) <= uint64(^uint64(0)>>1) {
-			value = int64(n)
-		}
-	case uint64:
-		if n <= uint64(^uint64(0)>>1) {
-			value = int64(n)
-		}
-	case float64:
-		if n >= 0 && n <= float64(^uint64(0)>>1) && n == float64(int64(n)) {
-			value = int64(n)
-		}
-	case float32:
-		f := float64(n)
-		if f >= 0 && f <= float64(^uint64(0)>>1) && f == float64(int64(f)) {
-			value = int64(f)
-		}
-	}
-	if value < 0 {
-		return 0
-	}
-	return value
-}
-
-func usageInt(fields map[string]any, key string) int {
-	value := usageInt64(fields, key)
-	if value > int64(^uint(0)>>1) {
-		return int(^uint(0) >> 1)
-	}
-	return int(value)
-}
-func resultFields(r StructuredResult) map[string]any {
-	f := map[string]any{}
-	for k, v := range r.Fields {
-		f[k] = v
-	}
-	f["outcome"] = r.Outcome
-	f["summary"] = r.Summary
-	return f
-}
-func contains(xs []string, v string) bool {
-	for _, x := range xs {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return cp
 }

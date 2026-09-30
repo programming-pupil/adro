@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core/budget"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 func TestFreezeDelegationOnlyAllowsNarrowerAuthority(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	parent := DelegationGrant{RequestID: "root-request", ParentPlanID: "root-parent", ParentAttemptID: "root-attempt", ChildPlanID: "parent-plan", ChildAgentID: "parent-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []CapabilityRef{{Name: "files.read", Version: "v1"}, {Name: "net.fetch", Version: "v1"}}, Budget: budget.Budget{Tokens: 1000, ToolCalls: 10, CostCents: 500, Duration: time.Hour, Concurrent: 2}, Deadline: now.Add(2 * time.Hour), RecursionDepth: 1, MaxChildDepth: 3}
+	parent := DelegationGrant{RequestID: "root-request", ParentPlanID: "root-parent", ParentAttemptID: "root-attempt", ChildPlanID: "parent-plan", ChildAgentID: "parent-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []graphmodel.CapabilityRef{{Name: "files.read", Version: "v1"}, {Name: "net.fetch", Version: "v1"}}, Budget: budget.Budget{Tokens: 1000, ToolCalls: 10, CostCents: 500, Duration: time.Hour, Concurrent: 2}, Deadline: now.Add(2 * time.Hour), RecursionDepth: 1, MaxChildDepth: 3}
 	parent.Digest = delegationDigest(parent)
-	child, err := FreezeDelegation(parent, DelegationRequest{RequestID: "child-request", ParentPlanID: "parent-plan", ParentAttemptID: "parent-attempt", ChildPlanID: "child-plan", ChildAgentID: "child-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []CapabilityRef{{Name: "files.read", Version: "v1"}}, ContextBlockIDs: []string{"z", "a", "a"}, Budget: budget.Budget{Tokens: 500, ToolCalls: 4, CostCents: 200, Duration: 30 * time.Minute, Concurrent: 1}, Deadline: now.Add(time.Hour), RecursionDepth: 2, MaxChildDepth: 3, IdempotencyKey: "delegate-1"}, now)
+	child, err := FreezeDelegation(parent, DelegationRequest{RequestID: "child-request", ParentPlanID: "parent-plan", ParentAttemptID: "parent-attempt", ChildPlanID: "child-plan", ChildAgentID: "child-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []graphmodel.CapabilityRef{{Name: "files.read", Version: "v1"}}, ContextBlockIDs: []string{"z", "a", "a"}, Budget: budget.Budget{Tokens: 500, ToolCalls: 4, CostCents: 200, Duration: 30 * time.Minute, Concurrent: 1}, Deadline: now.Add(time.Hour), RecursionDepth: 2, MaxChildDepth: 3, IdempotencyKey: "delegate-1"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,9 +27,9 @@ func TestFreezeDelegationOnlyAllowsNarrowerAuthority(t *testing.T) {
 
 func TestFreezeDelegationRejectsEscalationAndTenantCrossing(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	parent := DelegationGrant{RequestID: "root-request", ParentPlanID: "root-parent", ParentAttemptID: "root-attempt", ChildPlanID: "parent-plan", ChildAgentID: "parent-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []CapabilityRef{{Name: "files.read", Version: "v1"}}, Budget: budget.Budget{Tokens: 100, ToolCalls: 2, Concurrent: 1}, RecursionDepth: 1, MaxChildDepth: 2}
+	parent := DelegationGrant{RequestID: "root-request", ParentPlanID: "root-parent", ParentAttemptID: "root-attempt", ChildPlanID: "parent-plan", ChildAgentID: "parent-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []graphmodel.CapabilityRef{{Name: "files.read", Version: "v1"}}, Budget: budget.Budget{Tokens: 100, ToolCalls: 2, Concurrent: 1}, RecursionDepth: 1, MaxChildDepth: 2}
 	parent.Digest = delegationDigest(parent)
-	base := DelegationRequest{RequestID: "child-request", ParentPlanID: "parent-plan", ParentAttemptID: "parent-attempt", ChildPlanID: "child-plan", ChildAgentID: "child-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []CapabilityRef{{Name: "files.read", Version: "v1"}}, Budget: budget.Budget{Tokens: 101, ToolCalls: 1, Concurrent: 1}, RecursionDepth: 2, MaxChildDepth: 2, IdempotencyKey: "delegate-1"}
+	base := DelegationRequest{RequestID: "child-request", ParentPlanID: "parent-plan", ParentAttemptID: "parent-attempt", ChildPlanID: "child-plan", ChildAgentID: "child-agent", TenantID: "tenant-a", WorkspaceID: "workspace-a", Capabilities: []graphmodel.CapabilityRef{{Name: "files.read", Version: "v1"}}, Budget: budget.Budget{Tokens: 101, ToolCalls: 1, Concurrent: 1}, RecursionDepth: 2, MaxChildDepth: 2, IdempotencyKey: "delegate-1"}
 	if _, err := FreezeDelegation(parent, base, now); !errors.Is(err, ErrDelegationEscalation) {
 		t.Fatalf("budget escalation err=%v", err)
 	}

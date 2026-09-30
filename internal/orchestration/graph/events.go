@@ -1,4 +1,4 @@
-package orchestration
+package graph
 
 import (
 	"bytes"
@@ -53,7 +53,7 @@ func NewEventWithContext(ctx context.Context, previous *Event, planID, workspace
 		e.Sequence = previous.Sequence + 1
 		e.PreviousHash = previous.EnvelopeHash
 	}
-	e.EnvelopeHash = eventDigest(e)
+	e.EnvelopeHash = EventDigest(e)
 	return e, nil
 }
 
@@ -66,10 +66,10 @@ func (e *Event) Seal() {
 		return
 	}
 	e.PayloadHash = payloadDigest(e.Payload)
-	e.EnvelopeHash = eventDigest(*e)
+	e.EnvelopeHash = EventDigest(*e)
 }
 
-func eventDigest(e Event) string {
+func EventDigest(e Event) string {
 	cp := e
 	cp.EnvelopeHash = ""
 	cp.Payload = canonicalPayload(cp.Payload)
@@ -77,6 +77,7 @@ func eventDigest(e Event) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
+
 func ValidateEventChain(events []Event, planID, workspaceID string) error {
 	var prev string
 	for i, e := range events {
@@ -92,7 +93,7 @@ func ValidateEventChain(events []Event, planID, workspaceID string) error {
 		if e.PreviousHash != prev {
 			return fmt.Errorf("event previous hash mismatch at %d", e.Sequence)
 		}
-		if eventDigest(e) != e.EnvelopeHash {
+		if EventDigest(e) != e.EnvelopeHash {
 			return fmt.Errorf("event envelope hash mismatch at %d", e.Sequence)
 		}
 		if payloadDigest(e.Payload) != e.PayloadHash {

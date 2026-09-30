@@ -1,8 +1,9 @@
-package orchestration
+package graph
 
 import (
-	"github.com/adro-project/adro/core/budget"
 	"testing"
+
+	"github.com/adro-project/adro/core/budget"
 )
 
 func TestAgentExecutorConfigurationValidation(t *testing.T) {

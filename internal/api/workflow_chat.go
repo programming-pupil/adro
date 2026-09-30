@@ -15,7 +15,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
@@ -515,16 +515,16 @@ func (s *Server) chatProviderSelection(session domain.ChatSession) (provider.Exe
 	return s.Provider, selection, key, nil
 }
 
-func (s *Server) chatAgentForSession(session domain.ChatSession, revision int64) (orchestration.AgentDefinition, error) {
+func (s *Server) chatAgentForSession(session domain.ChatSession, revision int64) (graphmodel.AgentDefinition, error) {
 	if s.Orchestration == nil {
-		return orchestration.AgentDefinition{}, errors.New("chat Agent is unavailable")
+		return graphmodel.AgentDefinition{}, errors.New("chat Agent is unavailable")
 	}
 	agent, err := s.Orchestration.GetAgent(session.WorkspaceID, session.AgentID, revision)
 	if err != nil {
-		return orchestration.AgentDefinition{}, err
+		return graphmodel.AgentDefinition{}, err
 	}
-	if agent.Status != orchestration.AgentActive {
-		return orchestration.AgentDefinition{}, errors.New("chat Agent is not active")
+	if agent.Status != graphmodel.AgentActive {
+		return graphmodel.AgentDefinition{}, errors.New("chat Agent is not active")
 	}
 	return agent, nil
 }

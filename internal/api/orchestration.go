@@ -15,6 +15,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 )
 
@@ -24,12 +25,12 @@ func (s *Server) graphExecutor(owner string) orchestration.Executor {
 
 func (s *Server) graphExecutorFor(owner, invokerID string) orchestration.Executor {
 	executor := orchestration.Executor{Provider: s.Provider, Repository: s.Orchestration, Events: s.Orchestration, Owner: owner, InvokerID: invokerID, Tracer: s.Tracer}
-	executor.InstructionsResolver = func(_ context.Context, agent orchestration.AgentDefinition) (string, error) {
+	executor.InstructionsResolver = func(_ context.Context, agent graphmodel.AgentDefinition) (string, error) {
 		return s.agentExecutionInstructions(agent)
 	}
 	if s.RuntimeProviders != nil {
 		executor.Provider = s.RuntimeProviders
-		executor.ProviderResolver = func(_ context.Context, agent orchestration.AgentDefinition) (provider.ExecutionProvider, error) {
+		executor.ProviderResolver = func(_ context.Context, agent graphmodel.AgentDefinition) (provider.ExecutionProvider, error) {
 			binding := agent.ExecutorBinding
 			environment, err := resolveAgentEnvironment(binding.Environment)
 			if err != nil {
@@ -49,7 +50,7 @@ func (s *Server) graphExecutorFor(owner, invokerID string) orchestration.Executo
 	return executor
 }
 
-func resolveAgentEnvironment(references []orchestration.EnvironmentReference) (map[string]string, error) {
+func resolveAgentEnvironment(references []graphmodel.EnvironmentReference) (map[string]string, error) {
 	values := make(map[string]string, len(references))
 	if len(references) == 0 {
 		return values, nil
@@ -68,7 +69,7 @@ func resolveAgentEnvironment(references []orchestration.EnvironmentReference) (m
 	return values, nil
 }
 
-func (s *Server) agentExecutionInstructions(agent orchestration.AgentDefinition) (string, error) {
+func (s *Server) agentExecutionInstructions(agent graphmodel.AgentDefinition) (string, error) {
 	if len(agent.SkillIDs) == 0 {
 		return agent.Instructions, nil
 	}
@@ -94,7 +95,7 @@ func (s *Server) agentExecutionInstructions(agent orchestration.AgentDefinition)
 	return strings.Join(sections, "\n\n"), nil
 }
 
-func (s *Server) agentRuntimeMCPServers(agent orchestration.AgentDefinition) ([]provider.RuntimeMCPServer, error) {
+func (s *Server) agentRuntimeMCPServers(agent graphmodel.AgentDefinition) ([]provider.RuntimeMCPServer, error) {
 	if len(agent.MCPServerIDs) == 0 {
 		return nil, nil
 	}
@@ -207,14 +208,14 @@ func (s *Server) orchestrationRoute(w http.ResponseWriter, r *http.Request, path
 		return
 	}
 	var input struct {
-		Graph orchestration.WorkflowGraph             `json:"graph"`
-		Plan  *orchestration.RequirementExecutionPlan `json:"plan,omitempty"`
+		Graph graphmodel.WorkflowGraph             `json:"graph"`
+		Plan  *graphmodel.RequirementExecutionPlan `json:"plan,omitempty"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
 		s.problem(w, r, http.StatusBadRequest, "invalid_json", err.Error(), nil)
 		return
 	}
-	if err := orchestration.ValidateGraph(input.Graph); err != nil {
+	if err := graphmodel.ValidateGraph(input.Graph); err != nil {
 		s.problem(w, r, http.StatusUnprocessableEntity, "graph_validation_failed", err.Error(), map[string]any{"graph_id": input.Graph.ID})
 		return
 	}
@@ -224,7 +225,7 @@ func (s *Server) orchestrationRoute(w http.ResponseWriter, r *http.Request, path
 		return
 	}
 	input.Graph.ValidationDigest = hash
-	s.writeJSON(w, http.StatusOK, map[string]any{"valid": true, "validation_digest": hash, "graph": input.Graph, "diagnostics": orchestration.DiagnoseGraph(input.Graph)})
+	s.writeJSON(w, http.StatusOK, map[string]any{"valid": true, "validation_digest": hash, "graph": input.Graph, "diagnostics": graphmodel.DiagnoseGraph(input.Graph)})
 }
 
 // executionPlanAction applies explicit lifecycle controls through the same
@@ -273,7 +274,7 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 		}
 		projection, projectionErr := s.Orchestration.GetProjection(plan.ID)
 		if errors.Is(projectionErr, orchestration.ErrNotFound) {
-			projection, projectionErr = orchestration.NewProjection(plan)
+			projection, projectionErr = graphmodel.NewProjection(plan)
 		}
 		if projectionErr != nil {
 			s.problem(w, r, http.StatusConflict, "projection_unavailable", projectionErr.Error(), nil)
@@ -281,7 +282,7 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 		}
 		executor := s.graphExecutor(requestActorID(r))
 		report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Admission: s.Admission, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(r.Context(), plan, &projection, *input.Context, input.WorkItemID, input.AgentBinding)
-		if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
+		if tickErr != nil && !errors.Is(tickErr, graphmodel.ErrDeadlineExceeded) {
 			s.problem(w, r, http.StatusConflict, "plan_resume_failed", tickErr.Error(), map[string]any{"report": report})
 			return
 		}
@@ -359,7 +360,7 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 	if reason == "" {
 		reason = action
 	}
-	finished, err := executor.FinishAttempt(r.Context(), plan, &projection, input.AttemptID, orchestration.TransitionInput{PlanRevision: plan.Revision, AttemptID: input.AttemptID, LeaseToken: input.LeaseToken, Event: "cancel", Result: orchestration.StructuredResult{Outcome: "cancelled", Summary: reason, EvidenceIDs: []string{"operator:" + input.AttemptID}}, Failure: &orchestration.FailureReason{Code: "cancelled", Message: reason}, IdempotencyKey: r.Header.Get("Idempotency-Key"), Now: time.Now().UTC()})
+	finished, err := executor.FinishAttempt(r.Context(), plan, &projection, input.AttemptID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: input.AttemptID, LeaseToken: input.LeaseToken, Event: "cancel", Result: graphmodel.StructuredResult{Outcome: "cancelled", Summary: reason, EvidenceIDs: []string{"operator:" + input.AttemptID}}, Failure: &graphmodel.FailureReason{Code: "cancelled", Message: reason}, IdempotencyKey: r.Header.Get("Idempotency-Key"), Now: time.Now().UTC()})
 	if err != nil {
 		s.problem(w, r, http.StatusConflict, "cancel_failed", err.Error(), nil)
 		return
@@ -367,29 +368,29 @@ func (s *Server) executionPlanAction(w http.ResponseWriter, r *http.Request, pla
 	s.writeJSON(w, http.StatusOK, map[string]any{"attempt": finished, "projection": projection, "status": "cancelled"})
 }
 
-func (s *Server) commitPlanActionEvent(ctx context.Context, plan orchestration.RequirementExecutionPlan, projection *orchestration.PlanProjection, typ, nodeID, reason, key string) error {
+func (s *Server) commitPlanActionEvent(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, typ, nodeID, reason, key string) error {
 	if strings.TrimSpace(key) == "" {
 		key = plan.ID + ":" + typ + ":" + nodeID
 	}
 	items := s.Orchestration.ListEvents(plan.ID, 0)
-	var previous *orchestration.Event
+	var previous *graphmodel.Event
 	if len(items) > 0 {
 		tail := items[len(items)-1]
 		previous = &tail
 	}
-	event, err := orchestration.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, typ, key, map[string]any{"node_id": nodeID, "reason": reason})
+	event, err := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, typ, key, map[string]any{"node_id": nodeID, "reason": reason})
 	if err != nil {
 		return err
 	}
 	return s.Orchestration.CommitEventProjection(event, *projection)
 }
 
-func (s *Server) commitAttemptFinishedEvent(ctx context.Context, plan orchestration.RequirementExecutionPlan, projection *orchestration.PlanProjection, attempt orchestration.NodeAttempt, transition string, result orchestration.StructuredResult, failure *orchestration.FailureReason, key string) error {
+func (s *Server) commitAttemptFinishedEvent(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, attempt graphmodel.NodeAttempt, transition string, result graphmodel.StructuredResult, failure *graphmodel.FailureReason, key string) error {
 	if strings.TrimSpace(key) == "" {
 		key = plan.ID + ":" + attempt.ID + ":" + transition
 	}
 	items := s.Orchestration.ListEvents(plan.ID, 0)
-	var previous *orchestration.Event
+	var previous *graphmodel.Event
 	if len(items) > 0 {
 		tail := items[len(items)-1]
 		previous = &tail
@@ -398,7 +399,7 @@ func (s *Server) commitAttemptFinishedEvent(ctx context.Context, plan orchestrat
 	if attempt.FinishedAt != nil {
 		now = attempt.FinishedAt.UTC()
 	}
-	event, err := orchestration.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.finished", key+":finished", map[string]any{"attempt_id": attempt.ID, "event": transition, "result": result, "failure": failure, "transition_idempotency_key": key, "transition_at": now})
+	event, err := graphmodel.NewEventWithContext(ctx, previous, plan.ID, plan.WorkspaceID, "attempt.finished", key+":finished", map[string]any{"attempt_id": attempt.ID, "event": transition, "result": result, "failure": failure, "transition_idempotency_key": key, "transition_at": now})
 	if err != nil {
 		return err
 	}
@@ -410,7 +411,7 @@ func (s *Server) commitAttemptFinishedEvent(ctx context.Context, plan orchestrat
 	return nil
 }
 
-func (s *Server) getOrchestrationPlan(workspace, id string) (orchestration.RequirementExecutionPlan, error) {
+func (s *Server) getOrchestrationPlan(workspace, id string) (graphmodel.RequirementExecutionPlan, error) {
 	plan, err := s.Orchestration.GetPlan(workspace, id)
 	if err == nil || workspace != "" {
 		return plan, err
@@ -420,7 +421,7 @@ func (s *Server) getOrchestrationPlan(workspace, id string) (orchestration.Requi
 			return candidate, nil
 		}
 	}
-	return orchestration.RequirementExecutionPlan{}, err
+	return graphmodel.RequirementExecutionPlan{}, err
 }
 
 func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planID, workspace string) {
@@ -462,7 +463,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 	}
 	projection, err := s.Orchestration.GetProjection(plan.ID)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		projection, err = orchestration.NewProjection(plan)
+		projection, err = graphmodel.NewProjection(plan)
 		if err == nil {
 			err = s.Orchestration.SaveProjection(projection)
 		}
@@ -473,7 +474,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 	}
 	executor := s.graphExecutor(requestActorID(r))
 	report, tickErr := (orchestration.Scheduler{Repository: s.Orchestration, Executor: executor, Admission: s.Admission, Config: orchestration.SchedulerConfig{MaxConcurrent: queryInt(r, "max_concurrent", 0)}}).Tick(context.Background(), plan, &projection, *input.Envelope, input.WorkItemID, input.AgentBindingID)
-	if tickErr != nil && !errors.Is(tickErr, orchestration.ErrDeadlineExceeded) {
+	if tickErr != nil && !errors.Is(tickErr, graphmodel.ErrDeadlineExceeded) {
 		s.problem(w, r, http.StatusConflict, "plan_tick_failed", tickErr.Error(), map[string]any{"report": report})
 		return
 	}
@@ -487,7 +488,7 @@ func (s *Server) executionPlanTick(w http.ResponseWriter, r *http.Request, planI
 // loop that observes provider snapshots, commits terminal outcomes, and
 // dispatches feedback/retry edges. The watcher is keyed by plan so repeated
 // browser refreshes and idempotent ticks cannot create competing workers.
-func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, envelope harness.ContextEnvelope, workItemID, agentBindingID, invokerID string) {
+func (s *Server) watchGraphPlan(plan graphmodel.RequirementExecutionPlan, envelope harness.ContextEnvelope, workItemID, agentBindingID, invokerID string) {
 	if s == nil || s.Orchestration == nil || s.Provider == nil || plan.ID == "" {
 		return
 	}
@@ -521,7 +522,7 @@ func (s *Server) watchGraphPlan(plan orchestration.RequirementExecutionPlan, env
 			}
 			return
 		}
-		if projection.Status == orchestration.PlanTerminal {
+		if projection.Status == graphmodel.PlanTerminal {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), graphWatchTimeout())
@@ -547,7 +548,7 @@ func orchestrationErrorClass(err error) string {
 	switch {
 	case err == nil:
 		return "none"
-	case errors.Is(err, orchestration.ErrDeadlineExceeded):
+	case errors.Is(err, graphmodel.ErrDeadlineExceeded):
 		return "deadline_exceeded"
 	case errors.Is(err, orchestration.ErrNotFound):
 		return "not_found"
@@ -598,18 +599,18 @@ func (s *Server) executionPlanApproval(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	attempt, ok := projection.Attempts[node.CurrentAttempt]
-	if !ok || attempt.Status != orchestration.AttemptWaiting {
+	if !ok || attempt.Status != graphmodel.AttemptWaiting {
 		s.problem(w, r, http.StatusConflict, "approval_not_pending", "node is not waiting for approval", nil)
 		return
 	}
 	event := "approval_granted"
-	result := orchestration.StructuredResult{Outcome: "approved", Summary: "human approval granted", EvidenceIDs: []string{"human-approval:" + attempt.ID}}
+	result := graphmodel.StructuredResult{Outcome: "approved", Summary: "human approval granted", EvidenceIDs: []string{"human-approval:" + attempt.ID}}
 	if action == "deny" {
 		event = "approval_denied"
-		result = orchestration.StructuredResult{Outcome: "denied", Summary: "human approval denied", EvidenceIDs: []string{"human-denial:" + attempt.ID}}
+		result = graphmodel.StructuredResult{Outcome: "denied", Summary: "human approval denied", EvidenceIDs: []string{"human-denial:" + attempt.ID}}
 	}
 	executor := orchestration.Executor{Events: s.Orchestration, Owner: requestActorID(r)}
-	finished, err := executor.FinishAttempt(context.Background(), plan, &projection, attempt.ID, orchestration.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, IdempotencyKey: attempt.IdempotencyKey + ":" + event})
+	finished, err := executor.FinishAttempt(context.Background(), plan, &projection, attempt.ID, graphmodel.TransitionInput{PlanRevision: plan.Revision, AttemptID: attempt.ID, LeaseToken: attempt.Lease.FencingToken, Event: event, Result: result, IdempotencyKey: attempt.IdempotencyKey + ":" + event})
 	if err != nil {
 		s.problem(w, r, http.StatusConflict, "approval_failed", err.Error(), nil)
 		return
@@ -658,7 +659,7 @@ func (s *Server) mentionPreviewRoute(w http.ResponseWriter, r *http.Request, tar
 	}
 	commentID := strings.TrimSpace(input.CommentID)
 	if commentID == "" {
-		commentID = orchestration.NewID()
+		commentID = graphmodel.NewID()
 	}
 	revision := input.Revision
 	if revision < 1 {

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 const LegacyAdapterVersion = "pipeline-stage-compat-v1"
@@ -77,32 +77,32 @@ func genericDispatchScope(planID, nodeID, turnKey string) (DispatchScope, error)
 }
 
 type MigrationResult struct {
-	Plan           orchestration.RequirementExecutionPlan `json:"plan"`
-	LegacyVersion  string                                 `json:"legacy_adapter_version"`
-	StageNodeMap   map[string]string                      `json:"stage_node_map"`
-	ShadowWarnings []string                               `json:"shadow_warnings,omitempty"`
+	Plan           graphmodel.RequirementExecutionPlan `json:"plan"`
+	LegacyVersion  string                              `json:"legacy_adapter_version"`
+	StageNodeMap   map[string]string                   `json:"stage_node_map"`
+	ShadowWarnings []string                            `json:"shadow_warnings,omitempty"`
 }
 
 // GraphFromPipeline converts the selected legacy workflow order into a graph.
 // It preserves the configured step order and agent bindings but does not infer
 // feedback edges or invent evidence; operators must add those explicitly.
-func GraphFromPipeline(run domain.PipelineRun) (orchestration.WorkflowGraph, map[string]string, error) {
+func GraphFromPipeline(run domain.PipelineRun) (graphmodel.WorkflowGraph, map[string]string, error) {
 	steps := run.Steps()
 	if len(steps) == 0 {
-		return orchestration.WorkflowGraph{}, nil, fmt.Errorf("legacy pipeline has no workflow steps")
+		return graphmodel.WorkflowGraph{}, nil, fmt.Errorf("legacy pipeline has no workflow steps")
 	}
-	nodes := make([]orchestration.WorkflowNode, 0, len(steps))
+	nodes := make([]graphmodel.WorkflowNode, 0, len(steps))
 	stageNode := make(map[string]string, len(steps))
 	for _, step := range steps {
 		if !step.Stage.Valid() || strings.TrimSpace(step.AgentID) == "" {
-			return orchestration.WorkflowGraph{}, nil, fmt.Errorf("legacy workflow step %d requires a valid stage and agent", step.Stage)
+			return graphmodel.WorkflowGraph{}, nil, fmt.Errorf("legacy workflow step %d requires a valid stage and agent", step.Stage)
 		}
 		id := "legacy-node-" + strconv.Itoa(int(step.Stage))
 		if _, exists := stageNode[strconv.Itoa(int(step.Stage))]; exists {
-			return orchestration.WorkflowGraph{}, nil, fmt.Errorf("legacy workflow stage %d is duplicated", step.Stage)
+			return graphmodel.WorkflowGraph{}, nil, fmt.Errorf("legacy workflow stage %d is duplicated", step.Stage)
 		}
 		stageNode[strconv.Itoa(int(step.Stage))] = id
-		nodes = append(nodes, orchestration.WorkflowNode{ID: id, Kind: orchestration.NodeAgent, AgentRef: &orchestration.VersionedRef{ID: step.AgentID, Revision: 1}, RetryPolicy: orchestration.RetryPolicy{MaxAttempts: step.RetryLimit}})
+		nodes = append(nodes, graphmodel.WorkflowNode{ID: id, Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: step.AgentID, Revision: 1}, RetryPolicy: graphmodel.RetryPolicy{MaxAttempts: step.RetryLimit}})
 	}
 	// The old engine has feedback edges (test -> development, arbitration ->
 	// development), optional stages and same-stage retries. Encode the actual
@@ -114,15 +114,15 @@ func GraphFromPipeline(run domain.PipelineRun) (orchestration.WorkflowGraph, map
 	if loopLimit < 1 {
 		loopLimit = 1
 	}
-	edges := make([]orchestration.WorkflowEdge, 0, len(nodes)*len(nodes)*3)
+	edges := make([]graphmodel.WorkflowEdge, 0, len(nodes)*len(nodes)*3)
 	for _, from := range nodes {
 		for _, to := range nodes {
-			predicate := orchestration.Predicate{Kind: "all", Children: []orchestration.Predicate{
+			predicate := graphmodel.Predicate{Kind: "all", Children: []graphmodel.Predicate{
 				{Kind: "field_eq", Field: "continue", Value: true},
 				{Kind: "field_eq", Field: "next_node_id", Value: to.ID},
 			}}
-			for _, event := range []orchestration.EdgeEvent{orchestration.EdgeSuccess, orchestration.EdgeFailure, orchestration.EdgeApproval} {
-				edges = append(edges, orchestration.WorkflowEdge{
+			for _, event := range []graphmodel.EdgeEvent{graphmodel.EdgeSuccess, graphmodel.EdgeFailure, graphmodel.EdgeApproval} {
+				edges = append(edges, graphmodel.WorkflowEdge{
 					ID:            fmt.Sprintf("legacy-edge-%s-%s-%s", from.ID, to.ID, event),
 					From:          from.ID,
 					To:            to.ID,
@@ -137,12 +137,12 @@ func GraphFromPipeline(run domain.PipelineRun) (orchestration.WorkflowGraph, map
 	for _, node := range nodes {
 		exits = append(exits, node.ID)
 	}
-	graph := orchestration.WorkflowGraph{ID: "legacy-graph-" + run.ID, Version: run.Version, EntryNodeIDs: []string{nodes[0].ID}, ExitNodeIDs: exits, Nodes: nodes, Edges: edges}
+	graph := graphmodel.WorkflowGraph{ID: "legacy-graph-" + run.ID, Version: run.Version, EntryNodeIDs: []string{nodes[0].ID}, ExitNodeIDs: exits, Nodes: nodes, Edges: edges}
 	if graph.Version < 1 {
 		graph.Version = 1
 	}
-	if err := orchestration.ValidateGraph(graph); err != nil {
-		return orchestration.WorkflowGraph{}, nil, err
+	if err := graphmodel.ValidateGraph(graph); err != nil {
+		return graphmodel.WorkflowGraph{}, nil, err
 	}
 	return graph, stageNode, nil
 }
@@ -152,7 +152,7 @@ func MigratePipeline(run domain.PipelineRun) (MigrationResult, error) {
 	if err != nil {
 		return MigrationResult{}, err
 	}
-	plan := orchestration.RequirementExecutionPlan{ID: "legacy-plan-" + run.ID, RequirementID: run.RequirementID, WorkspaceID: run.WorkspaceID, GraphSnapshot: graph, ContextRoot: orchestration.ContextRef{SessionID: run.SessionID, ManifestDigest: "legacy:" + run.SessionID}, Status: orchestration.PlanDraft}
+	plan := graphmodel.RequirementExecutionPlan{ID: "legacy-plan-" + run.ID, RequirementID: run.RequirementID, WorkspaceID: run.WorkspaceID, GraphSnapshot: graph, ContextRoot: graphmodel.ContextRef{SessionID: run.SessionID, ManifestDigest: "legacy:" + run.SessionID}, Status: graphmodel.PlanDraft}
 	if run.Version > 0 {
 		plan.Revision = run.Version
 	}

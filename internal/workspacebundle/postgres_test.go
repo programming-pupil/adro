@@ -12,6 +12,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/store"
 )
 
@@ -237,11 +238,11 @@ func TestPreflightRejectsMissingNativeAssignmentTarget(t *testing.T) {
 			Format: store.WorkspaceSnapshotFormat, SourceWorkspace: "source",
 			Requirements: []domain.Requirement{{ID: "issue-1", WorkspaceID: "source", Title: "orphan", AssigneeTargetType: "agent", AssigneeTargetID: "missing-agent"}},
 		},
-		Definitions: orchestration.DefinitionBundle{
-			Format: orchestration.DefinitionBundleFormat, SourceWorkspaceID: "source",
-			Agents: []orchestration.AgentDefinition{{
-				ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "Builder", Status: orchestration.AgentActive,
-				ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "local"}, InputSchema: orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+		Definitions: graphmodel.DefinitionBundle{
+			Format: graphmodel.DefinitionBundleFormat, SourceWorkspaceID: "source",
+			Agents: []graphmodel.AgentDefinition{{
+				ID: "agent-1", WorkspaceID: "source", Revision: 1, Name: "Builder", Status: graphmodel.AgentActive,
+				ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "local"}, InputSchema: graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 			}},
 		},
 	}

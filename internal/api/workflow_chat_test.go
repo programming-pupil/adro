@@ -12,7 +12,7 @@ import (
 	"github.com/adro-project/adro/internal/artifact"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )
@@ -116,15 +116,15 @@ func TestLegacyDesignApprovalRejectionIsTerminalAndReplayable(t *testing.T) {
 		t.Fatal(err)
 	}
 	attempt := projection.Attempts[run.ActiveGraphAttemptID]
-	if attempt.Status != orchestration.AttemptFailed || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_approval_denied" {
+	if attempt.Status != graphmodel.AttemptFailed || attempt.FailureReason == nil || attempt.FailureReason.Code != "legacy_pipeline_approval_denied" {
 		t.Fatalf("rejected projection=%+v", projection)
 	}
 	plan, err := server.Orchestration.GetPlan(run.WorkspaceID, run.ExecutionPlanID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := orchestration.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
-	if err != nil || replayed.Attempts[attempt.ID].Status != orchestration.AttemptFailed || replayed.Attempts[attempt.ID].FailureReason == nil {
+	replayed, err := graphmodel.ReplayProjection(plan, server.Orchestration.ListEvents(plan.ID, 0))
+	if err != nil || replayed.Attempts[attempt.ID].Status != graphmodel.AttemptFailed || replayed.Attempts[attempt.ID].FailureReason == nil {
 		t.Fatalf("replayed rejection=%+v err=%v", replayed, err)
 	}
 }
@@ -203,12 +203,12 @@ func TestChatAgentBindingPinsRuntimeConfiguration(t *testing.T) {
 	}
 	mock := provider.NewMockProvider(bus)
 	server := New(store.NewMemory(), mock, fs, bus, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	agentID := orchestration.NewID()
-	if err := server.Orchestration.SaveAgent(orchestration.AgentDefinition{
-		ID: agentID, WorkspaceID: "w", Revision: 1, Name: "Chat reviewer", Status: orchestration.AgentActive,
+	agentID := graphmodel.NewID()
+	if err := server.Orchestration.SaveAgent(graphmodel.AgentDefinition{
+		ID: agentID, WorkspaceID: "w", Revision: 1, Name: "Chat reviewer", Status: graphmodel.AgentActive,
 		Instructions:    "Review the durable conversation.",
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "chat-model", RuntimeConfig: map[string]string{"mode": "local"}},
-		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "chat-model", RuntimeConfig: map[string]string{"mode": "local"}},
+		InputSchema:     graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 		ConcurrencyBudget: budget.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
 	}, 0); err != nil {
 		t.Fatal(err)
@@ -221,11 +221,11 @@ func TestChatAgentBindingPinsRuntimeConfiguration(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &chat); err != nil || chat.AgentRevision != 1 {
 		t.Fatalf("created chat did not pin Agent revision: %+v err=%v", chat, err)
 	}
-	updatedAgent := orchestration.AgentDefinition{
-		ID: agentID, WorkspaceID: "w", Revision: 2, Name: "Chat reviewer v2", Status: orchestration.AgentActive,
+	updatedAgent := graphmodel.AgentDefinition{
+		ID: agentID, WorkspaceID: "w", Revision: 2, Name: "Chat reviewer v2", Status: graphmodel.AgentActive,
 		Instructions:    "Use the newer configuration.",
-		ExecutorBinding: orchestration.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "new-chat-model", RuntimeConfig: map[string]string{"mode": "new"}},
-		InputSchema:     orchestration.SchemaRef{ID: "input"}, OutputSchema: orchestration.SchemaRef{ID: "output"},
+		ExecutorBinding: graphmodel.ExecutorBinding{ProviderID: "mock", RuntimeID: "local", Model: "new-chat-model", RuntimeConfig: map[string]string{"mode": "new"}},
+		InputSchema:     graphmodel.SchemaRef{ID: "input"}, OutputSchema: graphmodel.SchemaRef{ID: "output"},
 		ConcurrencyBudget: budget.Budget{Tokens: 50000, ToolCalls: 25, Concurrent: 2},
 	}
 	if err := server.Orchestration.SaveAgent(updatedAgent, 1); err != nil {

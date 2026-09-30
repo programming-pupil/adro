@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/artifact"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/ports/scope"
 )
@@ -46,15 +46,15 @@ type ArtifactEntry struct {
 }
 
 type Manifest struct {
-	Format            string                         `json:"format"`
-	Version           int                            `json:"version"`
-	CreatedAt         time.Time                      `json:"created_at"`
-	SourceWorkspaceID string                         `json:"source_workspace_id"`
-	Digest            string                         `json:"digest"`
-	Control           store.WorkspaceSnapshot        `json:"control"`
-	Definitions       orchestration.DefinitionBundle `json:"definitions"`
-	Artifacts         []ArtifactEntry                `json:"artifacts,omitempty"`
-	Excluded          []string                       `json:"excluded"`
+	Format            string                      `json:"format"`
+	Version           int                         `json:"version"`
+	CreatedAt         time.Time                   `json:"created_at"`
+	SourceWorkspaceID string                      `json:"source_workspace_id"`
+	Digest            string                      `json:"digest"`
+	Control           store.WorkspaceSnapshot     `json:"control"`
+	Definitions       graphmodel.DefinitionBundle `json:"definitions"`
+	Artifacts         []ArtifactEntry             `json:"artifacts,omitempty"`
+	Excluded          []string                    `json:"excluded"`
 }
 
 type Counts struct {
@@ -86,19 +86,19 @@ type PreflightReport struct {
 }
 
 type ImportReport struct {
-	Preflight     PreflightReport                      `json:"preflight"`
-	Control       store.WorkspaceImportReport          `json:"control"`
-	Definitions   orchestration.DefinitionImportReport `json:"definitions"`
-	ArtifactsPut  int                                  `json:"artifacts_put"`
-	ArtifactsSkip int                                  `json:"artifacts_skipped"`
-	DryRun        bool                                 `json:"dry_run"`
-	Replay        bool                                 `json:"replay"`
+	Preflight     PreflightReport                   `json:"preflight"`
+	Control       store.WorkspaceImportReport       `json:"control"`
+	Definitions   graphmodel.DefinitionImportReport `json:"definitions"`
+	ArtifactsPut  int                               `json:"artifacts_put"`
+	ArtifactsSkip int                               `json:"artifacts_skipped"`
+	DryRun        bool                              `json:"dry_run"`
+	Replay        bool                              `json:"replay"`
 }
 
 type DefinitionRepository interface {
-	ListAgents(string, orchestration.AgentStatus) []orchestration.AgentDefinition
-	ListSquads(string, orchestration.SquadStatus) []orchestration.SquadDefinition
-	ImportDefinitionBundle(string, orchestration.DefinitionBundle, bool) (orchestration.DefinitionImportReport, error)
+	ListAgents(string, graphmodel.AgentStatus) []graphmodel.AgentDefinition
+	ListSquads(string, graphmodel.SquadStatus) []graphmodel.SquadDefinition
+	ImportDefinitionBundle(string, graphmodel.DefinitionBundle, bool) (graphmodel.DefinitionImportReport, error)
 }
 
 type backupRepository interface {
@@ -132,8 +132,8 @@ func (s Service) Export(ctx context.Context, workspaceID string) ([]byte, Manife
 	if err != nil {
 		return nil, Manifest{}, err
 	}
-	definitions := orchestration.DefinitionBundle{
-		Format: orchestration.DefinitionBundleFormat, SourceWorkspaceID: workspaceID,
+	definitions := graphmodel.DefinitionBundle{
+		Format: graphmodel.DefinitionBundleFormat, SourceWorkspaceID: workspaceID,
 		Agents: s.Definitions.ListAgents(workspaceID, ""), Squads: s.Definitions.ListSquads(workspaceID, ""),
 	}
 	for index := range definitions.Agents {
@@ -236,13 +236,13 @@ func Preflight(data []byte, targetWorkspace, policy string) (Manifest, map[strin
 }
 
 func validatePortableReferences(manifest Manifest) error {
-	agents := make(map[string]orchestration.AgentDefinition, len(manifest.Definitions.Agents))
+	agents := make(map[string]graphmodel.AgentDefinition, len(manifest.Definitions.Agents))
 	for _, agent := range manifest.Definitions.Agents {
 		if current, exists := agents[agent.ID]; !exists || agent.Revision > current.Revision {
 			agents[agent.ID] = agent
 		}
 	}
-	squads := make(map[string]orchestration.SquadDefinition, len(manifest.Definitions.Squads))
+	squads := make(map[string]graphmodel.SquadDefinition, len(manifest.Definitions.Squads))
 	for _, squad := range manifest.Definitions.Squads {
 		if current, exists := squads[squad.ID]; !exists || squad.Revision > current.Revision {
 			squads[squad.ID] = squad
@@ -303,12 +303,12 @@ func validatePortableReferences(manifest Manifest) error {
 		case "", "member":
 		case "agent":
 			agent, ok := agents[targetID]
-			if !ok || agent.Status != orchestration.AgentActive {
+			if !ok || agent.Status != graphmodel.AgentActive {
 				return fmt.Errorf("requirement %q references missing or inactive Agent %q", requirement.ID, targetID)
 			}
 		case "squad":
 			squad, ok := squads[targetID]
-			if !ok || squad.Status != orchestration.SquadPublished {
+			if !ok || squad.Status != graphmodel.SquadPublished {
 				return fmt.Errorf("requirement %q references missing or unpublished Squad %q", requirement.ID, targetID)
 			}
 		default:
@@ -477,13 +477,13 @@ func scopedArtifactContext(ctx context.Context, key artifact.Key) (context.Conte
 	return scope.WithTenant(ctx, key.TenantID), nil
 }
 
-func (s Service) importDefinitions(workspaceID, policy string, bundle orchestration.DefinitionBundle, dryRun bool) (orchestration.DefinitionImportReport, error) {
+func (s Service) importDefinitions(workspaceID, policy string, bundle graphmodel.DefinitionBundle, dryRun bool) (graphmodel.DefinitionImportReport, error) {
 	digest, err := bundle.Digest()
 	if err != nil {
-		return orchestration.DefinitionImportReport{}, fmt.Errorf("digest definition bundle: %w", err)
+		return graphmodel.DefinitionImportReport{}, fmt.Errorf("digest definition bundle: %w", err)
 	}
-	report := orchestration.DefinitionImportReport{
-		Format: orchestration.DefinitionBundleFormat, Digest: digest,
+	report := graphmodel.DefinitionImportReport{
+		Format: graphmodel.DefinitionBundleFormat, Digest: digest,
 		AgentCount: len(bundle.Agents), SquadCount: len(bundle.Squads), DryRun: dryRun,
 	}
 	if policy == "rename" {
@@ -505,7 +505,7 @@ func (s Service) importDefinitions(workspaceID, policy string, bundle orchestrat
 		key := value.ID + "\x00" + strconv.FormatInt(value.Revision, 10)
 		if existingAgents[key] {
 			if policy == "fail" {
-				return orchestration.DefinitionImportReport{}, fmt.Errorf("%w: Agent revision %q already exists", ErrConflict, value.ID)
+				return graphmodel.DefinitionImportReport{}, fmt.Errorf("%w: Agent revision %q already exists", ErrConflict, value.ID)
 			}
 			report.SkippedAgents++
 			continue
@@ -516,7 +516,7 @@ func (s Service) importDefinitions(workspaceID, policy string, bundle orchestrat
 		key := value.ID + "\x00" + strconv.FormatInt(value.Revision, 10)
 		if existingSquads[key] {
 			if policy == "fail" {
-				return orchestration.DefinitionImportReport{}, fmt.Errorf("%w: Squad revision %q already exists", ErrConflict, value.ID)
+				return graphmodel.DefinitionImportReport{}, fmt.Errorf("%w: Squad revision %q already exists", ErrConflict, value.ID)
 			}
 			report.SkippedSquads++
 			continue
@@ -528,7 +528,7 @@ func (s Service) importDefinitions(workspaceID, policy string, bundle orchestrat
 	}
 	imported, err := s.Definitions.ImportDefinitionBundle(workspaceID, filtered, dryRun)
 	if err != nil {
-		return orchestration.DefinitionImportReport{}, err
+		return graphmodel.DefinitionImportReport{}, err
 	}
 	report.CreatedAgents = imported.CreatedAgents
 	report.CreatedSquads = imported.CreatedSquads
@@ -664,7 +664,7 @@ func readArchive(data []byte) (Manifest, map[string][]byte, error) {
 	if err := decoder.Decode(&manifest); err != nil {
 		return Manifest{}, nil, fmt.Errorf("decode workspace manifest: %w", err)
 	}
-	if manifest.Format != Format || manifest.Version != 1 || manifest.Control.Format != store.WorkspaceSnapshotFormat || manifest.Definitions.Format != orchestration.DefinitionBundleFormat {
+	if manifest.Format != Format || manifest.Version != 1 || manifest.Control.Format != store.WorkspaceSnapshotFormat || manifest.Definitions.Format != graphmodel.DefinitionBundleFormat {
 		return Manifest{}, nil, fmt.Errorf("unsupported workspace bundle format %q version %d", manifest.Format, manifest.Version)
 	}
 	declared := map[string]bool{manifestPath: true}
@@ -758,7 +758,7 @@ func manifestIDs(manifest Manifest) map[string]bool {
 			ids[id] = true
 		}
 	}
-	addGraph := func(graph orchestration.WorkflowGraph) {
+	addGraph := func(graph graphmodel.WorkflowGraph) {
 		add(graph.ID)
 		for _, node := range graph.Nodes {
 			add(node.ID)

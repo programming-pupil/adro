@@ -12,7 +12,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
@@ -52,7 +52,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 		case mentions.TargetAgent:
 			a, getErr := s.Orchestration.GetAgent(comment.WorkspaceID, m.TargetID, 0)
 			if getErr == nil {
-				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: a.WorkspaceID, Active: a.Status == orchestration.AgentActive, Version: a.Revision, CanInvoke: a.Status == orchestration.AgentActive})
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: a.WorkspaceID, Active: a.Status == graphmodel.AgentActive, Version: a.Revision, CanInvoke: a.Status == graphmodel.AgentActive})
 			}
 		case mentions.TargetSquad:
 			sq, getErr := s.Orchestration.GetSquad(comment.WorkspaceID, m.TargetID, 0)
@@ -64,7 +64,7 @@ func (s *Server) computeCommentTriggers(r *http.Request, comment domain.Comment)
 						break
 					}
 				}
-				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: sq.WorkspaceID, Active: sq.Status == orchestration.SquadPublished, Version: sq.PublishedVersion, LeaderID: leader, CanInvoke: sq.Status == orchestration.SquadPublished && leader != ""})
+				targets = append(targets, mentions.Target{Type: m.TargetType, ID: m.TargetID, WorkspaceID: sq.WorkspaceID, Active: sq.Status == graphmodel.SquadPublished, Version: sq.PublishedVersion, LeaderID: leader, CanInvoke: sq.Status == graphmodel.SquadPublished && leader != ""})
 			}
 		}
 	}

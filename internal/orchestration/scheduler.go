@@ -10,35 +10,36 @@ import (
 
 	"github.com/adro-project/adro/core/budget"
 	"github.com/adro-project/adro/internal/harness"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 // ReadyNodes computes a deterministic ready queue from the graph snapshot and
 // projection. It is safe to call repeatedly after a crash because it derives
 // state from attempts rather than maintaining a hidden queue.
-func ReadyNodes(plan RequirementExecutionPlan, projection PlanProjection) []WorkflowNode {
+func ReadyNodes(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection) []graphmodel.WorkflowNode {
 	return readyNodesAt(plan, projection, time.Now().UTC())
 }
 
 // ReadyNodesAt is the clock-injected readiness calculation used by workers and
 // tests. Retry backoff is part of readiness, so callers must use a consistent
 // time source when replaying a plan.
-func ReadyNodesAt(plan RequirementExecutionPlan, projection PlanProjection, now time.Time) []WorkflowNode {
+func ReadyNodesAt(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, now time.Time) []graphmodel.WorkflowNode {
 	return readyNodesAt(plan, projection, now)
 }
 
-func readyNodesAt(plan RequirementExecutionPlan, projection PlanProjection, now time.Time) []WorkflowNode {
-	nodes := make(map[string]WorkflowNode, len(plan.GraphSnapshot.Nodes))
+func readyNodesAt(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, now time.Time) []graphmodel.WorkflowNode {
+	nodes := make(map[string]graphmodel.WorkflowNode, len(plan.GraphSnapshot.Nodes))
 	for _, n := range plan.GraphSnapshot.Nodes {
 		nodes[n.ID] = n
 	}
-	incoming := make(map[string][]WorkflowEdge)
+	incoming := make(map[string][]graphmodel.WorkflowEdge)
 	for _, e := range plan.GraphSnapshot.Edges {
 		incoming[e.To] = append(incoming[e.To], e)
 	}
-	ready := make([]WorkflowNode, 0)
+	ready := make([]graphmodel.WorkflowNode, 0)
 	for id, n := range nodes {
 		state := projection.Nodes[id]
-		if state.Status != AttemptReady {
+		if state.Status != graphmodel.AttemptReady {
 			continue
 		}
 		if state.RetryAt != nil && now.Before(*state.RetryAt) {
@@ -56,7 +57,7 @@ func readyNodesAt(plan RequirementExecutionPlan, projection PlanProjection, now 
 		shortCircuit := false
 		for _, e := range edges {
 			source := projection.Nodes[e.From]
-			if source.Status == AttemptFailed || source.Status == AttemptTimedOut || source.Status == AttemptCancelled {
+			if source.Status == graphmodel.AttemptFailed || source.Status == graphmodel.AttemptTimedOut || source.Status == graphmodel.AttemptCancelled {
 				failed++
 			}
 			if source.CurrentAttempt == "" {
@@ -66,23 +67,23 @@ func readyNodesAt(plan RequirementExecutionPlan, projection PlanProjection, now 
 			if !ok {
 				continue
 			}
-			if edgeSatisfied(e, attempt) {
+			if graphmodel.EdgeSatisfied(e, attempt) {
 				passed++
-				if n.JoinFailurePolicy == "short_circuit" && attempt.Status != AttemptPassed && e.On != EdgeSuccess {
+				if n.JoinFailurePolicy == "short_circuit" && attempt.Status != graphmodel.AttemptPassed && e.On != graphmodel.EdgeSuccess {
 					shortCircuit = true
 				}
 			}
 		}
 		need := 1
 		switch n.JoinPolicy {
-		case JoinAll:
+		case graphmodel.JoinAll:
 			need = len(edges)
-		case JoinQuorum:
+		case graphmodel.JoinQuorum:
 			need = n.JoinQuorum
 			if need <= 0 {
 				need = len(edges)/2 + 1
 			}
-		case JoinFirstSuccess:
+		case graphmodel.JoinFirstSuccess:
 			need = 1
 		}
 		if n.JoinFailurePolicy == "short_circuit" && failed > 0 && shortCircuit {
@@ -97,42 +98,6 @@ func readyNodesAt(plan RequirementExecutionPlan, projection PlanProjection, now 
 	}
 	sort.Slice(ready, func(i, j int) bool { return ready[i].ID < ready[j].ID })
 	return ready
-}
-
-// edgeSatisfied mirrors the reducer's edge event and predicate semantics for
-// join readiness. A branch only counts once its current attempt has produced
-// the event type represented by the incoming edge and committed evidence.
-func edgeSatisfied(edge WorkflowEdge, attempt NodeAttempt) bool {
-	event := ""
-	switch attempt.Status {
-	case AttemptPassed:
-		event = "success"
-	case AttemptFailed:
-		if strings.EqualFold(attempt.Result.Outcome, "bug") {
-			event = "bug"
-		} else {
-			event = "failure"
-		}
-	case AttemptTimedOut:
-		event = "timeout"
-	case AttemptCancelled:
-		event = "cancel"
-	case AttemptWaiting:
-		event = "waiting"
-	}
-	if !eventMatches(edge.On, attempt.Status, event, attempt.Result.Outcome) {
-		return false
-	}
-	matched, err := EvaluatePredicate(edge.Predicate, resultFields(attempt.Result))
-	if err != nil || !matched {
-		return false
-	}
-	for _, required := range edge.RequiredEvidence {
-		if !contains(attempt.Result.EvidenceIDs, required) {
-			return false
-		}
-	}
-	return true
 }
 
 type SchedulerConfig struct {
@@ -156,8 +121,8 @@ type Scheduler struct {
 }
 
 type ScheduleReport struct {
-	Started    []NodeAttempt                `json:"started,omitempty"`
-	Advanced   []NodeAttempt                `json:"advanced,omitempty"`
+	Started    []graphmodel.NodeAttempt     `json:"started,omitempty"`
+	Advanced   []graphmodel.NodeAttempt     `json:"advanced,omitempty"`
 	Waiting    []string                     `json:"waiting,omitempty"`
 	Blocked    map[string]string            `json:"blocked,omitempty"`
 	Admissions map[string]AdmissionDecision `json:"admissions,omitempty"`
@@ -174,7 +139,7 @@ func (s Scheduler) now() time.Time {
 // Tick executes all currently ready agent nodes up to the configured
 // concurrency limit. Non-agent nodes are surfaced as waiting because they
 // require a gate/merge/human adapter rather than being silently skipped.
-func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, projection *PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) (ScheduleReport, error) {
+func (s Scheduler) Tick(ctx context.Context, plan graphmodel.RequirementExecutionPlan, projection *graphmodel.PlanProjection, envelope harness.ContextEnvelope, workItemID, agentBindingID string) (ScheduleReport, error) {
 	if projection == nil {
 		return ScheduleReport{}, errors.New("projection is required")
 	}
@@ -189,20 +154,20 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 		// path so late results remain fenced and replay sees the timeout evidence.
 		attemptIDs := make([]string, 0)
 		for id, attempt := range projection.Attempts {
-			if attempt.Status == AttemptRunning {
+			if attempt.Status == graphmodel.AttemptRunning {
 				attemptIDs = append(attemptIDs, id)
 			}
 		}
 		sort.Strings(attemptIDs)
 		for _, attemptID := range attemptIDs {
 			attempt := projection.Attempts[attemptID]
-			finished, err := executor.FinishAttempt(ctx, plan, projection, attemptID, TransitionInput{
+			finished, err := executor.FinishAttempt(ctx, plan, projection, attemptID, graphmodel.TransitionInput{
 				PlanRevision: plan.Revision,
 				AttemptID:    attemptID,
 				LeaseToken:   attempt.Lease.FencingToken,
 				Event:        "timeout",
-				Result:       StructuredResult{Outcome: "timeout", Summary: "plan deadline exceeded", EvidenceIDs: []string{"deadline:" + plan.ID + ":" + attemptID}},
-				Failure:      &FailureReason{Code: "plan_deadline_exceeded", Message: "plan deadline exceeded", Retryable: false},
+				Result:       graphmodel.StructuredResult{Outcome: "timeout", Summary: "plan deadline exceeded", EvidenceIDs: []string{"deadline:" + plan.ID + ":" + attemptID}},
+				Failure:      &graphmodel.FailureReason{Code: "plan_deadline_exceeded", Message: "plan deadline exceeded", Retryable: false},
 				Now:          now,
 			})
 			if err != nil {
@@ -215,8 +180,8 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 			}
 			report.Advanced = append(report.Advanced, finished)
 		}
-		if projection.Status != PlanTerminal {
-			projection.Status = PlanTerminal
+		if projection.Status != graphmodel.PlanTerminal {
+			projection.Status = graphmodel.PlanTerminal
 			projection.TerminalOutcome = "timed_out"
 			if s.Repository != nil {
 				if err := s.Repository.SaveProjection(*projection); err != nil {
@@ -225,11 +190,11 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 			}
 		}
 		report.Terminal = true
-		return report, ErrDeadlineExceeded
+		return report, graphmodel.ErrDeadlineExceeded
 	}
 	ready := ReadyNodesAt(plan, *projection, s.now())
 	if len(ready) == 0 {
-		return ScheduleReport{Terminal: projection.Status == PlanTerminal}, nil
+		return ScheduleReport{Terminal: projection.Status == graphmodel.PlanTerminal}, nil
 	}
 	report := ScheduleReport{Blocked: map[string]string{}}
 	structural, structuralErr := s.Executor.AdvanceStructural(ctx, plan, projection, envelope, limitForStructural(plan, s.Config.MaxConcurrent))
@@ -246,7 +211,7 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	}
 	running := 0
 	for _, attempt := range projection.Attempts {
-		if attempt.Status == AttemptRunning {
+		if attempt.Status == graphmodel.AttemptRunning {
 			running++
 		}
 	}
@@ -260,7 +225,7 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 		limit = 0
 	}
 	for _, node := range ready {
-		if node.Kind != NodeAgent && node.Kind != NodeSquad {
+		if node.Kind != graphmodel.NodeAgent && node.Kind != graphmodel.NodeSquad {
 			report.Waiting = append(report.Waiting, node.ID)
 		}
 	}
@@ -270,21 +235,21 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	// the scheduler's concurrency gate.
 	if limit == 0 {
 		for _, node := range ready {
-			if node.Kind == NodeAgent || node.Kind == NodeSquad {
+			if node.Kind == graphmodel.NodeAgent || node.Kind == graphmodel.NodeSquad {
 				report.Blocked[node.ID] = "concurrency_limit"
 			}
 		}
 		if len(report.Blocked) == 0 {
 			report.Blocked = nil
 		}
-		report.Terminal = projection.Status == PlanTerminal
+		report.Terminal = projection.Status == graphmodel.PlanTerminal
 		return report, nil
 	}
 	executor := s.Executor
 	executor.Repository = s.Repository
 	executor.Now = s.Config.Now
 	executor.LeaseTTL = s.Config.LeaseTTL
-	var started []NodeAttempt
+	var started []graphmodel.NodeAttempt
 	var err error
 	if s.Admission == nil {
 		started, err = executor.DispatchReadyLimited(ctx, plan, projection, envelope, workItemID, agentBindingID, limit)
@@ -292,7 +257,7 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 		report.Admissions = map[string]AdmissionDecision{}
 		selections := make([]DispatchSelection, 0, limit)
 		for _, node := range ready {
-			if node.Kind != NodeAgent && node.Kind != NodeSquad {
+			if node.Kind != graphmodel.NodeAgent && node.Kind != graphmodel.NodeSquad {
 				continue
 			}
 			if len(selections) >= limit {
@@ -328,8 +293,8 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 		if releaseErr := s.releaseUnstartedReservations(selections, started); err == nil && releaseErr != nil {
 			err = releaseErr
 		}
-		if len(started) == 0 && len(report.Blocked) > 0 && projection.Status != PlanTerminal {
-			projection.Status = PlanWaiting
+		if len(started) == 0 && len(report.Blocked) > 0 && projection.Status != graphmodel.PlanTerminal {
+			projection.Status = graphmodel.PlanWaiting
 			if s.Repository != nil {
 				if saveErr := s.Repository.SaveProjection(*projection); err == nil && saveErr != nil {
 					err = saveErr
@@ -342,7 +307,7 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	}
 	report.Started = append(report.Started, started...)
 	for _, node := range ready {
-		if (node.Kind == NodeAgent || node.Kind == NodeSquad) && !containsAttemptNode(started, node.ID) {
+		if (node.Kind == graphmodel.NodeAgent || node.Kind == graphmodel.NodeSquad) && !containsAttemptNode(started, node.ID) {
 			if _, explained := report.Blocked[node.ID]; !explained {
 				report.Blocked[node.ID] = "concurrency_limit"
 			}
@@ -351,11 +316,11 @@ func (s Scheduler) Tick(ctx context.Context, plan RequirementExecutionPlan, proj
 	if report.Blocked != nil && len(report.Blocked) == 0 {
 		report.Blocked = nil
 	}
-	report.Terminal = projection.Status == PlanTerminal
+	report.Terminal = projection.Status == graphmodel.PlanTerminal
 	return report, nil
 }
 
-func (s Scheduler) dispatchAdmissionRequest(plan RequirementExecutionPlan, projection PlanProjection, node WorkflowNode, envelope harness.ContextEnvelope, workItemID string) AdmissionRequest {
+func (s Scheduler) dispatchAdmissionRequest(plan graphmodel.RequirementExecutionPlan, projection graphmodel.PlanProjection, node graphmodel.WorkflowNode, envelope harness.ContextEnvelope, workItemID string) AdmissionRequest {
 	now := s.now()
 	attemptNo := projection.Nodes[node.ID].AttemptNo + 1
 	requestID := fmt.Sprintf("%s:%s:%d", plan.ID, node.ID, attemptNo)
@@ -412,7 +377,7 @@ func (s Scheduler) dispatchAdmissionRequest(plan RequirementExecutionPlan, proje
 	}
 }
 
-func (s Scheduler) parentReservationID(plan RequirementExecutionPlan) string {
+func (s Scheduler) parentReservationID(plan graphmodel.RequirementExecutionPlan) string {
 	if s.Repository == nil || strings.TrimSpace(plan.ParentPlanID) == "" || strings.TrimSpace(plan.ParentAttemptID) == "" {
 		return ""
 	}
@@ -423,7 +388,7 @@ func (s Scheduler) parentReservationID(plan RequirementExecutionPlan) string {
 	return parent.Attempts[plan.ParentAttemptID].ResourceReservationID
 }
 
-func (s Scheduler) releaseUnstartedReservations(selections []DispatchSelection, started []NodeAttempt) error {
+func (s Scheduler) releaseUnstartedReservations(selections []DispatchSelection, started []graphmodel.NodeAttempt) error {
 	if s.Admission == nil || s.Admission.Ledger == nil {
 		return nil
 	}
@@ -442,7 +407,7 @@ func (s Scheduler) releaseUnstartedReservations(selections []DispatchSelection, 
 	return nil
 }
 
-func limitForStructural(plan RequirementExecutionPlan, configured int) int {
+func limitForStructural(plan graphmodel.RequirementExecutionPlan, configured int) int {
 	limit := configured
 	if limit <= 0 {
 		limit = len(plan.GraphSnapshot.Nodes)
@@ -453,65 +418,11 @@ func limitForStructural(plan RequirementExecutionPlan, configured int) int {
 	return limit
 }
 
-func containsAttemptNode(attempts []NodeAttempt, nodeID string) bool {
+func containsAttemptNode(attempts []graphmodel.NodeAttempt, nodeID string) bool {
 	for _, attempt := range attempts {
 		if attempt.NodeID == nodeID {
 			return true
 		}
 	}
 	return false
-}
-
-// Retry marks a failed/timed-out node ready for a new immutable attempt. It
-// is deliberately explicit so callers cannot jump over configured feedback
-// edges or mutate a historical attempt.
-func (p *PlanProjection) Retry(plan RequirementExecutionPlan, nodeID string) error {
-	n, ok := p.Nodes[strings.TrimSpace(nodeID)]
-	if !ok {
-		return fmt.Errorf("unknown node %q", nodeID)
-	}
-	if n.Status != AttemptFailed && n.Status != AttemptTimedOut {
-		return ErrInvalidTransition
-	}
-	n.Status = AttemptReady
-	p.Nodes[nodeID] = n
-	if p.Status == PlanTerminal {
-		p.Status = PlanRunning
-	}
-	return nil
-}
-
-func (p *PlanProjection) Cancel(plan RequirementExecutionPlan, attemptID string, leaseToken int64, reason string) (NodeAttempt, error) {
-	return p.FinishAttempt(plan, attemptID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attemptID, LeaseToken: leaseToken, Event: "cancel", Result: StructuredResult{Outcome: "cancelled", Summary: reason, EvidenceIDs: []string{"cancel:" + attemptID}}, Failure: &FailureReason{Code: "cancelled", Message: reason}})
-}
-
-func (p *PlanProjection) Timeout(plan RequirementExecutionPlan, attemptID string, leaseToken int64, reason string) (NodeAttempt, error) {
-	return p.FinishAttempt(plan, attemptID, TransitionInput{PlanRevision: plan.Revision, AttemptID: attemptID, LeaseToken: leaseToken, Event: "timeout", Result: StructuredResult{Outcome: "timeout", Summary: reason, EvidenceIDs: []string{"timeout:" + attemptID}}, Failure: &FailureReason{Code: "timeout", Message: reason, Retryable: true}})
-}
-
-// TakeOver expires a running attempt and opens its configured timeout/repair
-// route. A takeover always changes the fencing boundary; the previous worker
-// can no longer commit a late result.
-func (p *PlanProjection) TakeOver(plan RequirementExecutionPlan, attemptID, owner string, now time.Time) error {
-	a, ok := p.Attempts[attemptID]
-	if !ok {
-		return ErrStaleAttempt
-	}
-	if a.Status != AttemptRunning {
-		return ErrInvalidTransition
-	}
-	if owner == "" {
-		return errors.New("takeover owner is required")
-	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	a.Lease.Owner = owner
-	a.Lease.FencingToken++
-	a.Lease.ExpiresAt = now.Add(15 * time.Minute)
-	p.Attempts[attemptID] = a
-	// Finishing as timeout routes through the graph and records lineage; the
-	// new attempt receives a separate ID when the scheduler ticks again.
-	_, err := p.FinishAttempt(plan, attemptID, TransitionInput{PlanRevision: plan.Revision, LeaseToken: a.Lease.FencingToken, Event: "timeout", Result: StructuredResult{Outcome: "timeout", Summary: "human takeover", EvidenceIDs: []string{"human-takeover:" + attemptID}}, Failure: &FailureReason{Code: "human_takeover", Message: "attempt taken over", Retryable: true}, Now: now})
-	return err
 }

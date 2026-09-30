@@ -5,20 +5,21 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/core/budget"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
-func migrationBundle() DefinitionBundle {
-	agent := AgentDefinition{
-		ID: "agent-1", Revision: 1, Name: "General agent", Description: "Handles general delivery work.", Role: "generalist", Instructions: "Deliver verifiable results.", Status: AgentActive,
-		ConversationStarters: []ConversationStarter{{Label: "Plan", Prompt: "Plan this delivery."}},
-		AccessPolicy:         AgentAccessPolicy{Mode: "members", MemberIDs: []string{"member-1"}},
-		ExecutorBinding:      ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", CustomArgs: []string{"--ephemeral"}},
+func migrationBundle() graphmodel.DefinitionBundle {
+	agent := graphmodel.AgentDefinition{
+		ID: "agent-1", Revision: 1, Name: "General agent", Description: "Handles general delivery work.", Role: "generalist", Instructions: "Deliver verifiable results.", Status: graphmodel.AgentActive,
+		ConversationStarters: []graphmodel.ConversationStarter{{Label: "Plan", Prompt: "Plan this delivery."}},
+		AccessPolicy:         graphmodel.AgentAccessPolicy{Mode: "members", MemberIDs: []string{"member-1"}},
+		ExecutorBinding:      graphmodel.ExecutorBinding{ProviderID: "local", RuntimeID: "codex", Model: "gpt-5", ThinkingLevel: "high", CustomArgs: []string{"--ephemeral"}},
 		ConcurrencyBudget:    budget.Budget{Tokens: 120000, ToolCalls: 200, Concurrent: 2},
-		InputSchema:          SchemaRef{ID: "input", Version: 1}, OutputSchema: SchemaRef{ID: "output", Version: 1},
+		InputSchema:          graphmodel.SchemaRef{ID: "input", Version: 1}, OutputSchema: graphmodel.SchemaRef{ID: "output", Version: 1},
 	}
-	graph := WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent-node"}, ExitNodeIDs: []string{"agent-node"}, Nodes: []WorkflowNode{{ID: "agent-node", Kind: NodeAgent, AgentRef: &VersionedRef{ID: agent.ID, Revision: 1}}}}
-	squad := SquadDefinition{ID: "squad-1", Revision: 1, PublishedVersion: 1, Name: "Delivery", Status: SquadPublished, Members: []SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph}
-	return DefinitionBundle{Format: DefinitionBundleFormat, SourceWorkspaceID: "source", Agents: []AgentDefinition{agent}, Squads: []SquadDefinition{squad}}
+	graph := graphmodel.WorkflowGraph{ID: "squad-graph", Version: 1, EntryNodeIDs: []string{"agent-node"}, ExitNodeIDs: []string{"agent-node"}, Nodes: []graphmodel.WorkflowNode{{ID: "agent-node", Kind: graphmodel.NodeAgent, AgentRef: &graphmodel.VersionedRef{ID: agent.ID, Revision: 1}}}}
+	squad := graphmodel.SquadDefinition{ID: "squad-1", Revision: 1, PublishedVersion: 1, Name: "Delivery", Status: graphmodel.SquadPublished, Members: []graphmodel.SquadMember{{ID: "leader", AgentID: agent.ID, Role: "leader", Leader: true}}, Graph: graph}
+	return graphmodel.DefinitionBundle{Format: graphmodel.DefinitionBundleFormat, SourceWorkspaceID: "source", Agents: []graphmodel.AgentDefinition{agent}, Squads: []graphmodel.SquadDefinition{squad}}
 }
 
 func TestImportDefinitionBundleDryRunCommitAndReplay(t *testing.T) {

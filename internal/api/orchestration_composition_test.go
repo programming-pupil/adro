@@ -8,7 +8,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/orchestration"
+	graphmodel "github.com/adro-project/adro/internal/orchestration/graph"
 )
 
 func TestExecutionPlanHumanApprovalTimelineReplayAndDiagnostics(t *testing.T) {
@@ -17,12 +17,12 @@ func TestExecutionPlanHumanApprovalTimelineReplayAndDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph := orchestration.WorkflowGraph{ID: "human-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []orchestration.WorkflowNode{{ID: "review", Kind: orchestration.NodeHuman}}}
+	graph := graphmodel.WorkflowGraph{ID: "human-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []graphmodel.WorkflowNode{{ID: "review", Kind: graphmodel.NodeHuman}}}
 	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/execution-plan", mustJSON(map[string]any{"graph": graph, "idempotency_key": "human-plan"}), map[string]string{"X-Workspace-ID": "w1", "Idempotency-Key": "human-plan-http"})
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
-	var plan orchestration.RequirementExecutionPlan
+	var plan graphmodel.RequirementExecutionPlan
 	if err := json.Unmarshal(created.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestExecutionPlanHumanApprovalTimelineReplayAndDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if approved.Status != orchestration.PlanTerminal || approved.TerminalOutcome != "succeeded" {
+	if approved.Status != graphmodel.PlanTerminal || approved.TerminalOutcome != "succeeded" {
 		t.Fatalf("approval did not produce successful terminal projection: %+v", approved)
 	}
 	timeline := request(t, s.Routes(), http.MethodGet, "/api/v1/plans/"+plan.ID+"/timeline", "", map[string]string{"X-Workspace-ID": "w1"})
@@ -81,12 +81,12 @@ func TestExecutionPlanApprovalDenialIsFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph := orchestration.WorkflowGraph{ID: "deny-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []orchestration.WorkflowNode{{ID: "review", Kind: orchestration.NodeHuman}}}
+	graph := graphmodel.WorkflowGraph{ID: "deny-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []graphmodel.WorkflowNode{{ID: "review", Kind: graphmodel.NodeHuman}}}
 	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/execution-plan", mustJSON(map[string]any{"graph": graph}), map[string]string{"X-Workspace-ID": "w1"})
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
-	var plan orchestration.RequirementExecutionPlan
+	var plan graphmodel.RequirementExecutionPlan
 	if err := json.Unmarshal(created.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestExecutionPlanApprovalDenialIsFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.Status != orchestration.PlanTerminal || projection.TerminalOutcome != "failed" || projection.Attempts[projection.Nodes["review"].CurrentAttempt].Status != orchestration.AttemptFailed {
+	if projection.Status != graphmodel.PlanTerminal || projection.TerminalOutcome != "failed" || projection.Attempts[projection.Nodes["review"].CurrentAttempt].Status != graphmodel.AttemptFailed {
 		t.Fatalf("denial was not fail-closed: %+v", projection)
 	}
 }
@@ -114,12 +114,12 @@ func TestOrchestrationDiagnosticsAndMetricsExposeBoundedSignals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph := orchestration.WorkflowGraph{ID: "metrics-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []orchestration.WorkflowNode{{ID: "review", Kind: orchestration.NodeHuman}}}
+	graph := graphmodel.WorkflowGraph{ID: "metrics-graph", Version: 1, EntryNodeIDs: []string{"review"}, ExitNodeIDs: []string{"review"}, Nodes: []graphmodel.WorkflowNode{{ID: "review", Kind: graphmodel.NodeHuman}}}
 	created := request(t, s.Routes(), http.MethodPost, "/api/v1/requirements/"+requirement.ID+"/execution-plan", mustJSON(map[string]any{"graph": graph}), map[string]string{"X-Workspace-ID": "w1", "traceparent": traceParent, "tracestate": "vendor=value"})
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
-	var plan orchestration.RequirementExecutionPlan
+	var plan graphmodel.RequirementExecutionPlan
 	if err := json.Unmarshal(created.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
