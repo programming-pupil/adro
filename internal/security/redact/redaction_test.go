@@ -1,20 +1,21 @@
-package security
+package redact
 
 import (
 	"encoding/json"
 	"strings"
 	"testing"
 
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	"github.com/adro-project/adro/ports/secret"
 )
 
 func TestSensitivityAndSurfaceVocabulary(t *testing.T) {
-	for _, value := range []Sensitivity{SensitivityPublic, SensitivityInternal, SensitivityConfidential, SensitivityRestricted, SensitivitySecret} {
+	for _, value := range []coreprovenance.Sensitivity{coreprovenance.SensitivityPublic, coreprovenance.SensitivityInternal, coreprovenance.SensitivityConfidential, coreprovenance.SensitivityRestricted, coreprovenance.SensitivitySecret} {
 		if !value.Valid() {
 			t.Fatalf("valid sensitivity %q rejected", value)
 		}
 	}
-	if Sensitivity("unknown").Valid() || SensitivityInternal.RequiresRedaction() || !SensitivityConfidential.RequiresRedaction() {
+	if coreprovenance.Sensitivity("unknown").Valid() || coreprovenance.SensitivityInternal.RequiresRedaction() || !coreprovenance.SensitivityConfidential.RequiresRedaction() {
 		t.Fatal("sensitivity ordering is invalid")
 	}
 	for _, surface := range []Surface{SurfacePrompt, SurfaceToolInput, SurfaceToolOutput, SurfaceTraceAttribute, SurfaceEvent, SurfaceLog} {
@@ -71,7 +72,7 @@ func TestRecursiveKeyAndClassificationRedaction(t *testing.T) {
 
 func TestExplicitClassifiedValueRedactsCanary(t *testing.T) {
 	const canary = "explicit-canary"
-	for _, sensitivity := range []Sensitivity{SensitivityConfidential, SensitivityRestricted, SensitivitySecret} {
+	for _, sensitivity := range []coreprovenance.Sensitivity{coreprovenance.SensitivityConfidential, coreprovenance.SensitivityRestricted, coreprovenance.SensitivitySecret} {
 		redacted := Redact(SurfaceLog, Classify(sensitivity, map[string]any{
 			"payload": canary,
 			"ref":     "secret:vault/item",
@@ -84,7 +85,7 @@ func TestExplicitClassifiedValueRedactsCanary(t *testing.T) {
 			t.Fatalf("classification %q was not enforced: %s", sensitivity, data)
 		}
 	}
-	if got := Redact(SurfaceEvent, Classify(Sensitivity("invalid"), "value")); got != Redacted {
+	if got := Redact(SurfaceEvent, Classify(coreprovenance.Sensitivity("invalid"), "value")); got != Redacted {
 		t.Fatalf("invalid classification returned %#v", got)
 	}
 }

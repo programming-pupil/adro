@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	runtimecontext "github.com/adro-project/adro/internal/context"
-	"github.com/adro-project/adro/internal/security"
 )
 
 // ContextBlock turns an active, immutable SkillBundle into a provenance-rich
@@ -19,9 +19,9 @@ func (b SkillBundle) ContextBlock(session, tenantScope, selectionReason string) 
 	if strings.TrimSpace(b.Digest) == "" || strings.TrimSpace(session) == "" || strings.TrimSpace(tenantScope) == "" || strings.TrimSpace(selectionReason) == "" {
 		return runtimecontext.Block{}, errors.New("active SkillBundle context requires digest, session, tenant scope and selection reason")
 	}
-	sensitivity := security.Sensitivity(strings.ToLower(strings.TrimSpace(b.Sensitivity)))
+	sensitivity := coreprovenance.Sensitivity(strings.ToLower(strings.TrimSpace(b.Sensitivity)))
 	if sensitivity == "" {
-		sensitivity = security.SensitivityInternal
+		sensitivity = coreprovenance.SensitivityInternal
 	}
 	if !sensitivity.Valid() {
 		return runtimecontext.Block{}, fmt.Errorf("invalid SkillBundle sensitivity %q", b.Sensitivity)
@@ -32,7 +32,7 @@ func (b SkillBundle) ContextBlock(session, tenantScope, selectionReason string) 
 		Source:          "skill:" + b.ID + "@" + b.Version,
 		Content:         b.Instructions,
 		Policy:          "frozen_skill_revision",
-		TrustLevel:      security.TrustVerified,
+		TrustLevel:      coreprovenance.TrustVerified,
 		Sensitivity:     sensitivity,
 		TenantScope:     tenantScope,
 		Purpose:         "model_context",

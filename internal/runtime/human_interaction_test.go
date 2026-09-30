@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/core/identity"
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	"github.com/adro-project/adro/core/testkit"
-	"github.com/adro-project/adro/internal/security"
 )
 
 func humanActor(scope Scope, id string, now time.Time) identity.Actor {
@@ -26,7 +26,7 @@ func interactionRequest(now time.Time, turnID, requestID string, actors ...ident
 		RequestID: requestID, RequestVersion: 1, TurnID: turnID, Kind: HumanKindChoice,
 		Prompt: "Choose the recovery path", ResponseSchema: `{"enum":["resume","stop"],"type":"string"}`,
 		Deadline: now.Add(time.Hour), EligibleActors: actors, ClaimPolicy: HumanClaimNone,
-		ContextDigest: "context-digest", Sensitivity: security.SensitivityInternal,
+		ContextDigest: "context-digest", Sensitivity: coreprovenance.SensitivityInternal,
 		RequestedAt: now, IdempotencyKey: requestID + "-create",
 	}
 }
@@ -36,7 +36,7 @@ func approvalRequest(now time.Time, turnID, requestID string, actors ...identity
 		RequestID: requestID, RequestVersion: 3, TurnID: turnID, Prompt: "Authorize deployment",
 		Capability: "deployment.write", Risk: "external_write", PolicyBundleDigest: "policy-digest",
 		Deadline: now.Add(time.Hour), EligibleActors: actors, ClaimPolicy: HumanClaimRequired, ClaimTTL: 15 * time.Minute,
-		ContextDigest: "approval-context", Sensitivity: security.SensitivityRestricted,
+		ContextDigest: "approval-context", Sensitivity: coreprovenance.SensitivityRestricted,
 		RequestedAt: now, IdempotencyKey: requestID + "-create",
 	}
 }

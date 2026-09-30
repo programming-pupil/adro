@@ -14,26 +14,26 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/adro-project/adro/internal/security"
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 )
 
 type Block struct {
-	ID              string                `json:"id"`
-	Kind            string                `json:"kind"`
-	Source          string                `json:"source"`
-	Content         string                `json:"content"`
-	Hash            string                `json:"hash"`
-	Policy          string                `json:"policy"`
-	Trust           string                `json:"trust,omitempty"`
-	TrustLevel      security.TrustLevel   `json:"trust_level,omitempty"`
-	Sensitivity     security.Sensitivity  `json:"sensitivity,omitempty"`
-	TenantScope     string                `json:"tenant_scope,omitempty"`
-	Purpose         string                `json:"purpose,omitempty"`
-	TaintLabels     []security.TaintLabel `json:"taint_labels,omitempty"`
-	SelectionReason string                `json:"selection_reason"`
-	TokenEstimate   int64                 `json:"token_estimate"`
-	Mandatory       bool                  `json:"mandatory"`
-	Metadata        map[string]string     `json:"metadata,omitempty"`
+	ID              string                      `json:"id"`
+	Kind            string                      `json:"kind"`
+	Source          string                      `json:"source"`
+	Content         string                      `json:"content"`
+	Hash            string                      `json:"hash"`
+	Policy          string                      `json:"policy"`
+	Trust           string                      `json:"trust,omitempty"`
+	TrustLevel      coreprovenance.TrustLevel   `json:"trust_level,omitempty"`
+	Sensitivity     coreprovenance.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope     string                      `json:"tenant_scope,omitempty"`
+	Purpose         string                      `json:"purpose,omitempty"`
+	TaintLabels     []coreprovenance.TaintLabel `json:"taint_labels,omitempty"`
+	SelectionReason string                      `json:"selection_reason"`
+	TokenEstimate   int64                       `json:"token_estimate"`
+	Mandatory       bool                        `json:"mandatory"`
+	Metadata        map[string]string           `json:"metadata,omitempty"`
 }
 type Manifest struct {
 	SessionID               string              `json:"session_id"`
@@ -63,20 +63,20 @@ type Envelope struct {
 // provider adapter may choose its wire format, but it cannot reorder or
 // weaken these segments without invalidating the manifest.
 type PromptSegment struct {
-	ID          string                `json:"id"`
-	Kind        string                `json:"kind"`
-	Version     int64                 `json:"version"`
-	Hash        string                `json:"hash"`
-	Trust       string                `json:"trust,omitempty"`
-	TrustLevel  security.TrustLevel   `json:"trust_level,omitempty"`
-	Mandatory   bool                  `json:"mandatory"`
-	TokenBudget int64                 `json:"token_budget"`
-	Sensitivity security.Sensitivity  `json:"sensitivity,omitempty"`
-	TenantScope string                `json:"tenant_scope,omitempty"`
-	Purpose     string                `json:"purpose,omitempty"`
-	TaintLabels []security.TaintLabel `json:"taint_labels,omitempty"`
-	Source      string                `json:"source"`
-	Content     string                `json:"content"`
+	ID          string                      `json:"id"`
+	Kind        string                      `json:"kind"`
+	Version     int64                       `json:"version"`
+	Hash        string                      `json:"hash"`
+	Trust       string                      `json:"trust,omitempty"`
+	TrustLevel  coreprovenance.TrustLevel   `json:"trust_level,omitempty"`
+	Mandatory   bool                        `json:"mandatory"`
+	TokenBudget int64                       `json:"token_budget"`
+	Sensitivity coreprovenance.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope string                      `json:"tenant_scope,omitempty"`
+	Purpose     string                      `json:"purpose,omitempty"`
+	TaintLabels []coreprovenance.TaintLabel `json:"taint_labels,omitempty"`
+	Source      string                      `json:"source"`
+	Content     string                      `json:"content"`
 }
 
 // PromptManifest is shared by graph, pipeline, comment, repair, and session
@@ -195,15 +195,15 @@ func normalizeBlocks(session string, blocks []Block) ([]Block, error) {
 func normalizeBlockProvenance(session string, block Block) (Block, error) {
 	block.Source = strings.TrimSpace(block.Source)
 	block.Metadata = cloneMetadata(block.Metadata)
-	block.TaintLabels = append([]security.TaintLabel(nil), block.TaintLabels...)
+	block.TaintLabels = append([]coreprovenance.TaintLabel(nil), block.TaintLabels...)
 	zone := trustZoneForBlock(block)
 
 	sensitivity := block.Sensitivity
 	if sensitivity == "" {
-		sensitivity = security.Sensitivity(strings.ToLower(strings.TrimSpace(block.Metadata["sensitivity"])))
+		sensitivity = coreprovenance.Sensitivity(strings.ToLower(strings.TrimSpace(block.Metadata["sensitivity"])))
 	}
 	if sensitivity == "" {
-		sensitivity = security.SensitivityInternal
+		sensitivity = coreprovenance.SensitivityInternal
 	}
 	if !sensitivity.Valid() {
 		return Block{}, fmt.Errorf("invalid sensitivity %q", sensitivity)
@@ -223,22 +223,22 @@ func normalizeBlockProvenance(session string, block Block) (Block, error) {
 		purpose = "model_context"
 	}
 
-	provenance, err := security.NewProvenance(zone, block.Source, tenantScope, purpose, sensitivity)
+	provenance, err := coreprovenance.NewProvenance(zone, block.Source, tenantScope, purpose, sensitivity)
 	if err != nil {
 		return Block{}, err
 	}
 	if block.TrustLevel.Valid() {
-		provenance.TrustLevel = security.LessTrusted(provenance.TrustLevel, block.TrustLevel)
-	} else if legacy := security.TrustLevel(strings.ToLower(strings.TrimSpace(block.Trust))); legacy.Valid() {
-		provenance.TrustLevel = security.LessTrusted(provenance.TrustLevel, legacy)
+		provenance.TrustLevel = coreprovenance.LessTrusted(provenance.TrustLevel, block.TrustLevel)
+	} else if legacy := coreprovenance.TrustLevel(strings.ToLower(strings.TrimSpace(block.Trust))); legacy.Valid() {
+		provenance.TrustLevel = coreprovenance.LessTrusted(provenance.TrustLevel, legacy)
 	}
-	provenance.Sensitivity = security.MaxSensitivity(provenance.Sensitivity, sensitivity)
+	provenance.Sensitivity = coreprovenance.MaxSensitivity(provenance.Sensitivity, sensitivity)
 	provenance.TaintLabels = append(provenance.TaintLabels, block.TaintLabels...)
-	provenance, err = security.CanonicalizeProvenance(provenance)
+	provenance, err = coreprovenance.CanonicalizeProvenance(provenance)
 	if err != nil {
 		return Block{}, err
 	}
-	if err := security.EnforceTrustZone(zone, provenance); err != nil {
+	if err := coreprovenance.EnforceTrustZone(zone, provenance); err != nil {
 		return Block{}, err
 	}
 	block.Trust = ""
@@ -246,11 +246,11 @@ func normalizeBlockProvenance(session string, block Block) (Block, error) {
 	block.Sensitivity = provenance.Sensitivity
 	block.TenantScope = provenance.TenantScope
 	block.Purpose = provenance.Purpose
-	block.TaintLabels = append([]security.TaintLabel(nil), provenance.TaintLabels...)
+	block.TaintLabels = append([]coreprovenance.TaintLabel(nil), provenance.TaintLabels...)
 	return block, nil
 }
 
-func trustZoneForBlock(block Block) security.TrustZone {
+func trustZoneForBlock(block Block) coreprovenance.TrustZone {
 	kind := strings.ToLower(strings.TrimSpace(block.Kind))
 	source := strings.ToLower(strings.TrimSpace(block.Source))
 	policy := strings.ToLower(strings.TrimSpace(block.Policy))
@@ -258,49 +258,49 @@ func trustZoneForBlock(block Block) security.TrustZone {
 	legacyTrust := strings.ToLower(strings.TrimSpace(block.Trust))
 
 	if kind == "tool_result" || strings.HasPrefix(source, "tool:") && kind != "tool_call" && kind != "tool_schema" {
-		return security.ZoneToolOutput
+		return coreprovenance.ZoneToolOutput
 	}
 	if strings.HasPrefix(source, "http:") || strings.HasPrefix(source, "https:") || strings.HasPrefix(source, "remote:") || strings.HasPrefix(source, "web:") || strings.HasPrefix(source, "mcp:") {
-		return security.ZoneRemoteContent
+		return coreprovenance.ZoneRemoteContent
 	}
 	if strings.HasPrefix(source, "user") || strings.Contains(reason, "latest_objective") {
-		return security.ZoneUserContent
+		return coreprovenance.ZoneUserContent
 	}
 	if kind == "summary" || kind == "tool_call" || strings.HasPrefix(source, "compression:") || strings.HasPrefix(source, "model:") || strings.HasPrefix(source, "assistant:") {
-		return security.ZoneModelOutput
+		return coreprovenance.ZoneModelOutput
 	}
 	if source == "system" || kind == "system" || kind == "policy" {
-		return security.ZoneSystemPolicy
+		return coreprovenance.ZoneSystemPolicy
 	}
 	if strings.HasPrefix(source, "workspace:") || kind == "workspace_policy" {
-		return security.ZoneWorkspacePolicy
+		return coreprovenance.ZoneWorkspacePolicy
 	}
 	if policy == "frozen_plan" || legacyTrust == "plan_snapshot" || kind == "tool_schema" {
-		return security.ZoneVerifiedArtifact
+		return coreprovenance.ZoneVerifiedArtifact
 	}
 	switch kind {
 	case "memory", "archive", "turn", "code", "json", "artifact", "evidence":
-		return security.ZoneRetrievedContent
+		return coreprovenance.ZoneRetrievedContent
 	}
 	if strings.HasPrefix(source, "memory") || strings.HasPrefix(source, "archive") || strings.HasPrefix(source, "turn") || strings.HasPrefix(source, "artifact:") || strings.HasPrefix(source, "retrieved:") {
-		return security.ZoneRetrievedContent
+		return coreprovenance.ZoneRetrievedContent
 	}
-	return security.ZoneUnknown
+	return coreprovenance.ZoneUnknown
 }
 
-func blockProvenance(block Block) security.Provenance {
-	return security.Provenance{
+func blockProvenance(block Block) coreprovenance.Provenance {
+	return coreprovenance.Provenance{
 		Source: block.Source, TrustLevel: block.TrustLevel, Sensitivity: block.Sensitivity,
 		TenantScope: block.TenantScope, Purpose: block.Purpose,
-		TaintLabels: append([]security.TaintLabel(nil), block.TaintLabels...),
+		TaintLabels: append([]coreprovenance.TaintLabel(nil), block.TaintLabels...),
 	}
 }
 
-func segmentProvenance(segment PromptSegment) security.Provenance {
-	return security.Provenance{
+func segmentProvenance(segment PromptSegment) coreprovenance.Provenance {
+	return coreprovenance.Provenance{
 		Source: segment.Source, TrustLevel: segment.TrustLevel, Sensitivity: segment.Sensitivity,
 		TenantScope: segment.TenantScope, Purpose: segment.Purpose,
-		TaintLabels: append([]security.TaintLabel(nil), segment.TaintLabels...),
+		TaintLabels: append([]coreprovenance.TaintLabel(nil), segment.TaintLabels...),
 	}
 }
 
@@ -315,7 +315,7 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 	return result
 }
 
-func equalTaintLabels(left, right []security.TaintLabel) bool {
+func equalTaintLabels(left, right []coreprovenance.TaintLabel) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -354,7 +354,7 @@ func BuildPromptManifest(session string, blocks []Block) (PromptManifest, error)
 			ID: block.ID, Kind: kind, Version: 2, Hash: block.Hash, TrustLevel: block.TrustLevel,
 			Mandatory: block.Mandatory, TokenBudget: block.TokenEstimate,
 			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
-			TaintLabels: append([]security.TaintLabel(nil), block.TaintLabels...), Source: block.Source, Content: block.Content,
+			TaintLabels: append([]coreprovenance.TaintLabel(nil), block.TaintLabels...), Source: block.Source, Content: block.Content,
 		})
 	}
 	sort.SliceStable(segments, func(i, j int) bool {
@@ -744,7 +744,7 @@ func (m Manifest) Validate() error {
 			if err := blockProvenance(b).Validate(); err != nil {
 				return fmt.Errorf("block %s provenance: %w", b.ID, err)
 			}
-			if err := security.EnforceTrustZone(trustZoneForBlock(b), blockProvenance(b)); err != nil {
+			if err := coreprovenance.EnforceTrustZone(trustZoneForBlock(b), blockProvenance(b)); err != nil {
 				return fmt.Errorf("block %s trust zone: %w", b.ID, err)
 			}
 			if tenantScope == "" {
@@ -1005,13 +1005,13 @@ func compileWithSummarizer(session string, version, budget int64, blocks []Block
 	if remaining > 0 && len(semanticOptional) > 0 {
 		summary, summaryErr := summarizer.Summarize(SummaryRequest{Blocks: semanticOptional, TargetTokens: remaining, TokenizerID: tokenizer.ID(), Estimate: tokenizer.Estimate})
 		if summaryErr == nil && strings.TrimSpace(summary.Content) != "" && summary.QualityScore >= 0.60 {
-			inputs := make([]security.Provenance, 0, len(semanticOptional))
+			inputs := make([]coreprovenance.Provenance, 0, len(semanticOptional))
 			for _, block := range semanticOptional {
 				inputs = append(inputs, blockProvenance(block))
 			}
-			provenance, provenanceErr := security.DeriveProvenance(
-				security.ZoneModelOutput, "compression:"+sourceHash, semanticOptional[0].TenantScope,
-				"model_context", security.SensitivityPublic, inputs...,
+			provenance, provenanceErr := coreprovenance.DeriveProvenance(
+				coreprovenance.ZoneModelOutput, "compression:"+sourceHash, semanticOptional[0].TenantScope,
+				"model_context", coreprovenance.SensitivityPublic, inputs...,
 			)
 			if provenanceErr != nil {
 				return Manifest{}, record, fmt.Errorf("derive summary provenance: %w", provenanceErr)
@@ -1021,7 +1021,7 @@ func compileWithSummarizer(session string, version, budget int64, blocks []Block
 				Content: strings.TrimSpace(summary.Content), Policy: "summarize",
 				TrustLevel: provenance.TrustLevel, Sensitivity: provenance.Sensitivity,
 				TenantScope: provenance.TenantScope, Purpose: provenance.Purpose,
-				TaintLabels:     append([]security.TaintLabel(nil), provenance.TaintLabels...),
+				TaintLabels:     append([]coreprovenance.TaintLabel(nil), provenance.TaintLabels...),
 				SelectionReason: "semantic_compaction", TokenEstimate: tokenizer.Estimate(summary.Content),
 				Metadata: map[string]string{"source_hash": sourceHash, "algorithm": "semantic-extractive", "version": "v1", "tokenizer_id": tokenizer.ID()},
 			}

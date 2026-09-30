@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/adro-project/adro/internal/domain"
-	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
+	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	"github.com/adro-project/adro/internal/store"
 )
 

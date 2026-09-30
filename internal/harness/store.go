@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
-	"github.com/adro-project/adro/internal/security"
 )
 
 var (
@@ -216,22 +216,22 @@ type ContextStatus struct {
 // text so a retry can prove it used the same input, rather than rebuilding a
 // prompt from mutable in-memory state.
 type ContextBlock struct {
-	ID              string                `json:"id"`
-	Kind            string                `json:"kind"`
-	Source          string                `json:"source"`
-	Content         string                `json:"content"`
-	Hash            string                `json:"hash"`
-	Policy          string                `json:"policy"`
-	Trust           string                `json:"trust,omitempty"`
-	TrustLevel      security.TrustLevel   `json:"trust_level,omitempty"`
-	Sensitivity     security.Sensitivity  `json:"sensitivity,omitempty"`
-	TenantScope     string                `json:"tenant_scope,omitempty"`
-	Purpose         string                `json:"purpose,omitempty"`
-	TaintLabels     []security.TaintLabel `json:"taint_labels,omitempty"`
-	SelectionReason string                `json:"selection_reason"`
-	TokenEstimate   int64                 `json:"token_estimate"`
-	Mandatory       bool                  `json:"mandatory"`
-	Metadata        map[string]string     `json:"metadata,omitempty"`
+	ID              string                      `json:"id"`
+	Kind            string                      `json:"kind"`
+	Source          string                      `json:"source"`
+	Content         string                      `json:"content"`
+	Hash            string                      `json:"hash"`
+	Policy          string                      `json:"policy"`
+	Trust           string                      `json:"trust,omitempty"`
+	TrustLevel      coreprovenance.TrustLevel   `json:"trust_level,omitempty"`
+	Sensitivity     coreprovenance.Sensitivity  `json:"sensitivity,omitempty"`
+	TenantScope     string                      `json:"tenant_scope,omitempty"`
+	Purpose         string                      `json:"purpose,omitempty"`
+	TaintLabels     []coreprovenance.TaintLabel `json:"taint_labels,omitempty"`
+	SelectionReason string                      `json:"selection_reason"`
+	TokenEstimate   int64                       `json:"token_estimate"`
+	Mandatory       bool                        `json:"mandatory"`
+	Metadata        map[string]string           `json:"metadata,omitempty"`
 }
 
 // ContextManifest is the typed context contract exchanged with providers.
@@ -332,7 +332,7 @@ func toContextBlocks(blocks []ContextBlock) []contextcontract.Block {
 			ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash,
 			Policy: block.Policy, Trust: block.Trust, TrustLevel: block.TrustLevel,
 			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
-			TaintLabels:     append([]security.TaintLabel(nil), block.TaintLabels...),
+			TaintLabels:     append([]coreprovenance.TaintLabel(nil), block.TaintLabels...),
 			SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate,
 			Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata),
 		}
@@ -347,7 +347,7 @@ func fromContextManifest(manifest contextcontract.Manifest, records []contextcon
 			ID: block.ID, Kind: block.Kind, Source: block.Source, Content: block.Content, Hash: block.Hash,
 			Policy: block.Policy, Trust: block.Trust, TrustLevel: block.TrustLevel,
 			Sensitivity: block.Sensitivity, TenantScope: block.TenantScope, Purpose: block.Purpose,
-			TaintLabels:     append([]security.TaintLabel(nil), block.TaintLabels...),
+			TaintLabels:     append([]coreprovenance.TaintLabel(nil), block.TaintLabels...),
 			SelectionReason: block.SelectionReason, TokenEstimate: block.TokenEstimate,
 			Mandatory: block.Mandatory, Metadata: cloneStringMap(block.Metadata),
 		}

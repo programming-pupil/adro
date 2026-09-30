@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/provider"
-	"github.com/adro-project/adro/internal/telemetry"
 )
 
 // Worker is the recoverable polling loop for the local profile. A scheduler
@@ -648,8 +648,8 @@ func (w Worker) recoverUnboundAttempt(ctx context.Context, plan RequirementExecu
 		}
 		return attempt, false, fmt.Errorf("claim unbound provider outbox: %w", err)
 	}
-	deliveryCtx, _, _ := telemetry.StartRemoteSpan(ctx, claimed.TraceParent, claimed.TraceState)
-	traceParent, traceState := telemetry.Carrier(deliveryCtx)
+	deliveryCtx, _, _ := trace.StartRemoteSpan(ctx, claimed.TraceParent, claimed.TraceState)
+	traceParent, traceState := trace.Carrier(deliveryCtx)
 	node := workflowNodeFor(plan, attempt.NodeID)
 	binding, startErr := w.Scheduler.Executor.Provider.StartRun(deliveryCtx, provider.StartRunCommand{PlanID: plan.ID, NodeID: attempt.NodeID, AttemptID: attempt.ID, WorkItemID: claimed.PayloadString("work_item_id"), AgentBindingID: claimed.PayloadString("agent_binding_id"), Input: nodeInput(attempt.InputManifest, node, attempt.AttemptNo, claimed.PayloadString("agent_binding_id"), ""), SessionID: attempt.InputManifest.Manifest.SessionID, ContextEnvelope: attempt.InputManifest, IdempotencyKey: attempt.IdempotencyKey, ExpectedRevision: plan.Revision, TraceParent: traceParent, TraceState: traceState})
 	if startErr != nil {

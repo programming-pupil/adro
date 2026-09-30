@@ -1,4 +1,4 @@
-package mentions
+package mention
 
 import (
 	"context"

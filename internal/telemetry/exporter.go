@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adro-project/adro/internal/security"
+	"github.com/adro-project/adro/internal/obs/trace"
+	"github.com/adro-project/adro/internal/security/redact"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -159,7 +160,7 @@ func (t Tracer) Start(ctx context.Context, name string, attributes map[string]st
 			startOptions = append(startOptions, oteltrace.WithTimestamp(t.Now().UTC()))
 		}
 		childCtx, span := t.Provider.Tracer(instrumentationName).Start(ctx, strings.TrimSpace(name), startOptions...)
-		childCtx = contextWithLocalSpanContext(childCtx, span.SpanContext())
+		childCtx = trace.ContextWithLocalSpanContext(childCtx, span.SpanContext())
 		var once sync.Once
 		return childCtx, func(status, message string) error {
 			once.Do(func() {
@@ -181,8 +182,8 @@ func (t Tracer) Start(ctx context.Context, name string, attributes map[string]st
 		}
 	}
 
-	childCtx, spanContext := StartSpan(ctx)
-	parent, _ := FromContext(ctx)
+	childCtx, spanContext := trace.StartSpan(ctx)
+	parent, _ := trace.FromContext(ctx)
 	now := time.Now().UTC()
 	if t.Now != nil {
 		now = t.Now().UTC()
@@ -228,7 +229,7 @@ func boundedAttributes(attributes map[string]string) map[string]string {
 		if key == "" || len(result) >= 32 || strings.HasSuffix(key, ".id") || strings.HasSuffix(key, "_id") || key == "session_id" || key == "comment_id" {
 			continue
 		}
-		value, ok := security.RedactAttribute(key, value)
+		value, ok := redact.RedactAttribute(key, value)
 		if !ok {
 			continue
 		}

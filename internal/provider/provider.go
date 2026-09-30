@@ -17,7 +17,7 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/internal/obs/trace"
 )
 
 type Capabilities struct {
@@ -260,7 +260,7 @@ func (c StartRunCommand) ValidateTraceContext() error {
 
 func (c StartRunCommand) WithTraceContext(ctx context.Context) StartRunCommand {
 	if strings.TrimSpace(c.TraceParent) == "" && strings.TrimSpace(c.TraceState) == "" {
-		c.TraceParent, c.TraceState = telemetry.Carrier(ctx)
+		c.TraceParent, c.TraceState = trace.Carrier(ctx)
 	}
 	return c
 }
@@ -346,7 +346,7 @@ func (c ContinuationCommand) ValidateTraceContext() error {
 
 func (c ContinuationCommand) WithTraceContext(ctx context.Context) ContinuationCommand {
 	if strings.TrimSpace(c.TraceParent) == "" && strings.TrimSpace(c.TraceState) == "" {
-		c.TraceParent, c.TraceState = telemetry.Carrier(ctx)
+		c.TraceParent, c.TraceState = trace.Carrier(ctx)
 	}
 	return c
 }
@@ -355,7 +355,7 @@ func validateTraceCarrier(parent, state string) error {
 	if strings.TrimSpace(parent) == "" && strings.TrimSpace(state) == "" {
 		return nil
 	}
-	if _, err := telemetry.ParseTraceParent(parent, state); err != nil {
+	if _, err := trace.ParseTraceParent(parent, state); err != nil {
 		return fmt.Errorf("invalid W3C trace context: %w", err)
 	}
 	return nil
@@ -594,7 +594,7 @@ func (p *MockProvider) StartRun(ctx context.Context, cmd StartRunCommand) (RunBi
 		}
 	}
 	baseRunCtx, cancel := context.WithCancel(ctx)
-	runCtx, span, _ := telemetry.StartRemoteSpan(baseRunCtx, cmd.TraceParent, cmd.TraceState)
+	runCtx, span, _ := trace.StartRemoteSpan(baseRunCtx, cmd.TraceParent, cmd.TraceState)
 	p.commands = append(p.commands, cmd)
 	p.runs[id] = &mockRun{snapshot: RunSnapshot{ID: id, WorkItemID: cmd.WorkItemID, InputHash: sha256Hex(cmd.Input), SessionID: sessionID, Status: "running", TraceParent: span.TraceParent(), TraceState: span.TraceState, StartedAt: &now}, cancel: cancel}
 	if key := strings.TrimSpace(cmd.IdempotencyKey); key != "" {

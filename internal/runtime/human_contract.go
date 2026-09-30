@@ -11,7 +11,7 @@ import (
 	coreencoding "github.com/adro-project/adro/core/encoding"
 	"github.com/adro-project/adro/core/identity"
 	"github.com/adro-project/adro/core/ids"
-	"github.com/adro-project/adro/internal/security"
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 )
 
 const (
@@ -70,44 +70,44 @@ var (
 // HumanInteractionRequest is the immutable contract for ordinary human input.
 // High-risk authorization uses ApprovalRequest and different durable events.
 type HumanInteractionRequest struct {
-	SchemaVersion    int                  `json:"schema_version"`
-	RequestID        string               `json:"request_id"`
-	RequestVersion   int64                `json:"request_version"`
-	TurnID           string               `json:"turn_id"`
-	Kind             string               `json:"kind"`
-	Prompt           string               `json:"prompt"`
-	ResponseSchema   string               `json:"response_schema"`
-	Deadline         time.Time            `json:"deadline"`
-	EligibleActors   []identity.ActorRef  `json:"eligible_actors"`
-	ClaimPolicy      string               `json:"claim_policy"`
-	ClaimTTL         time.Duration        `json:"claim_ttl,omitempty"`
-	ContextDigest    string               `json:"context_digest"`
-	Sensitivity      security.Sensitivity `json:"sensitivity"`
-	RequestedAt      time.Time            `json:"requested_at"`
-	IdempotencyKey   string               `json:"idempotency_key"`
-	DefinitionDigest string               `json:"definition_digest"`
+	SchemaVersion    int                        `json:"schema_version"`
+	RequestID        string                     `json:"request_id"`
+	RequestVersion   int64                      `json:"request_version"`
+	TurnID           string                     `json:"turn_id"`
+	Kind             string                     `json:"kind"`
+	Prompt           string                     `json:"prompt"`
+	ResponseSchema   string                     `json:"response_schema"`
+	Deadline         time.Time                  `json:"deadline"`
+	EligibleActors   []identity.ActorRef        `json:"eligible_actors"`
+	ClaimPolicy      string                     `json:"claim_policy"`
+	ClaimTTL         time.Duration              `json:"claim_ttl,omitempty"`
+	ContextDigest    string                     `json:"context_digest"`
+	Sensitivity      coreprovenance.Sensitivity `json:"sensitivity"`
+	RequestedAt      time.Time                  `json:"requested_at"`
+	IdempotencyKey   string                     `json:"idempotency_key"`
+	DefinitionDigest string                     `json:"definition_digest"`
 }
 
 // ApprovalRequest is intentionally separate from ordinary questions. It binds
 // the exact capability, risk, policy bundle and context being authorized.
 type ApprovalRequest struct {
-	SchemaVersion      int                  `json:"schema_version"`
-	RequestID          string               `json:"request_id"`
-	RequestVersion     int64                `json:"request_version"`
-	TurnID             string               `json:"turn_id"`
-	Prompt             string               `json:"prompt"`
-	Capability         string               `json:"capability"`
-	Risk               string               `json:"risk"`
-	PolicyBundleDigest string               `json:"policy_bundle_digest"`
-	Deadline           time.Time            `json:"deadline"`
-	EligibleActors     []identity.ActorRef  `json:"eligible_actors"`
-	ClaimPolicy        string               `json:"claim_policy"`
-	ClaimTTL           time.Duration        `json:"claim_ttl,omitempty"`
-	ContextDigest      string               `json:"context_digest"`
-	Sensitivity        security.Sensitivity `json:"sensitivity"`
-	RequestedAt        time.Time            `json:"requested_at"`
-	IdempotencyKey     string               `json:"idempotency_key"`
-	DefinitionDigest   string               `json:"definition_digest"`
+	SchemaVersion      int                        `json:"schema_version"`
+	RequestID          string                     `json:"request_id"`
+	RequestVersion     int64                      `json:"request_version"`
+	TurnID             string                     `json:"turn_id"`
+	Prompt             string                     `json:"prompt"`
+	Capability         string                     `json:"capability"`
+	Risk               string                     `json:"risk"`
+	PolicyBundleDigest string                     `json:"policy_bundle_digest"`
+	Deadline           time.Time                  `json:"deadline"`
+	EligibleActors     []identity.ActorRef        `json:"eligible_actors"`
+	ClaimPolicy        string                     `json:"claim_policy"`
+	ClaimTTL           time.Duration              `json:"claim_ttl,omitempty"`
+	ContextDigest      string                     `json:"context_digest"`
+	Sensitivity        coreprovenance.Sensitivity `json:"sensitivity"`
+	RequestedAt        time.Time                  `json:"requested_at"`
+	IdempotencyKey     string                     `json:"idempotency_key"`
+	DefinitionDigest   string                     `json:"definition_digest"`
 }
 
 type ApprovalDecision struct {
@@ -126,28 +126,28 @@ type HumanResponse struct {
 }
 
 type HumanRequestState struct {
-	Scope            Scope                    `json:"scope"`
-	RequestID        string                   `json:"request_id"`
-	RequestVersion   int64                    `json:"request_version"`
-	Class            string                   `json:"class"`
-	Kind             string                   `json:"kind"`
-	TurnID           string                   `json:"turn_id"`
-	Status           string                   `json:"status"`
-	Deadline         time.Time                `json:"deadline"`
-	EligibleActors   []identity.ActorRef      `json:"eligible_actors"`
-	ClaimPolicy      string                   `json:"claim_policy"`
-	ClaimTTL         time.Duration            `json:"claim_ttl,omitempty"`
-	ContextDigest    string                   `json:"context_digest"`
-	Sensitivity      security.Sensitivity     `json:"sensitivity"`
-	DefinitionDigest string                   `json:"definition_digest"`
-	Interaction      *HumanInteractionRequest `json:"interaction,omitempty"`
-	Approval         *ApprovalRequest         `json:"approval,omitempty"`
-	ClaimedBy        *identity.ActorRef       `json:"claimed_by,omitempty"`
-	ClaimExpiresAt   time.Time                `json:"claim_expires_at,omitempty"`
-	ClaimGeneration  int64                    `json:"claim_generation,omitempty"`
-	Response         *HumanResponse           `json:"response,omitempty"`
-	AppliedStepID    string                   `json:"applied_step_id,omitempty"`
-	LastEventID      string                   `json:"last_event_id,omitempty"`
+	Scope            Scope                      `json:"scope"`
+	RequestID        string                     `json:"request_id"`
+	RequestVersion   int64                      `json:"request_version"`
+	Class            string                     `json:"class"`
+	Kind             string                     `json:"kind"`
+	TurnID           string                     `json:"turn_id"`
+	Status           string                     `json:"status"`
+	Deadline         time.Time                  `json:"deadline"`
+	EligibleActors   []identity.ActorRef        `json:"eligible_actors"`
+	ClaimPolicy      string                     `json:"claim_policy"`
+	ClaimTTL         time.Duration              `json:"claim_ttl,omitempty"`
+	ContextDigest    string                     `json:"context_digest"`
+	Sensitivity      coreprovenance.Sensitivity `json:"sensitivity"`
+	DefinitionDigest string                     `json:"definition_digest"`
+	Interaction      *HumanInteractionRequest   `json:"interaction,omitempty"`
+	Approval         *ApprovalRequest           `json:"approval,omitempty"`
+	ClaimedBy        *identity.ActorRef         `json:"claimed_by,omitempty"`
+	ClaimExpiresAt   time.Time                  `json:"claim_expires_at,omitempty"`
+	ClaimGeneration  int64                      `json:"claim_generation,omitempty"`
+	Response         *HumanResponse             `json:"response,omitempty"`
+	AppliedStepID    string                     `json:"applied_step_id,omitempty"`
+	LastEventID      string                     `json:"last_event_id,omitempty"`
 }
 
 func (s HumanRequestState) Terminal() bool {
@@ -215,7 +215,7 @@ func FreezeApprovalRequest(request ApprovalRequest) (ApprovalRequest, error) {
 	return request, nil
 }
 
-func validateHumanDefinition(schemaVersion int, requestID string, requestVersion int64, turnID, prompt, responseSchema string, deadline time.Time, eligible []identity.ActorRef, claimPolicy string, claimTTL time.Duration, contextDigest string, sensitivity security.Sensitivity, requestedAt time.Time, idempotencyKey string) error {
+func validateHumanDefinition(schemaVersion int, requestID string, requestVersion int64, turnID, prompt, responseSchema string, deadline time.Time, eligible []identity.ActorRef, claimPolicy string, claimTTL time.Duration, contextDigest string, sensitivity coreprovenance.Sensitivity, requestedAt time.Time, idempotencyKey string) error {
 	if schemaVersion != HumanInteractionVersion || requestVersion < 1 || ids.Validate("human_request", requestID) != nil || ids.Validate("turn", turnID) != nil {
 		return fmt.Errorf("%w: schema, request id, version or turn id", ErrHumanRequestInvalid)
 	}

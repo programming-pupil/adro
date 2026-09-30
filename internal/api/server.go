@@ -31,8 +31,9 @@ import (
 	"github.com/adro-project/adro/internal/harness"
 	mcpclient "github.com/adro-project/adro/internal/mcp"
 	"github.com/adro-project/adro/internal/memory"
-	"github.com/adro-project/adro/internal/mentions"
+	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/orchestration"
+	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	"github.com/adro-project/adro/internal/plugins"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/runner"
@@ -41,6 +42,7 @@ import (
 	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/internal/workflow"
 	"github.com/adro-project/adro/ports/scope"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -146,7 +148,7 @@ func (w *bufferedResponseWriter) response() idempotencyResponse {
 }
 func writeBufferedResponse(dst http.ResponseWriter, response idempotencyResponse) {
 	for key, values := range response.Headers {
-		if (strings.EqualFold(key, "X-Request-ID") || strings.EqualFold(key, "X-Trace-ID") || strings.EqualFold(key, telemetry.TraceParentHeader) || strings.EqualFold(key, telemetry.TraceStateHeader)) && dst.Header().Get(key) != "" {
+		if (strings.EqualFold(key, "X-Request-ID") || strings.EqualFold(key, "X-Trace-ID") || strings.EqualFold(key, trace.TraceParentHeader) || strings.EqualFold(key, trace.TraceStateHeader)) && dst.Header().Get(key) != "" {
 			continue
 		}
 		// The buffer starts with a copy of the response headers that were
@@ -304,11 +306,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	traceCtx, serverSpan, traceErr := telemetry.StartRemoteSpan(r.Context(), r.Header.Get(telemetry.TraceParentHeader), r.Header.Get(telemetry.TraceStateHeader))
+	traceCtx, serverSpan, traceErr := trace.StartRemoteSpan(r.Context(), r.Header.Get(trace.TraceParentHeader), r.Header.Get(trace.TraceStateHeader))
 	r = r.WithContext(traceCtx)
-	w.Header().Set(telemetry.TraceParentHeader, serverSpan.TraceParent())
+	w.Header().Set(trace.TraceParentHeader, serverSpan.TraceParent())
 	if serverSpan.TraceState != "" {
-		w.Header().Set(telemetry.TraceStateHeader, serverSpan.TraceState)
+		w.Header().Set(trace.TraceStateHeader, serverSpan.TraceState)
 	}
 	w.Header().Set("X-Trace-ID", serverSpan.TraceID)
 	if traceErr != nil && s.Logger != nil {
@@ -321,10 +323,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// as their correlation parent. Returning the remote/server parent here
 	// would make a perfectly valid trace look split when clients compare the
 	// response header with the first committed event.
-	if requestTraceParent, requestTraceState := telemetry.Carrier(requestCtx); requestTraceParent != "" {
-		w.Header().Set(telemetry.TraceParentHeader, requestTraceParent)
+	if requestTraceParent, requestTraceState := trace.Carrier(requestCtx); requestTraceParent != "" {
+		w.Header().Set(trace.TraceParentHeader, requestTraceParent)
 		if requestTraceState != "" {
-			w.Header().Set(telemetry.TraceStateHeader, requestTraceState)
+			w.Header().Set(trace.TraceStateHeader, requestTraceState)
 		}
 	}
 	defer func() { _ = finishSpan("ok", "") }()

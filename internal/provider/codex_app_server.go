@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/internal/obs/trace"
 )
 
 var codexNativeThreadPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{15,127}$`)
@@ -42,7 +42,7 @@ func executeCodexAppServer(ctx context.Context, path string, args []string, inpu
 	cmd.Cancel = func() error { return cancelLocalCommand(cmd) }
 	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = workDir
-	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), trace.Environment(ctx)), environment)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

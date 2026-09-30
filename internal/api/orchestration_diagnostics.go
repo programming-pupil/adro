@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/adro-project/adro/internal/orchestration"
-	"github.com/adro-project/adro/internal/security"
+	"github.com/adro-project/adro/internal/security/redact"
 )
 
 // planTimeline returns the immutable event chain together with the current
@@ -253,7 +253,7 @@ func redactOrchestrationEvents(events []orchestration.Event) []map[string]any {
 		if err := json.Unmarshal(event.Payload, &item); err != nil {
 			item = map[string]any{"redacted": true}
 		} else {
-			item = security.Redact(security.SurfaceEvent, item)
+			item = redact.Redact(redact.SurfaceEvent, item)
 		}
 		data := map[string]any{
 			"event_id": event.ID, "plan_id": event.PlanID, "workspace_id": event.WorkspaceID,

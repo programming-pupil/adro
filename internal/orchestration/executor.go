@@ -13,6 +13,7 @@ import (
 	contextcontract "github.com/adro-project/adro/internal/context"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/telemetry"
 )
@@ -457,7 +458,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 				owner = "executor"
 			}
 			var outboxErr error
-			traceParent, traceState := telemetry.Carrier(ctx)
+			traceParent, traceState := trace.Carrier(ctx)
 			outbox, _, outboxErr = store.EnqueueOutbox(OutboxRecord{PlanID: plan.ID, WorkspaceID: plan.WorkspaceID, Kind: "provider.start", IdempotencyKey: key, TraceParent: traceParent, TraceState: traceState, Payload: map[string]any{"node_id": node.ID, "attempt_id": a.ID, "work_item_id": workItemID, "agent_binding_id": agentBindingID}})
 			if outboxErr != nil {
 				*projection = before
@@ -532,7 +533,7 @@ func (e Executor) dispatchReady(ctx context.Context, plan RequirementExecutionPl
 			"component": "orchestration",
 			"node_kind": string(node.Kind),
 		})
-		traceParent, traceState := telemetry.Carrier(providerCtx)
+		traceParent, traceState := trace.Carrier(providerCtx)
 		input := envelopeInput(nodeEnvelope)
 		if e.Repository != nil || node.Kind == NodeSquad {
 			input = nodeInput(nodeEnvelope, node, a.AttemptNo, binding, agentInstructions)

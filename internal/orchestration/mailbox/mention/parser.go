@@ -1,7 +1,7 @@
 // Package mentions parses the structured mention URI used by comments. It is
 // intentionally independent from roster lookup so preview and create can use
 // exactly the same AST and source digest.
-package mentions
+package mention
 
 import (
 	"crypto/sha256"

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/internal/obs/trace"
 )
 
 const (
@@ -141,7 +141,7 @@ func executeDSHRuntimeWithHooks(
 	configureLocalCommand(cmd)
 	cmd.Dir = workDir
 	cmd.WaitDelay = 250 * time.Millisecond
-	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), environment)
+	cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), trace.Environment(ctx)), environment)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return 0, nil, fmt.Errorf("DSH stdout pipe: %w", err)

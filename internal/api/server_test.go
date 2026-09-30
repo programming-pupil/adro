@@ -22,10 +22,12 @@ import (
 	adroauth "github.com/adro-project/adro/internal/auth"
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/orchestration"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 	"github.com/adro-project/adro/internal/telemetry"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -259,7 +261,7 @@ func TestHTTPTraceContextSurvivesResponseEventAndIdempotentReplay(t *testing.T) 
 	if first.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", first.Code, first.Body.String())
 	}
-	responseSpan, err := telemetry.ParseTraceParent(first.Header().Get("traceparent"), first.Header().Get("tracestate"))
+	responseSpan, err := trace.ParseTraceParent(first.Header().Get("traceparent"), first.Header().Get("tracestate"))
 	if err != nil || responseSpan.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || responseSpan.SpanID == "00f067aa0ba902b7" {
 		t.Fatalf("response trace=%#v err=%v", responseSpan, err)
 	}
@@ -272,7 +274,7 @@ func TestHTTPTraceContextSurvivesResponseEventAndIdempotentReplay(t *testing.T) 
 	if replayed.Code != first.Code || replayed.Header().Get("Idempotency-Replayed") != "true" {
 		t.Fatalf("replay status=%d body=%s", replayed.Code, replayed.Body.String())
 	}
-	replaySpan, err := telemetry.ParseTraceParent(replayed.Header().Get("traceparent"), replayed.Header().Get("tracestate"))
+	replaySpan, err := trace.ParseTraceParent(replayed.Header().Get("traceparent"), replayed.Header().Get("tracestate"))
 	if err != nil || replaySpan.TraceID != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("idempotent replay leaked the original request trace: %#v err=%v", replaySpan, err)
 	}

@@ -14,8 +14,8 @@ import (
 
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
+	"github.com/adro-project/adro/internal/obs/trace"
 	"github.com/adro-project/adro/internal/provider"
-	"github.com/adro-project/adro/internal/telemetry"
 )
 
 type testProvider struct {
@@ -85,7 +85,7 @@ func TestExecutorPropagatesW3CTraceIntoEventOutboxAndProviderCommand(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, _, err := telemetry.StartRemoteSpan(context.Background(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "vendor=value")
+	ctx, _, err := trace.StartRemoteSpan(context.Background(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "vendor=value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestExecutorPropagatesW3CTraceIntoEventOutboxAndProviderCommand(t *testing.
 	if _, err := executor.DispatchReady(ctx, plan, &projection, testEnvelope(), "work", agent.ID); err != nil {
 		t.Fatal(err)
 	}
-	providerSpan, err := telemetry.ParseTraceParent(p.lastTrace, "vendor=value")
+	providerSpan, err := trace.ParseTraceParent(p.lastTrace, "vendor=value")
 	if err != nil || providerSpan.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
 		t.Fatalf("provider trace=%q err=%v", p.lastTrace, err)
 	}

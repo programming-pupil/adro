@@ -18,7 +18,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
-	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/internal/obs/trace"
 )
 
 type Envelope struct {
@@ -64,7 +64,7 @@ func New(eventType, aggregateType, aggregateID, tenantID, workspaceID string, ve
 // copying prompts, secrets, or arbitrary baggage into the event envelope.
 func NewWithContext(ctx context.Context, eventType, aggregateType, aggregateID, tenantID, workspaceID string, version int64, payload map[string]any) Envelope {
 	event := New(eventType, aggregateType, aggregateID, tenantID, workspaceID, version, payload)
-	event.TraceParent, event.TraceState = telemetry.Carrier(ctx)
+	event.TraceParent, event.TraceState = trace.Carrier(ctx)
 	event.EnvelopeHash = envelopeHash(event)
 	return event
 }
@@ -540,7 +540,7 @@ func validatePersistedEvents(items []Envelope) error {
 			return fmt.Errorf("event %s payload hash mismatch", items[i].EventID)
 		}
 		if items[i].TraceParent != "" || items[i].TraceState != "" {
-			if _, err := telemetry.ParseTraceParent(items[i].TraceParent, items[i].TraceState); err != nil {
+			if _, err := trace.ParseTraceParent(items[i].TraceParent, items[i].TraceState); err != nil {
 				return fmt.Errorf("event %s trace context: %w", items[i].EventID, err)
 			}
 		}

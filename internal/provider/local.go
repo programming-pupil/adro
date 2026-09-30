@@ -28,8 +28,8 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/durable"
 	"github.com/adro-project/adro/internal/events"
+	"github.com/adro-project/adro/internal/obs/trace"
 	runtimekernel "github.com/adro-project/adro/internal/runtime"
-	"github.com/adro-project/adro/internal/telemetry"
 	"github.com/adro-project/adro/ports/eventstore"
 )
 
@@ -418,7 +418,7 @@ func (p *LocalProvider) StartRun(ctx context.Context, command StartRunCommand) (
 	// SessionID scopes ADRO's initial run and workdir; it is not proof that a
 	// provider-native conversation already exists. Only ContinueWorkItem may
 	// request a resume after a completed run has emitted continuity evidence.
-	providerCtx, span, _ := telemetry.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
+	providerCtx, span, _ := trace.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
 	return p.start(providerCtx, command.WorkItemID, command.ProviderIssueID, command.Input, sessionID, workDir, command.ContextID, command.ContextVersion, false, command.IdempotencyKey, span.TraceParent(), span.TraceState)
 }
 
@@ -484,7 +484,7 @@ func (p *LocalProvider) ContinueWorkItem(ctx context.Context, command Continuati
 			return bindingFromSnapshot(existing.snapshot, "", 0, true), nil
 		}
 	}
-	providerCtx, span, _ := telemetry.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
+	providerCtx, span, _ := trace.StartRemoteSpan(ctx, command.TraceParent, command.TraceState)
 	return p.start(providerCtx, workItemID, command.IssueID, command.Input, command.ExpectedSessionID, workDir, "", 0, true, command.IdempotencyKey, span.TraceParent(), span.TraceState)
 }
 
@@ -701,7 +701,7 @@ func (p *LocalProvider) execute(ctx context.Context, runID, input, workDir, sess
 			// has been fenced and killed.
 			cmd.WaitDelay = 250 * time.Millisecond
 			cmd.Dir = workDir
-			cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), telemetry.Environment(ctx)), runtimeEnvironment)
+			cmd.Env = applyRuntimeEnvironment(traceEnvironment(os.Environ(), trace.Environment(ctx)), runtimeEnvironment)
 			if kind := p.executorKind(); kind == "opencode" || kind == "deveco" {
 				cmd.Env = replaceEnvironmentValue(cmd.Env, "PWD", workDir)
 			}

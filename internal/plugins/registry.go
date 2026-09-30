@@ -24,7 +24,7 @@ import (
 	"time"
 
 	corepolicy "github.com/adro-project/adro/core/policy"
-	"github.com/adro-project/adro/internal/security"
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	extensionport "github.com/adro-project/adro/ports/extensions"
 )
 
@@ -83,9 +83,9 @@ type SecretPermission struct {
 }
 
 type DataEgressPermission struct {
-	Destination    string               `json:"destination"`
-	Purpose        string               `json:"purpose"`
-	MaxSensitivity security.Sensitivity `json:"max_sensitivity"`
+	Destination    string                     `json:"destination"`
+	Purpose        string                     `json:"purpose"`
+	MaxSensitivity coreprovenance.Sensitivity `json:"max_sensitivity"`
 }
 
 type Manifest struct {

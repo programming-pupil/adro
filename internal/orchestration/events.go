@@ -12,7 +12,7 @@ import (
 
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/telemetry"
+	"github.com/adro-project/adro/internal/obs/trace"
 )
 
 type Event struct {
@@ -47,7 +47,7 @@ func NewEventWithContext(ctx context.Context, previous *Event, planID, workspace
 	if err != nil {
 		return Event{}, err
 	}
-	traceParent, traceState := telemetry.Carrier(ctx)
+	traceParent, traceState := trace.Carrier(ctx)
 	e := Event{ID: domain.NewID(), PlanID: planID, WorkspaceID: workspaceID, Sequence: 1, Type: typ, Payload: b, PayloadHash: payloadDigest(b), IdempotencyKey: idempotency, TraceParent: traceParent, TraceState: traceState, CreatedAt: time.Now().UTC()}
 	if previous != nil {
 		e.Sequence = previous.Sequence + 1
@@ -99,7 +99,7 @@ func ValidateEventChain(events []Event, planID, workspaceID string) error {
 			return fmt.Errorf("event payload hash mismatch at %d", e.Sequence)
 		}
 		if e.TraceParent != "" || e.TraceState != "" {
-			if _, err := telemetry.ParseTraceParent(e.TraceParent, e.TraceState); err != nil {
+			if _, err := trace.ParseTraceParent(e.TraceParent, e.TraceState); err != nil {
 				return fmt.Errorf("event trace context mismatch at %d: %w", e.Sequence, err)
 			}
 		}

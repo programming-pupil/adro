@@ -1,8 +1,8 @@
-// Package telemetry implements the transport-neutral part of OpenTelemetry
+// Package trace implements the transport-neutral part of OpenTelemetry
 // context propagation used by ADRO. It intentionally owns no exporter: every
 // process boundary carries the W3C Trace Context headers, while operators may
 // attach any OpenTelemetry SDK/exporter without changing domain contracts.
-package telemetry
+package trace
 
 import (
 	"context"
@@ -231,7 +231,9 @@ func fromOTelSpanContext(span oteltrace.SpanContext) SpanContext {
 	}
 }
 
-func contextWithLocalSpanContext(ctx context.Context, span oteltrace.SpanContext) context.Context {
+// ContextWithLocalSpanContext stores the local carrier without replacing the
+// active recording span installed by the telemetry SDK.
+func ContextWithLocalSpanContext(ctx context.Context, span oteltrace.SpanContext) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}

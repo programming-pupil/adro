@@ -1,7 +1,7 @@
-// Package security centralizes sensitivity classification and boundary
+// Package redact centralizes sensitivity classification and boundary
 // redaction. It is deliberately deterministic and side-effect free so the same
 // value is treated identically at API, adapter, event, log, and trace borders.
-package security
+package redact
 
 import (
 	"encoding/json"
@@ -10,38 +10,11 @@ import (
 	"strings"
 	"unicode"
 
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	"github.com/adro-project/adro/ports/secret"
 )
 
 const Redacted = "[redacted]"
-
-type Sensitivity string
-
-const (
-	SensitivityPublic       Sensitivity = "public"
-	SensitivityInternal     Sensitivity = "internal"
-	SensitivityConfidential Sensitivity = "confidential"
-	SensitivityRestricted   Sensitivity = "restricted"
-	SensitivitySecret       Sensitivity = "secret"
-)
-
-var sensitivityOrder = map[Sensitivity]int{
-	SensitivityPublic:       0,
-	SensitivityInternal:     1,
-	SensitivityConfidential: 2,
-	SensitivityRestricted:   3,
-	SensitivitySecret:       4,
-}
-
-func (s Sensitivity) Valid() bool {
-	_, ok := sensitivityOrder[s]
-	return ok
-}
-
-func (s Sensitivity) RequiresRedaction() bool {
-	level, ok := sensitivityOrder[s]
-	return ok && level >= sensitivityOrder[SensitivityConfidential]
-}
 
 type Surface string
 
@@ -67,11 +40,11 @@ func (s Surface) Valid() bool {
 // boundary. Redaction preserves opaque SecretRef values but never its plaintext
 // payload when the classification is confidential or stronger.
 type ClassifiedValue struct {
-	Sensitivity Sensitivity
+	Sensitivity coreprovenance.Sensitivity
 	Value       any
 }
 
-func Classify(sensitivity Sensitivity, value any) ClassifiedValue {
+func Classify(sensitivity coreprovenance.Sensitivity, value any) ClassifiedValue {
 	return ClassifiedValue{Sensitivity: sensitivity, Value: value}
 }
 
@@ -83,9 +56,9 @@ func Redact(surface Surface, value any) any {
 	if !surface.Valid() {
 		return Redacted
 	}
-	defaultSensitivity := SensitivityPublic
+	defaultSensitivity := coreprovenance.SensitivityPublic
 	if surface == SurfacePrompt || surface == SurfaceToolInput || surface == SurfaceToolOutput {
-		defaultSensitivity = SensitivityConfidential
+		defaultSensitivity = coreprovenance.SensitivityConfidential
 	}
 	return redactValue(surface, value, "", defaultSensitivity, 0)
 }
@@ -108,7 +81,7 @@ func RedactAttribute(key, value string) (string, bool) {
 	return value, true
 }
 
-func redactValue(surface Surface, value any, key string, sensitivity Sensitivity, depth int) any {
+func redactValue(surface Surface, value any, key string, sensitivity coreprovenance.Sensitivity, depth int) any {
 	if depth >= 64 {
 		return Redacted
 	}
@@ -116,7 +89,7 @@ func redactValue(surface Surface, value any, key string, sensitivity Sensitivity
 		if !classified.Sensitivity.Valid() {
 			return Redacted
 		}
-		return redactValue(surface, classified.Value, key, maxSensitivity(sensitivity, classified.Sensitivity), depth+1)
+		return redactValue(surface, classified.Value, key, coreprovenance.MaxSensitivity(sensitivity, classified.Sensitivity), depth+1)
 	}
 	if value == nil {
 		return nil
@@ -148,12 +121,12 @@ func redactValue(surface Surface, value any, key string, sensitivity Sensitivity
 	}
 }
 
-func redactMap(surface Surface, value map[string]any, inherited Sensitivity, depth int) map[string]any {
+func redactMap(surface Surface, value map[string]any, inherited coreprovenance.Sensitivity, depth int) map[string]any {
 	local := inherited
 	if raw, ok := value["sensitivity"].(string); ok {
-		candidate := Sensitivity(strings.ToLower(strings.TrimSpace(raw)))
+		candidate := coreprovenance.Sensitivity(strings.ToLower(strings.TrimSpace(raw)))
 		if candidate.Valid() {
-			local = maxSensitivity(local, candidate)
+			local = coreprovenance.MaxSensitivity(local, candidate)
 		}
 	}
 	result := make(map[string]any, len(value))
@@ -199,13 +172,13 @@ func redactSensitive(surface Surface, value any, depth int) any {
 	default:
 		if reflected := reflect.ValueOf(value); reflected.IsValid() &&
 			(reflected.Kind() == reflect.Slice || reflected.Kind() == reflect.Array || reflected.Kind() == reflect.Map || reflected.Kind() == reflect.Struct) {
-			return redactReflected(surface, value, "", SensitivityConfidential, depth+1)
+			return redactReflected(surface, value, "", coreprovenance.SensitivityConfidential, depth+1)
 		}
 		return Redacted
 	}
 }
 
-func redactReflected(surface Surface, value any, key string, sensitivity Sensitivity, depth int) any {
+func redactReflected(surface Surface, value any, key string, sensitivity coreprovenance.Sensitivity, depth int) any {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return Redacted
@@ -288,11 +261,4 @@ func credentialShaped(value string) bool {
 	}
 	parsed, err := url.Parse(value)
 	return err == nil && parsed.User != nil
-}
-
-func maxSensitivity(left, right Sensitivity) Sensitivity {
-	if sensitivityOrder[right] > sensitivityOrder[left] {
-		return right
-	}
-	return left
 }

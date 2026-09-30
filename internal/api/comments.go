@@ -12,8 +12,8 @@ import (
 	"github.com/adro-project/adro/internal/domain"
 	"github.com/adro-project/adro/internal/events"
 	"github.com/adro-project/adro/internal/harness"
-	"github.com/adro-project/adro/internal/mentions"
 	"github.com/adro-project/adro/internal/orchestration"
+	mentions "github.com/adro-project/adro/internal/orchestration/mailbox/mention"
 	"github.com/adro-project/adro/internal/provider"
 	"github.com/adro-project/adro/internal/store"
 )

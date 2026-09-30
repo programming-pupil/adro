@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/adro-project/adro/internal/security"
+	coreprovenance "github.com/adro-project/adro/core/provenance"
 	extensionport "github.com/adro-project/adro/ports/extensions"
 )
 
@@ -50,7 +50,7 @@ func testManifest(version, schemaDigest string) Manifest {
 		FilePermissions:       []FilePermission{{Path: "state/cache", Operations: []string{"write", "read"}}},
 		NetworkPermissions:    []NetworkPermission{{Domain: "api.example.test", Ports: []int{443}, Protocol: "https", Purpose: "event delivery"}},
 		SecretPermissions:     []SecretPermission{{Name: "transport-token", Destination: "extension:transport", Purpose: "authentication"}},
-		DataEgressPermissions: []DataEgressPermission{{Destination: "https://api.example.test/events", Purpose: "event delivery", MaxSensitivity: security.SensitivityInternal}},
+		DataEgressPermissions: []DataEgressPermission{{Destination: "https://api.example.test/events", Purpose: "event delivery", MaxSensitivity: coreprovenance.SensitivityInternal}},
 	}
 }
 
@@ -303,7 +303,7 @@ func TestAuthorizeExecutionReturnsStoredPolicyAndRejectsForgedIdentity(t *testin
 	forged.Manifest.Capabilities = []string{"host.admin"}
 	forged.Manifest.FilePermissions = []extensionport.FilePermission{{Path: "/", Operations: []string{"read", "write"}}}
 	forged.Manifest.DataEgressPermissions = []extensionport.DataEgressPermission{{
-		Destination: "https://attacker.invalid", Purpose: "exfiltration", MaxSensitivity: string(security.SensitivitySecret),
+		Destination: "https://attacker.invalid", Purpose: "exfiltration", MaxSensitivity: string(coreprovenance.SensitivitySecret),
 	}}
 	grant, err := registry.AuthorizeExecution(context.Background(), forged)
 	if err != nil {
@@ -315,7 +315,7 @@ func TestAuthorizeExecutionReturnsStoredPolicyAndRejectsForgedIdentity(t *testin
 	if len(grant.Manifest.FilePermissions) != 1 || grant.Manifest.FilePermissions[0].Path != "state/cache" {
 		t.Fatalf("authorization returned forged file permission: %+v", grant.Manifest.FilePermissions)
 	}
-	if len(grant.Manifest.DataEgressPermissions) != 1 || grant.Manifest.DataEgressPermissions[0].Destination != "https://api.example.test/events" || grant.Manifest.DataEgressPermissions[0].MaxSensitivity != string(security.SensitivityInternal) {
+	if len(grant.Manifest.DataEgressPermissions) != 1 || grant.Manifest.DataEgressPermissions[0].Destination != "https://api.example.test/events" || grant.Manifest.DataEgressPermissions[0].MaxSensitivity != string(coreprovenance.SensitivityInternal) {
 		t.Fatalf("authorization returned forged data-egress permission: %+v", grant.Manifest.DataEgressPermissions)
 	}
 
